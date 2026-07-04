@@ -12,6 +12,8 @@ import {
   toJsonObject
 } from './utils.js';
 import { normalizePlatformSourceOrNull } from '../../shared/platform-source.js';
+import { combineRanks } from '../../server/retrieval/rrf.js';
+import { embed } from '../../server/generation/embedder.js';
 
 export type ObservationSourceType = 'agent_event' | 'session_summary' | 'observation_reindex' | 'manual';
 
@@ -219,6 +221,40 @@ export class PostgresObservationRepository {
       [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null]
     );
     return result.rows.map(mapObservationRow);
+  }
+
+  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number }): Promise<PostgresObservation[]> {
+    const qvec = '[' + (await embed(input.query)).join(',') + ']';
+    const result = await this.client.query<ObservationRow>(
+      `SELECT observations.* FROM observations
+        WHERE project_id = $1 AND team_id = $2 AND embedding_vec IS NOT NULL
+        ORDER BY embedding_vec <=> $3::public.vector
+        LIMIT $4`,
+      [input.projectId, input.teamId, qvec, input.limit ?? 20]
+    );
+    return result.rows.map(mapObservationRow);
+  }
+
+  async hybridSearch(input: {
+    projectId: string; teamId: string; query: string; limit?: number;
+    obsType?: string | null; lifecycleState?: string | null;
+  }): Promise<PostgresObservation[]> {
+    const limit = input.limit ?? 5;
+    const pool = 30; // retrieve deeper, fuse, then trim
+    const [fts, vec] = await Promise.all([
+      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState }),
+      this.vectorSearch({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool }),
+    ]);
+    const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
+    const fused = combineRanks([toRanked(fts), toRanked(vec)]);
+    const byId = new Map<string, PostgresObservation>();
+    for (const o of [...fts, ...vec]) byId.set(o.id, o);
+    return fused
+      .map(f => byId.get(f.id))
+      .filter((o): o is PostgresObservation => o != null)
+      .filter(o => (input.obsType == null || o.obsType === input.obsType))
+      .filter(o => (input.lifecycleState == null || o.lifecycleState === input.lifecycleState))
+      .slice(0, limit);
   }
 }
 
