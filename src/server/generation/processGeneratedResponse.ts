@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { parseAgentXml, type ParsedObservation, type ParsedSummary } from '../../sdk/parser.js';
+import { scoreObservation } from './quality.js';
 import { logger } from '../../utils/logger.js';
 import {
   PostgresObservationRepository,
@@ -20,6 +21,21 @@ import {
   type PostgresPool,
 } from '../../storage/postgres/pool.js';
 import { stripTags } from '../../utils/tag-stripping.js';
+
+const QUALITY_FLOOR = Number(process.env.CLAUDE_MEM_QUALITY_FLOOR ?? 20);
+
+// Pure, testable core. Returns kept observations with `quality` stamped on.
+export function applyQualityGate<T extends {
+  obsType?: string; facts?: string[]; narrative?: string; title?: string; concepts?: string[];
+}>(parsed: T[], floor: number = QUALITY_FLOOR): (T & { quality: number })[] {
+  const kept: (T & { quality: number })[] = [];
+  for (const p of parsed) {
+    const quality = scoreObservation(p);
+    if (quality < floor) continue; // dropped as low-signal
+    kept.push({ ...p, quality });
+  }
+  return kept;
+}
 
 // processGeneratedResponse owns the full "we got XML from a provider →
 // persist + link + advance outbox" pipeline. Every side-effect runs inside
@@ -79,20 +95,42 @@ export async function processGeneratedResponse(
   const skipped = parsed.summary?.skipped === true;
   const privateContentDetected = skipped || observationsToWrite.length === 0;
 
+  // Apply quality gate before flattening; ParsedObservation uses `type` where
+  // the scorer expects `obsType`, and `title` can be null (scorer wants string|undefined).
+  const scoreable = observationsToWrite.map(o => ({
+    original: o,
+    obsType: o.type,
+    facts: o.facts,
+    narrative: o.narrative ?? undefined,
+    title: o.title ?? undefined,
+    concepts: o.concepts,
+  }));
+  const kept = applyQualityGate(scoreable);
+  const droppedCount = scoreable.length - kept.length;
+  if (droppedCount > 0) {
+    logger.info('SYSTEM', 'quality gate dropped low-signal observations', {
+      jobId: job.id,
+      droppedCount,
+      kept: kept.length,
+    });
+  }
+
   const outcome = await persistGeneratedObservations(
     input,
-    observationsToWrite.map(observation => ({
-      kind: observation.type ?? 'observation',
-      content: renderObservationContent(observation),
+    kept.map(k => ({
+      kind: k.original.type ?? 'observation',
+      content: renderObservationContent(k.original),
       metadata: {
-        title: observation.title,
-        subtitle: observation.subtitle,
-        facts: observation.facts,
-        narrative: observation.narrative,
-        concepts: observation.concepts,
-        files_read: observation.files_read,
-        files_modified: observation.files_modified,
+        title: k.original.title,
+        subtitle: k.original.subtitle,
+        facts: k.original.facts,
+        narrative: k.original.narrative,
+        concepts: k.original.concepts,
+        files_read: k.original.files_read,
+        files_modified: k.original.files_modified,
       },
+      obsType: k.original.type ?? null,
+      quality: k.quality,
     })),
     privateContentDetected,
   );
@@ -221,6 +259,8 @@ interface RenderedObservation {
   kind: string;
   content: string;
   metadata: Record<string, unknown>;
+  obsType?: string | null;
+  quality?: number | null;
 }
 
 // Shared persist transaction for both the per-event and session-summary
@@ -268,7 +308,7 @@ async function persistGeneratedObservations(
 
     const persisted: PostgresObservation[] = [];
     for (let index = 0; index < rendered.length; index++) {
-      const { kind, content, metadata } = rendered[index]!;
+      const { kind, content, metadata, obsType, quality } = rendered[index]!;
       if (!content || content.trim().length === 0) {
         continue;
       }
@@ -299,6 +339,8 @@ async function persistGeneratedObservations(
           model: input.modelId ?? null,
         },
         createdByJobId: fresh.id,
+        obsType: obsType ?? undefined,
+        quality: quality ?? undefined,
       });
       persisted.push(observation);
 
