@@ -3,7 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import type { PostgresQueryable } from './utils.js';
 
-export const SERVER_POSTGRES_SCHEMA_VERSION = 2;
+export const SERVER_POSTGRES_SCHEMA_VERSION = 3;
 
 // Phase 1b (cmem-sdk rename): the TS constant is renamed but the table-name
 // strings remain on `server_beta_*` since they are persisted DDL identifiers.
@@ -36,6 +36,9 @@ export async function bootstrapServerPostgresSchema(client: PostgresQueryable): 
     return;
   }
 
+  // CREATE EXTENSION must run outside a transaction block because it modifies
+  // system catalogs non-transactionally; the extension is DB-wide and idempotent.
+  await client.query('CREATE EXTENSION IF NOT EXISTS vector');
   await client.query('BEGIN');
   try {
     await applyPhase1Migration(client);
@@ -65,6 +68,24 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
       ON CONFLICT (version) DO NOTHING
     `,
     [2, 'team-agent-memory: typed obs_type + lifecycle_state + supersedes + quality']
+  );
+  // Migration 003: the vector type lives in public schema; using a fully
+  // qualified type name ensures the ADD COLUMN works regardless of the
+  // current search_path (e.g. in per-test isolated schemas).
+  await client.query(
+    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS embedding_vec public.vector(384)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_observations_embedding_vec
+       ON observations USING hnsw (embedding_vec public.vector_cosine_ops)`
+  );
+  await client.query(
+    `
+      INSERT INTO server_beta_schema_migrations (version, description)
+      VALUES ($1, $2)
+      ON CONFLICT (version) DO NOTHING
+    `,
+    [3, 'team-agent-memory: pgvector embedding_vec + hnsw index']
   );
 }
 
@@ -365,4 +386,5 @@ CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(team_id, projec
 CREATE INDEX IF NOT EXISTS idx_observations_lifecycle ON observations(team_id, project_id, lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_observations_active_work ON observations(team_id, project_id, lifecycle_state, updated_at DESC)
   WHERE lifecycle_state IN ('open','active','blocked','deferred');
+
 `;

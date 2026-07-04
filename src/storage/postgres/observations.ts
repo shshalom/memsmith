@@ -12,6 +12,8 @@ import {
   toJsonObject
 } from './utils.js';
 import { normalizePlatformSourceOrNull } from '../../shared/platform-source.js';
+import { combineRanks } from '../../server/retrieval/rrf.js';
+import { embed } from '../../server/generation/embedder.js';
 
 export type ObservationSourceType = 'agent_event' | 'session_summary' | 'observation_reindex' | 'manual';
 
@@ -30,6 +32,7 @@ export interface PostgresObservation {
   lifecycleState: string;
   supersedes: string | null;
   quality: number | null;
+  embeddingVec: number[] | null;
   createdAtEpoch: number;
   updatedAtEpoch: number;
 }
@@ -60,6 +63,7 @@ interface ObservationRow {
   lifecycle_state: string;
   supersedes: string | null;
   quality: number | null;
+  embedding_vec: number[] | string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -93,6 +97,7 @@ export class PostgresObservationRepository {
     lifecycleState?: string;
     supersedes?: string | null;
     quality?: number | null;
+    embeddingVec?: number[] | null;
   }): Promise<PostgresObservation> {
     await assertProjectOwnership(this.client, input.projectId, input.teamId);
     if (input.serverSessionId) {
@@ -108,10 +113,10 @@ export class PostgresObservationRepository {
         INSERT INTO observations (
           id, project_id, team_id, server_session_id, kind, content,
           generation_key, metadata, embedding, created_by_job_id,
-          obs_type, lifecycle_state, supersedes, quality
+          obs_type, lifecycle_state, supersedes, quality, embedding_vec
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10,
-                $11, COALESCE($12, 'open'), $13, $14)
+                $11, COALESCE($12, 'open'), $13, $14, $15::public.vector)
         ON CONFLICT (team_id, project_id, generation_key) WHERE generation_key IS NOT NULL DO UPDATE SET
           updated_at = observations.updated_at
         RETURNING *
@@ -130,7 +135,8 @@ export class PostgresObservationRepository {
         input.obsType ?? (input.metadata?.type as string | undefined) ?? null,
         input.lifecycleState ?? null,
         input.supersedes ?? null,
-        input.quality ?? null
+        input.quality ?? null,
+        input.embeddingVec == null ? null : '[' + input.embeddingVec.join(',') + ']'
       ]
     );
     return mapObservationRow(row!);
@@ -215,6 +221,43 @@ export class PostgresObservationRepository {
       [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null]
     );
     return result.rows.map(mapObservationRow);
+  }
+
+  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number }): Promise<PostgresObservation[]> {
+    const qvec = '[' + (await embed(input.query)).join(',') + ']';
+    const result = await this.client.query<ObservationRow>(
+      // Schema-qualify the cosine operator via OPERATOR(public.<=>) so vector
+      // search resolves even when a connection pool sets a tenant-only
+      // search_path that excludes `public` (where pgvector's operators live).
+      `SELECT observations.* FROM observations
+        WHERE project_id = $1 AND team_id = $2 AND embedding_vec IS NOT NULL
+        ORDER BY embedding_vec OPERATOR(public.<=>) $3::public.vector
+        LIMIT $4`,
+      [input.projectId, input.teamId, qvec, input.limit ?? 20]
+    );
+    return result.rows.map(mapObservationRow);
+  }
+
+  async hybridSearch(input: {
+    projectId: string; teamId: string; query: string; limit?: number;
+    obsType?: string | null; lifecycleState?: string | null;
+  }): Promise<PostgresObservation[]> {
+    const limit = input.limit ?? 5;
+    const pool = 30; // retrieve deeper, fuse, then trim
+    const [fts, vec] = await Promise.all([
+      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState }),
+      this.vectorSearch({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool }),
+    ]);
+    const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
+    const fused = combineRanks([toRanked(fts), toRanked(vec)]);
+    const byId = new Map<string, PostgresObservation>();
+    for (const o of [...fts, ...vec]) byId.set(o.id, o);
+    return fused
+      .map(f => byId.get(f.id))
+      .filter((o): o is PostgresObservation => o != null)
+      .filter(o => (input.obsType == null || o.obsType === input.obsType))
+      .filter(o => (input.lifecycleState == null || o.lifecycleState === input.lifecycleState))
+      .slice(0, limit);
   }
 }
 
@@ -411,6 +454,12 @@ async function assertObservationOwnership(
   }
 }
 
+function parseVector(v: number[] | string | null): number[] | null {
+  if (v == null) return null;
+  if (Array.isArray(v)) return v;
+  try { return JSON.parse(v) as number[]; } catch { return null; }
+}
+
 function mapObservationRow(row: ObservationRow): PostgresObservation {
   return {
     id: row.id,
@@ -427,6 +476,7 @@ function mapObservationRow(row: ObservationRow): PostgresObservation {
     lifecycleState: row.lifecycle_state,
     supersedes: row.supersedes,
     quality: row.quality,
+    embeddingVec: parseVector(row.embedding_vec),
     createdAtEpoch: toEpoch(row.created_at),
     updatedAtEpoch: toEpoch(row.updated_at)
   };
