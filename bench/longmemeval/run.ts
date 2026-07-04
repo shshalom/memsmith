@@ -133,6 +133,12 @@ async function main(): Promise<void> {
   console.log(`MRR             : ${mrrScore.toFixed(4)}`);
   console.log('');
 
+  // Release the checked-out client and close the pool BEFORE the pass/fail
+  // branch — otherwise the FAIL path's process.exit(2) leaks, and an
+  // unreleased client can make pool.end() hang after printing results.
+  client.release();
+  await pool.end();
+
   if (r5 >= 0.9) {
     console.log('PASS — R@5 meets the ≥ 0.90 gate. Sprint 3 is unblocked.');
   } else {
@@ -143,8 +149,6 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
-
-  await pool.end();
 }
 
 if (import.meta.main) {
