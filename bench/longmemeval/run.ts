@@ -42,7 +42,6 @@ async function main(): Promise<void> {
 
   // Lazy imports — only loaded when actually running the benchmark.
   const pg = await import('pg');
-  const { randomUUID } = await import('crypto');
   const { bootstrapServerPostgresSchema, createPostgresStorageRepositories } = await import(
     '../../src/storage/postgres/index.js'
   );
@@ -51,11 +50,17 @@ async function main(): Promise<void> {
   );
   const { embed } = await import('../../src/server/generation/embedder.js');
 
-  // Wire up a scratch DB pool and schema.
+  // Wire up a scratch DB pool + schema, and seed a team+project (create()
+  // enforces project/team ownership, so both rows must exist first).
   const pool = new pg.default.Pool({ connectionString: dbUrl });
-  await bootstrapServerPostgresSchema(pool);
-  const repos = createPostgresStorageRepositories(pool);
-  const repo = repos.observations as InstanceType<typeof PostgresObservationRepository>;
+  const client = await pool.connect();
+  await bootstrapServerPostgresSchema(client);
+  const storage = createPostgresStorageRepositories(client);
+  const team = await storage.teams.create({ name: 'longmemeval' });
+  const project = await storage.projects.create({ teamId: team.id, name: 'longmemeval-run' });
+  const teamId = team.id;
+  const projectId = project.id;
+  const repo = new PostgresObservationRepository(client);
 
   // --- Dataset shape expected (JSON array) ---
   // [
@@ -80,9 +85,6 @@ async function main(): Promise<void> {
     corpus: Array<{ id: string; content: string; timestamp?: string }>;
   }> = JSON.parse(raw);
 
-  // Scratch project for this benchmark run.
-  const projectId = randomUUID();
-
   // Aggregation accumulators.
   let totalR5 = 0;
   let totalR10 = 0;
@@ -95,25 +97,22 @@ async function main(): Promise<void> {
     // Ingest corpus observations into the scratch project.
     for (const entry of item.corpus) {
       const embeddingVec = await embed(entry.content);
-      // NOTE: create() signature may vary — adjust to match PostgresObservationRepository.create().
-      // TODO: confirm exact field names once the write-path PR is merged.
       await repo.create({
         id: entry.id,
         projectId,
+        teamId,
         content: entry.content,
         embeddingVec,
-        createdAt: entry.timestamp ? new Date(entry.timestamp) : new Date(),
-      } as Parameters<typeof repo.create>[0]);
+      });
     }
 
-    // Run hybrid search for this question.
-    const rrfK = process.env.CLAUDE_MEM_RRF_K ? parseInt(process.env.CLAUDE_MEM_RRF_K, 10) : 60;
+    // Run hybrid search for this question. hybridSearch embeds the query
+    // internally and reads RRF K from CLAUDE_MEM_RRF_K (default 60) via combineRanks.
     const results = await repo.hybridSearch({
       projectId,
+      teamId,
       query: item.question,
-      queryVec: await embed(item.question),
       limit: 10,
-      rrfK,
     });
 
     const retrievedIds = results.map((r: { id: string }) => r.id);
