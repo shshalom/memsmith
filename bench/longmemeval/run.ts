@@ -81,8 +81,11 @@ async function main(): Promise<void> {
   const raw = await fs.readFile(datasetPath, 'utf-8');
   let dataset: LmeItem[] = JSON.parse(raw);
 
-  // LME_LIMIT lets you run a subset first (a full 500-question run embeds
-  // ~26k sessions and is slow). Unset = full dataset.
+  // The dataset is grouped by question_type, so a plain prefix (LME_LIMIT) only
+  // covers the first type(s). LME_STRATIFY=N keeps every Nth item, spanning all
+  // 6 types in a smaller, representative sample. LME_LIMIT caps the count.
+  const strideEnv = process.env.LME_STRATIFY ? parseInt(process.env.LME_STRATIFY, 10) : 0;
+  if (strideEnv > 1) dataset = dataset.filter((_, i) => i % strideEnv === 0);
   const limitEnv = process.env.LME_LIMIT ? parseInt(process.env.LME_LIMIT, 10) : 0;
   if (limitEnv > 0) dataset = dataset.slice(0, limitEnv);
 
