@@ -128,9 +128,12 @@ export async function processGeneratedResponse(
         concepts: k.original.concepts,
         files_read: k.original.files_read,
         files_modified: k.original.files_modified,
+        why: k.original.why ?? null,
+        rejected_alternatives: k.original.rejectedAlternatives ?? null,
       },
       obsType: k.original.type ?? null,
       quality: k.quality,
+      lifecycleState: k.original.lifecycle,
     })),
     privateContentDetected,
   );
@@ -261,6 +264,7 @@ interface RenderedObservation {
   metadata: Record<string, unknown>;
   obsType?: string | null;
   quality?: number | null;
+  lifecycleState?: string | null;
 }
 
 // Shared persist transaction for both the per-event and session-summary
@@ -308,7 +312,7 @@ async function persistGeneratedObservations(
 
     const persisted: PostgresObservation[] = [];
     for (let index = 0; index < rendered.length; index++) {
-      const { kind, content, metadata, obsType, quality } = rendered[index]!;
+      const { kind, content, metadata, obsType, quality, lifecycleState } = rendered[index]!;
       if (!content || content.trim().length === 0) {
         continue;
       }
@@ -341,6 +345,7 @@ async function persistGeneratedObservations(
         createdByJobId: fresh.id,
         obsType: obsType ?? undefined,
         quality: quality ?? undefined,
+        lifecycleState: lifecycleState ?? undefined,
       });
       persisted.push(observation);
 

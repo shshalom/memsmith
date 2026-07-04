@@ -21,6 +21,9 @@ export interface ParsedObservation {
   concepts: string[];
   files_read: string[];
   files_modified: string[];
+  why?: string;
+  rejectedAlternatives?: string[];
+  lifecycle?: string;
 }
 
 export interface ParsedSummary {
@@ -101,6 +104,10 @@ function parseObservationBlocks(text: string, correlationId?: string | number): 
     const concepts = extractArrayElements(obsContent, 'concepts', 'concept');
     const files_read = extractArrayElements(obsContent, 'files_read', 'file');
     const files_modified = extractArrayElements(obsContent, 'files_modified', 'file');
+    const why = extractField(obsContent, 'why') ?? undefined;
+    const lifecycle = extractField(obsContent, 'lifecycle') ?? undefined;
+    const rejectedItems = extractArrayElements(obsContent, 'rejected_alternatives', 'item');
+    const rejectedAlternatives = rejectedItems.length > 0 ? rejectedItems : undefined;
 
     const mode = ModeManager.getInstance().getActiveMode();
     const validTypes = mode.observation_types.map(t => t.id);
@@ -143,7 +150,10 @@ function parseObservationBlocks(text: string, correlationId?: string | number): 
       narrative,
       concepts: cleanedConcepts,
       files_read,
-      files_modified
+      files_modified,
+      why,
+      rejectedAlternatives,
+      lifecycle,
     });
   }
 
