@@ -89,6 +89,8 @@ export function buildServerGenerationPrompt(
     'activity was trivial), return a single self-closing <skip_summary />',
     'tag and nothing else. Do not include any prose outside the XML.',
     '',
+    'For "decision" observations, fill <why> (one-sentence rationale) and <rejected_alternatives>. For work items (task/blocker/deferred), set <lifecycle>.',
+    '',
     'Schema for each <observation> block:',
     observationOutputSchema,
   ].join('\n');
@@ -155,6 +157,9 @@ function buildObservationOutputSchema(mode: ModeConfig | { observation_types: Re
     '  <concepts><concept>...</concept></concepts>',
     '  <files_read><file>...</file></files_read>',
     '  <files_modified><file>...</file></files_modified>',
+    '  <why>...</why>',
+    '  <rejected_alternatives><item>...</item></rejected_alternatives>',
+    '  <lifecycle>[ open | active | blocked | deferred | resolved | superseded ]</lifecycle>',
     '</observation>',
   ].join('\n');
 }
