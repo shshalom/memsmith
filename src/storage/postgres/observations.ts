@@ -30,6 +30,7 @@ export interface PostgresObservation {
   lifecycleState: string;
   supersedes: string | null;
   quality: number | null;
+  embeddingVec: number[] | null;
   createdAtEpoch: number;
   updatedAtEpoch: number;
 }
@@ -60,6 +61,7 @@ interface ObservationRow {
   lifecycle_state: string;
   supersedes: string | null;
   quality: number | null;
+  embedding_vec: number[] | string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -93,6 +95,7 @@ export class PostgresObservationRepository {
     lifecycleState?: string;
     supersedes?: string | null;
     quality?: number | null;
+    embeddingVec?: number[] | null;
   }): Promise<PostgresObservation> {
     await assertProjectOwnership(this.client, input.projectId, input.teamId);
     if (input.serverSessionId) {
@@ -108,10 +111,10 @@ export class PostgresObservationRepository {
         INSERT INTO observations (
           id, project_id, team_id, server_session_id, kind, content,
           generation_key, metadata, embedding, created_by_job_id,
-          obs_type, lifecycle_state, supersedes, quality
+          obs_type, lifecycle_state, supersedes, quality, embedding_vec
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10,
-                $11, COALESCE($12, 'open'), $13, $14)
+                $11, COALESCE($12, 'open'), $13, $14, $15::public.vector)
         ON CONFLICT (team_id, project_id, generation_key) WHERE generation_key IS NOT NULL DO UPDATE SET
           updated_at = observations.updated_at
         RETURNING *
@@ -130,7 +133,8 @@ export class PostgresObservationRepository {
         input.obsType ?? (input.metadata?.type as string | undefined) ?? null,
         input.lifecycleState ?? null,
         input.supersedes ?? null,
-        input.quality ?? null
+        input.quality ?? null,
+        input.embeddingVec == null ? null : '[' + input.embeddingVec.join(',') + ']'
       ]
     );
     return mapObservationRow(row!);
@@ -411,6 +415,12 @@ async function assertObservationOwnership(
   }
 }
 
+function parseVector(v: number[] | string | null): number[] | null {
+  if (v == null) return null;
+  if (Array.isArray(v)) return v;
+  try { return JSON.parse(v) as number[]; } catch { return null; }
+}
+
 function mapObservationRow(row: ObservationRow): PostgresObservation {
   return {
     id: row.id,
@@ -427,6 +437,7 @@ function mapObservationRow(row: ObservationRow): PostgresObservation {
     lifecycleState: row.lifecycle_state,
     supersedes: row.supersedes,
     quality: row.quality,
+    embeddingVec: parseVector(row.embedding_vec),
     createdAtEpoch: toEpoch(row.created_at),
     updatedAtEpoch: toEpoch(row.updated_at)
   };
