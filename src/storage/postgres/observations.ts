@@ -226,9 +226,12 @@ export class PostgresObservationRepository {
   async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number }): Promise<PostgresObservation[]> {
     const qvec = '[' + (await embed(input.query)).join(',') + ']';
     const result = await this.client.query<ObservationRow>(
+      // Schema-qualify the cosine operator via OPERATOR(public.<=>) so vector
+      // search resolves even when a connection pool sets a tenant-only
+      // search_path that excludes `public` (where pgvector's operators live).
       `SELECT observations.* FROM observations
         WHERE project_id = $1 AND team_id = $2 AND embedding_vec IS NOT NULL
-        ORDER BY embedding_vec <=> $3::public.vector
+        ORDER BY embedding_vec OPERATOR(public.<=>) $3::public.vector
         LIMIT $4`,
       [input.projectId, input.teamId, qvec, input.limit ?? 20]
     );
