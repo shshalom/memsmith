@@ -50,40 +50,47 @@ async function main(): Promise<void> {
   );
   const { embed } = await import('../../src/server/generation/embedder.js');
 
-  // Wire up a scratch DB pool + schema, and seed a team+project (create()
-  // enforces project/team ownership, so both rows must exist first).
+  // Wire up a scratch DB pool + schema, and seed one team (each QUESTION gets
+  // its own project below, since haystack session-ids overlap across questions
+  // and must not collide or leak between them).
   const pool = new pg.default.Pool({ connectionString: dbUrl });
   const client = await pool.connect();
   await bootstrapServerPostgresSchema(client);
   const storage = createPostgresStorageRepositories(client);
   const team = await storage.teams.create({ name: 'longmemeval' });
-  const project = await storage.projects.create({ teamId: team.id, name: 'longmemeval-run' });
   const teamId = team.id;
-  const projectId = project.id;
   const repo = new PostgresObservationRepository(client);
 
-  // --- Dataset shape expected (JSON array) ---
-  // [
-  //   {
-  //     "id": "<item-id>",
-  //     "question": "...",
-  //     "gold_ids": ["<obs-id>", ...],
-  //     "corpus": [
-  //       { "id": "<obs-id>", "content": "...", "timestamp": "..." },
-  //       ...
-  //     ]
-  //   },
-  //   ...
-  // ]
+  // --- Real LongMemEval-S schema (xiaowu0162/longmemeval-cleaned) ---
+  // Each item: { question_id, question_type, question, answer,
+  //   answer_session_ids: string[]  (the GOLD sessions),
+  //   haystack_session_ids: string[],
+  //   haystack_sessions: Array<Array<{role, content}>>  (parallel to the ids) }
+  // We flatten each haystack session's turns into one observation whose id is
+  // the session id, then score retrieved session-ids against answer_session_ids.
+  interface LmeItem {
+    question_id: string;
+    question_type: string;
+    question: string;
+    answer_session_ids: string[];
+    haystack_session_ids: string[];
+    haystack_sessions: Array<Array<{ role: string; content: string }>>;
+  }
 
   const fs = await import('fs/promises');
   const raw = await fs.readFile(datasetPath, 'utf-8');
-  const dataset: Array<{
-    id: string;
-    question: string;
-    gold_ids: string[];
-    corpus: Array<{ id: string; content: string; timestamp?: string }>;
-  }> = JSON.parse(raw);
+  let dataset: LmeItem[] = JSON.parse(raw);
+
+  // The dataset is grouped by question_type, so a plain prefix (LME_LIMIT) only
+  // covers the first type(s). LME_STRATIFY=N keeps every Nth item, spanning all
+  // 6 types in a smaller, representative sample. LME_LIMIT caps the count.
+  const strideEnv = process.env.LME_STRATIFY ? parseInt(process.env.LME_STRATIFY, 10) : 0;
+  if (strideEnv > 1) dataset = dataset.filter((_, i) => i % strideEnv === 0);
+  const limitEnv = process.env.LME_LIMIT ? parseInt(process.env.LME_LIMIT, 10) : 0;
+  if (limitEnv > 0) dataset = dataset.slice(0, limitEnv);
+
+  const flattenSession = (turns: Array<{ role: string; content: string }>): string =>
+    turns.map(t => `${t.role}: ${t.content}`).join('\n');
 
   // Aggregation accumulators.
   let totalR5 = 0;
@@ -91,35 +98,46 @@ async function main(): Promise<void> {
   let totalMrr = 0;
   const n = dataset.length;
 
-  console.log(`Running LongMemEval-S on ${n} items (project=${projectId})…`);
+  console.log(`Running LongMemEval-S on ${n} question(s)...`);
 
+  let qi = 0;
   for (const item of dataset) {
-    // Ingest corpus observations into the scratch project.
-    for (const entry of item.corpus) {
-      const embeddingVec = await embed(entry.content);
-      await repo.create({
-        id: entry.id,
-        projectId,
-        teamId,
-        content: entry.content,
-        embeddingVec,
-      });
+    qi++;
+    // Fresh project per question so haystacks never collide/leak.
+    const project = await storage.projects.create({ teamId, name: `lme-${item.question_id}` });
+    const projectId = project.id;
+
+    // observations.id is a GLOBAL primary key and LongMemEval reuses session
+    // ids across questions, so namespace the id by question to avoid cross-
+    // question collisions. Gold ids are namespaced the same way for scoring.
+    const nsId = (sessionId: string) => `${item.question_id}::${sessionId}`;
+
+    // Ingest each haystack session as one observation keyed by its session id.
+    // LongMemEval can list the same session id more than once within a single
+    // question's haystack — dedup (first occurrence wins) since gold matching
+    // is by session id and observations.id must be unique.
+    const seenSessions = new Set<string>();
+    for (let i = 0; i < item.haystack_session_ids.length; i++) {
+      const sessionId = item.haystack_session_ids[i]!;
+      if (seenSessions.has(sessionId)) continue;
+      seenSessions.add(sessionId);
+      const content = flattenSession(item.haystack_sessions[i] ?? []);
+      if (!content.trim()) continue;
+      const embeddingVec = await embed(content);
+      await repo.create({ id: nsId(sessionId), projectId, teamId, content, embeddingVec });
     }
 
-    // Run hybrid search for this question. hybridSearch embeds the query
-    // internally and reads RRF K from CLAUDE_MEM_RRF_K (default 60) via combineRanks.
-    const results = await repo.hybridSearch({
-      projectId,
-      teamId,
-      query: item.question,
-      limit: 10,
-    });
-
+    // hybridSearch embeds the query internally and reads RRF K from
+    // CLAUDE_MEM_RRF_K (default 60) via combineRanks.
+    const results = await repo.hybridSearch({ projectId, teamId, query: item.question, limit: 10 });
     const retrievedIds = results.map((r: { id: string }) => r.id);
+    const gold = item.answer_session_ids.map(nsId);
 
-    totalR5 += scoreRecallAtK(retrievedIds, item.gold_ids, 5);
-    totalR10 += scoreRecallAtK(retrievedIds, item.gold_ids, 10);
-    totalMrr += mrr(retrievedIds, item.gold_ids);
+    const hit5 = scoreRecallAtK(retrievedIds, gold, 5);
+    totalR5 += hit5;
+    totalR10 += scoreRecallAtK(retrievedIds, gold, 10);
+    totalMrr += mrr(retrievedIds, gold);
+    console.log(`  [${qi}/${n}] ${item.question_id} [${item.question_type}] R@5=${hit5}`);
   }
 
   const r5 = totalR5 / n;
