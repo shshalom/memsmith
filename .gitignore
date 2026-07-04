@@ -49,3 +49,6 @@ docker/install-test/
 
 # Local session report artifacts (not part of distribution)
 reports/
+
+# LongMemEval dataset (265MB, downloaded — not committed)
+bench/longmemeval/data/
