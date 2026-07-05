@@ -213,12 +213,16 @@ describe('server-beta Postgres platform source scoping', () => {
     expect(client.calls[0].text).toContain('observations.server_session_id IS NULL');
     expect(client.calls[0].text).toContain('INNER JOIN agent_events');
     expect(client.calls[0].text).toContain('agent_events.platform_source = $5');
+    // $6 (obs_type) and $7 (lifecycle_state) are optional filters bound to null
+    // when not supplied — see PostgresObservationRepository.search.
     expect(client.calls[0].values).toEqual([
       'project-1',
       'team-1',
       'auth bug',
       7,
       'cursor',
+      null,
+      null,
     ]);
   });
 });

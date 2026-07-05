@@ -38,7 +38,10 @@ describe('server beta postgres schema bootstrap', () => {
 
     await bootstrapServerPostgresSchema(pool);
 
-    expect(queries[0]).toBe('BEGIN');
+    // CREATE EXTENSION must run OUTSIDE the transaction (it modifies system
+    // catalogs non-transactionally), so it precedes BEGIN. See schema.ts.
+    expect(queries[0]).toBe('CREATE EXTENSION IF NOT EXISTS vector');
+    expect(queries[1]).toBe('BEGIN');
     expect(queries.at(-1)).toBe('COMMIT');
     expect(released).toBe(true);
   });
@@ -58,7 +61,10 @@ describe('server beta postgres schema bootstrap', () => {
 
     await bootstrapServerPostgresSchema(client);
 
-    expect(queries[0]).toBe('BEGIN');
+    // CREATE EXTENSION runs outside the transaction (see schema.ts), so it is
+    // the first statement, ahead of BEGIN.
+    expect(queries[0]).toBe('CREATE EXTENSION IF NOT EXISTS vector');
+    expect(queries[1]).toBe('BEGIN');
     expect(queries.at(-1)).toBe('COMMIT');
   });
 
