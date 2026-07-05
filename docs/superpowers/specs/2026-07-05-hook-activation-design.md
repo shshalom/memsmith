@@ -1,6 +1,6 @@
 # Hook Activation — Design
 
-**Status: DRAFT — awaiting user review before implementation.**
+**Status: FINAL — D1-D3 resolved (D3 verified against Claude Code hook docs). Ready for implementation plan.**
 
 ## Goal
 
@@ -52,10 +52,15 @@ Every activated handler wraps the memory path in try/catch returning the safe de
 - Regression: existing `file-context` / `observation` handler tests must pass unchanged (proves default behavior preserved).
 - Manual: a hooks.json lint/validation that the JSON is well-formed and matchers are valid.
 
-## Open decisions for the user (D1–D3)
-- **D1:** Route gated Grep/Glob/WebSearch through the existing `file-context` handler (extend it) or a new dedicated `discovery-gate` handler? *Recommendation: new handler — keeps file-context's file-path logic clean.*
-- **D2:** Should the discovery gate default ON (with `CLAUDE_MEM_GATE_TOOLS` default `Read,Grep,Glob,WebSearch`) or OFF (empty default, opt-in)? *Recommendation: default OFF — safest for an active-on-install change; users opt in.*
-- **D3:** Confirm the exact Claude Code hook event for subagent spawn (`SubagentStart`?) and its payload (does it carry the task prompt?). If the event/payload isn't available, Capability 3 is deferred. *Recommendation: verify against Claude Code hook docs before building; defer if unavailable.*
+## Decisions (RESOLVED)
+- **D1 — RESOLVED:** New dedicated `discovery-gate` handler (keeps `file-context`'s file-path logic clean; the discovery gate derives its query from `pattern`/`query` via `buildPreToolQuery`).
+- **D2 — RESOLVED:** Discovery gate defaults **OFF**. `CLAUDE_MEM_GATE_TOOLS` default empty → `shouldGateTool` returns false for everything → the hook fires but no-ops. Users opt in by setting the var. Safest for an active-on-install change.
+- **D3 — RESOLVED (verified against Claude Code hook docs):**
+  - **PreToolUse** supports `Grep`/`Glob`/`WebSearch` matchers, `tool_input` in payload, and `additionalContext` injection (**max 10,000 chars** — the injection builder must cap output). Capability 1 fully supported.
+  - **SubagentStart** exists and supports `additionalContext`, BUT its payload carries only `agent_type`/`agent_id`/`session_id`/`cwd`/`permission_mode` — **NOT the task prompt**. So Capability 3 can only query by `agent_type` or fall back to the parent project's recent memory; it CANNOT be task-scoped. **Decision:** build Capability 3 with the project-recent-memory fallback, clearly labeled as coarse/project-level (not task-scoped), since task text is unavailable. This is honest: the subagent starts memory-aware at the project level.
+
+## Additional constraint from D3
+The injection block MUST be capped at ~10,000 chars (Claude Code's PreToolUse `additionalContext` limit). `buildInjectionBlock`/`positionForInjection` already cap by item count (default 5); add a hard character cap as defense.
 
 ## Scope / sequencing
 Build in risk order: Capability 1 → 2 → 3, each its own reviewed task. Capability 3 is conditional on D3. This is a mini-sprint (≈4-6 TDD tasks), not a single change.
