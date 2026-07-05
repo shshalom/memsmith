@@ -86,6 +86,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_API_KEY: string;
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
   CLAUDE_MEM_TEAM_INJECT: string;  // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
+  CLAUDE_MEM_TEAM_SERVER_URL: string;  // Sprint 3 follow-up — server-mode base URL the SessionStart hook calls for team memory (default '' = bridge off)
+  CLAUDE_MEM_TEAM_API_KEY: string;  // Sprint 3 follow-up — scoped memories:read key for the team-inject bridge (default '' = bridge off)
 }
 
 export class SettingsDefaultsManager {
@@ -171,6 +173,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when CLAUDE_MEM_SERVER_API_KEY unset)
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
     CLAUDE_MEM_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
+    CLAUDE_MEM_TEAM_SERVER_URL: '',                         // Sprint 3 follow-up — team-inject bridge server URL (default '' = bridge off)
+    CLAUDE_MEM_TEAM_API_KEY: '',                            // Sprint 3 follow-up — team-inject bridge scoped key (default '' = bridge off)
   };
 
   static getAllDefaults(): SettingsDefaults {
