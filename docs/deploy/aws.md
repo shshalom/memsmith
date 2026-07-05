@@ -280,6 +280,7 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 | `CLAUDE_MEM_SERVER_PROVIDER` | — | Worker only: `claude`, `gemini`, or `openrouter` |
 | `ANTHROPIC_API_KEY` | — | Worker only (when provider=claude) |
 | `TRANSFORMERS_CACHE` | OS temp | Writable dir for `all-MiniLM-L6-v2` model cache |
+| `CLAUDE_MEM_SEARCH_HYBRID` | `on` | `/v1/search` and `/v1/context` rank with hybrid (FTS+vector RRF) by default. Set `0` to force plain FTS — useful if the embedder is unavailable. Hybrid already degrades to FTS automatically when the vector arm fails, so `0` is a policy switch, not a failure mitigation. |
 | `CLAUDE_MEM_FTS_WEIGHT` | `0.3` | Weight of full-text search component in hybrid RRF retrieval |
 | `CLAUDE_MEM_VEC_WEIGHT` | `1` | Weight of vector similarity component in hybrid RRF retrieval |
 | `CLAUDE_MEM_RRF_K` | `60` | RRF rank fusion constant |
