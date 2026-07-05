@@ -10,6 +10,7 @@ import {
   isWorkerFallback,
   getWorkerPort,
 } from '../../shared/worker-utils.js';
+import { appendTeamMemoryInjection } from '../../server/retrieval/inject-append.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
@@ -143,6 +144,15 @@ export const contextHandler: EventHandler = {
     const systemMessage = showTerminalOutput && displayContent
       ? `${displayContent}\n\nView Observations Live @ http://localhost:${port}`
       : undefined;
+
+    // Sprint 3: opt-in team-memory injection (default OFF — default path is byte-identical to pre-sprint3).
+    const teamInject = settings.CLAUDE_MEM_TEAM_INJECT === 'true';
+    if (teamInject) {
+      // TODO(sprint3): populate teamBlock from worker /api/context/inject once it exposes team memory.
+      // For now, stub returns empty so appendTeamMemoryInjection is a no-op and additionalContext is unchanged.
+      const teamBlock = '';
+      additionalContext = appendTeamMemoryInjection(additionalContext, teamBlock);
+    }
 
     return {
       hookSpecificOutput: {
