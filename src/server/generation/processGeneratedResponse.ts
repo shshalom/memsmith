@@ -180,7 +180,13 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
       projectId: input.job.projectId,
       teamId: input.job.teamId,
     });
-    if (!fresh || fresh.status === 'completed' || fresh.status === 'cancelled') {
+    // Terminal statuses are a no-op: a job already completed, cancelled, or
+    // failed must not be re-transitioned (the lifecycle gate rejects
+    // failed->failed as an illegal transition from a terminal status). This
+    // makes markGenerationFailed idempotent, which matters because a parse_error
+    // is marked failed at its source in generateAndPersist and then re-thrown
+    // into process()'s catch, which calls markGenerationFailed a second time.
+    if (!fresh || fresh.status === 'completed' || fresh.status === 'cancelled' || fresh.status === 'failed') {
       return;
     }
 

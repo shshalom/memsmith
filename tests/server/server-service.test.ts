@@ -121,7 +121,13 @@ describe('ServerService', () => {
         // No active queue manager: enqueue must report queued_only.
         expect(body.generationJob.transport).toBe('queued_only');
       } finally {
-        await pool.end();
+        // The service takes ownership of this pool via createPostgresGraph and
+        // ends it in service.stop() (called by afterEach). Only end it here if
+        // the service was never constructed (e.g. a failure before line where
+        // `service` is assigned), to avoid "Called end on pool more than once".
+        if (!service) {
+          await pool.end();
+        }
       }
     });
 
@@ -185,7 +191,13 @@ describe('ServerService', () => {
         );
         expect((result.rows[0] as { count: number }).count).toBe(0);
       } finally {
-        await pool.end();
+        // The service takes ownership of this pool via createPostgresGraph and
+        // ends it in service.stop() (called by afterEach). Only end it here if
+        // the service was never constructed (e.g. a failure before line where
+        // `service` is assigned), to avoid "Called end on pool more than once".
+        if (!service) {
+          await pool.end();
+        }
       }
     });
 
@@ -252,7 +264,13 @@ describe('ServerService', () => {
         );
         expect((eventCount.rows[0] as { count: number }).count).toBe(0);
       } finally {
-        await pool.end();
+        // The service takes ownership of this pool via createPostgresGraph and
+        // ends it in service.stop() (called by afterEach). Only end it here if
+        // the service was never constructed (e.g. a failure before line where
+        // `service` is assigned), to avoid "Called end on pool more than once".
+        if (!service) {
+          await pool.end();
+        }
       }
     });
   } else {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import pg from 'pg';
 import {
   bootstrapServerPostgresSchema,
@@ -11,7 +11,8 @@ import {
 } from '../../../src/storage/postgres/index.js';
 import { buildSummaryJobId } from '../../../src/server/runtime/SessionGenerationPolicy.js';
 import { processSessionSummaryResponse } from '../../../src/server/generation/processGeneratedResponse.js';
-import { quoteIdentifier } from '../../sdk/pg-isolation.js';
+import { ModeManager } from '../../../src/services/domain/ModeManager.js';
+import { createIsolatedSchema, dropSchema, poolForSchema } from '../../sdk/pg-isolation.js';
 
 const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
 
@@ -32,7 +33,8 @@ describe('PostgresServerSessionsRepository + Postgres', () => {
     return;
   }
 
-  const pool = new pg.Pool({ connectionString: testDatabaseUrl });
+  const dbUrl = testDatabaseUrl;
+  let pool: pg.Pool;
   let client: PostgresPoolClient;
   let schemaName: string;
   let storage: PostgresStorageRepositories;
@@ -41,10 +43,16 @@ describe('PostgresServerSessionsRepository + Postgres', () => {
   let projectId: string;
 
   beforeEach(async () => {
+    // processSessionSummaryResponse reads the active ModeManager mode when it
+    // parses; load it so this file runs standalone.
+    ModeManager.getInstance().loadMode('code');
+    // Per-test pool with search_path pinned via poolForSchema (libpq startup
+    // packet), so the connection processSessionSummaryResponse acquires for its
+    // own transaction lands in the test schema — otherwise it can't see the job
+    // and fails with "generation job ... not found in scope".
+    schemaName = await createIsolatedSchema(dbUrl, 'cm_phase6');
+    pool = poolForSchema(dbUrl, schemaName);
     client = await pool.connect();
-    schemaName = `cm_phase6_${crypto.randomUUID().replaceAll('-', '_')}`;
-    await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);
-    await client.query(`SET search_path TO ${quoteIdentifier(schemaName)}`);
     await bootstrapServerPostgresSchema(client);
     storage = createPostgresStorageRepositories(client);
     sessions = new PostgresServerSessionsRepository(client);
@@ -56,18 +64,15 @@ describe('PostgresServerSessionsRepository + Postgres', () => {
   });
 
   afterEach(async () => {
-    if (!client) return;
-    try {
-      if (schemaName) {
-        await client.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(schemaName)} CASCADE`);
-      }
-    } finally {
+    if (client) {
       client.release();
     }
-  });
-
-  afterAll(async () => {
-    await pool.end();
+    if (pool) {
+      await pool.end();
+    }
+    if (schemaName) {
+      await dropSchema(dbUrl, schemaName);
+    }
   });
 
   it('create is idempotent on legacy no-platform external_session_id', async () => {

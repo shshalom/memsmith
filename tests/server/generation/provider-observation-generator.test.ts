@@ -12,7 +12,8 @@ import { ProviderObservationGenerator } from '../../../src/server/generation/Pro
 import type { ServerGenerationProvider } from '../../../src/server/generation/providers/shared/types.js';
 import type { Job } from 'bullmq';
 import type { GenerateObservationsForEventJob } from '../../../src/server/jobs/types.js';
-import { quoteIdentifier } from '../../sdk/pg-isolation.js';
+import { ModeManager } from '../../../src/services/domain/ModeManager.js';
+import { createIsolatedSchema, dropSchema, poolForSchema } from '../../sdk/pg-isolation.js';
 
 const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
 
@@ -35,7 +36,8 @@ describe('ProviderObservationGenerator', () => {
     return;
   }
 
-  const pool = new pg.Pool({ connectionString: testDatabaseUrl });
+  const dbUrl = testDatabaseUrl;
+  let pool: pg.Pool;
   let client: PostgresPoolClient;
   let schemaName: string;
   let storage: PostgresStorageRepositories;
@@ -45,16 +47,17 @@ describe('ProviderObservationGenerator', () => {
   let jobId: string;
 
   beforeEach(async () => {
+    // The generation path reads the active ModeManager mode; load it so this
+    // file runs standalone instead of relying on another test file's side effect.
+    ModeManager.getInstance().loadMode('code');
+    // Pin search_path via poolForSchema (libpq startup packet) so the connections
+    // ProviderObservationGenerator acquires for its own transactions land in the
+    // test schema deterministically — no racy on('connect') SET search_path.
+    schemaName = await createIsolatedSchema(dbUrl, 'cm_phase5_gen');
+    pool = poolForSchema(dbUrl, schemaName);
     client = await pool.connect();
-    schemaName = `cm_phase5_gen_${crypto.randomUUID().replaceAll('-', '_')}`;
-    await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);
-    await client.query(`SET search_path TO ${quoteIdentifier(schemaName)}`);
     await bootstrapServerPostgresSchema(client);
     storage = createPostgresStorageRepositories(client);
-
-    pool.on('connect', (poolClient) => {
-      poolClient.query(`SET search_path TO ${quoteIdentifier(schemaName)}`).catch(() => {});
-    });
 
     const team = await storage.teams.create({ name: 'team' });
     const project = await storage.projects.create({ teamId: team.id, name: 'p' });
@@ -82,12 +85,14 @@ describe('ProviderObservationGenerator', () => {
 
   afterEach(async () => {
     if (client) {
-      try {
-        await client.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(schemaName)} CASCADE`);
-      } catch {}
       client.release();
     }
-    pool.removeAllListeners('connect');
+    if (pool) {
+      await pool.end();
+    }
+    if (schemaName) {
+      await dropSchema(dbUrl, schemaName);
+    }
   });
 
   function makeJob(): Job<GenerateObservationsForEventJob> {
