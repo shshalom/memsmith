@@ -406,3 +406,23 @@ describe('OpenRouterObservationProvider', () => {
     expect(body.model).toBe('deepseek-chat');
   });
 });
+
+describe('buildServerGenerationPrompt reformat addendum', () => {
+  it('appends a strict format addendum when reformatReason is set', () => {
+    const { prompt } = buildServerGenerationPrompt(makeContext(), {
+      reformatReason: 'no <observation> block found',
+    });
+    expect(prompt).toContain('could not be parsed');
+    expect(prompt).toContain('no <observation> block found');
+    expect(prompt).toContain('ONLY');
+    expect(prompt).toContain('no markdown code fences');
+    expect(prompt).toContain('<skip_summary />');
+  });
+
+  it('produces no addendum when reformatReason is absent', () => {
+    const base = buildServerGenerationPrompt(makeContext()).prompt;
+    const withEmpty = buildServerGenerationPrompt(makeContext(), { reformatReason: '' }).prompt;
+    expect(withEmpty).toBe(base);
+    expect(base).not.toContain('could not be parsed');
+  });
+});
