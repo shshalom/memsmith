@@ -25,6 +25,7 @@ import {
   type PostgresStorageRepositories,
 } from '../../../src/storage/postgres/index.js';
 import { DisabledServerQueueManager } from '../../../src/server/runtime/types.js';
+import { PostgresObservationRepository } from '../../../src/storage/postgres/observations.js';
 import { logger } from '../../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../../sdk/pg-isolation.js';
 
@@ -160,6 +161,24 @@ describe('POST /v1/mcp — remote authenticated MCP recall (streamable HTTP)', (
     const { observations } = JSON.parse(textOf(res));
     expect(observations.some((o: { content: string }) => o.content.includes('login bug'))).toBe(true);
     await mcp.close();
+  });
+
+  it('search and context recall route through hybrid ranking by default (matches /v1/search)', async () => {
+    const hybridSpy = spyOn(PostgresObservationRepository.prototype, 'hybridSearch');
+    const ftsSpy = spyOn(PostgresObservationRepository.prototype, 'search');
+    const mcp = await connectMcp(apiKeyRaw);
+    try {
+      hybridSpy.mockClear();
+      await mcp.callTool({ name: 'search', arguments: { projectId, query: 'login bug' } });
+      expect(hybridSpy).toHaveBeenCalledTimes(1);
+      hybridSpy.mockClear();
+      await mcp.callTool({ name: 'context', arguments: { projectId, query: 'login bug' } });
+      expect(hybridSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await mcp.close();
+      hybridSpy.mockRestore();
+      ftsSpy.mockRestore();
+    }
   });
 
   it('writes audit_log rows for MCP reads, with the right mode per tool', async () => {

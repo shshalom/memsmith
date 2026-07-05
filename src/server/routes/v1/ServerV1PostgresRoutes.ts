@@ -1006,12 +1006,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     //   claude mcp add --transport http claude-mem <base>/v1/mcp \
     //     --header "Authorization: Bearer cm_..."
     // Same readAuth (memories:read) + team/project scoping + audit trail as
-    // /v1/search, reading the same rows through identical guards. NOTE: this
-    // backend still ranks with plain FTS (repo.search), whereas /v1/search and
-    // /v1/context now default to hybrid ranking (resolveSearchResults). Same
-    // data + guards, different ranking — a deliberate scope boundary; unify via
-    // resolveSearchResults in a follow-up if MCP recall should match. Stateless
-    // streamable-HTTP: one transport + server per request, bound to this key's team.
+    // /v1/search, reading the same rows through identical guards. The search and
+    // context recall paths route through resolveSearchResults, so MCP recall uses
+    // the SAME hybrid-by-default ranking as POST /v1/search and /v1/context.
+    // Stateless streamable-HTTP: one transport + server per request, bound to
+    // this key's team.
     const mcpHandler = this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
@@ -1025,7 +1024,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const backend: RecallBackend = {
         search: async ({ projectId, query, limit }) => {
           assertProjectAllowed(projectId);
-          const rows = await repo.search({ projectId, teamId, query, limit });
+          // Same ranking as POST /v1/search — hybrid by default (see
+          // resolveSearchResults), so MCP recall and REST search agree.
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null });
           // Audit the read, same as POST /v1/search — the MCP path is no exception.
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'search', via: 'mcp', query, limit,
@@ -1035,7 +1036,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         },
         context: async ({ projectId, query, limit }) => {
           assertProjectAllowed(projectId);
-          const rows = await repo.search({ projectId, teamId, query, limit });
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null });
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'context', via: 'mcp', query, limit,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
