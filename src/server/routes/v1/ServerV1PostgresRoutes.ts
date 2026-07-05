@@ -919,16 +919,29 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         if (!teamId) return;
         if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
+        // /v1/search defaults to FTS (repo.search) to preserve the shipped
+        // ranking contract. Opt into hybrid (FTS+vector via RRF, Sprint 2) with
+        // CLAUDE_MEM_SEARCH_HYBRID=1 — same inputs, same response shape, just
+        // better ranking. hybridSearch threads platformSource into its FTS arm.
+        const useHybrid = process.env.CLAUDE_MEM_SEARCH_HYBRID === '1';
         let results;
         try {
           const repo = new PostgresObservationRepository(this.options.pool);
-          results = await repo.search({
-            projectId: body.projectId,
-            teamId,
-            query: body.query,
-            limit: body.limit ?? 20,
-            platformSource,
-          });
+          results = useHybrid
+            ? await repo.hybridSearch({
+                projectId: body.projectId,
+                teamId,
+                query: body.query,
+                limit: body.limit ?? 20,
+                platformSource,
+              })
+            : await repo.search({
+                projectId: body.projectId,
+                teamId,
+                query: body.query,
+                limit: body.limit ?? 20,
+                platformSource,
+              });
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           logger.warn('SYSTEM', 'observation.search failed', { requestId: req.requestId ?? null }, err);
