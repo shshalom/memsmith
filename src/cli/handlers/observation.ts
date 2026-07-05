@@ -10,6 +10,34 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { getProjectContext } from '../../utils/project-name.js';
+import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
+import { detectRediscovery } from '../../server/retrieval/rediscovery.js';
+import { fetchTeamMemory as realFetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
+
+export interface RediscoveryLogDeps {
+  fetchTeamMemory(input: { serverUrl: string; apiKey: string; projectId: string; teamId: string; query: string; limit?: number }): Promise<Array<{ id: string; content: string; metadata: Record<string, unknown> }>>;
+}
+
+export async function shouldLogRediscovery(
+  deps: RediscoveryLogDeps,
+  input: { toolName: string; toolInput: Record<string, unknown>; projectName: string; enabled: boolean; gateTools: string; serverUrl: string; apiKey: string },
+): Promise<{ rediscovered: boolean; matchedIds: string[] }> {
+  try {
+    if (!input.enabled) return { rediscovered: false, matchedIds: [] };
+    if (!shouldGateTool(input.toolName, input.gateTools)) return { rediscovered: false, matchedIds: [] };
+    if (!input.serverUrl.trim() || !input.apiKey.trim()) return { rediscovered: false, matchedIds: [] };
+    const toolQuery = buildPreToolQuery(input.toolInput);
+    if (!toolQuery) return { rediscovered: false, matchedIds: [] };
+    return await detectRediscovery(
+      { hybridSearch: async () => deps.fetchTeamMemory({ serverUrl: input.serverUrl, apiKey: input.apiKey, projectId: input.projectName, teamId: '', query: toolQuery, limit: 3 }) },
+      { projectId: input.projectName, teamId: '', toolQuery, toolResult: '' },
+    );
+  } catch {
+    return { rediscovered: false, matchedIds: [] };
+  }
+}
 
 async function dispatchToWorker(
   input: NormalizedHookInput,
@@ -99,6 +127,20 @@ export const observationHandler: EventHandler = {
       }
     }
 
-    return dispatchToWorker(input, platformSource);
+    const result = await dispatchToWorker(input, platformSource);
+    try {
+      const settings = loadFromFileOnce();
+      if (settings.CLAUDE_MEM_REDISCOVERY_LOG === 'true' && toolName) {
+        const projectName = getProjectContext(cwd).primary;
+        const r = await shouldLogRediscovery(
+          { fetchTeamMemory: realFetchTeamMemory },
+          { toolName, toolInput: (toolInput as Record<string, unknown>) ?? {}, projectName,
+            enabled: true, gateTools: settings.CLAUDE_MEM_GATE_TOOLS ?? '',
+            serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '', apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '' },
+        );
+        if (r.rediscovered) logger.info('HOOK', 'rediscovery: memory already held an answer for this discovery query', { toolName, matchedIds: r.matchedIds });
+      }
+    } catch { /* never let rediscovery logging break the observation path */ }
+    return result;
   },
 };
