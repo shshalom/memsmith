@@ -11,6 +11,7 @@ import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
+import { OllamaObservationProvider } from '../generation/providers/OllamaObservationProvider.js';
 import { OpenRouterObservationProvider } from '../generation/providers/OpenRouterObservationProvider.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 import { ServerService } from './ServerService.js';
@@ -253,7 +254,7 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
   }
 }
 
-function instantiateServerGenerationProvider(provider: string): ServerGenerationProvider | null {
+export function instantiateServerGenerationProvider(provider: string): ServerGenerationProvider | null {
   if (provider === 'claude' || provider === 'anthropic') {
     const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_MEM_ANTHROPIC_API_KEY ?? '';
     if (!apiKey) return null;
@@ -277,6 +278,18 @@ function instantiateServerGenerationProvider(provider: string): ServerGeneration
     const baseUrl = process.env.CLAUDE_MEM_OPENROUTER_BASE_URL ?? process.env.OPENROUTER_BASE_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
     return new OpenRouterObservationProvider(opts);
+  }
+  if (provider === 'ollama') {
+    // Keyless by default — do NOT gate on an API key. A key is only used when
+    // Ollama is fronted by an auth proxy.
+    const apiKey = process.env.CLAUDE_MEM_OLLAMA_API_KEY ?? '';
+    const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
+      model: process.env.CLAUDE_MEM_SERVER_MODEL ?? 'llama3.1:8b',
+    };
+    if (apiKey) opts.apiKey = apiKey;
+    const baseUrl = process.env.CLAUDE_MEM_OLLAMA_URL;
+    if (baseUrl) opts.baseUrl = baseUrl;
+    return new OllamaObservationProvider(opts);
   }
   return null;
 }
