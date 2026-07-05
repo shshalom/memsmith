@@ -13,6 +13,7 @@ import {
 } from './utils.js';
 import { normalizePlatformSourceOrNull } from '../../shared/platform-source.js';
 import { combineRanks } from '../../server/retrieval/rrf.js';
+import { expandQuery } from '../../server/retrieval/query-expansion.js';
 import { embed } from '../../server/generation/embedder.js';
 
 export type ObservationSourceType = 'agent_event' | 'session_summary' | 'observation_reindex' | 'manual';
@@ -238,13 +239,39 @@ export class PostgresObservationRepository {
     return result.rows.map(mapObservationRow);
   }
 
+  // Run vectorSearch for each query variant and RRF-fuse the rankings into one
+  // vector result list (ordered by fused score). With a single variant this is
+  // just vectorSearch; with expansion it lets any variant that ranks the answer
+  // high pull it up in the fused order.
+  private async multiVectorSearch(
+    projectId: string, teamId: string, variants: string[], limit: number,
+  ): Promise<PostgresObservation[]> {
+    if (variants.length <= 1) {
+      return this.vectorSearch({ projectId, teamId, query: variants[0] ?? '', limit });
+    }
+    const perVariant = await Promise.all(
+      variants.map(q => this.vectorSearch({ projectId, teamId, query: q, limit })),
+    );
+    const byId = new Map<string, PostgresObservation>();
+    for (const list of perVariant) for (const o of list) byId.set(o.id, o);
+    const rankings = perVariant.map(list => list.map((o, i) => ({ id: o.id, rank: i })));
+    const fused = combineRanks(rankings);
+    return fused.map(f => byId.get(f.id)).filter((o): o is PostgresObservation => o != null).slice(0, limit);
+  }
+
   async hybridSearch(input: {
     projectId: string; teamId: string; query: string; limit?: number;
     obsType?: string | null; lifecycleState?: string | null;
     ftsWeight?: number; vecWeight?: number;
+    expandQueries?: boolean;
   }): Promise<PostgresObservation[]> {
     const limit = input.limit ?? 5;
     const pool = 30; // retrieve deeper, fuse, then trim
+    // Query expansion (opt-in): embed several de-framed variants of the query
+    // and RRF-fuse their vector rankings, so an obliquely-phrased question that
+    // buries the answer under one embedding can still surface it. Default off;
+    // enable via CLAUDE_MEM_QUERY_EXPANSION=1 or the expandQueries flag.
+    const useExpansion = input.expandQueries ?? process.env.CLAUDE_MEM_QUERY_EXPANSION === '1';
     // Per-arm RRF weights. On single-session / semantically-phrased questions
     // FTS often can't find the answer session (no lexical overlap), so equal
     // weighting lets FTS's irrelevant hits demote strong vector hits. Weighting
@@ -254,9 +281,10 @@ export class PostgresObservationRepository {
     // 0.936 -> 0.938). Override via CLAUDE_MEM_FTS_WEIGHT / CLAUDE_MEM_VEC_WEIGHT.
     const ftsWeight = input.ftsWeight ?? Number(process.env.CLAUDE_MEM_FTS_WEIGHT ?? 0.3);
     const vecWeight = input.vecWeight ?? Number(process.env.CLAUDE_MEM_VEC_WEIGHT ?? 1);
+    const variants = useExpansion ? expandQuery(input.query) : [input.query];
     const [fts, vec] = await Promise.all([
       this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState }),
-      this.vectorSearch({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool }),
+      this.multiVectorSearch(input.projectId, input.teamId, variants, pool),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
     const fused = combineRanks([toRanked(fts), toRanked(vec)], undefined, [ftsWeight, vecWeight]);
