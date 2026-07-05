@@ -277,7 +277,10 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 | `CLAUDE_MEM_SERVER_DATABASE_URL` | — | Postgres connection string (required) |
 | `CLAUDE_MEM_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
 | `CLAUDE_MEM_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
-| `CLAUDE_MEM_SERVER_PROVIDER` | — | Worker only: `claude`, `gemini`, or `openrouter` |
+| `CLAUDE_MEM_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
+| `CLAUDE_MEM_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
+| `CLAUDE_MEM_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
+| `CLAUDE_MEM_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
 | `ANTHROPIC_API_KEY` | — | Worker only (when provider=claude) |
 | `TRANSFORMERS_CACHE` | OS temp | Writable dir for `all-MiniLM-L6-v2` model cache |
 | `CLAUDE_MEM_SEARCH_HYBRID` | `on` | `/v1/search` and `/v1/context` rank with hybrid (FTS+vector RRF) by default. Set `0` to force plain FTS — useful if the embedder is unavailable. Hybrid already degrades to FTS automatically when the vector arm fails, so `0` is a policy switch, not a failure mitigation. |
