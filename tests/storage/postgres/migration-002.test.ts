@@ -11,7 +11,7 @@ describe('migration 002: typed + lifecycle columns', () => {
   if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
   let pool: pg.Pool; let client: any; let schemaName: string;
   beforeEach(async () => {
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_mig2_${randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${q(schemaName)}`);

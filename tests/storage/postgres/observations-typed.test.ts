@@ -19,7 +19,7 @@ describe('observations repository — typed + lifecycle', () => {
   let repo: PostgresObservationRepository;
 
   beforeEach(async () => {
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_obs_typed_${randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${q(schemaName)}`);

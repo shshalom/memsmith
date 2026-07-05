@@ -49,7 +49,7 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
       spyOn(logger, 'error').mockImplementation(() => {}),
       spyOn(logger, 'debug').mockImplementation(() => {}),
     ];
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_phase8_routes_${crypto.randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);

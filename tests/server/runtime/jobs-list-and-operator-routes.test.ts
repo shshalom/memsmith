@@ -47,7 +47,7 @@ describe('Phase 12 — GET /v1/jobs + retry/cancel routes', () => {
       spyOn(logger, 'error').mockImplementation(() => {}),
       spyOn(logger, 'debug').mockImplementation(() => {}),
     ];
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_phase12_jobs_${crypto.randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);

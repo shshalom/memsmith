@@ -51,7 +51,7 @@ describe('data deletion (forget)', () => {
     await admin.connect();
     await admin.query(`CREATE SCHEMA ${q(schemaName)}`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: testDatabaseUrl, options: `-c search_path=${schemaName}` });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4, options: `-c search_path=${schemaName}` });
     client = await pool.connect();
     await bootstrapServerPostgresSchema(client);
     storage = createPostgresStorageRepositories(client);

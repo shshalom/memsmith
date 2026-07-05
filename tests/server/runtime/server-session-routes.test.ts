@@ -42,7 +42,7 @@ describe('ServerV1PostgresRoutes Phase 6 session endpoints', () => {
       spyOn(logger, 'error').mockImplementation(() => {}),
       spyOn(logger, 'debug').mockImplementation(() => {}),
     ];
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_phase6_routes_${crypto.randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);

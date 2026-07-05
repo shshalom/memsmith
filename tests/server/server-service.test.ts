@@ -67,7 +67,7 @@ describe('ServerService', () => {
         spyOn(logger, 'warn').mockImplementation(() => {}),
         spyOn(logger, 'error').mockImplementation(() => {}),
       );
-      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
       try {
         await bootstrapServerPostgresSchema(pool);
         const repos = createPostgresStorageRepositories(pool);
@@ -138,7 +138,7 @@ describe('ServerService', () => {
         spyOn(logger, 'warn').mockImplementation(() => {}),
         spyOn(logger, 'error').mockImplementation(() => {}),
       );
-      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
       try {
         await bootstrapServerPostgresSchema(pool);
         const repos = createPostgresStorageRepositories(pool);
@@ -208,7 +208,7 @@ describe('ServerService', () => {
         spyOn(logger, 'warn').mockImplementation(() => {}),
         spyOn(logger, 'error').mockImplementation(() => {}),
       );
-      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+      const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
       try {
         await bootstrapServerPostgresSchema(pool);
         const repos = createPostgresStorageRepositories(pool);

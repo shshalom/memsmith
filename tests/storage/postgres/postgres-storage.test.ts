@@ -96,7 +96,7 @@ describe('server beta postgres observation storage', () => {
     return;
   }
 
-  const pool = new pg.Pool({ connectionString: testDatabaseUrl });
+  const pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
   let client: PostgresPoolClient;
   let schemaName: string;
   let storage: PostgresStorageRepositories;

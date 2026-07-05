@@ -42,7 +42,7 @@ describe('POST /v1/keys + GET /v1/connect', () => {
 
   beforeEach(async () => {
     spies = ['info', 'warn', 'error', 'debug'].map((m) => spyOn(logger, m as 'info').mockImplementation(() => {}));
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_keys_${randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${q(schemaName)}`);

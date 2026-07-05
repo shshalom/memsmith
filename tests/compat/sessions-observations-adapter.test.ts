@@ -52,7 +52,7 @@ describe('Phase 9 compat adapters', () => {
       spyOn(logger, 'error').mockImplementation(() => {}),
       spyOn(logger, 'debug').mockImplementation(() => {}),
     ];
-    pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });
     client = await pool.connect();
     schemaName = `cm_phase9_${crypto.randomUUID().replaceAll('-', '_')}`;
     await client.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);
