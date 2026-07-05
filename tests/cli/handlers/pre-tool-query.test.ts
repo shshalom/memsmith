@@ -6,22 +6,25 @@ import { describe, it, expect } from 'bun:test';
 import { shouldGateTool, buildPreToolQuery } from '../../../src/cli/handlers/pre-tool-query.js';
 
 describe('shouldGateTool', () => {
-  it('gates the configured discovery tools (default set)', () => {
-    expect(shouldGateTool('Grep', '')).toBe(true);
-    expect(shouldGateTool('Glob', '')).toBe(true);
-    expect(shouldGateTool('WebSearch', '')).toBe(true);
-    expect(shouldGateTool('Read', '')).toBe(true);
+  it('is OFF by default (empty) — safe-by-default', () => {
+    // Empty means the gate is disabled; the hook fires but no-ops.
+    expect(shouldGateTool('Grep', '')).toBe(false);
+    expect(shouldGateTool('Read', '')).toBe(false);
+    expect(shouldGateTool('WebSearch', '')).toBe(false);
   });
-  it('does not gate unrelated tools', () => {
-    expect(shouldGateTool('TodoWrite', '')).toBe(false);
-    expect(shouldGateTool('Bash', '')).toBe(false);
+  it("the 'all' sentinel enables the default discovery-tool set", () => {
+    expect(shouldGateTool('Grep', 'all')).toBe(true);
+    expect(shouldGateTool('Glob', 'all')).toBe(true);
+    expect(shouldGateTool('WebSearch', 'all')).toBe(true);
+    expect(shouldGateTool('Read', 'all')).toBe(true);
+    expect(shouldGateTool('TodoWrite', 'all')).toBe(false);
   });
-  it('honors an explicit CLAUDE_MEM_GATE_TOOLS override', () => {
+  it('honors an explicit CLAUDE_MEM_GATE_TOOLS list', () => {
     expect(shouldGateTool('Grep', 'Read')).toBe(false);   // only Read gated
     expect(shouldGateTool('Read', 'Read')).toBe(true);
     expect(shouldGateTool('Bash', 'Bash,Grep')).toBe(true);
   });
-  it('empty override disables all gating', () => {
+  it("'none' explicitly disables all gating", () => {
     expect(shouldGateTool('Grep', 'none')).toBe(false);
   });
 });
