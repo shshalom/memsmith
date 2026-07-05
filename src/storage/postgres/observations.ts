@@ -263,7 +263,7 @@ export class PostgresObservationRepository {
     projectId: string; teamId: string; query: string; limit?: number;
     obsType?: string | null; lifecycleState?: string | null;
     ftsWeight?: number; vecWeight?: number;
-    expandQueries?: boolean;
+    expandQueries?: boolean; platformSource?: string | null;
   }): Promise<PostgresObservation[]> {
     const limit = input.limit ?? 5;
     const pool = 30; // retrieve deeper, fuse, then trim
@@ -283,7 +283,7 @@ export class PostgresObservationRepository {
     const vecWeight = input.vecWeight ?? Number(process.env.CLAUDE_MEM_VEC_WEIGHT ?? 1);
     const variants = useExpansion ? expandQuery(input.query) : [input.query];
     const [fts, vec] = await Promise.all([
-      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState }),
+      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource }),
       this.multiVectorSearch(input.projectId, input.teamId, variants, pool),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));

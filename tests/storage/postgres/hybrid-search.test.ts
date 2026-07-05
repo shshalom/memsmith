@@ -57,4 +57,12 @@ describe('hybridSearch', () => {
     const decisions = await repo.hybridSearch({ projectId, teamId, query: 'auth', obsType: 'decision' });
     expect(decisions.every(r => r.obsType === 'decision')).toBe(true);
   }, 60000);
+
+  it('accepts a platformSource filter without error', async () => {
+    // The observations here have no server_session (thus no platform), so a
+    // platformSource filter should simply return the FTS-arm-filtered set —
+    // the point is the param threads through hybridSearch to search() cleanly.
+    const results = await repo.hybridSearch({ projectId, teamId, query: 'JWT', platformSource: 'claude-code' });
+    expect(Array.isArray(results)).toBe(true);
+  }, 60000);
 });
