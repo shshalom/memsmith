@@ -16,7 +16,7 @@ import {
   type PostgresObservationGenerationJob,
 } from '../../../storage/postgres/generation-jobs.js';
 import { PostgresAuthRepository } from '../../../storage/postgres/auth.js';
-import { PostgresObservationRepository } from '../../../storage/postgres/observations.js';
+import { PostgresObservationRepository, type PostgresObservation } from '../../../storage/postgres/observations.js';
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth } from '../../middleware/postgres-auth.js';
@@ -919,29 +919,17 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         if (!teamId) return;
         if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
-        // /v1/search defaults to FTS (repo.search) to preserve the shipped
-        // ranking contract. Opt into hybrid (FTS+vector via RRF, Sprint 2) with
-        // CLAUDE_MEM_SEARCH_HYBRID=1 — same inputs, same response shape, just
-        // better ranking. hybridSearch threads platformSource into its FTS arm.
-        const useHybrid = process.env.CLAUDE_MEM_SEARCH_HYBRID === '1';
+        // Hybrid (FTS+vector via RRF) is the default ranking; force plain FTS
+        // with CLAUDE_MEM_SEARCH_HYBRID=0. See resolveSearchResults.
         let results;
         try {
-          const repo = new PostgresObservationRepository(this.options.pool);
-          results = useHybrid
-            ? await repo.hybridSearch({
-                projectId: body.projectId,
-                teamId,
-                query: body.query,
-                limit: body.limit ?? 20,
-                platformSource,
-              })
-            : await repo.search({
-                projectId: body.projectId,
-                teamId,
-                query: body.query,
-                limit: body.limit ?? 20,
-                platformSource,
-              });
+          results = await this.resolveSearchResults({
+            projectId: body.projectId,
+            teamId,
+            query: body.query,
+            limit: body.limit ?? 20,
+            platformSource,
+          });
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           logger.warn('SYSTEM', 'observation.search failed', { requestId: req.requestId ?? null }, err);
@@ -962,10 +950,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       },
     ));
 
-    // Phase 8 — context pack: same FTS path as `/v1/search`, but also returns
-    // a concatenated context string for direct prompt injection. The MCP
-    // `observation_context` tool calls this so MCP and any future REST
-    // consumer share the exact same context-packing rule.
+    // Phase 8 — context pack: same read/ranking path as `/v1/search` (hybrid by
+    // default via resolveSearchResults), but also returns a concatenated context
+    // string for direct prompt injection. The MCP `observation_context` tool
+    // calls this so MCP and any future REST consumer share the exact same
+    // ranking and context-packing rule.
     app.post('/v1/context', readAuth, this.handleCreate(
       z.object({
         projectId: z.string().min(1),
@@ -980,8 +969,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         let results;
         try {
-          const repo = new PostgresObservationRepository(this.options.pool);
-          results = await repo.search({
+          results = await this.resolveSearchResults({
             projectId: body.projectId,
             teamId,
             query: body.query,
@@ -1018,7 +1006,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     //   claude mcp add --transport http claude-mem <base>/v1/mcp \
     //     --header "Authorization: Bearer cm_..."
     // Same readAuth (memories:read) + team/project scoping + audit trail as
-    // /v1/search, so it reads identical data through identical guards. Stateless
+    // /v1/search, reading the same rows through identical guards. NOTE: this
+    // backend still ranks with plain FTS (repo.search), whereas /v1/search and
+    // /v1/context now default to hybrid ranking (resolveSearchResults). Same
+    // data + guards, different ranking — a deliberate scope boundary; unify via
+    // resolveSearchResults in a follow-up if MCP recall should match. Stateless
     // streamable-HTTP: one transport + server per request, bound to this key's team.
     const mcpHandler = this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
@@ -1264,6 +1256,33 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // enforces the api key's project scope, then loads the full row. Routes
   // that must not disclose sibling-project existence pass
   // scopeMismatch: 'not-found' to answer 404 instead of 403.
+  // Single source of ranking truth for the read endpoints (/v1/search,
+  // /v1/context). Hybrid (FTS + vector via RRF, Sprint 2) is the DEFAULT — it
+  // ranks materially better on the LongMemEval-S benchmark (R@5 ~0.936), most
+  // notably on semantic queries with no lexical overlap that FTS cannot match.
+  // Escape hatch: set CLAUDE_MEM_SEARCH_HYBRID=0 to force plain FTS (repo.search)
+  // without a redeploy — useful if the embedder is unavailable in a given
+  // deployment (hybrid's vector arm depends on the onnxruntime-backed embedder
+  // and on observations having embedding_vec populated). Same inputs, same
+  // response shape either way; hybrid degrades to FTS results when the vector
+  // arm is empty, so there is no hard dependency for correctness, only ranking.
+  private searchHybridEnabled(): boolean {
+    return process.env.CLAUDE_MEM_SEARCH_HYBRID !== '0';
+  }
+
+  private async resolveSearchResults(input: {
+    projectId: string;
+    teamId: string;
+    query: string;
+    limit: number;
+    platformSource: string | null;
+  }): Promise<PostgresObservation[]> {
+    const repo = new PostgresObservationRepository(this.options.pool);
+    return this.searchHybridEnabled()
+      ? repo.hybridSearch(input)
+      : repo.search(input);
+  }
+
   private async loadScopedById<T>(
     req: Request,
     res: Response,

@@ -282,9 +282,15 @@ export class PostgresObservationRepository {
     const ftsWeight = input.ftsWeight ?? Number(process.env.CLAUDE_MEM_FTS_WEIGHT ?? 0.3);
     const vecWeight = input.vecWeight ?? Number(process.env.CLAUDE_MEM_VEC_WEIGHT ?? 1);
     const variants = useExpansion ? expandQuery(input.query) : [input.query];
+    // The vector arm depends on the onnxruntime-backed embedder (embed()). If it
+    // throws (embedder down, model load failure, OOM), degrade to FTS-only
+    // ranking rather than failing the whole search — otherwise, with hybrid as
+    // the default read path, a transient embedder hiccup would turn every
+    // /v1/search and /v1/context into a 500 even for queries with good FTS hits.
+    // An empty vector arm simply contributes nothing to the RRF fusion.
     const [fts, vec] = await Promise.all([
       this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource }),
-      this.multiVectorSearch(input.projectId, input.teamId, variants, pool),
+      this.multiVectorSearch(input.projectId, input.teamId, variants, pool).catch(() => [] as PostgresObservation[]),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
     const fused = combineRanks([toRanked(fts), toRanked(vec)], undefined, [ftsWeight, vecWeight]);

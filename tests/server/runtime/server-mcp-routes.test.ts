@@ -18,6 +18,7 @@ import {
   type PostgresStorageRepositories,
 } from '../../../src/storage/postgres/index.js';
 import { DisabledServerQueueManager } from '../../../src/server/runtime/types.js';
+import { PostgresObservationRepository } from '../../../src/storage/postgres/observations.js';
 import { ServerClient } from '../../../src/services/hooks/server-client.js';
 import { logger } from '../../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../../sdk/pg-isolation.js';
@@ -192,6 +193,44 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
     expect(result.context).toContain('deployment pipeline');
     // Context joins observations with a blank line.
     expect(result.context.split('\n\n').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('/v1/search and /v1/context default to hybrid ranking; CLAUDE_MEM_SEARCH_HYBRID=0 forces FTS', async () => {
+    const c = buildClient();
+    await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual' });
+
+    const prevFlag = process.env.CLAUDE_MEM_SEARCH_HYBRID;
+    const hybridSpy = spyOn(PostgresObservationRepository.prototype, 'hybridSearch');
+    const ftsSpy = spyOn(PostgresObservationRepository.prototype, 'search');
+    try {
+      // Default (flag unset): both read endpoints route through hybridSearch.
+      delete process.env.CLAUDE_MEM_SEARCH_HYBRID;
+      hybridSpy.mockClear();
+      await c.searchObservations({ projectId, query: 'authentication', limit: 10 });
+      expect(hybridSpy).toHaveBeenCalledTimes(1);
+      hybridSpy.mockClear();
+      await c.contextObservations({ projectId, query: 'authentication', limit: 5 });
+      expect(hybridSpy).toHaveBeenCalledTimes(1);
+
+      // Escape hatch: CLAUDE_MEM_SEARCH_HYBRID=0 forces plain FTS (repo.search),
+      // and hybridSearch is not invoked — on BOTH read endpoints.
+      process.env.CLAUDE_MEM_SEARCH_HYBRID = '0';
+      hybridSpy.mockClear();
+      ftsSpy.mockClear();
+      await c.searchObservations({ projectId, query: 'authentication', limit: 10 });
+      expect(hybridSpy).not.toHaveBeenCalled();
+      expect(ftsSpy).toHaveBeenCalledTimes(1);
+      hybridSpy.mockClear();
+      ftsSpy.mockClear();
+      await c.contextObservations({ projectId, query: 'authentication', limit: 5 });
+      expect(hybridSpy).not.toHaveBeenCalled();
+      expect(ftsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      hybridSpy.mockRestore();
+      ftsSpy.mockRestore();
+      if (prevFlag === undefined) delete process.env.CLAUDE_MEM_SEARCH_HYBRID;
+      else process.env.CLAUDE_MEM_SEARCH_HYBRID = prevFlag;
+    }
   });
 
   it('observation_generation_status path: GET /v1/jobs/:id returns the same payload as REST', async () => {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import pg from 'pg';
 import { randomUUID } from 'crypto';
 import { bootstrapServerPostgresSchema, createPostgresStorageRepositories } from '../../../src/storage/postgres/index.js';
@@ -64,5 +64,22 @@ describe('hybridSearch', () => {
     // the point is the param threads through hybridSearch to search() cleanly.
     const results = await repo.hybridSearch({ projectId, teamId, query: 'JWT', platformSource: 'claude-code' });
     expect(Array.isArray(results)).toBe(true);
+  }, 60000);
+
+  it('degrades to FTS results when the vector arm throws (embedder down)', async () => {
+    // With hybrid as the default read path, a failing embedder must NOT fail the
+    // whole search — the vector arm is caught and hybridSearch returns the FTS
+    // ranking. Simulate the embedder being down by making vectorSearch (which
+    // multiVectorSearch calls) reject.
+    const vecSpy = spyOn(PostgresObservationRepository.prototype, 'vectorSearch')
+      .mockImplementation(() => Promise.reject(new Error('embedder unavailable')));
+    try {
+      const results = await repo.hybridSearch({ projectId, teamId, query: 'JWT rotation', limit: 3 });
+      // FTS still finds the lexical matches — the search did not 500.
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some(r => /JWT/i.test(r.content))).toBe(true);
+    } finally {
+      vecSpy.mockRestore();
+    }
   }, 60000);
 });
