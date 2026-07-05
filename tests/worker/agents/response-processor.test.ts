@@ -9,19 +9,27 @@ mock.module('../../../src/shared/worker-utils.js', () => ({
   getWorkerPort: () => 37777,
 }));
 
+// NOTE: bun's mock.module is process-global and is NOT restored between test
+// files, so this stub leaks into every file that runs after this one in the
+// same `bun test` process. Keep the stubbed ModeManager API-COMPLETE — in
+// particular it MUST expose loadMode — so downstream files that legitimately
+// call `ModeManager.getInstance().loadMode('code')` don't crash with
+// "loadMode is not a function" when they inherit this leaked mock.
+const stubbedMode = {
+  name: 'code',
+  prompts: {
+    init: 'init prompt',
+    observation: 'obs prompt',
+    summary: 'summary prompt',
+  },
+  observation_types: [{ id: 'discovery' }, { id: 'bugfix' }, { id: 'refactor' }],
+  observation_concepts: [],
+};
 mock.module('../../../src/services/domain/ModeManager.js', () => ({
   ModeManager: {
     getInstance: () => ({
-      getActiveMode: () => ({
-        name: 'code',
-        prompts: {
-          init: 'init prompt',
-          observation: 'obs prompt',
-          summary: 'summary prompt',
-        },
-        observation_types: [{ id: 'discovery' }, { id: 'bugfix' }, { id: 'refactor' }],
-        observation_concepts: [],
-      }),
+      getActiveMode: () => stubbedMode,
+      loadMode: () => stubbedMode,
     }),
   },
 }));

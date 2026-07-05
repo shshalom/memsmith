@@ -282,22 +282,19 @@ export class ServerClient {
   buildAddObservationPayload(
     input: ServerAddObservationRequest,
   ): Record<string, unknown> {
-    // Write-path contract (#2684): /v1/memories persists a `memory_items` row
-    // whose searchable text lives in `narrative` (the FTS trigger copies it
-    // into memory_items_fts). The MCP `observation_add` surface speaks in terms
-    // of `content`; map it onto `narrative` so the row is never empty and the
-    // FTS index always has something to match. `type` is REQUIRED by
-    // CreateMemoryItemSchema; default it from `kind` so a manual insert that
-    // only supplied content still persists instead of 400-ing.
-    const content = input.content;
+    // Write-path contract: the live server runtime registers ServerV1PostgresRoutes,
+    // whose POST /v1/memories persists an `observations` row and requires
+    // `content` (see ServerV1PostgresRoutes /v1/memories schema). Send the MCP
+    // `observation_add` text through as `content` directly — the older
+    // memory_items/`narrative` mapping (#2684) targeted ServerV1Routes, the
+    // SQLite worker route, which ServerClient never reaches (its only live
+    // caller runs in 'server'/Postgres mode). Title, when present, already
+    // rides along inside `metadata`, which the route stores verbatim.
     const kind = input.kind ?? 'manual';
-    const metadataTitle = typeof input.metadata?.title === 'string' ? input.metadata.title : undefined;
     return {
       projectId: input.projectId,
       kind,
-      type: kind,
-      narrative: content,
-      ...(metadataTitle ? { title: metadataTitle } : {}),
+      content: input.content,
       ...(input.serverSessionId !== undefined ? { serverSessionId: input.serverSessionId } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     };

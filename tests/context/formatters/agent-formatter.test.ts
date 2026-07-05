@@ -1,18 +1,24 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
+// bun's mock.module is process-global and unrestored, so this stub leaks into
+// later test files. Keep it API-complete (notably loadMode) so a downstream
+// file that calls ModeManager.getInstance().loadMode() doesn't crash on the
+// leaked mock.
+const agentStubMode = {
+  name: 'code',
+  prompts: {},
+  observation_types: [
+    { id: 'decision', emoji: 'D' },
+    { id: 'bugfix', emoji: 'B' },
+    { id: 'discovery', emoji: 'I' },
+  ],
+  observation_concepts: [],
+};
 mock.module('../../../src/services/domain/ModeManager.js', () => ({
   ModeManager: {
     getInstance: () => ({
-      getActiveMode: () => ({
-        name: 'code',
-        prompts: {},
-        observation_types: [
-          { id: 'decision', emoji: 'D' },
-          { id: 'bugfix', emoji: 'B' },
-          { id: 'discovery', emoji: 'I' },
-        ],
-        observation_concepts: [],
-      }),
+      getActiveMode: () => agentStubMode,
+      loadMode: () => agentStubMode,
       getTypeIcon: (type: string) => {
         const icons: Record<string, string> = {
           decision: 'D',

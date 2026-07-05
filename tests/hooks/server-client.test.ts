@@ -213,15 +213,17 @@ describe('ServerClient', () => {
     });
     expect(captured[0]?.url).toBe('http://localhost:9999/v1/memories');
     expect(captured[0]?.method).toBe('POST');
-    // Write-path contract (#2684): content maps onto narrative (the FTS-indexed
-    // / trigger-precondition column) and type defaults from kind, so the row is
-    // never empty. The old payload shipped a `content` field that no column
-    // accepted, producing a frozen/empty observation.
+    // Write-path contract: the live server runtime's POST /v1/memories
+    // (ServerV1PostgresRoutes) persists an `observations` row and requires
+    // `content`. The client sends `content` directly (the older narrative/type
+    // mapping targeted ServerV1Routes, the SQLite worker route the client never
+    // reaches). metadata rides along verbatim.
     const body = captured[0]?.body as Record<string, unknown>;
-    expect(body.narrative).toBe('hello');
+    expect(body.content).toBe('hello');
     expect(body.kind).toBe('manual');
-    expect(body.type).toBe('manual');
-    expect(body.content).toBeUndefined();
+    expect(body.metadata).toEqual({ source: 'mcp' });
+    expect(body.narrative).toBeUndefined();
+    expect(body.type).toBeUndefined();
     expect(result.memory.id).toBe('o1');
   });
 
@@ -285,13 +287,12 @@ describe('ServerClient', () => {
 
   it('payload builders omit absent fields', () => {
     const client = new ServerClient({ serverBaseUrl: 'http://x', apiKey: 'k' });
-    // content → narrative, type defaults from kind (default 'manual') so a
-    // minimal observation_add still persists a searchable row (#2684).
+    // The live Postgres route (ServerV1PostgresRoutes /v1/memories) requires
+    // `content`; kind defaults to 'manual'. No narrative/type remap.
     expect(client.buildAddObservationPayload({ projectId: 'p', content: 'c' })).toEqual({
       projectId: 'p',
       kind: 'manual',
-      type: 'manual',
-      narrative: 'c',
+      content: 'c',
     });
     expect(client.buildSearchPayload({ projectId: 'p', query: 'q' })).toEqual({
       projectId: 'p',
