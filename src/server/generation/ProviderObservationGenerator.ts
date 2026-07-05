@@ -22,6 +22,7 @@ import {
   type ProcessGeneratedResponseOutcome,
 } from './processGeneratedResponse.js';
 import { PostgresServerSessionsRepository } from '../../storage/postgres/server-sessions.js';
+import { parseAgentXml } from '../../sdk/parser.js';
 
 // Phase 11 — sentinel exception class so the worker can distinguish
 // scope-violation/revoked-key failures from generic processor errors and
@@ -220,7 +221,7 @@ export class ProviderObservationGenerator {
     const events = await this.loadEvents(fresh, payload);
     const project = await this.loadProject(fresh);
 
-    const result = await this.options.provider.generate({
+    const genContext = {
       job: fresh,
       events,
       project: {
@@ -229,7 +230,24 @@ export class ProviderObservationGenerator {
         serverSessionId: fresh.serverSessionId,
         projectName: project?.name ?? null,
       },
-    });
+    };
+
+    let result = await this.options.provider.generate(genContext);
+    // Best-effort format guard: if the model's output can't be parsed, re-prompt
+    // it strictly up to reformatRetryLimit() times. parseAgentXml here is only
+    // used to DECIDE whether to retry; the final result still flows through the
+    // unchanged processGeneratedResponse below, so persistence, idempotency, and
+    // the parse_error terminal path are identical to pre-guard behavior. A
+    // legitimate <skip_summary/> parses as valid → never retried. An EMPTY
+    // response parses as invalid → it IS re-prompted once (the model returned
+    // nothing; ask it for the XML or an explicit skip). A thrown provider error
+    // inside a retry propagates (it is not a format failure).
+    const maxReformat = reformatRetryLimit();
+    for (let attempt = 0; attempt < maxReformat; attempt++) {
+      if (parseAgentXml(result.rawText).valid) break;
+      const reformatReason = describeParseFailure(result.rawText);
+      result = await this.options.provider.generate(genContext, undefined, { reformatReason });
+    }
 
     const persistInput = {
       pool: this.options.pool,
@@ -541,4 +559,21 @@ export class ProviderObservationGenerator {
     const repo = new PostgresProjectsRepository(this.options.pool);
     return await repo.getByIdForTeam(job.projectId, job.teamId);
   }
+}
+
+function reformatRetryLimit(): number {
+  const raw = Number(process.env.CLAUDE_MEM_REFORMAT_RETRIES ?? 1);
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(0, Math.min(3, Math.trunc(raw)));
+}
+
+// A short, safe machine reason for why the model output could not be parsed,
+// used to steer the reformat re-prompt. No user data beyond structure.
+function describeParseFailure(rawText: string): string {
+  const t = rawText.trim();
+  if (t.length === 0) return 'empty response';
+  if (!/<observation[\s>]/.test(t) && !/<summary[\s>]/.test(t) && !/<skip_summary/.test(t)) {
+    return 'no <observation> block found';
+  }
+  return 'the XML observation block was malformed or empty';
 }
