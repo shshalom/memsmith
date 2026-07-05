@@ -88,6 +88,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_TEAM_INJECT: string;  // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
   CLAUDE_MEM_TEAM_SERVER_URL: string;  // Sprint 3 follow-up — server-mode base URL the SessionStart hook calls for team memory (default '' = bridge off)
   CLAUDE_MEM_TEAM_API_KEY: string;  // Sprint 3 follow-up — scoped memories:read key for the team-inject bridge (default '' = bridge off)
+  CLAUDE_MEM_GATE_TOOLS: string;  // Hook-activation — comma-separated tools the discovery gate injects before (default '' = gate off; 'none' also disables)
+  CLAUDE_MEM_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
 }
 
 export class SettingsDefaultsManager {
@@ -175,6 +177,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
     CLAUDE_MEM_TEAM_SERVER_URL: '',                         // Sprint 3 follow-up — team-inject bridge server URL (default '' = bridge off)
     CLAUDE_MEM_TEAM_API_KEY: '',                            // Sprint 3 follow-up — team-inject bridge scoped key (default '' = bridge off)
+    CLAUDE_MEM_GATE_TOOLS: '',                              // Hook-activation — discovery-gate tool list (default '' = gate off)
+    CLAUDE_MEM_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
   };
 
   static getAllDefaults(): SettingsDefaults {

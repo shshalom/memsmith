@@ -9,13 +9,18 @@ const DEFAULT_GATE_TOOLS = 'Read,Grep,Glob,WebSearch';
 
 /**
  * Whether `toolName` should trigger the discovery gate. `override` is the raw
- * CLAUDE_MEM_GATE_TOOLS value (pass '' to use the default set; pass 'none' to
- * disable). Injected rather than read from env directly for testability.
+ * CLAUDE_MEM_GATE_TOOLS value: '' (the default) or 'none' → gate OFF; 'all' →
+ * the default discovery-tool set; a comma-separated list → exactly those tools.
+ * Injected rather than read from env directly for testability.
  */
 export function shouldGateTool(toolName: string, override: string): boolean {
+  // Safe-by-default: empty (the default) means the gate is OFF — the hook fires
+  // but no-ops. Users opt in by listing tools, or with the 'all' sentinel to use
+  // the default discovery-tool set. 'none' also explicitly disables.
   const raw = (override ?? '').trim();
-  if (raw.toLowerCase() === 'none') return false;
-  const list = (raw || DEFAULT_GATE_TOOLS).split(',').map(s => s.trim()).filter(Boolean);
+  if (raw === '' || raw.toLowerCase() === 'none') return false;
+  const list = (raw.toLowerCase() === 'all' ? DEFAULT_GATE_TOOLS : raw)
+    .split(',').map(s => s.trim()).filter(Boolean);
   return list.includes(toolName);
 }
 
