@@ -148,8 +148,16 @@ export const contextHandler: EventHandler = {
     // Sprint 3: opt-in team-memory injection (default OFF — default path is byte-identical to pre-sprint3).
     const teamInject = settings.CLAUDE_MEM_TEAM_INJECT === 'true';
     if (teamInject) {
-      // TODO(sprint3): populate teamBlock from worker /api/context/inject once it exposes team memory.
-      // For now, stub returns empty so appendTeamMemoryInjection is a no-op and additionalContext is unchanged.
+      // TODO(sprint3-followup): populate teamBlock with cross-team memory.
+      // Deferred for an architectural reason, not laziness: this SessionStart
+      // handler runs in WORKER mode (SQLite via /api/context/inject), but team
+      // memory lives in the SERVER-mode Postgres store (hybridSearch/embeddings,
+      // Sprints 1-2). Bridging requires the hook to call the server API with a
+      // scoped key (or the worker to hold a Postgres connection) — a deliberate
+      // follow-up. Until then teamBlock='' so this is a no-op.
+      // CAVEAT: with teamBlock empty, enabling the flag currently only trims
+      // whitespace on additionalContext (appendTeamMemoryInjection trims) — no
+      // functional change. The flag defaults OFF so this never affects default runs.
       const teamBlock = '';
       additionalContext = appendTeamMemoryInjection(additionalContext, teamBlock);
     }
