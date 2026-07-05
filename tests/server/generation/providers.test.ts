@@ -17,6 +17,7 @@ import {
   type GeminiBadRequestCategory,
 } from '../../../src/server/generation/providers/GeminiObservationProvider.js';
 import { OpenRouterObservationProvider } from '../../../src/server/generation/providers/OpenRouterObservationProvider.js';
+import { OllamaObservationProvider } from '../../../src/server/generation/providers/OllamaObservationProvider.js';
 import { buildServerGenerationPrompt } from '../../../src/server/generation/providers/shared/prompt-builder.js';
 import type { ServerGenerationContext } from '../../../src/server/generation/providers/shared/types.js';
 
@@ -424,5 +425,65 @@ describe('buildServerGenerationPrompt reformat addendum', () => {
     const withEmpty = buildServerGenerationPrompt(makeContext(), { reformatReason: '' }).prompt;
     expect(withEmpty).toBe(base);
     expect(base).not.toContain('could not be parsed');
+  });
+});
+
+describe('OllamaObservationProvider', () => {
+  it('parses OpenAI-style response, defaults model llama3.1:8b and localhost URL', async () => {
+    const capturing = new CapturingFetch(
+      jsonResponse(200, {
+        choices: [{ message: { content: '<observation><type>x</type><title>o</title></observation>' } }],
+        usage: { total_tokens: 42 },
+      }),
+    );
+    const provider = new OllamaObservationProvider({ fetchImpl: capturing.fetch });
+    const result = await provider.generate(makeContext());
+    expect(result.rawText).toContain('<observation>');
+    expect(result.tokensUsed).toBe(42);
+    expect(result.providerLabel).toBe('ollama');
+    expect(capturing.lastUrl).toBe('http://localhost:11434/v1/chat/completions');
+    const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
+    expect(body.model).toBe('llama3.1:8b');
+  });
+
+  it('constructs without an API key and sends no Authorization header', async () => {
+    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const provider = new OllamaObservationProvider({ fetchImpl: capturing.fetch });
+    await provider.generate(makeContext());
+    const headers = (capturing.lastInit?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it('sends Authorization when an apiKey is supplied (auth-proxied Ollama)', async () => {
+    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const provider = new OllamaObservationProvider({ apiKey: 'k', fetchImpl: capturing.fetch });
+    await provider.generate(makeContext());
+    const headers = (capturing.lastInit?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer k');
+  });
+
+  it('honors CLAUDE_MEM_OLLAMA_URL-style baseUrl and CLAUDE_MEM_SERVER_MODEL-style model overrides', async () => {
+    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const provider = new OllamaObservationProvider({
+      baseUrl: 'http://ollama.internal:11434/v1',
+      model: 'qwen2.5:14b',
+      fetchImpl: capturing.fetch,
+    });
+    await provider.generate(makeContext());
+    expect(capturing.lastUrl).toBe('http://ollama.internal:11434/v1/chat/completions');
+    const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
+    expect(body.model).toBe('qwen2.5:14b');
+  });
+
+  it('classifies a connection failure (fetch throws) as transient', async () => {
+    const throwingFetch: typeof fetch = async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:11434'); };
+    const provider = new OllamaObservationProvider({ fetchImpl: throwingFetch });
+    try {
+      await provider.generate(makeContext());
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ServerClassifiedProviderError);
+      expect((error as ServerClassifiedProviderError).kind).toBe('transient');
+    }
   });
 });
