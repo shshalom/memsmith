@@ -257,6 +257,11 @@ async function buildHooks() {
         '@derekstride/tree-sitter-sql': '^0.3.11',
         '@tree-sitter-grammars/tree-sitter-markdown': '^0.3.2',
         'shell-quote': '^1.8.3',
+        // Server-mode embedder runtime dep. Kept external from the server-service
+        // bundle (esbuild can't bundle its onnxruntime-node native binaries), so it
+        // must be declared here for `npm install --omit=dev` to install it (and its
+        // onnxruntime-node dep) in the deployed container. Version tracks root package.json.
+        '@huggingface/transformers': '^4.2.0',
       },
       overrides: {
         'tree-sitter': '^0.25.0'
@@ -302,6 +307,10 @@ async function buildHooks() {
         'ollama',
         '@chroma-core/default-embed',
         'onnxruntime-node',
+        // Defensive: the worker doesn't currently reach the embedder, but keep
+        // @huggingface/transformers external too so a future transitive import
+        // can't reintroduce the onnxruntime-node .node bundling failure.
+        '@huggingface/transformers',
         // better-auth (~3.7MB) is only reachable through BetterAuthRoutes' request-time
         // dynamic import('better-auth/node') / import('./auth.js'). esbuild otherwise
         // inlines that dynamic-import target into the worker bundle, dragging in the full
@@ -362,6 +371,20 @@ async function buildHooks() {
       external: [
         'bun:sqlite',
         'zod',
+        // The server-mode embedder (src/server/generation/embedder.ts) imports
+        // @huggingface/transformers, which pulls in onnxruntime-node — a package
+        // that requires prebuilt native `.node` binaries. esbuild has no loader
+        // for `.node` files, so bundling walks into onnxruntime-node/dist/binding.js
+        // and fails. Keep the whole embedding stack external (mirroring the
+        // worker-service build above): the bundle runs under bun, which resolves
+        // and loads these from plugin/node_modules at runtime. @huggingface/transformers
+        // is declared in the generated plugin/package.json so `npm install --omit=dev`
+        // installs it (and its onnxruntime-node dep) in the deployed container.
+        '@huggingface/transformers',
+        'onnxruntime-node',
+        'cohere-ai',
+        'ollama',
+        '@chroma-core/default-embed',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
@@ -534,6 +557,17 @@ async function buildHooks() {
         'crypto', 'http', 'https', 'net', 'stream', 'util', 'events',
         'buffer', 'querystring', 'readline', 'tty', 'assert',
         'bun:sqlite',
+        // The `server` command dynamically imports the Postgres storage layer,
+        // which imports the embedder (@huggingface/transformers → onnxruntime-node
+        // with native `.node` binaries esbuild can't bundle). @huggingface/transformers
+        // is a root runtime dependency, so `npx claude-mem` resolves it (and its
+        // onnxruntime-node dep) from the installed package's node_modules at runtime.
+        // Keeping them external mirrors the worker-service / server-service builds.
+        '@huggingface/transformers',
+        'onnxruntime-node',
+        'cohere-ai',
+        'ollama',
+        '@chroma-core/default-embed',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
