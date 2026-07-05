@@ -283,10 +283,10 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 | `CLAUDE_MEM_FTS_WEIGHT` | `0.3` | Weight of full-text search component in hybrid RRF retrieval |
 | `CLAUDE_MEM_VEC_WEIGHT` | `1` | Weight of vector similarity component in hybrid RRF retrieval |
 | `CLAUDE_MEM_RRF_K` | `60` | RRF rank fusion constant |
-| `CLAUDE_MEM_QUERY_EXPANSION` | `off` | Enable LLM-based query expansion before search |
-| `CLAUDE_MEM_TEAM_INJECT` | `off` | Inject cross-team observations into context |
-| `CLAUDE_MEM_INPUT_RATE_PER_MTOK` | `5` | Cost-gate: max observations ingested per million input tokens |
-| `CLAUDE_MEM_GATE_TOOLS` | — | Comma-separated list of tool names to gate (restrict injection) |
+| `CLAUDE_MEM_QUERY_EXPANSION` | `off` | Enable deterministic (no-LLM) query expansion before hybrid search |
+| `CLAUDE_MEM_TEAM_INJECT` | `off` | Opt-in cross-team memory injection at SessionStart. **Follow-up:** the live fetch is not yet wired (worker vs server-mode bridge); enabling it is currently a no-op. |
+| `CLAUDE_MEM_INPUT_RATE_PER_MTOK` | `5` | Input $/million-tokens rate used by the dashboard cost panel to estimate USD |
+| `CLAUDE_MEM_GATE_TOOLS` | `Grep,Read,Glob,WebSearch` | Tools that would trigger the PreToolUse discovery gate. **Follow-up:** Grep/Glob/WebSearch gating is not yet wired in `hooks.json` (only `Read` fires today); this var is reserved for that follow-up. |
 
 ---
 
