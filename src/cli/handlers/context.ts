@@ -11,6 +11,8 @@ import {
   getWorkerPort,
 } from '../../shared/worker-utils.js';
 import { appendTeamMemoryInjection } from '../../server/retrieval/inject-append.js';
+import { buildInjectionBlock } from '../../server/retrieval/inject.js';
+import { fetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
@@ -148,18 +150,33 @@ export const contextHandler: EventHandler = {
     // Sprint 3: opt-in team-memory injection (default OFF — default path is byte-identical to pre-sprint3).
     const teamInject = settings.CLAUDE_MEM_TEAM_INJECT === 'true';
     if (teamInject) {
-      // TODO(sprint3-followup): populate teamBlock with cross-team memory.
-      // Deferred for an architectural reason, not laziness: this SessionStart
-      // handler runs in WORKER mode (SQLite via /api/context/inject), but team
-      // memory lives in the SERVER-mode Postgres store (hybridSearch/embeddings,
-      // Sprints 1-2). Bridging requires the hook to call the server API with a
-      // scoped key (or the worker to hold a Postgres connection) — a deliberate
-      // follow-up. Until then teamBlock='' so this is a no-op.
-      // CAVEAT: with teamBlock empty, enabling the flag currently only trims
-      // whitespace on additionalContext (appendTeamMemoryInjection trims) — no
-      // functional change. The flag defaults OFF so this never affects default runs.
-      const teamBlock = '';
-      additionalContext = appendTeamMemoryInjection(additionalContext, teamBlock);
+      // Team-memory bridge: this SessionStart handler runs in WORKER mode, but
+      // team memory lives in the SERVER-mode Postgres store (Sprints 1-2). We
+      // bridge by calling the server's scoped /v1/search with a read key rather
+      // than giving the worker a Postgres connection. Fully opt-in: requires the
+      // flag AND a configured server URL AND a key — any missing piece disables
+      // it. fetchTeamMemory never throws and returns [] on any error, so a team
+      // fetch can never break session startup. Default path is unaffected.
+      try {
+        const rows = await fetchTeamMemory({
+          serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
+          apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+          projectId: context.primary,
+          teamId: '',  // team is resolved server-side from the scoped key
+          query: context.primary,
+        });
+        const teamBlock = await buildInjectionBlock(
+          { hybridSearch: async () => rows },
+          { projectId: context.primary, teamId: '', query: context.primary },
+        );
+        additionalContext = appendTeamMemoryInjection(additionalContext, teamBlock);
+      } catch (error) {
+        // Belt-and-suspenders: fetchTeamMemory already swallows errors, but never
+        // let team injection break the session — log and continue unchanged.
+        logger.warn('HOOK', 'team-memory injection failed; continuing without it', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     return {
