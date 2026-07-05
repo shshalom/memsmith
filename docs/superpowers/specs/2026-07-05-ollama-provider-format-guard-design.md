@@ -138,8 +138,11 @@ Notes:
   final `rawText` still flows through the unchanged `processGeneratedResponse`,
   so persistence, `generation_key` idempotency, and the `parse_error` terminal
   path are byte-identical to today.
-- `<skip_summary />` and empty `rawText` parse as **valid** → guard never retries
-  a legitimate skip.
+- `<skip_summary />` parses as **valid** → the guard never retries a legitimate
+  skip. NOTE: empty/whitespace `rawText` parses as **invalid** (`parseAgentXml`
+  returns `{valid:false}`), so an empty model response IS re-prompted once — an
+  empty response is abnormal (the model returned nothing), and the re-prompt asks
+  for the XML or an explicit `<skip_summary/>`. This matches the shipped code.
 - The guard uses the *latest* `generate()` result object (for `tokensUsed` /
   `modelId`), not just the first.
 
@@ -160,8 +163,11 @@ Notes:
 - `CLAUDE_MEM_REFORMAT_RETRIES` default `1`, clamped `[0,3]`. `0` fully disables
   the guard (exact pre-guard behavior), mirroring the `CLAUDE_MEM_SEARCH_HYBRID=0`
   escape-hatch pattern.
-- Retries respect the same `AbortSignal` (cancelled/timed-out job spins no extra
-  calls).
+- Job cancellation/timeout is handled at the BullMQ/job layer, not inside
+  `generateAndPersist` — this layer receives no `AbortSignal` today (the
+  pre-guard single `generate()` call had none either), so the guard introduces
+  no new cancellation surface. (An earlier draft claimed the retries thread an
+  `AbortSignal`; there is none at this layer — corrected to match shipped code.)
 
 ## Testing
 
