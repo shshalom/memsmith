@@ -100,6 +100,7 @@ function shellTemplateManifest(buildShellCommand) {
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
+        'PreToolUse.1.0': claudeHook(['hook', 'claude-code', 'discovery-gate']),
         'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
       },
     },
