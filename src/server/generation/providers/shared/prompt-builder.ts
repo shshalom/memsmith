@@ -42,7 +42,7 @@ const MAX_PAYLOAD_CHARS = 16 * 1024;
 
 export function buildServerGenerationPrompt(
   context: ServerGenerationContext,
-  options: { mode?: ModeConfig } = {},
+  options: { mode?: ModeConfig; reformatReason?: string } = {},
 ): BuildServerPromptResult {
   const mode = options.mode ?? loadActiveModeOrFallback();
 
@@ -72,6 +72,17 @@ export function buildServerGenerationPrompt(
 
   const observationOutputSchema = buildObservationOutputSchema(mode);
 
+  const reformatReason = options.reformatReason?.trim();
+  const reformatAddendum = reformatReason
+    ? [
+        '',
+        `IMPORTANT: your previous response could not be parsed (${reformatReason}).`,
+        'Output ONLY the XML observation block(s) described above — no prose',
+        'before or after, no markdown code fences, no explanation. If nothing is',
+        'worth recording, output exactly <skip_summary /> and nothing else.',
+      ]
+    : [];
+
   const prompt = [
     '<server_beta_observation_request>',
     `  <project_id>${escapeXml(context.project.projectId)}</project_id>`,
@@ -93,6 +104,7 @@ export function buildServerGenerationPrompt(
     '',
     'Schema for each <observation> block:',
     observationOutputSchema,
+    ...reformatAddendum,
   ].join('\n');
 
   return { prompt, hadPrivateContent, skippedAll };

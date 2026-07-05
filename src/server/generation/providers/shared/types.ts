@@ -28,6 +28,10 @@ export interface ServerGenerationResult {
 }
 
 export interface ServerGenerationProvider {
-  readonly providerLabel: 'claude' | 'gemini' | 'openrouter';
-  generate(context: ServerGenerationContext, signal?: AbortSignal): Promise<ServerGenerationResult>;
+  readonly providerLabel: 'claude' | 'gemini' | 'openrouter' | 'ollama';
+  generate(
+    context: ServerGenerationContext,
+    signal?: AbortSignal,
+    opts?: { reformatReason?: string },
+  ): Promise<ServerGenerationResult>;
 }

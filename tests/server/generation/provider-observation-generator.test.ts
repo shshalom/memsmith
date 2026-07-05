@@ -30,6 +30,22 @@ class StubProvider implements ServerGenerationProvider {
   }
 }
 
+class SequenceStubProvider implements ServerGenerationProvider {
+  readonly providerLabel = 'claude' as const;
+  calls = 0;
+  lastReformatReason: string | undefined;
+  constructor(private readonly responses: string[]) {}
+  async generate(_ctx: unknown, _signal?: AbortSignal, opts?: { reformatReason?: string }) {
+    this.lastReformatReason = opts?.reformatReason;
+    const idx = Math.min(this.calls, this.responses.length - 1);
+    this.calls += 1;
+    return { rawText: this.responses[idx]!, providerLabel: this.providerLabel };
+  }
+}
+
+const VALID_XML = '<observation><type>discovery</type><title>ok</title><facts><fact>f</fact></facts></observation>';
+const GARBAGE = 'sure! here is your observation: it was a discovery about ok.';
+
 describe('ProviderObservationGenerator', () => {
   if (!testDatabaseUrl) {
     it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
@@ -151,5 +167,71 @@ describe('ProviderObservationGenerator', () => {
       teamId,
     });
     expect(reloaded?.status).toBe('failed');
+  });
+
+  it('reformat guard: malformed then valid → persists, provider called twice', async () => {
+    const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
+    process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+    try {
+      const provider = new SequenceStubProvider([GARBAGE, VALID_XML]);
+      const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
+      const result = await generator.process(makeJob());
+      expect(provider.calls).toBe(2);
+      expect(provider.lastReformatReason).toBeTruthy();
+      expect(result.observationCount).toBe(1);
+      const reloaded = await storage.observationGenerationJobs.getByIdForScope({ id: jobId, projectId, teamId });
+      expect(reloaded?.status).toBe('completed');
+    } finally {
+      process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    }
+  });
+
+  it('reformat guard: still malformed after retries → parse_error, job failed (unchanged terminal outcome)', async () => {
+    const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
+    process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+    try {
+      const provider = new SequenceStubProvider([GARBAGE, GARBAGE]);
+      const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
+      await expect(generator.process(makeJob())).rejects.toThrow(/parse error/);
+      expect(provider.calls).toBe(2); // 1 initial + 1 reformat
+      const reloaded = await storage.observationGenerationJobs.getByIdForScope({ id: jobId, projectId, teamId });
+      expect(reloaded?.status).toBe('failed');
+    } finally {
+      process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    }
+  });
+
+  it('reformat guard disabled (retries=0): provider called once, fails on malformed', async () => {
+    const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
+    process.env.CLAUDE_MEM_REFORMAT_RETRIES = '0';
+    try {
+      const provider = new SequenceStubProvider([GARBAGE]);
+      const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
+      await expect(generator.process(makeJob())).rejects.toThrow(/parse error/);
+      expect(provider.calls).toBe(1);
+    } finally {
+      process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    }
+  });
+
+  it('reformat guard: a thrown provider error on the retry propagates (not swallowed as format failure)', async () => {
+    const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
+    process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+    try {
+      const provider: ServerGenerationProvider = {
+        providerLabel: 'claude',
+        calls: 0,
+        async generate(_c: unknown, _s?: AbortSignal, _o?: { reformatReason?: string }) {
+          // first call malformed, second call throws
+          (this as { calls: number }).calls += 1;
+          if ((this as { calls: number }).calls === 1) return { rawText: GARBAGE, providerLabel: 'claude' as const };
+          throw new Error('boom on reformat');
+        },
+      } as never;
+      const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
+      await expect(generator.process(makeJob())).rejects.toThrow(/boom on reformat/);
+    } finally {
+      process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    }
   });
 });
