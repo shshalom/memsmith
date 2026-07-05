@@ -85,6 +85,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_URL: string;
   CLAUDE_MEM_SERVER_BETA_API_KEY: string;
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
+  CLAUDE_MEM_TEAM_INJECT: string;  // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
 }
 
 export class SettingsDefaultsManager {
@@ -169,6 +170,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_URL: `http://127.0.0.1:${process.env.CLAUDE_MEM_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
     CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when CLAUDE_MEM_SERVER_API_KEY unset)
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
+    CLAUDE_MEM_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
   };
 
   static getAllDefaults(): SettingsDefaults {
