@@ -56,18 +56,35 @@ for manual inspection.
 - Measures quality on **this corpus/prompt**, not all inputs. A larger local model
   (Qwen 2.5, Llama 3.3 70B) would likely close the gap.
 
-## 2026-07-06 baseline result (n=10, judge claude-opus-4-8)
+## Results (2026-07-06, corrected two-axis harness, n=10, judge claude-opus-4-8)
 
-| Dimension | llama3.1:8b | Claude | gap |
-|---|---|---|---|
-| faithfulness | 3.00 | 3.80 | −0.80 |
-| specificity | 3.00 | 3.90 | −0.90 |
-| typeCorrectness | 2.70 | 3.90 | −1.20 |
-| usefulness | 2.60 | 3.70 | −1.10 |
-| structure | 3.00 | 4.20 | −1.20 |
-| **overall** | **2.86** | **3.90** | **−1.04** |
+The harness scores TWO axes: (1) observation quality on WRITTEN observations
+(skips excluded — a `<skip_summary/>` is judged separately, not scored 1.0), and
+(2) skip judgment (was skipping appropriate for the event?).
 
-Read: llama is ~1 point worse overall but **ties Claude on rich, explicit events**
-(a clear decision/bugfix both scored ~5); the gap is concentrated on terse/ambiguous
-events and occasional minor hallucination. 0 parse/generation errors on both sides —
-a quality gap, not a format gap.
+**Axis 1 — observation quality (1-5, written observations only):**
+
+| Model | overall | vs Claude |
+|---|---|---|
+| qwen2.5:14b | **4.24** | +0.04 (ties Claude) |
+| Claude (baseline) | ~4.0-4.2 | — |
+| llama3.1:8b | 2.90 | -1.08 (clearly behind) |
+
+**Axis 2 — skip judgment:**
+
+| Model | skipped | appropriate skips |
+|---|---|---|
+| qwen2.5:14b | 5/10 | 4/5 |
+| Claude | 1/10 | 1/1 |
+| llama3.1:8b | 0/10 | n/a (never skips) |
+
+Read: **qwen2.5:14b ties Claude on written-observation quality** and skips trivial
+events well (like `echo hi`) — arguably ideal memory behavior. **llama3.1:8b lags
+on both axes**: worse observations AND never knows when to stay quiet (writes
+mediocre records for trivia). 0 parse/generation errors for all models.
+
+METHODOLOGY NOTE: an earlier version scored `<skip_summary/>` as 1.0 on all
+dimensions, which wrongly punished correct skips and made qwen look ~1pt worse
+than it is. The current harness fixes this by judging skips on a separate axis.
+Caveats unchanged: Claude-family judge (qwen tying it anyway strengthens the
+result), n=10 is directional with demonstrated ±0.1-0.2 judge noise.
