@@ -52,3 +52,4 @@ reports/
 
 # LongMemEval dataset (265MB, downloaded — not committed)
 bench/longmemeval/data/
+bench/quality-eval/last-run.json
