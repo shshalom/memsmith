@@ -52,12 +52,12 @@ function truncate(text, maxLength) {
 
 async function postToDiscord(webhookUrl, version, notes) {
   const cleanedNotes = notes ? cleanNotes(notes) : 'No release notes available.';
-  const repoUrl = 'https://github.com/thedotmack/claude-mem';
+  const repoUrl = 'https://github.com/shshalom/memsmith';
 
   const payload = {
     embeds: [
       {
-        title: `🚀 claude-mem ${version} released`,
+        title: `🚀 memsmith ${version} released`,
         url: `${repoUrl}/releases/tag/${version}`,
         description: truncate(cleanedNotes, 2000),
         color: 0x7c3aed, // Purple
@@ -69,12 +69,12 @@ async function postToDiscord(webhookUrl, version, notes) {
           },
           {
             name: '📚 Docs',
-            value: '[docs.claude-mem.ai](https://docs.claude-mem.ai)',
+            value: '[docs.memsmith.ai](https://docs.memsmith.ai)',
             inline: true,
           },
         ],
         footer: {
-          text: 'claude-mem • Persistent memory for Claude Code',
+          text: 'memsmith • Persistent memory for Claude Code',
         },
         timestamp: new Date().toISOString(),
       },

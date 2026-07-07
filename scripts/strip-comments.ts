@@ -76,7 +76,7 @@ const SKIP_PATHS = new Set<string>([
   'package-lock.json',
   'bun.lock',
   'bun.lockb',
-  'plugin/scripts/claude-mem',
+  'plugin/scripts/memsmith',
 ]);
 
 const SKIP_BASENAMES = new Set<string>([
