@@ -25,7 +25,7 @@ async function successorOf(db: PostgresQueryable, id: string, scope: SupersedeSc
   const { rows } = await db.query(
     `SELECT id FROM observations
       WHERE supersedes = $1 AND team_id = $2${projClause}
-      ORDER BY created_at DESC LIMIT 1`,
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
     args,
   );
   return rows.length ? String(rows[0].id) : null;
@@ -41,7 +41,6 @@ export async function resolveSupersessionHead(
     const next = await successorOf(db, current, scope);
     if (next === null) break;
     if (visited.has(next)) { // cycle
-      // eslint-disable-next-line no-console
       logger.warn('SYSTEM', 'supersession cycle detected', { startId, at: next });
       break;
     }
