@@ -34,6 +34,7 @@ import { PostgresServerSessionsRepository } from '../../../storage/postgres/serv
 import { IngestEventsService, type EnqueueOutcome } from '../../services/IngestEventsService.js';
 import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
+import { resolveHeads } from '../../retrieval/supersession.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -929,6 +930,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             query: body.query,
             limit: body.limit ?? 20,
             platformSource,
+            mode: 'search',
           });
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
@@ -975,6 +977,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             query: body.query,
             limit: body.limit ?? 10,
             platformSource,
+            mode: 'context',
           });
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
@@ -1026,7 +1029,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           assertProjectAllowed(projectId);
           // Same ranking as POST /v1/search — hybrid by default (see
           // resolveSearchResults), so MCP recall and REST search agree.
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null });
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'search' });
           // Audit the read, same as POST /v1/search — the MCP path is no exception.
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'search', via: 'mcp', query, limit,
@@ -1036,7 +1039,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         },
         context: async ({ projectId, query, limit }) => {
           assertProjectAllowed(projectId);
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null });
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'context' });
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'context', via: 'mcp', query, limit,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
@@ -1277,11 +1280,103 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     query: string;
     limit: number;
     platformSource: string | null;
+    mode: 'search' | 'context';
   }): Promise<PostgresObservation[]> {
     const repo = new PostgresObservationRepository(this.options.pool);
-    return this.searchHybridEnabled()
-      ? repo.hybridSearch(input)
-      : repo.search(input);
+    const ranked = this.searchHybridEnabled()
+      ? await repo.hybridSearch(input)
+      : await repo.search(input);
+    try {
+      return await this.applySupersession(ranked, input.mode, { teamId: input.teamId, projectId: input.projectId });
+    } catch (err) {
+      logger.warn('SYSTEM', 'supersession resolution failed; returning ranked results', {}, err instanceof Error ? err : new Error(String(err)));
+      return ranked;
+    }
+  }
+
+  private async applySupersession(
+    ranked: PostgresObservation[],
+    mode: 'search' | 'context',
+    scope: { teamId: string; projectId?: string },
+  ): Promise<PostgresObservation[]> {
+    if (ranked.length === 0) return ranked;
+    const heads = await resolveHeads(this.options.pool, ranked.map(r => r.id), scope);
+    const byId = new Map(ranked.map(r => [r.id, r]));
+    const needHead = new Set<string>();
+    for (const r of ranked) {
+      const h = heads.get(r.id)!;
+      if (h !== r.id && !byId.has(h)) needHead.add(h);
+    }
+    const fetched = await this.fetchObservationsByIds([...needHead], scope);
+    for (const f of fetched) byId.set(f.id, f);
+
+    if (mode === 'context') {
+      const seen = new Set<string>();
+      const out: PostgresObservation[] = [];
+      for (const r of ranked) {
+        const head = byId.get(heads.get(r.id)!) ?? r;
+        if (seen.has(head.id)) continue;
+        seen.add(head.id);
+        out.push(head);
+      }
+      return out;
+    }
+    // search: annotate + append missing heads right after their child
+    const out: PostgresObservation[] = [];
+    const emitted = new Set<string>();
+    for (const r of ranked) {
+      const headId = heads.get(r.id)!;
+      const item = headId !== r.id ? { ...r, supersededBy: headId } : r;
+      if (!emitted.has(item.id)) { out.push(item); emitted.add(item.id); }
+      if (headId !== r.id && !emitted.has(headId)) {
+        const h = byId.get(headId);
+        if (h) { out.push(h); emitted.add(headId); }
+      }
+    }
+    return out;
+  }
+
+  private async fetchObservationsByIds(
+    ids: string[],
+    scope: { teamId: string; projectId?: string },
+  ): Promise<PostgresObservation[]> {
+    if (ids.length === 0) return [];
+    const args: unknown[] = [ids, scope.teamId];
+    let projClause = '';
+    if (scope.projectId) { projClause = ' AND project_id = $3'; args.push(scope.projectId); }
+    const { rows } = await this.options.pool.query<{
+      id: string; project_id: string; team_id: string; server_session_id: string | null;
+      kind: string; content: string; generation_key: string | null; metadata: unknown;
+      embedding: unknown | null; created_by_job_id: string | null; obs_type: string | null;
+      lifecycle_state: string; supersedes: string | null; quality: number | null;
+      embedding_vec: number[] | string | null; created_at: Date; updated_at: Date;
+    }>(
+      `SELECT * FROM observations WHERE id = ANY($1) AND team_id = $2${projClause}`,
+      args,
+    );
+    return rows.map(row => ({
+      id: row.id,
+      projectId: row.project_id,
+      teamId: row.team_id,
+      serverSessionId: row.server_session_id,
+      kind: row.kind,
+      content: row.content,
+      generationKey: row.generation_key,
+      metadata: (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>,
+      embedding: row.embedding as import('../../../storage/postgres/utils.js').JsonValue | null,
+      createdByJobId: row.created_by_job_id,
+      obsType: row.obs_type,
+      lifecycleState: row.lifecycle_state,
+      supersedes: row.supersedes,
+      quality: row.quality,
+      embeddingVec: row.embedding_vec == null
+        ? null
+        : (typeof row.embedding_vec === 'string'
+          ? (row.embedding_vec as string).slice(1, -1).split(',').map(Number)
+          : row.embedding_vec as number[]),
+      createdAtEpoch: row.created_at instanceof Date ? row.created_at.getTime() : Number(row.created_at),
+      updatedAtEpoch: row.updated_at instanceof Date ? row.updated_at.getTime() : Number(row.updated_at),
+    }));
   }
 
   private async loadScopedById<T>(
@@ -1989,6 +2084,7 @@ function serializeObservation(observation: {
   metadata: Record<string, unknown>;
   createdAtEpoch: number;
   updatedAtEpoch: number;
+  supersededBy?: string | null;
 }): Record<string, unknown> {
   return {
     id: observation.id,
@@ -2000,6 +2096,7 @@ function serializeObservation(observation: {
     metadata: observation.metadata,
     createdAtEpoch: observation.createdAtEpoch,
     updatedAtEpoch: observation.updatedAtEpoch,
+    ...(observation.supersededBy ? { supersededBy: observation.supersededBy } : {}),
   };
 }
 

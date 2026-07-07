@@ -36,6 +36,8 @@ export interface PostgresObservation {
   embeddingVec: number[] | null;
   createdAtEpoch: number;
   updatedAtEpoch: number;
+  /** Response-only: set by the supersession-chain read path; never stored. */
+  supersededBy?: string | null;
 }
 
 export interface PostgresObservationSource {
