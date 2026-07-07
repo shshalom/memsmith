@@ -1,4 +1,4 @@
-# Claude-Mem OpenClaw Plugin — Setup Guide
+# MemSmith OpenClaw Plugin — Setup Guide
 
 This guide walks through setting up the memsmith plugin on an OpenClaw gateway. By the end, your agents will have persistent memory across sessions via system prompt context injection, and optionally a real-time observation feed streaming to a messaging channel.
 
@@ -40,13 +40,13 @@ After installation, skip to [Step 4: Restart the Gateway and Verify](#step-4-res
 
 The steps below are for manual installation if you prefer not to use the automated installer, or need to troubleshoot individual steps.
 
-### Step 1: Clone the Claude-Mem Repo
+### Step 1: Clone the MemSmith Repo
 
 First, clone the memsmith repository to a location accessible by your OpenClaw gateway. This gives you the worker service source and the plugin code.
 
 ```bash
 cd /opt  # or wherever you want to keep it
-git clone https://github.com/thedotmack/memsmith.git
+git clone https://github.com/shshalom/memsmith.git
 cd memsmith
 npm install
 npm run build
@@ -76,10 +76,10 @@ curl http://localhost:37777/api/health
 
 #### If Claude Code has memsmith installed
 
-If memsmith is installed as a Claude Code plugin (at `~/.claude/plugins/marketplaces/thedotmack/`), start the worker from that installation:
+If memsmith is installed as a Claude Code plugin (at `~/.claude/plugins/marketplaces/shshalom/`), start the worker from that installation:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/thedotmack
+cd ~/.claude/plugins/marketplaces/shshalom
 npm run worker:restart
 ```
 
@@ -154,10 +154,10 @@ Restart your OpenClaw gateway so it picks up the new plugin configuration. After
 [memsmith] OpenClaw plugin loaded — v1.0.0 (worker: 127.0.0.1:37777)
 ```
 
-If you see this, the plugin is loaded. You can also verify by running `/claude_mem_status` in any OpenClaw chat:
+If you see this, the plugin is loaded. You can also verify by running `/memsmith_status` in any OpenClaw chat:
 
 ```
-Claude-Mem Worker Status
+MemSmith Worker Status
 Status: ok
 Port: 37777
 Active sessions: 0
@@ -190,7 +190,7 @@ The observation feed connects to the memsmith worker's SSE (Server-Sent Events) 
 Every time memsmith creates a new observation from your agent's tool usage, a message like this appears in your channel:
 
 ```
-🧠 Claude-Mem Observation
+🧠 MemSmith Observation
 **Implemented retry logic for API client**
 Added exponential backoff with configurable max retries to handle transient failures
 ```
@@ -327,10 +327,10 @@ Restart the gateway. Check the logs for these three lines in order:
 [memsmith] Connected to SSE stream
 ```
 
-Then run `/claude_mem_feed` in any OpenClaw chat:
+Then run `/memsmith_feed` in any OpenClaw chat:
 
 ```
-Claude-Mem Observation Feed
+MemSmith Observation Feed
 Enabled: yes
 Channel: telegram
 Target: 123456789
@@ -343,31 +343,31 @@ If `Connection` shows `connected`, you're done. Have an agent do some work and w
 
 The plugin registers two commands:
 
-### /claude_mem_status
+### /memsmith_status
 
 Reports worker health and current session state.
 
 ```
-/claude_mem_status
+/memsmith_status
 ```
 
 Output:
 ```
-Claude-Mem Worker Status
+MemSmith Worker Status
 Status: ok
 Port: 37777
 Active sessions: 2
 Observation feed: connected
 ```
 
-### /claude_mem_feed
+### /memsmith_feed
 
 Shows observation feed status. Accepts optional `on`/`off` argument.
 
 ```
-/claude_mem_feed          — show status
-/claude_mem_feed on       — request enable (update config to persist)
-/claude_mem_feed off      — request disable (update config to persist)
+/memsmith_feed          — show status
+/memsmith_feed on       — request enable (update config to persist)
+/memsmith_feed off      — request disable (update config to persist)
 ```
 
 ## How It All Works
@@ -382,7 +382,7 @@ OpenClaw Gateway
   └── gateway_start ────────→ Reset session tracking + context cache
                     │
                     ▼
-         Claude-Mem Worker (localhost:37777)
+         MemSmith Worker (localhost:37777)
            ├── POST /api/sessions/init
            ├── POST /api/sessions/observations
            ├── POST /api/sessions/summarize
@@ -418,7 +418,7 @@ A background service connects to the worker's SSE stream and forwards `new_obser
 | Problem | What to check |
 |---------|---------------|
 | Worker health check fails | Is bun installed? (`bun --version`). Is something else on port 37777? (`lsof -i :37777`). Try running directly: `bun plugin/scripts/worker-service.cjs start` |
-| Worker started from Claude Code install but not responding | Check `cd ~/.claude/plugins/marketplaces/thedotmack && npm run worker:status`. May need `npm run worker:restart`. |
+| Worker started from Claude Code install but not responding | Check `cd ~/.claude/plugins/marketplaces/shshalom && npm run worker:status`. May need `npm run worker:restart`. |
 | Worker started from cloned repo but not responding | Check `cd /path/to/memsmith && npm run worker:status`. Make sure you ran `npm install && npm run build` first. |
 | No context in agent system prompt | Check that `syncMemoryFile` is not set to `false`. Check that the agent's ID is not in `syncMemoryFileExclude`. Verify the worker is running and has observations. |
 | Observations not being recorded | Check gateway logs for `[memsmith]` messages. The worker must be running and reachable on localhost:37777. |

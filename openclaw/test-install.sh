@@ -484,7 +484,7 @@ for fn in find_openclaw check_openclaw install_plugin configure_memory_slot; do
   fi
 done
 
-assert_contains "$CLAUDE_MEM_REPO" "github.com/thedotmack/memsmith" "CLAUDE_MEM_REPO points to correct repository"
+assert_contains "$MEMSMITH_REPO" "github.com/shshalom/memsmith" "MEMSMITH_REPO points to correct repository"
 
 for fn in setup_ai_provider write_settings mask_api_key; do
   if declare -f "$fn" &>/dev/null; then
@@ -545,20 +545,20 @@ test_write_settings_new_file() {
   assert_file_exists "$settings_file" "settings.json created at ~/.memsmith/settings.json"
 
   local provider
-  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_PROVIDER);")"
-  assert_eq "claude" "$provider" "CLAUDE_MEM_PROVIDER set to claude"
+  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_PROVIDER);")"
+  assert_eq "claude" "$provider" "MEMSMITH_PROVIDER set to claude"
 
   local auth_method
-  auth_method="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_CLAUDE_AUTH_METHOD);")"
-  assert_eq "cli" "$auth_method" "CLAUDE_MEM_CLAUDE_AUTH_METHOD set to cli for Claude provider"
+  auth_method="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_CLAUDE_AUTH_METHOD);")"
+  assert_eq "cli" "$auth_method" "MEMSMITH_CLAUDE_AUTH_METHOD set to cli for Claude provider"
 
   local worker_port
-  worker_port="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_WORKER_PORT);")"
-  assert_eq "37777" "$worker_port" "CLAUDE_MEM_WORKER_PORT defaults to 37777"
+  worker_port="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_WORKER_PORT);")"
+  assert_eq "37777" "$worker_port" "MEMSMITH_WORKER_PORT defaults to 37777"
 
   local model
-  model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_MODEL);")"
-  assert_eq "claude-sonnet-4-6" "$model" "CLAUDE_MEM_MODEL defaults to claude-sonnet-4-6"
+  model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_MODEL);")"
+  assert_eq "claude-sonnet-4-6" "$model" "MEMSMITH_MODEL defaults to claude-sonnet-4-6"
 
   HOME="$ORIGINAL_HOME"
   rm -rf "$fake_home"
@@ -578,15 +578,15 @@ test_write_settings_gemini() {
   local settings_file="${fake_home}/.memsmith/settings.json"
 
   local provider
-  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_PROVIDER);")"
-  assert_eq "gemini" "$provider" "Gemini: CLAUDE_MEM_PROVIDER set to gemini"
+  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_PROVIDER);")"
+  assert_eq "gemini" "$provider" "Gemini: MEMSMITH_PROVIDER set to gemini"
 
   local api_key
-  api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_GEMINI_API_KEY);")"
+  api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_GEMINI_API_KEY);")"
   assert_eq "test-gemini-key-1234" "$api_key" "Gemini: API key stored in settings"
 
   local gemini_model
-  gemini_model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_GEMINI_MODEL);")"
+  gemini_model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_GEMINI_MODEL);")"
   assert_eq "gemini-2.5-flash-lite" "$gemini_model" "Gemini: model defaults to gemini-2.5-flash-lite"
 
   HOME="$ORIGINAL_HOME"
@@ -607,15 +607,15 @@ test_write_settings_openrouter() {
   local settings_file="${fake_home}/.memsmith/settings.json"
 
   local provider
-  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_PROVIDER);")"
-  assert_eq "openrouter" "$provider" "OpenRouter: CLAUDE_MEM_PROVIDER set to openrouter"
+  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_PROVIDER);")"
+  assert_eq "openrouter" "$provider" "OpenRouter: MEMSMITH_PROVIDER set to openrouter"
 
   local api_key
-  api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_OPENROUTER_API_KEY);")"
+  api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_OPENROUTER_API_KEY);")"
   assert_eq "sk-or-test-key-5678" "$api_key" "OpenRouter: API key stored in settings"
 
   local or_model
-  or_model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_OPENROUTER_MODEL);")"
+  or_model="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_OPENROUTER_MODEL);")"
   assert_eq "xiaomi/mimo-v2-flash:free" "$or_model" "OpenRouter: model defaults to xiaomi/mimo-v2-flash:free"
 
   HOME="$ORIGINAL_HOME"
@@ -633,10 +633,10 @@ test_write_settings_preserves_existing() {
   local settings_file="${fake_home}/.memsmith/settings.json"
   node -e "
     const settings = {
-      CLAUDE_MEM_PROVIDER: 'gemini',
-      CLAUDE_MEM_GEMINI_API_KEY: 'old-key',
-      CLAUDE_MEM_WORKER_PORT: '38888',
-      CLAUDE_MEM_LOG_LEVEL: 'DEBUG'
+      MEMSMITH_PROVIDER: 'gemini',
+      MEMSMITH_GEMINI_API_KEY: 'old-key',
+      MEMSMITH_WORKER_PORT: '38888',
+      MEMSMITH_LOG_LEVEL: 'DEBUG'
     };
     require('fs').writeFileSync('${settings_file}', JSON.stringify(settings, null, 2));
   "
@@ -646,15 +646,15 @@ test_write_settings_preserves_existing() {
   write_settings >/dev/null 2>&1
 
   local provider
-  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_PROVIDER);")"
+  provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_PROVIDER);")"
   assert_eq "claude" "$provider" "Preserve: provider updated to new selection"
 
   local custom_port
-  custom_port="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_WORKER_PORT);")"
+  custom_port="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_WORKER_PORT);")"
   assert_eq "38888" "$custom_port" "Preserve: existing custom WORKER_PORT preserved"
 
   local log_level
-  log_level="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_LOG_LEVEL);")"
+  log_level="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_LOG_LEVEL);")"
   assert_eq "DEBUG" "$log_level" "Preserve: existing custom LOG_LEVEL preserved"
 
   HOME="$ORIGINAL_HOME"
@@ -694,21 +694,21 @@ test_write_settings_complete_schema() {
 test_write_settings_complete_schema
 
 echo ""
-echo "=== find_claude_mem_install_dir() ==="
+echo "=== find_memsmith_install_dir() ==="
 
 test_find_install_dir_not_found() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
-  if find_claude_mem_install_dir 2>/dev/null; then
-    test_fail "find_claude_mem_install_dir should return 1 when not found"
+  if find_memsmith_install_dir 2>/dev/null; then
+    test_fail "find_memsmith_install_dir should return 1 when not found"
   else
-    test_pass "find_claude_mem_install_dir returns 1 when not found"
+    test_pass "find_memsmith_install_dir returns 1 when not found"
   fi
 
-  assert_eq "" "$CLAUDE_MEM_INSTALL_DIR" "CLAUDE_MEM_INSTALL_DIR is empty when not found"
+  assert_eq "" "$MEMSMITH_INSTALL_DIR" "MEMSMITH_INSTALL_DIR is empty when not found"
 
   HOME="$ORIGINAL_HOME"
   rm -rf "$fake_home"
@@ -720,16 +720,16 @@ test_find_install_dir_openclaw_extensions() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
   mkdir -p "${fake_home}/.openclaw/extensions/memsmith/plugin/scripts"
   touch "${fake_home}/.openclaw/extensions/memsmith/plugin/scripts/worker-service.cjs"
 
-  if find_claude_mem_install_dir 2>/dev/null; then
-    test_pass "find_claude_mem_install_dir finds dir in ~/.openclaw/extensions/memsmith/"
-    assert_eq "${fake_home}/.openclaw/extensions/memsmith" "$CLAUDE_MEM_INSTALL_DIR" "CLAUDE_MEM_INSTALL_DIR set correctly for openclaw extensions"
+  if find_memsmith_install_dir 2>/dev/null; then
+    test_pass "find_memsmith_install_dir finds dir in ~/.openclaw/extensions/memsmith/"
+    assert_eq "${fake_home}/.openclaw/extensions/memsmith" "$MEMSMITH_INSTALL_DIR" "MEMSMITH_INSTALL_DIR set correctly for openclaw extensions"
   else
-    test_fail "find_claude_mem_install_dir should find dir in ~/.openclaw/extensions/memsmith/"
+    test_fail "find_memsmith_install_dir should find dir in ~/.openclaw/extensions/memsmith/"
   fi
 
   HOME="$ORIGINAL_HOME"
@@ -742,16 +742,16 @@ test_find_install_dir_marketplace() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
-  mkdir -p "${fake_home}/.claude/plugins/marketplaces/thedotmack/plugin/scripts"
-  touch "${fake_home}/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"
+  mkdir -p "${fake_home}/.claude/plugins/marketplaces/shshalom/plugin/scripts"
+  touch "${fake_home}/.claude/plugins/marketplaces/shshalom/plugin/scripts/worker-service.cjs"
 
-  if find_claude_mem_install_dir 2>/dev/null; then
-    test_pass "find_claude_mem_install_dir finds dir in marketplace path"
-    assert_eq "${fake_home}/.claude/plugins/marketplaces/thedotmack" "$CLAUDE_MEM_INSTALL_DIR" "CLAUDE_MEM_INSTALL_DIR set correctly for marketplace"
+  if find_memsmith_install_dir 2>/dev/null; then
+    test_pass "find_memsmith_install_dir finds dir in marketplace path"
+    assert_eq "${fake_home}/.claude/plugins/marketplaces/shshalom" "$MEMSMITH_INSTALL_DIR" "MEMSMITH_INSTALL_DIR set correctly for marketplace"
   else
-    test_fail "find_claude_mem_install_dir should find dir in marketplace path"
+    test_fail "find_memsmith_install_dir should find dir in marketplace path"
   fi
 
   HOME="$ORIGINAL_HOME"
@@ -767,7 +767,7 @@ test_start_worker_no_install_dir() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
   local output
   if output="$(start_worker 2>&1)"; then
@@ -866,7 +866,7 @@ test_print_completion_summary_openrouter
 echo ""
 echo "=== New function existence ==="
 
-for fn in find_claude_mem_install_dir start_worker verify_health print_completion_summary; do
+for fn in find_memsmith_install_dir start_worker verify_health print_completion_summary; do
   if declare -f "$fn" &>/dev/null; then
     test_pass "Function ${fn}() is defined"
   else
@@ -1609,11 +1609,11 @@ test_write_settings_via_provider_flag() {
   if [[ "$result" == *"DONE"* ]]; then
     local settings_file="${fake_home}/.memsmith/settings.json"
     local provider
-    provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_PROVIDER);")"
+    provider="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_PROVIDER);")"
     assert_eq "gemini" "$provider" "--provider flag: settings.json has provider=gemini"
 
     local api_key
-    api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.CLAUDE_MEM_GEMINI_API_KEY);")"
+    api_key="$(node -e "const s = JSON.parse(require('fs').readFileSync('${settings_file}','utf8')); console.log(s.MEMSMITH_GEMINI_API_KEY);")"
     assert_eq "test-end-to-end-key" "$api_key" "--provider flag: settings.json has correct API key"
   else
     test_fail "--provider flag: write_settings failed"
@@ -1688,46 +1688,46 @@ test_upgrade_not_set_by_default() {
 test_upgrade_not_set_by_default
 
 echo ""
-echo "=== is_claude_mem_installed() ==="
+echo "=== is_memsmith_installed() ==="
 
-test_is_claude_mem_installed_found() {
+test_is_memsmith_installed_found() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
   mkdir -p "${fake_home}/.openclaw/extensions/memsmith/plugin/scripts"
   touch "${fake_home}/.openclaw/extensions/memsmith/plugin/scripts/worker-service.cjs"
 
-  if is_claude_mem_installed; then
-    test_pass "is_claude_mem_installed returns true when plugin exists"
+  if is_memsmith_installed; then
+    test_pass "is_memsmith_installed returns true when plugin exists"
   else
-    test_fail "is_claude_mem_installed should return true when plugin exists"
+    test_fail "is_memsmith_installed should return true when plugin exists"
   fi
 
   HOME="$ORIGINAL_HOME"
   rm -rf "$fake_home"
 }
 
-test_is_claude_mem_installed_found
+test_is_memsmith_installed_found
 
-test_is_claude_mem_installed_not_found() {
+test_is_memsmith_installed_not_found() {
   local fake_home
   fake_home="$(mktemp -d)"
   HOME="$fake_home"
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
 
-  if is_claude_mem_installed; then
-    test_fail "is_claude_mem_installed should return false when plugin not found"
+  if is_memsmith_installed; then
+    test_fail "is_memsmith_installed should return false when plugin not found"
   else
-    test_pass "is_claude_mem_installed returns false when plugin not found"
+    test_pass "is_memsmith_installed returns false when plugin not found"
   fi
 
   HOME="$ORIGINAL_HOME"
   rm -rf "$fake_home"
 }
 
-test_is_claude_mem_installed_not_found
+test_is_memsmith_installed_not_found
 
 echo ""
 echo "=== check_git() ==="
@@ -1910,15 +1910,15 @@ test_main_calls_check_port() {
 
 test_main_calls_check_port
 
-test_main_calls_is_claude_mem_installed() {
-  if grep -q 'is_claude_mem_installed' "$INSTALL_SCRIPT"; then
-    test_pass "main() calls is_claude_mem_installed for upgrade detection"
+test_main_calls_is_memsmith_installed() {
+  if grep -q 'is_memsmith_installed' "$INSTALL_SCRIPT"; then
+    test_pass "main() calls is_memsmith_installed for upgrade detection"
   else
-    test_fail "main() should call is_claude_mem_installed"
+    test_fail "main() should call is_memsmith_installed"
   fi
 }
 
-test_main_calls_is_claude_mem_installed
+test_main_calls_is_memsmith_installed
 
 test_main_references_upgrade_mode() {
   if grep -q 'UPGRADE_MODE' "$INSTALL_SCRIPT"; then
@@ -1982,7 +1982,7 @@ test_install_sh_has_set_euo_pipefail() {
 test_install_sh_has_set_euo_pipefail
 
 test_install_sh_has_stable_url_in_usage() {
-  if grep -q 'raw.githubusercontent.com/thedotmack/memsmith/main/openclaw/install.sh' "$INSTALL_SCRIPT"; then
+  if grep -q 'raw.githubusercontent.com/shshalom/memsmith/main/openclaw/install.sh' "$INSTALL_SCRIPT"; then
     test_pass "install.sh usage comment has stable raw.githubusercontent.com URL"
   else
     test_fail "install.sh should reference stable raw.githubusercontent.com URL in usage"

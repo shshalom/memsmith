@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "claude-mem-plugin",
+      "name": "memsmith-plugin",
       "dependencies": {
         "@derekstride/tree-sitter-sql": "^0.3.11",
         "@huggingface/transformers": "^4.2.0",

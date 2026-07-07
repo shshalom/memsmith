@@ -178,8 +178,8 @@ check_port_37777() {
   return 1
 }
 
-is_claude_mem_installed() {
-  if find_claude_mem_install_dir 2>/dev/null; then
+is_memsmith_installed() {
+  if find_memsmith_install_dir 2>/dev/null; then
     return 0
   fi
   return 1
@@ -555,8 +555,8 @@ run_openclaw() {
   fi
 }
 
-CLAUDE_MEM_REPO="https://github.com/thedotmack/memsmith.git"
-CLAUDE_MEM_BRANCH="${CLI_BRANCH:-main}"
+MEMSMITH_REPO="https://github.com/shshalom/memsmith.git"
+MEMSMITH_BRANCH="${CLI_BRANCH:-main}"
 PLUGIN_FRESHLY_INSTALLED=""
 
 resolve_extension_dir() {
@@ -591,14 +591,14 @@ resolve_extension_dir() {
   echo "${HOME}/.openclaw/extensions/memsmith"
 }
 
-CLAUDE_MEM_EXTENSION_DIR=""
+MEMSMITH_EXTENSION_DIR=""
 
 install_plugin() {
   check_git
 
-  CLAUDE_MEM_EXTENSION_DIR="$(resolve_extension_dir)"
+  MEMSMITH_EXTENSION_DIR="$(resolve_extension_dir)"
 
-  local existing_plugin_dir="$CLAUDE_MEM_EXTENSION_DIR"
+  local existing_plugin_dir="$MEMSMITH_EXTENSION_DIR"
   if [[ -d "$existing_plugin_dir" ]]; then
     info "Removing existing memsmith plugin at ${existing_plugin_dir}..."
     rm -rf "$existing_plugin_dir"
@@ -608,8 +608,8 @@ install_plugin() {
   build_dir="$(mktemp -d)"
   register_cleanup_dir "$build_dir"
 
-  info "Cloning memsmith repository (branch: ${CLAUDE_MEM_BRANCH})..."
-  if ! git clone --depth 1 --branch "$CLAUDE_MEM_BRANCH" "$CLAUDE_MEM_REPO" "$build_dir/memsmith" 2>&1; then
+  info "Cloning memsmith repository (branch: ${MEMSMITH_BRANCH})..."
+  if ! git clone --depth 1 --branch "$MEMSMITH_BRANCH" "$MEMSMITH_REPO" "$build_dir/memsmith" 2>&1; then
     error "Failed to clone memsmith repository"
     error "Check your internet connection and try again."
     exit 1
@@ -650,8 +650,8 @@ install_plugin() {
       const configPath = process.env.INSTALLER_CONFIG_FILE;
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const entry = config?.plugins?.entries?.['memsmith'];
-      const allowHasClaudeMem = Array.isArray(config?.plugins?.allow) && config.plugins.allow.includes('memsmith');
-      if (entry || config?.plugins?.slots?.memory === 'memsmith' || allowHasClaudeMem) {
+      const allowHasMemSmith = Array.isArray(config?.plugins?.allow) && config.plugins.allow.includes('memsmith');
+      if (entry || config?.plugins?.slots?.memory === 'memsmith' || allowHasMemSmith) {
         // Save the config block so we can restore it after install
         process.stdout.write(JSON.stringify(entry?.config || {}));
         // Remove the stale entry so OpenClaw CLI can run
@@ -737,7 +737,7 @@ install_plugin() {
 
   success "memsmith plugin installed and enabled"
 
-  local extension_dir="$CLAUDE_MEM_EXTENSION_DIR"
+  local extension_dir="$MEMSMITH_EXTENSION_DIR"
   local repo_root="${build_dir}/memsmith"
 
   if [[ -d "$extension_dir" && -d "${repo_root}/plugin" ]]; then
@@ -971,51 +971,51 @@ write_settings() {
 
     // All defaults from SettingsDefaultsManager.ts
     const defaults = {
-      CLAUDE_MEM_MODEL: 'claude-sonnet-4-6',
-      CLAUDE_MEM_CONTEXT_OBSERVATIONS: '50',
-      CLAUDE_MEM_WORKER_PORT: '37777',
-      CLAUDE_MEM_WORKER_HOST: '127.0.0.1',
-      CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
-      CLAUDE_MEM_PROVIDER: 'claude',
-      CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'cli',
-      CLAUDE_MEM_GEMINI_API_KEY: '',
-      CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-      CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',
-      CLAUDE_MEM_OPENROUTER_API_KEY: '',
-      CLAUDE_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',
-      CLAUDE_MEM_OPENROUTER_SITE_URL: '',
-      CLAUDE_MEM_OPENROUTER_APP_NAME: 'memsmith',
-      CLAUDE_MEM_DATA_DIR: path.join(homedir, '.memsmith'),
-      CLAUDE_MEM_LOG_LEVEL: 'INFO',
-      CLAUDE_MEM_PYTHON_VERSION: '3.13',
+      MEMSMITH_MODEL: 'claude-sonnet-4-6',
+      MEMSMITH_CONTEXT_OBSERVATIONS: '50',
+      MEMSMITH_WORKER_PORT: '37777',
+      MEMSMITH_WORKER_HOST: '127.0.0.1',
+      MEMSMITH_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
+      MEMSMITH_PROVIDER: 'claude',
+      MEMSMITH_CLAUDE_AUTH_METHOD: 'cli',
+      MEMSMITH_GEMINI_API_KEY: '',
+      MEMSMITH_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+      MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: 'true',
+      MEMSMITH_OPENROUTER_API_KEY: '',
+      MEMSMITH_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',
+      MEMSMITH_OPENROUTER_SITE_URL: '',
+      MEMSMITH_OPENROUTER_APP_NAME: 'memsmith',
+      MEMSMITH_DATA_DIR: path.join(homedir, '.memsmith'),
+      MEMSMITH_LOG_LEVEL: 'INFO',
+      MEMSMITH_PYTHON_VERSION: '3.13',
       CLAUDE_CODE_PATH: '',
-      CLAUDE_MEM_MODE: 'code',
-      CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS: 'true',
-      CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS: 'true',
-      CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT: 'true',
-      CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT: 'true',
-      CLAUDE_MEM_CONTEXT_OBSERVATION_TYPES: 'bugfix,feature,refactor,discovery,decision,change',
-      CLAUDE_MEM_CONTEXT_OBSERVATION_CONCEPTS: 'how-it-works,why-it-exists,what-changed,problem-solution,gotcha,pattern,trade-off',
-      CLAUDE_MEM_CONTEXT_FULL_COUNT: '5',
-      CLAUDE_MEM_CONTEXT_FULL_FIELD: 'narrative',
-      CLAUDE_MEM_CONTEXT_SESSION_COUNT: '10',
-      CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
-      CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
-      CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',
-      CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-      CLAUDE_MEM_FOLDER_MD_EXCLUDE: '[]'
+      MEMSMITH_MODE: 'code',
+      MEMSMITH_CONTEXT_SHOW_READ_TOKENS: 'true',
+      MEMSMITH_CONTEXT_SHOW_WORK_TOKENS: 'true',
+      MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT: 'true',
+      MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT: 'true',
+      MEMSMITH_CONTEXT_OBSERVATION_TYPES: 'bugfix,feature,refactor,discovery,decision,change',
+      MEMSMITH_CONTEXT_OBSERVATION_CONCEPTS: 'how-it-works,why-it-exists,what-changed,problem-solution,gotcha,pattern,trade-off',
+      MEMSMITH_CONTEXT_FULL_COUNT: '5',
+      MEMSMITH_CONTEXT_FULL_FIELD: 'narrative',
+      MEMSMITH_CONTEXT_SESSION_COUNT: '10',
+      MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY: 'true',
+      MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE: 'false',
+      MEMSMITH_FOLDER_CLAUDEMD_ENABLED: 'false',
+      MEMSMITH_EXCLUDED_PROJECTS: '',
+      MEMSMITH_FOLDER_MD_EXCLUDE: '[]'
     };
 
     // Build provider-specific overrides safely from environment variables
-    const overrides = { CLAUDE_MEM_PROVIDER: provider };
+    const overrides = { MEMSMITH_PROVIDER: provider };
     if (provider === 'claude') {
-      overrides.CLAUDE_MEM_CLAUDE_AUTH_METHOD = 'cli';
+      overrides.MEMSMITH_CLAUDE_AUTH_METHOD = 'cli';
     } else if (provider === 'gemini') {
-      overrides.CLAUDE_MEM_GEMINI_API_KEY = apiKey;
-      overrides.CLAUDE_MEM_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+      overrides.MEMSMITH_GEMINI_API_KEY = apiKey;
+      overrides.MEMSMITH_GEMINI_MODEL = 'gemini-2.5-flash-lite';
     } else if (provider === 'openrouter') {
-      overrides.CLAUDE_MEM_OPENROUTER_API_KEY = apiKey;
-      overrides.CLAUDE_MEM_OPENROUTER_MODEL = 'xiaomi/mimo-v2-flash:free';
+      overrides.MEMSMITH_OPENROUTER_API_KEY = apiKey;
+      overrides.MEMSMITH_OPENROUTER_MODEL = 'xiaomi/mimo-v2-flash:free';
     }
 
     const settings = Object.assign(defaults, overrides);
@@ -1045,21 +1045,21 @@ write_settings() {
   success "Settings written to ${settings_file}"
 }
 
-CLAUDE_MEM_INSTALL_DIR=""
+MEMSMITH_INSTALL_DIR=""
 
-find_claude_mem_install_dir() {
+find_memsmith_install_dir() {
   local resolved_dir
   resolved_dir="$(resolve_extension_dir)"
   local -a search_paths=(
     "$resolved_dir"
     "${HOME}/.openclaw/extensions/memsmith"
-    "${HOME}/.claude/plugins/marketplaces/thedotmack"
+    "${HOME}/.claude/plugins/marketplaces/shshalom"
     "${HOME}/.openclaw/plugins/memsmith"
   )
 
   for candidate in "${search_paths[@]}"; do
     if [[ -f "${candidate}/plugin/scripts/worker-service.cjs" ]]; then
-      CLAUDE_MEM_INSTALL_DIR="$candidate"
+      MEMSMITH_INSTALL_DIR="$candidate"
       return 0
     fi
   done
@@ -1073,13 +1073,13 @@ find_claude_mem_install_dir() {
       local found
       found="$(find "$root" -name "worker-service.cjs" -path "*/plugin/scripts/*" 2>/dev/null | head -n 1)" || true
       if [[ -n "$found" ]]; then
-        CLAUDE_MEM_INSTALL_DIR="${found%/plugin/scripts/worker-service.cjs}"
+        MEMSMITH_INSTALL_DIR="${found%/plugin/scripts/worker-service.cjs}"
         return 0
       fi
     fi
   done
 
-  CLAUDE_MEM_INSTALL_DIR=""
+  MEMSMITH_INSTALL_DIR=""
   return 1
 }
 
@@ -1094,17 +1094,17 @@ WORKER_UPTIME=""
 start_worker() {
   info "Starting memsmith worker service..."
 
-  if ! find_claude_mem_install_dir; then
+  if ! find_memsmith_install_dir; then
     error "Cannot find memsmith plugin installation directory"
     error "Expected worker-service.cjs in one of:"
     error "  ~/.openclaw/extensions/memsmith/plugin/scripts/"
-    error "  ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/"
+    error "  ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/"
     error ""
     error "Try reinstalling the plugin and re-running this installer."
     return 1
   fi
 
-  local worker_script="${CLAUDE_MEM_INSTALL_DIR}/plugin/scripts/worker-service.cjs"
+  local worker_script="${MEMSMITH_INSTALL_DIR}/plugin/scripts/worker-service.cjs"
   local log_dir="${HOME}/.memsmith/logs"
   local log_date
   log_date="$(date +%Y-%m-%d)"
@@ -1119,7 +1119,7 @@ start_worker() {
     fi
   fi
 
-  CLAUDE_MEM_WORKER_PORT=37777 nohup "$BUN_PATH" "$worker_script" \
+  MEMSMITH_WORKER_PORT=37777 nohup "$BUN_PATH" "$worker_script" \
     >> "$log_file" 2>&1 &
   WORKER_PID=$!
 
@@ -1519,8 +1519,8 @@ main() {
   echo ""
   info "${COLOR_BOLD}[3/8]${COLOR_RESET} Installing memsmith plugin..."
 
-  if [[ "$UPGRADE_MODE" == "true" ]] && is_claude_mem_installed; then
-    success "memsmith already installed at ${CLAUDE_MEM_INSTALL_DIR}"
+  if [[ "$UPGRADE_MODE" == "true" ]] && is_memsmith_installed; then
+    success "memsmith already installed at ${MEMSMITH_INSTALL_DIR}"
     info "Upgrade mode: skipping clone/build/register, updating settings only"
   else
     install_plugin
@@ -1546,8 +1546,8 @@ main() {
     info "Checking if the existing service is healthy..."
     if verify_health; then
       local expected_version=""
-      if [[ -n "$CLAUDE_MEM_INSTALL_DIR" ]] || find_claude_mem_install_dir; then
-        expected_version="$(INSTALLER_PKG="${CLAUDE_MEM_INSTALL_DIR}/package.json" node -e "
+      if [[ -n "$MEMSMITH_INSTALL_DIR" ]] || find_memsmith_install_dir; then
+        expected_version="$(INSTALLER_PKG="${MEMSMITH_INSTALL_DIR}/package.json" node -e "
           try { process.stdout.write(JSON.parse(require('fs').readFileSync(process.env.INSTALLER_PKG, 'utf8')).version || ''); }
           catch(e) {}
         " 2>/dev/null)" || true
@@ -1629,7 +1629,7 @@ main() {
     else
       warn "Port 37777 is occupied but not responding to health checks"
       warn "Another process may be using this port. Stop it and re-run the installer,"
-      warn "or change CLAUDE_MEM_WORKER_PORT in ~/.memsmith/settings.json"
+      warn "or change MEMSMITH_WORKER_PORT in ~/.memsmith/settings.json"
     fi
   else
     if start_worker; then
