@@ -21,6 +21,7 @@ import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapt
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
+import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 
 // Phase 1d retains the persisted runtime literal `'server-beta'`. Renaming the
@@ -206,6 +207,16 @@ export class ServerService {
     // matches existing files and the `/` GET only matches the root, so this
     // never shadows an API route.
     server.registerRoutes(new ServerViewerRoutes());
+
+    // Team dashboard — the "only us" team views (lifecycle board, decision log
+    // with supersession lineage, blocked-on-whom, cost). Auth-gated by
+    // memories:read like the /v1 reads, reading the same shared Postgres store.
+    // Mounted on-by-default (safe: read-only, scoped). Registered AFTER /v1 +
+    // compat so its /dashboard/* data routes never shadow an API route.
+    server.registerRoutes(new DashboardRoutes({
+      db: this.graph.postgres.pool,
+      authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
+    }));
 
     server.finalizeRoutes();
 
