@@ -6,6 +6,7 @@
 // Scoped so a chain never crosses a team/project boundary; bounded by a depth cap
 // and a visited-set so a malformed cycle can never hang the walk.
 import type { PostgresQueryable } from '../../storage/postgres/utils.js';
+import { logger } from '../../utils/logger.js';
 
 export type SupersedeScope = { teamId: string; projectId?: string };
 
@@ -41,7 +42,7 @@ export async function resolveSupersessionHead(
     if (next === null) break;
     if (visited.has(next)) { // cycle
       // eslint-disable-next-line no-console
-      console.warn(`[supersession] cycle detected walking from ${startId} at ${next}`);
+      logger.warn('SYSTEM', 'supersession cycle detected', { startId, at: next });
       break;
     }
     visited.add(next);
@@ -69,7 +70,7 @@ export async function resolveHeads(
       if (memo.has(current)) { hitMemo = memo.get(current)!; break; }
       const next = await successorOf(db, current, scope);
       if (next === null) break;
-      if (visited.has(next)) { console.warn(`[supersession] cycle detected walking from ${id} at ${next}`); break; }
+      if (visited.has(next)) { logger.warn('SYSTEM', 'supersession cycle detected', { startId: id, at: next }); break; }
       visited.add(next); path.push(next); current = next;
     }
     const head = hitMemo ?? current;
