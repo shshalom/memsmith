@@ -212,17 +212,32 @@
     list.innerHTML = '';
     setStatus('decisions-status', 'Loading…');
     try {
-      const rows = await fetchJSON(apiUrl('/dashboard/decisions'));
-      setStatus('decisions-status', rows.length === 0 ? 'No decisions recorded.' : '');
-      for (const row of rows) {
+      const chains = await fetchJSON(apiUrl('/dashboard/decisions'));
+      setStatus('decisions-status', chains.length === 0 ? 'No decisions recorded.' : '');
+      for (const chain of chains) {
+        const row = chain.head;
+        const history = chain.history ?? [];
         const meta = row.metadata ?? {};
         const el = document.createElement('div');
         el.className = 'decision';
-        el.innerHTML = `
+        let inner = `
           <div class="decision-content">${escHtml(row.content ?? '')}</div>
           ${meta.why ? `<div class="decision-why">Why: ${escHtml(meta.why)}</div>` : ''}
           ${meta.rejected_alternatives ? `<div class="decision-rejected">Rejected: ${escHtml(Array.isArray(meta.rejected_alternatives) ? meta.rejected_alternatives.join(', ') : meta.rejected_alternatives)}</div>` : ''}
         `;
+        if (history.length > 0) {
+          inner += `<details style="margin-top:6px"><summary class="decision-why" style="cursor:pointer;user-select:none">superseded (${history.length})</summary>`;
+          for (const h of history) {
+            const hMeta = h.metadata ?? {};
+            inner += `<div class="card" style="margin-top:5px">
+              <div class="decision-content">${escHtml(h.content ?? '')}</div>
+              ${hMeta.why ? `<div class="decision-why">Why: ${escHtml(hMeta.why)}</div>` : ''}
+              <div class="card-meta">${escHtml(h.id ? h.id.slice(0, 8) : '')}</div>
+            </div>`;
+          }
+          inner += '</details>';
+        }
+        el.innerHTML = inner;
         list.appendChild(el);
       }
     } catch (e) {

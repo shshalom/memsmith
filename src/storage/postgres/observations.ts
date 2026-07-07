@@ -36,6 +36,8 @@ export interface PostgresObservation {
   embeddingVec: number[] | null;
   createdAtEpoch: number;
   updatedAtEpoch: number;
+  /** Response-only: set by the supersession-chain read path; never stored. */
+  supersededBy?: string | null;
 }
 
 export interface PostgresObservationSource {
@@ -49,7 +51,7 @@ export interface PostgresObservationSource {
   createdAtEpoch: number;
 }
 
-interface ObservationRow {
+export interface ObservationRow {
   id: string;
   project_id: string;
   team_id: string;
@@ -504,7 +506,7 @@ function parseVector(v: number[] | string | null): number[] | null {
   try { return JSON.parse(v) as number[]; } catch { return null; }
 }
 
-function mapObservationRow(row: ObservationRow): PostgresObservation {
+export function mapObservationRow(row: ObservationRow): PostgresObservation {
   return {
     id: row.id,
     projectId: row.project_id,

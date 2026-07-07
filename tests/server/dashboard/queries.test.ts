@@ -51,7 +51,7 @@ describe('dashboard queries', () => {
 
   it('decisionLog returns decisions with why', async () => {
     const log = await decisionLog(client, { teamId, projectId });
-    expect(log[0].metadata.why).toBe('joins');
+    expect(log[0].head.metadata.why).toBe('joins');
   });
 
   it('blockedOnWhom groups by blocker', async () => {
