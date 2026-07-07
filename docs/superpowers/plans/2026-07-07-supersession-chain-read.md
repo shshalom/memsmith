@@ -26,6 +26,15 @@
 - Create: `src/server/retrieval/supersession.ts`
 - Test: `tests/server/retrieval/supersession.test.ts`
 
+**Test-harness note (verified):** Postgres isolation helpers are exported from
+`tests/sdk/pg-isolation.ts` — import as
+`import { createIsolatedSchema, dropSchema, poolForSchema, quoteIdentifier } from '../../sdk/pg-isolation.js';`.
+Schema bootstrap uses `bootstrapServerPostgresSchema` from
+`src/storage/postgres/index.js`. Guard every DB test with
+`if (!process.env.CLAUDE_MEM_TEST_POSTGRES_URL) { it.skip(...); return; }` exactly as
+`tests/server/dashboard/queries.test.ts` does. Match that file's setup verbatim for
+pool creation and schema bootstrap; do not invent a `helpers/pg-pool.js`.
+
 **Interfaces:**
 - Consumes: `PostgresQueryable` from `src/storage/postgres/utils.js` (has `.query(sql, args)`).
 - Produces:
@@ -229,7 +238,13 @@ git commit -m "feat(server): supersession chain-walk primitive + batch resolver"
 
 **Files:**
 - Modify: `src/server/routes/v1/ServerV1PostgresRoutes.ts` (`resolveSearchResults` ~1274-1285; call sites 926, 972, 1029, 1039; `serializeObservation` ~1982)
-- Test: `tests/server/routes/v1/supersession-recall.test.ts`
+- Test: `tests/server/v1-supersession-recall.test.ts`
+
+**Test-harness note (verified):** v1 route tests live directly under `tests/server/`
+(e.g. `tests/server/v1-routes.test.ts`, `tests/server/runtime/server-mcp-routes.test.ts`)
+— there is NO `tests/server/routes/v1/` directory. Copy the app boot + Bearer-key
+seeding from `tests/server/v1-routes.test.ts`. Use the same `CLAUDE_MEM_TEST_POSTGRES_URL`
+skip guard.
 
 **Interfaces:**
 - Consumes: `resolveHeads` from `../../retrieval/supersession.js`; `PostgresObservation` (has `id`, `content`, and now an optional `supersededBy`).
@@ -237,7 +252,7 @@ git commit -m "feat(server): supersession chain-walk primitive + batch resolver"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/server/routes/v1/supersession-recall.test.ts`. Boot the routes/app the way the existing v1 route tests do (reuse their app-factory helper and auth-key seeding — match an existing `tests/server/routes/v1/*.test.ts`). Seed a superseded chain where ONLY the old observation matches the query terms, then assert:
+Create `tests/server/v1-supersession-recall.test.ts`. Boot the routes/app the way the existing v1 route tests do (reuse their app-factory helper and auth-key seeding — match an existing `tests/server/routes/v1/*.test.ts`). Seed a superseded chain where ONLY the old observation matches the query terms, then assert:
 
 ```ts
 // context mode: the superseded old hit is REPLACED by its head; old id absent, head id present
@@ -248,7 +263,7 @@ Write two tests (`/v1/context` collapses`, `/v1/search annotates`) plus a dedupe
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/routes/v1/supersession-recall.test.ts`
+Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
 Expected: FAIL — context returns the superseded row; search has no `supersededBy`.
 
 - [ ] **Step 3: Add `supersededBy` to the observation type + serializer**
@@ -312,14 +327,14 @@ Add `fetchObservationsByIds(ids, scope)` (scoped `SELECT * FROM observations WHE
 
 - [ ] **Step 5: Run the test, verify it passes**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/routes/v1/supersession-recall.test.ts`
+Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Rebuild bundle + commit**
 
 ```bash
 npm run build
-git add src/server/retrieval/supersession.ts src/server/routes/v1/ServerV1PostgresRoutes.ts src/storage/postgres/observations.ts tests/server/routes/v1/supersession-recall.test.ts plugin/scripts/server-service.cjs
+git add src/server/retrieval/supersession.ts src/server/routes/v1/ServerV1PostgresRoutes.ts src/storage/postgres/observations.ts tests/server/v1-supersession-recall.test.ts plugin/scripts/server-service.cjs
 git commit -m "feat(server): collapse superseded on /v1/context, annotate on /v1/search"
 ```
 
