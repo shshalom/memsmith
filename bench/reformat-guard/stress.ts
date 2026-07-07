@@ -22,11 +22,11 @@
 //   bun bench/reformat-guard/stress.ts
 //
 //   # Options (env):
-//   CLAUDE_MEM_STRESS_PROVIDER=ollama|openrouter|claude|gemini  (default ollama)
-//   CLAUDE_MEM_SERVER_MODEL=llama3.1:8b                          (provider model override)
-//   CLAUDE_MEM_OLLAMA_URL=http://localhost:11434/v1             (ollama base url)
-//   CLAUDE_MEM_STRESS_ITERATIONS=3                              (repeat the corpus N times; default 1)
-//   CLAUDE_MEM_STRESS_MAX_REFORMAT=1                            (guard bound to test; default 1, clamp 0-3)
+//   MEMSMITH_STRESS_PROVIDER=ollama|openrouter|claude|gemini  (default ollama)
+//   MEMSMITH_SERVER_MODEL=llama3.1:8b                          (provider model override)
+//   MEMSMITH_OLLAMA_URL=http://localhost:11434/v1             (ollama base url)
+//   MEMSMITH_STRESS_ITERATIONS=3                              (repeat the corpus N times; default 1)
+//   MEMSMITH_STRESS_MAX_REFORMAT=1                            (guard bound to test; default 1, clamp 0-3)
 //   OPENROUTER_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY    (for the cloud providers)
 
 import { ModeManager } from '../../src/services/domain/ModeManager.js';
@@ -58,13 +58,13 @@ function clampReformat(raw: number): number {
 }
 
 function buildProvider(): ServerGenerationProvider {
-  const kind = (process.env.CLAUDE_MEM_STRESS_PROVIDER ?? 'ollama').trim().toLowerCase();
-  const model = process.env.CLAUDE_MEM_SERVER_MODEL;
+  const kind = (process.env.MEMSMITH_STRESS_PROVIDER ?? 'ollama').trim().toLowerCase();
+  const model = process.env.MEMSMITH_SERVER_MODEL;
   if (kind === 'ollama') {
     const opts: { model?: string; baseUrl?: string; apiKey?: string } = {};
     opts.model = model ?? 'llama3.1:8b';
-    if (process.env.CLAUDE_MEM_OLLAMA_URL) opts.baseUrl = process.env.CLAUDE_MEM_OLLAMA_URL;
-    if (process.env.CLAUDE_MEM_OLLAMA_API_KEY) opts.apiKey = process.env.CLAUDE_MEM_OLLAMA_API_KEY;
+    if (process.env.MEMSMITH_OLLAMA_URL) opts.baseUrl = process.env.MEMSMITH_OLLAMA_URL;
+    if (process.env.MEMSMITH_OLLAMA_API_KEY) opts.apiKey = process.env.MEMSMITH_OLLAMA_API_KEY;
     return new OllamaObservationProvider(opts);
   }
   if (kind === 'openrouter') {
@@ -72,7 +72,7 @@ function buildProvider(): ServerGenerationProvider {
     if (!apiKey) throw new Error('OPENROUTER_API_KEY required for provider=openrouter');
     const opts: { apiKey: string; model?: string; baseUrl?: string } = { apiKey };
     if (model) opts.model = model;
-    if (process.env.CLAUDE_MEM_OPENROUTER_BASE_URL) opts.baseUrl = process.env.CLAUDE_MEM_OPENROUTER_BASE_URL;
+    if (process.env.MEMSMITH_OPENROUTER_BASE_URL) opts.baseUrl = process.env.MEMSMITH_OPENROUTER_BASE_URL;
     return new OpenRouterObservationProvider(opts);
   }
   if (kind === 'claude' || kind === 'anthropic') {
@@ -89,7 +89,7 @@ function buildProvider(): ServerGenerationProvider {
     if (model) opts.model = model;
     return new GeminiObservationProvider(opts);
   }
-  throw new Error(`Unknown CLAUDE_MEM_STRESS_PROVIDER: ${kind}`);
+  throw new Error(`Unknown MEMSMITH_STRESS_PROVIDER: ${kind}`);
 }
 
 interface Trial {
@@ -143,11 +143,11 @@ function pct(n: number, d: number): string {
 async function main(): Promise<void> {
   ModeManager.getInstance().loadMode('code'); // parseAgentXml + prompt builder need an active mode
   const provider = buildProvider();
-  const iterations = Math.max(1, Math.trunc(Number(process.env.CLAUDE_MEM_STRESS_ITERATIONS ?? 1)) || 1);
-  const maxReformat = clampReformat(Number(process.env.CLAUDE_MEM_STRESS_MAX_REFORMAT ?? 1));
-  const providerKind = (process.env.CLAUDE_MEM_STRESS_PROVIDER ?? 'ollama').toLowerCase();
+  const iterations = Math.max(1, Math.trunc(Number(process.env.MEMSMITH_STRESS_ITERATIONS ?? 1)) || 1);
+  const maxReformat = clampReformat(Number(process.env.MEMSMITH_STRESS_MAX_REFORMAT ?? 1));
+  const providerKind = (process.env.MEMSMITH_STRESS_PROVIDER ?? 'ollama').toLowerCase();
 
-  console.log(`\nReformat-guard stress — provider=${providerKind} model=${process.env.CLAUDE_MEM_SERVER_MODEL ?? '(default)'} iterations=${iterations} maxReformat=${maxReformat}`);
+  console.log(`\nReformat-guard stress — provider=${providerKind} model=${process.env.MEMSMITH_SERVER_MODEL ?? '(default)'} iterations=${iterations} maxReformat=${maxReformat}`);
   console.log(`Corpus: ${EVENT_PAYLOADS.length} events × ${iterations} = ${EVENT_PAYLOADS.length * iterations} trials\n`);
 
   const trials: Trial[] = [];
@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     console.log(`\n  ${errored} provider error(s) (network/rate-limit — NOT format failures; excluded from rates):`);
     for (const t of trials.filter(x => x.error).slice(0, 5)) console.log(`    - ${t.label}: ${t.error}`);
   }
-  console.log(`\nInterpretation: compare "First-shot valid" (what you'd ship with CLAUDE_MEM_REFORMAT_RETRIES=0)`);
+  console.log(`\nInterpretation: compare "First-shot valid" (what you'd ship with MEMSMITH_REFORMAT_RETRIES=0)`);
   console.log(`vs "Final valid" (with the guard). A large gap = the guard is earning its keep; a low`);
   console.log(`"Final valid" even with the guard = consider a higher retry bound or the repair path.\n`);
 }

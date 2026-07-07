@@ -44,8 +44,8 @@ dataset or write a small conversion script before running the harness.
 | Variable | Description |
 |---|---|
 | `LME_DATASET_PATH` | Absolute path to the LongMemEval-S JSON file. |
-| `CLAUDE_MEM_TEST_POSTGRES_URL` | Postgres 16 + pgvector connection string (e.g. `postgresql://user:pass@localhost:5432/lme_bench`). The harness will create its own schema tables. |
-| `CLAUDE_MEM_RRF_K` | (Optional) RRF constant k, default 60. Tune this if R@5 is below bar. |
+| `MEMSMITH_TEST_POSTGRES_URL` | Postgres 16 + pgvector connection string (e.g. `postgresql://user:pass@localhost:5432/lme_bench`). The harness will create its own schema tables. |
+| `MEMSMITH_RRF_K` | (Optional) RRF constant k, default 60. Tune this if R@5 is below bar. |
 
 ---
 
@@ -53,7 +53,7 @@ dataset or write a small conversion script before running the harness.
 
 ```bash
 LME_DATASET_PATH=/path/to/longmemeval-s.json \
-CLAUDE_MEM_TEST_POSTGRES_URL=postgresql://user:pass@localhost:5432/lme_bench \
+MEMSMITH_TEST_POSTGRES_URL=postgresql://user:pass@localhost:5432/lme_bench \
 /Users/shwaits/.bun/bin/bun run bench/longmemeval/run.ts
 ```
 
@@ -77,7 +77,7 @@ The runner will:
 
 - **R@5 ≥ 0.90** → Sprint 3 is unblocked. Proceed to building differentiators.
 - **R@5 < 0.90** → Tune and re-run. Knobs to try:
-  - `CLAUDE_MEM_RRF_K` (lower = stronger BM25/vector bias)
+  - `MEMSMITH_RRF_K` (lower = stronger BM25/vector bias)
   - RRF weight ratio (vector vs. FTS) in `hybridSearch()`
   - Chunk size / overlap at ingest time
 - **R@5 stays materially below 0.952 after tuning** → Escalate the

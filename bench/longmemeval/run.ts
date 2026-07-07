@@ -30,10 +30,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const dbUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+  const dbUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
   if (!dbUrl) {
     console.error(
-      'Error: CLAUDE_MEM_TEST_POSTGRES_URL is not set.\n' +
+      'Error: MEMSMITH_TEST_POSTGRES_URL is not set.\n' +
         'Provide a Postgres 16 + pgvector connection string.\n' +
         'See bench/longmemeval/README.md for full instructions.',
     );
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
     }
 
     // hybridSearch embeds the query internally and reads RRF K from
-    // CLAUDE_MEM_RRF_K (default 60) via combineRanks.
+    // MEMSMITH_RRF_K (default 60) via combineRanks.
     const results = await repo.hybridSearch({ projectId, teamId, query: item.question, limit: 10 });
     const retrievedIds = results.map((r: { id: string }) => r.id);
     const gold = item.answer_session_ids.map(nsId);
