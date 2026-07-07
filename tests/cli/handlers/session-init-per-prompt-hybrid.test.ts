@@ -415,6 +415,9 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
         throw new Error('handler should not throw, but got: ' + e.message);
       }
       if (!result || !result.continue) throw new Error('handler must return { continue: true } even on server error: ' + JSON.stringify(result));
+      if (result.hookSpecificOutput?.additionalContext !== 'worker fallback after error') {
+        throw new Error('expected worker fallback context after server error, got: ' + JSON.stringify(result.hookSpecificOutput?.additionalContext));
+      }
     `;
 
     const result = Bun.spawnSync({
