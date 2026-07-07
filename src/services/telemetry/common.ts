@@ -14,18 +14,18 @@ const packageVersion =
 /**
  * Publishable PostHog project token (phc_...). Publishable tokens are safe to
  * embed: the capture endpoints are public POST-only ingestion.
- * `CLAUDE_MEM_TELEMETRY_KEY` always overrides this constant.
+ * `MEMSMITH_TELEMETRY_KEY` always overrides this constant.
  */
 export const TELEMETRY_PUBLIC_KEY = 'phc_BKJAeNbpj932N9qEiU6qhutZEiu6LLfRpXfTbLM9MLaG';
 
 export const DEFAULT_TELEMETRY_HOST = 'https://us.i.posthog.com';
 
 export function getTelemetryApiKey(): string {
-  return process.env.CLAUDE_MEM_TELEMETRY_KEY || TELEMETRY_PUBLIC_KEY;
+  return process.env.MEMSMITH_TELEMETRY_KEY || TELEMETRY_PUBLIC_KEY;
 }
 
 export function getTelemetryHost(): string {
-  return process.env.CLAUDE_MEM_TELEMETRY_HOST || DEFAULT_TELEMETRY_HOST;
+  return process.env.MEMSMITH_TELEMETRY_HOST || DEFAULT_TELEMETRY_HOST;
 }
 
 /**

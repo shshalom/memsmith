@@ -63,7 +63,7 @@ export function unregisterCursorProject(registryFile: string, projectName: strin
 
 export function writeContextFile(workspacePath: string, context: string): void {
   const rulesDir = join(workspacePath, '.cursor', 'rules');
-  const rulesFile = join(rulesDir, 'claude-mem-context.mdc');
+  const rulesFile = join(rulesDir, 'memsmith-context.mdc');
   const tempFile = `${rulesFile}.tmp`;
 
   mkdirSync(rulesDir, { recursive: true });
@@ -75,12 +75,12 @@ description: "Claude-mem context from past sessions (auto-updated)"
 
 # Memory Context from Past Sessions
 
-The following context is from claude-mem, a persistent memory system that tracks your coding sessions.
+The following context is from memsmith, a persistent memory system that tracks your coding sessions.
 
 ${toBmpSafe(context)}
 
 ---
-*Updated after last session. Use claude-mem's MCP search tools for more detailed queries.*
+*Updated after last session. Use memsmith's MCP search tools for more detailed queries.*
 `;
 
   writeFileSync(tempFile, content);
@@ -107,7 +107,7 @@ export function configureCursorMcp(mcpJsonPath: string, mcpServerScriptPath: str
     }
   }
 
-  config.mcpServers['claude-mem'] = {
+  config.mcpServers['memsmith'] = {
     command: 'node',
     args: [mcpServerScriptPath]
   };

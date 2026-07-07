@@ -66,18 +66,18 @@ async function postOne(botToken: string, chatId: string, text: string): Promise<
 export async function notifyTelegram(input: TelegramNotifyInput): Promise<void> {
   const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-  if (settings.CLAUDE_MEM_TELEGRAM_ENABLED !== 'true') {
+  if (settings.MEMSMITH_TELEGRAM_ENABLED !== 'true') {
     return;
   }
 
-  const botToken = settings.CLAUDE_MEM_TELEGRAM_BOT_TOKEN;
-  const chatId = settings.CLAUDE_MEM_TELEGRAM_CHAT_ID;
+  const botToken = settings.MEMSMITH_TELEGRAM_BOT_TOKEN;
+  const chatId = settings.MEMSMITH_TELEGRAM_CHAT_ID;
   if (!botToken || !chatId) {
     return;
   }
 
-  const triggerTypes = splitCsv(settings.CLAUDE_MEM_TELEGRAM_TRIGGER_TYPES);
-  const triggerConcepts = splitCsv(settings.CLAUDE_MEM_TELEGRAM_TRIGGER_CONCEPTS);
+  const triggerTypes = splitCsv(settings.MEMSMITH_TELEGRAM_TRIGGER_TYPES);
+  const triggerConcepts = splitCsv(settings.MEMSMITH_TELEGRAM_TRIGGER_CONCEPTS);
   if (triggerTypes.length === 0 && triggerConcepts.length === 0) {
     return;
   }

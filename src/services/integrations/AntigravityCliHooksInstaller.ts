@@ -55,9 +55,9 @@ const ANTIGRAVITY_MCP_CONFIG_PATHS = [
 // instead, which a live install test (Phase C) proved wrong: it writes into
 // whatever directory the installer happens to run from rather than the
 // user's actual global rules directory.
-const RULES_CONTEXT_PATH = path.join(homedir(), '.agents', 'rules', 'claude-mem-context.md');
+const RULES_CONTEXT_PATH = path.join(homedir(), '.agents', 'rules', 'memsmith-context.md');
 
-const HOOK_NAME = 'claude-mem';
+const HOOK_NAME = 'memsmith';
 const HOOK_TIMEOUT_MS = 10000;
 
 // 7 confirmed-live hook events (B0). SessionEnd is deliberately excluded:
@@ -163,8 +163,8 @@ function mergeHooksIntoSettings(
 }
 
 function setupGeminiMdContextSection(): void {
-  const contextTag = '<claude-mem-context>';
-  const contextEndTag = '</claude-mem-context>';
+  const contextTag = '<memsmith-context>';
+  const contextEndTag = '</memsmith-context>';
   const placeholder = `${contextTag}
 # Memory Context from Past Sessions
 
@@ -204,7 +204,7 @@ function registerAntigravityMcp(): void {
   const mcpServerPath = getMcpServerAbsolutePath();
   if (!mcpServerPath) {
     console.error('Could not find MCP server script');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/mcp-server.cjs');
     throw new Error('MCP server script not found');
   }
 
@@ -221,12 +221,12 @@ function setupRulesContextFile(): void {
 }
 
 export async function installAntigravityCliHooks(): Promise<number> {
-  console.log('\nInstalling Claude-Mem Antigravity CLI hooks + MCP...\n');
+  console.log('\nInstalling MemSmith Antigravity CLI hooks + MCP...\n');
 
   const workerServicePath = findWorkerServicePath();
   if (!workerServicePath) {
     console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/worker-service.cjs');
     return 1;
   }
 
@@ -257,7 +257,7 @@ MCP config installed to:
 Using unified CLI: bun worker-service.cjs hook antigravity-cli <event>
 
 Next steps:
-  1. Start claude-mem worker: claude-mem start
+  1. Start memsmith worker: memsmith start
   2. Restart Antigravity CLI (agy) to load the hooks
   3. Memory will be captured automatically during sessions
 
@@ -299,15 +299,15 @@ function readMcpConfigTolerantly(mcpConfigPath: string): Record<string, any> {
   return readJsonSafe<Record<string, any>>(mcpConfigPath, {});
 }
 
-function removeClaudeMemFromMcpConfig(mcpConfigPath: string): boolean {
+function removeMemSmithFromMcpConfig(mcpConfigPath: string): boolean {
   if (!existsSync(mcpConfigPath)) return false;
 
   const config = readMcpConfigTolerantly(mcpConfigPath);
-  if (!config.mcpServers || !('claude-mem' in config.mcpServers)) {
+  if (!config.mcpServers || !('memsmith' in config.mcpServers)) {
     return false;
   }
 
-  delete config.mcpServers['claude-mem'];
+  delete config.mcpServers['memsmith'];
   writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2) + '\n');
   return true;
 }
@@ -316,7 +316,7 @@ function removeContextTagBlock(filePath: string): boolean {
   if (!existsSync(filePath)) return false;
 
   let content = readFileSync(filePath, 'utf-8');
-  const contextRegex = /\n?<claude-mem-context>[\s\S]*?<\/claude-mem-context>\n?/;
+  const contextRegex = /\n?<memsmith-context>[\s\S]*?<\/memsmith-context>\n?/;
   if (!contextRegex.test(content)) return false;
 
   content = content.replace(contextRegex, '');
@@ -325,7 +325,7 @@ function removeContextTagBlock(filePath: string): boolean {
 }
 
 export function uninstallAntigravityCliHooks(): number {
-  console.log('\nUninstalling Claude-Mem Antigravity CLI hooks + MCP...\n');
+  console.log('\nUninstalling MemSmith Antigravity CLI hooks + MCP...\n');
 
   try {
     if (existsSync(GEMINI_SETTINGS_PATH)) {
@@ -335,9 +335,9 @@ export function uninstallAntigravityCliHooks(): number {
     }
 
     for (const mcpConfigPath of ANTIGRAVITY_MCP_CONFIG_PATHS) {
-      const removed = removeClaudeMemFromMcpConfig(mcpConfigPath);
+      const removed = removeMemSmithFromMcpConfig(mcpConfigPath);
       if (removed) {
-        console.log(`  Removed claude-mem entry from ${mcpConfigPath}`);
+        console.log(`  Removed memsmith entry from ${mcpConfigPath}`);
       }
     }
 
@@ -385,7 +385,7 @@ function removeAntigravityHooksFromSettings(): void {
   }
 
   writeAntigravitySettings(settings);
-  console.log(`  Removed ${removedCount} claude-mem hook(s) from ${GEMINI_SETTINGS_PATH}`);
+  console.log(`  Removed ${removedCount} memsmith hook(s) from ${GEMINI_SETTINGS_PATH}`);
 
   if (removeContextTagBlock(GEMINI_MD_PATH)) {
     console.log(`  Removed context section from ${GEMINI_MD_PATH}`);
@@ -393,12 +393,12 @@ function removeAntigravityHooksFromSettings(): void {
 }
 
 export function checkAntigravityCliHooksStatus(): number {
-  console.log('\nClaude-Mem Antigravity CLI Status\n');
+  console.log('\nMemSmith Antigravity CLI Status\n');
 
   if (!existsSync(GEMINI_SETTINGS_PATH)) {
     console.log('Antigravity CLI settings: Not found');
     console.log(`  Expected at: ${GEMINI_SETTINGS_PATH}\n`);
-    console.log('No hooks installed. Run: claude-mem install --ide antigravity\n');
+    console.log('No hooks installed. Run: memsmith install --ide antigravity\n');
     return 0;
   }
 
@@ -419,10 +419,10 @@ export function checkAntigravityCliHooksStatus(): number {
   const installedEvents: string[] = [];
   if (settings.hooks) {
     for (const [eventName, groups] of Object.entries(settings.hooks)) {
-      const hasClaudeMem = groups.some(group =>
+      const hasMemSmith = groups.some(group =>
         group.hooks.some(hook => hook.name === HOOK_NAME)
       );
-      if (hasClaudeMem) {
+      if (hasMemSmith) {
         installedEvents.push(eventName);
       }
     }
@@ -430,7 +430,7 @@ export function checkAntigravityCliHooksStatus(): number {
 
   if (installedEvents.length === 0) {
     console.log('Hooks: Not installed');
-    console.log('Run: claude-mem install --ide antigravity\n');
+    console.log('Run: memsmith install --ide antigravity\n');
   } else {
     console.log(`Settings: ${GEMINI_SETTINGS_PATH}`);
     console.log(`Mode: Unified CLI (bun worker-service.cjs hook antigravity-cli)`);
@@ -443,10 +443,10 @@ export function checkAntigravityCliHooksStatus(): number {
 
   if (existsSync(GEMINI_MD_PATH)) {
     const mdContent = readFileSync(GEMINI_MD_PATH, 'utf-8');
-    if (mdContent.includes('<claude-mem-context>')) {
+    if (mdContent.includes('<memsmith-context>')) {
       console.log(`Context (GEMINI.md): Active (${GEMINI_MD_PATH})`);
     } else {
-      console.log('Context (GEMINI.md): exists but missing claude-mem section');
+      console.log('Context (GEMINI.md): exists but missing memsmith section');
     }
   } else {
     console.log('Context (GEMINI.md): No GEMINI.md found');
@@ -459,8 +459,8 @@ export function checkAntigravityCliHooksStatus(): number {
       continue;
     }
     const config = readMcpConfigTolerantly(mcpConfigPath);
-    const hasEntry = Boolean(config.mcpServers?.['claude-mem']);
-    console.log(`MCP config (${mcpConfigPath}): ${hasEntry ? 'claude-mem registered' : 'found, but no claude-mem entry'}`);
+    const hasEntry = Boolean(config.mcpServers?.['memsmith']);
+    console.log(`MCP config (${mcpConfigPath}): ${hasEntry ? 'memsmith registered' : 'found, but no memsmith entry'}`);
   }
 
   console.log('');
@@ -480,21 +480,21 @@ export async function handleAntigravityCliCommand(subcommand: string, _args: str
 
     default:
       console.log(`
-Claude-Mem Antigravity CLI Integration
+MemSmith Antigravity CLI Integration
 
-Usage: claude-mem antigravity-cli <command>
+Usage: memsmith antigravity-cli <command>
 
 Commands:
   install             Install hooks into ~/.gemini/settings.json + MCP config
-  uninstall           Remove claude-mem hooks/MCP entries (preserves other config)
+  uninstall           Remove memsmith hooks/MCP entries (preserves other config)
   status              Check installation status
 
 Examples:
-  claude-mem antigravity-cli install     # Install hooks + MCP
-  claude-mem antigravity-cli status      # Check if installed
-  claude-mem antigravity-cli uninstall   # Remove hooks + MCP
+  memsmith antigravity-cli install     # Install hooks + MCP
+  memsmith antigravity-cli status      # Check if installed
+  memsmith antigravity-cli uninstall   # Remove hooks + MCP
 
-For more info: https://docs.claude-mem.ai/antigravity-cli/setup
+For more info: https://docs.memsmith.ai/antigravity-cli/setup
       `);
       return 0;
   }

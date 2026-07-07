@@ -55,7 +55,7 @@ async function authenticatePostgresRequest(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const authMode = options.authMode ?? process.env.CLAUDE_MEM_AUTH_MODE ?? 'api-key';
+  const authMode = options.authMode ?? process.env.MEMSMITH_AUTH_MODE ?? 'api-key';
   const authorization = req.header('authorization') ?? '';
   const xApiKey = req.header('x-api-key')?.trim() ?? '';
   // Bearer is canonical; raw X-Api-Key is a fallback so clients using
@@ -64,7 +64,7 @@ async function authenticatePostgresRequest(
   const rawKey = parseBearerToken(authorization) || xApiKey || null;
 
   const allowLocalDevBypass = options.allowLocalDevBypass
-    ?? process.env.CLAUDE_MEM_ALLOW_LOCAL_DEV_BYPASS === '1';
+    ?? process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1';
   if (
     !rawKey
     && authMode === 'local-dev'

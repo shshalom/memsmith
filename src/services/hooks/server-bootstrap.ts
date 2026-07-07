@@ -3,20 +3,20 @@
 // Phase 7 — Local API key bootstrap for the server runtime.
 //
 // When the operator selects `runtime: "server"` during install (or via
-// the `claude-mem server keys rotate` command), we provision a local hook
+// the `memsmith server keys rotate` command), we provision a local hook
 // API key against the local Postgres so hooks can authenticate to /v1/*.
 //
 // Bootstrapping flow:
-//   1. Connect to Postgres (CLAUDE_MEM_SERVER_DATABASE_URL).
+//   1. Connect to Postgres (MEMSMITH_SERVER_DATABASE_URL).
 //   2. Find or create a "local-hook" team and project so the api_key has
 //      proper tenant scope.
 //   3. Generate a `cmem_<random>` key, hash with SHA-256, insert into
 //      `api_keys` with the scopes hooks need: events:write, sessions:write,
 //      observations:read, jobs:read.
-//   4. Persist the plaintext key to ~/.claude-mem/settings.json under
-//      `CLAUDE_MEM_SERVER_API_KEY` (the new canonical key after the
+//   4. Persist the plaintext key to ~/.memsmith/settings.json under
+//      `MEMSMITH_SERVER_API_KEY` (the new canonical key after the
 //      server-beta → server rename). Reads in `runtime-selector.ts`
-//      dual-accept the legacy `CLAUDE_MEM_SERVER_BETA_*` keys, but writes
+//      dual-accept the legacy `MEMSMITH_SERVER_BETA_*` keys, but writes
 //      from this bootstrapper use the new canonical names going forward.
 //      Then chmod that file to 0600 so only the owner can read it.
 //
@@ -151,14 +151,14 @@ export function persistServerSettings(
     : existing) as Record<string, unknown>;
 
   // Phase 1d: write the new canonical settings keys. Legacy
-  // `CLAUDE_MEM_SERVER_BETA_*` keys are dual-accepted by reads in
+  // `MEMSMITH_SERVER_BETA_*` keys are dual-accepted by reads in
   // `runtime-selector.ts`, so existing installs continue to work. Any
   // legacy keys that already live in `flat` are left untouched (we don't
   // delete them) so a downgrade can still find them.
-  flat.CLAUDE_MEM_SERVER_API_KEY = values.apiKey;
-  flat.CLAUDE_MEM_SERVER_PROJECT_ID = values.projectId;
+  flat.MEMSMITH_SERVER_API_KEY = values.apiKey;
+  flat.MEMSMITH_SERVER_PROJECT_ID = values.projectId;
   if (values.serverBaseUrl) {
-    flat.CLAUDE_MEM_SERVER_URL = values.serverBaseUrl;
+    flat.MEMSMITH_SERVER_URL = values.serverBaseUrl;
   }
 
   writeFileSync(settingsPath, JSON.stringify(flat, null, 2), 'utf-8');
@@ -213,7 +213,7 @@ function buildPoolFromEnv(): PostgresPool {
   const config = parsePostgresConfig({ requireDatabaseUrl: true });
   if (!config) {
     throw new Error(
-      'Cannot bootstrap server API key: CLAUDE_MEM_SERVER_DATABASE_URL is not set.',
+      'Cannot bootstrap server API key: MEMSMITH_SERVER_DATABASE_URL is not set.',
     );
   }
   return createPostgresPool(config);

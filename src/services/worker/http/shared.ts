@@ -63,12 +63,12 @@ export async function ingestObservation(payload: ObservationPayload): Promise<In
 
   const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-  if (cwd && isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS)) {
+  if (cwd && isProjectExcluded(cwd, settings.MEMSMITH_EXCLUDED_PROJECTS)) {
     return { ok: true, status: 'skipped', reason: 'project_excluded' };
   }
 
   const skipTools = new Set(
-    settings.CLAUDE_MEM_SKIP_TOOLS.split(',').map(t => t.trim()).filter(Boolean)
+    settings.MEMSMITH_SKIP_TOOLS.split(',').map(t => t.trim()).filter(Boolean)
   );
   if (skipTools.has(payload.toolName)) {
     return { ok: true, status: 'skipped', reason: 'tool_excluded' };

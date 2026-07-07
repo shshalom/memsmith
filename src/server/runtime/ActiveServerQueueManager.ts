@@ -16,7 +16,7 @@ import type {
 } from './types.js';
 
 // ActiveServerQueueManager owns one ServerJobQueue per generation kind.
-// It is wired in only when CLAUDE_MEM_QUEUE_ENGINE=bullmq is set; otherwise
+// It is wired in only when MEMSMITH_QUEUE_ENGINE=bullmq is set; otherwise
 // create-server-service.ts keeps the disabled adapter in place.
 //
 // This boundary intentionally does not start any Worker processors here.
@@ -38,7 +38,7 @@ export class ActiveServerQueueManager implements ServerQueueManager {
   ) {
     if (config.engine !== 'bullmq') {
       throw new Error(
-        `ActiveServerQueueManager requires CLAUDE_MEM_QUEUE_ENGINE=bullmq (got ${config.engine}); ` +
+        `ActiveServerQueueManager requires MEMSMITH_QUEUE_ENGINE=bullmq (got ${config.engine}); ` +
           'do not instantiate when bullmq is not selected.',
       );
     }

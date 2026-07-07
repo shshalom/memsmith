@@ -5,180 +5,180 @@ import { homedir } from 'os';
 import { HOOK_TIMEOUTS, getTimeout } from './hook-constants.js';
 
 export interface SettingsDefaults {
-  CLAUDE_MEM_MODEL: string;
-  CLAUDE_MEM_CONTEXT_OBSERVATIONS: string;
-  CLAUDE_MEM_WORKER_PORT: string;
-  CLAUDE_MEM_WORKER_HOST: string;
-  CLAUDE_MEM_API_TIMEOUT_MS: string;
-  CLAUDE_MEM_SKIP_TOOLS: string;
-  CLAUDE_MEM_PROVIDER: string;  
-  CLAUDE_MEM_CLAUDE_AUTH_METHOD: string;  
-  CLAUDE_MEM_GEMINI_API_KEY: string;
-  CLAUDE_MEM_GEMINI_MODEL: string;  
-  CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;
-  CLAUDE_MEM_OPENROUTER_API_KEY: string;
-  CLAUDE_MEM_OPENROUTER_MODEL: string;
-  CLAUDE_MEM_OPENROUTER_BASE_URL: string;
-  CLAUDE_MEM_OPENROUTER_SITE_URL: string;
-  CLAUDE_MEM_OPENROUTER_APP_NAME: string;
-  CLAUDE_MEM_DATA_DIR: string;
-  CLAUDE_MEM_LOG_LEVEL: string;
-  CLAUDE_MEM_PYTHON_VERSION: string;
+  MEMSMITH_MODEL: string;
+  MEMSMITH_CONTEXT_OBSERVATIONS: string;
+  MEMSMITH_WORKER_PORT: string;
+  MEMSMITH_WORKER_HOST: string;
+  MEMSMITH_API_TIMEOUT_MS: string;
+  MEMSMITH_SKIP_TOOLS: string;
+  MEMSMITH_PROVIDER: string;  
+  MEMSMITH_CLAUDE_AUTH_METHOD: string;  
+  MEMSMITH_GEMINI_API_KEY: string;
+  MEMSMITH_GEMINI_MODEL: string;  
+  MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: string;
+  MEMSMITH_OPENROUTER_API_KEY: string;
+  MEMSMITH_OPENROUTER_MODEL: string;
+  MEMSMITH_OPENROUTER_BASE_URL: string;
+  MEMSMITH_OPENROUTER_SITE_URL: string;
+  MEMSMITH_OPENROUTER_APP_NAME: string;
+  MEMSMITH_DATA_DIR: string;
+  MEMSMITH_LOG_LEVEL: string;
+  MEMSMITH_PYTHON_VERSION: string;
   CLAUDE_CODE_PATH: string;
-  CLAUDE_MEM_MODE: string;
-  CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS: string;
-  CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS: string;
-  CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT: string;
-  CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT: string;
-  CLAUDE_MEM_CONTEXT_FULL_COUNT: string;
-  CLAUDE_MEM_CONTEXT_FULL_FIELD: string;
-  CLAUDE_MEM_CONTEXT_SESSION_COUNT: string;
-  CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
-  CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
-  CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
-  CLAUDE_MEM_WELCOME_HINT_ENABLED: string;
-  CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;
-  CLAUDE_MEM_FOLDER_USE_LOCAL_MD: string;  
-  CLAUDE_MEM_TRANSCRIPTS_ENABLED: string;  
-  CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: string;  
-  CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION: string;
-  CLAUDE_MEM_MAX_CONCURRENT_AGENTS: string;  
-  CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD: string;  
-  CLAUDE_MEM_EXCLUDED_PROJECTS: string;  
-  CLAUDE_MEM_FOLDER_MD_EXCLUDE: string;
-  CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST: string;
-  CLAUDE_MEM_SEMANTIC_INJECT: string;        
-  CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: string;  
-  CLAUDE_MEM_TIER_ROUTING_ENABLED: string;
-  CLAUDE_MEM_TIER_SIMPLE_MODEL: string;
-  CLAUDE_MEM_TIER_SUMMARY_MODEL: string;
-  CLAUDE_MEM_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in CLAUDE_MEM_MODEL
-  CLAUDE_MEM_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in CLAUDE_MEM_MODEL
-  CLAUDE_MEM_CHROMA_ENABLED: string;   
-  CLAUDE_MEM_CHROMA_MODE: string;      
-  CLAUDE_MEM_CHROMA_HOST: string;
-  CLAUDE_MEM_CHROMA_PORT: string;
-  CLAUDE_MEM_CHROMA_SSL: string;
-  CLAUDE_MEM_CHROMA_API_KEY: string;
-  CLAUDE_MEM_CHROMA_TENANT: string;
-  CLAUDE_MEM_CHROMA_DATABASE: string;
-  CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS: string;
-  CLAUDE_MEM_TELEGRAM_ENABLED: string;
-  CLAUDE_MEM_TELEGRAM_BOT_TOKEN: string;
-  CLAUDE_MEM_TELEGRAM_CHAT_ID: string;
-  CLAUDE_MEM_TELEGRAM_TRIGGER_TYPES: string;
-  CLAUDE_MEM_TELEGRAM_TRIGGER_CONCEPTS: string;
-  CLAUDE_MEM_QUEUE_ENGINE: string;
-  CLAUDE_MEM_REDIS_URL: string;
-  CLAUDE_MEM_REDIS_HOST: string;
-  CLAUDE_MEM_REDIS_PORT: string;
-  CLAUDE_MEM_REDIS_MODE: string;
-  CLAUDE_MEM_QUEUE_REDIS_PREFIX: string;
-  CLAUDE_MEM_AUTH_MODE: string;
-  CLAUDE_MEM_RUNTIME: string;
+  MEMSMITH_MODE: string;
+  MEMSMITH_CONTEXT_SHOW_READ_TOKENS: string;
+  MEMSMITH_CONTEXT_SHOW_WORK_TOKENS: string;
+  MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT: string;
+  MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT: string;
+  MEMSMITH_CONTEXT_FULL_COUNT: string;
+  MEMSMITH_CONTEXT_FULL_FIELD: string;
+  MEMSMITH_CONTEXT_SESSION_COUNT: string;
+  MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY: string;
+  MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE: string;
+  MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
+  MEMSMITH_WELCOME_HINT_ENABLED: string;
+  MEMSMITH_FOLDER_CLAUDEMD_ENABLED: string;
+  MEMSMITH_FOLDER_USE_LOCAL_MD: string;  
+  MEMSMITH_TRANSCRIPTS_ENABLED: string;  
+  MEMSMITH_TRANSCRIPTS_CONFIG_PATH: string;  
+  MEMSMITH_CODEX_TRANSCRIPT_INGESTION: string;
+  MEMSMITH_MAX_CONCURRENT_AGENTS: string;  
+  MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: string;  
+  MEMSMITH_EXCLUDED_PROJECTS: string;  
+  MEMSMITH_FOLDER_MD_EXCLUDE: string;
+  MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: string;
+  MEMSMITH_SEMANTIC_INJECT: string;        
+  MEMSMITH_SEMANTIC_INJECT_LIMIT: string;  
+  MEMSMITH_TIER_ROUTING_ENABLED: string;
+  MEMSMITH_TIER_SIMPLE_MODEL: string;
+  MEMSMITH_TIER_SUMMARY_MODEL: string;
+  MEMSMITH_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in MEMSMITH_MODEL
+  MEMSMITH_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in MEMSMITH_MODEL
+  MEMSMITH_CHROMA_ENABLED: string;   
+  MEMSMITH_CHROMA_MODE: string;      
+  MEMSMITH_CHROMA_HOST: string;
+  MEMSMITH_CHROMA_PORT: string;
+  MEMSMITH_CHROMA_SSL: string;
+  MEMSMITH_CHROMA_API_KEY: string;
+  MEMSMITH_CHROMA_TENANT: string;
+  MEMSMITH_CHROMA_DATABASE: string;
+  MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: string;
+  MEMSMITH_TELEGRAM_ENABLED: string;
+  MEMSMITH_TELEGRAM_BOT_TOKEN: string;
+  MEMSMITH_TELEGRAM_CHAT_ID: string;
+  MEMSMITH_TELEGRAM_TRIGGER_TYPES: string;
+  MEMSMITH_TELEGRAM_TRIGGER_CONCEPTS: string;
+  MEMSMITH_QUEUE_ENGINE: string;
+  MEMSMITH_REDIS_URL: string;
+  MEMSMITH_REDIS_HOST: string;
+  MEMSMITH_REDIS_PORT: string;
+  MEMSMITH_REDIS_MODE: string;
+  MEMSMITH_QUEUE_REDIS_PREFIX: string;
+  MEMSMITH_AUTH_MODE: string;
+  MEMSMITH_RUNTIME: string;
   // Phase 1a (cmem-sdk rename): canonical server settings keys. Hooks read
   // these first and fall back to the legacy `*_BETA_*` keys below.
-  CLAUDE_MEM_SERVER_URL: string;
-  CLAUDE_MEM_SERVER_API_KEY: string;
-  CLAUDE_MEM_SERVER_PROJECT_ID: string;
+  MEMSMITH_SERVER_URL: string;
+  MEMSMITH_SERVER_API_KEY: string;
+  MEMSMITH_SERVER_PROJECT_ID: string;
   // Legacy keys retained for back-compat with existing settings.json files.
-  CLAUDE_MEM_SERVER_BETA_URL: string;
-  CLAUDE_MEM_SERVER_BETA_API_KEY: string;
-  CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
-  CLAUDE_MEM_TEAM_INJECT: string;  // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
-  CLAUDE_MEM_TEAM_SERVER_URL: string;  // Sprint 3 follow-up — server-mode base URL the SessionStart hook calls for team memory (default '' = bridge off)
-  CLAUDE_MEM_TEAM_API_KEY: string;  // Sprint 3 follow-up — scoped memories:read key for the team-inject bridge (default '' = bridge off)
-  CLAUDE_MEM_GATE_TOOLS: string;  // Hook-activation — comma-separated tools the discovery gate injects before (default '' = gate off; 'none' also disables)
-  CLAUDE_MEM_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
+  MEMSMITH_SERVER_BETA_URL: string;
+  MEMSMITH_SERVER_BETA_API_KEY: string;
+  MEMSMITH_SERVER_BETA_PROJECT_ID: string;
+  MEMSMITH_TEAM_INJECT: string;  // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
+  MEMSMITH_TEAM_SERVER_URL: string;  // Sprint 3 follow-up — server-mode base URL the SessionStart hook calls for team memory (default '' = bridge off)
+  MEMSMITH_TEAM_API_KEY: string;  // Sprint 3 follow-up — scoped memories:read key for the team-inject bridge (default '' = bridge off)
+  MEMSMITH_GATE_TOOLS: string;  // Hook-activation — comma-separated tools the discovery gate injects before (default '' = gate off; 'none' also disables)
+  MEMSMITH_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
 }
 
 export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
-    CLAUDE_MEM_MODEL: 'claude-haiku-4-5-20251001',
-    CLAUDE_MEM_CONTEXT_OBSERVATIONS: '50',
-    CLAUDE_MEM_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
-    CLAUDE_MEM_WORKER_HOST: '127.0.0.1',
-    CLAUDE_MEM_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
-    CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
-    CLAUDE_MEM_PROVIDER: 'claude',  // Default to Claude
-    CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
-    CLAUDE_MEM_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
-    CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',  // Default Gemini model (highest free tier RPM)
-    CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
-    CLAUDE_MEM_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
-    CLAUDE_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
-    CLAUDE_MEM_OPENROUTER_BASE_URL: '',  // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL (e.g. https://api.deepseek.com, http://localhost:1234/v1). Empty = default OpenRouter endpoint.
-    CLAUDE_MEM_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
-    CLAUDE_MEM_OPENROUTER_APP_NAME: 'claude-mem',  // App name for OpenRouter analytics
-    CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
-    CLAUDE_MEM_LOG_LEVEL: 'INFO',
-    CLAUDE_MEM_PYTHON_VERSION: '3.13',
+    MEMSMITH_MODEL: 'claude-haiku-4-5-20251001',
+    MEMSMITH_CONTEXT_OBSERVATIONS: '50',
+    MEMSMITH_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
+    MEMSMITH_WORKER_HOST: '127.0.0.1',
+    MEMSMITH_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
+    MEMSMITH_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
+    MEMSMITH_PROVIDER: 'claude',  // Default to Claude
+    MEMSMITH_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
+    MEMSMITH_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
+    MEMSMITH_GEMINI_MODEL: 'gemini-2.5-flash-lite',  // Default Gemini model (highest free tier RPM)
+    MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
+    MEMSMITH_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
+    MEMSMITH_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
+    MEMSMITH_OPENROUTER_BASE_URL: '',  // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL (e.g. https://api.deepseek.com, http://localhost:1234/v1). Empty = default OpenRouter endpoint.
+    MEMSMITH_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
+    MEMSMITH_OPENROUTER_APP_NAME: 'memsmith',  // App name for OpenRouter analytics
+    MEMSMITH_DATA_DIR: join(homedir(), '.memsmith'),
+    MEMSMITH_LOG_LEVEL: 'INFO',
+    MEMSMITH_PYTHON_VERSION: '3.13',
     CLAUDE_CODE_PATH: '', // Empty means auto-detect via 'which claude'
-    CLAUDE_MEM_MODE: 'code', // Default mode profile
-    CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS: 'false',
-    CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS: 'false',
-    CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT: 'false',
-    CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT: 'true',
-    CLAUDE_MEM_CONTEXT_FULL_COUNT: '0',
-    CLAUDE_MEM_CONTEXT_FULL_FIELD: 'narrative',
-    CLAUDE_MEM_CONTEXT_SESSION_COUNT: '10',
-    CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
-    CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
-    CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',
-    CLAUDE_MEM_WELCOME_HINT_ENABLED: 'true',
-    CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',
-    CLAUDE_MEM_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
-    CLAUDE_MEM_TRANSCRIPTS_ENABLED: 'true',
-    CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.claude-mem', 'transcript-watch.json'),
-    CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION: 'false',
-    CLAUDE_MEM_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
-    CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
-    CLAUDE_MEM_EXCLUDED_PROJECTS: '',  // Comma-separated glob patterns for excluded project paths
-    CLAUDE_MEM_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
-    CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
-    CLAUDE_MEM_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
-    CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
-    CLAUDE_MEM_TIER_ROUTING_ENABLED: 'true',         // Route observations to models by complexity
-    CLAUDE_MEM_TIER_SIMPLE_MODEL: 'haiku', // Portable tier alias — works across Direct API, Bedrock, Vertex, Azure (see #1463)
-    CLAUDE_MEM_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
-    CLAUDE_MEM_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
-    CLAUDE_MEM_TIER_SMART_MODEL: 'sonnet',            // #2289 — $TIER:smart resolves here (portable alias)
-    CLAUDE_MEM_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
-    CLAUDE_MEM_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
-    CLAUDE_MEM_CHROMA_HOST: '127.0.0.1',
-    CLAUDE_MEM_CHROMA_PORT: '8000',
-    CLAUDE_MEM_CHROMA_SSL: 'false',
-    CLAUDE_MEM_CHROMA_API_KEY: '',
-    CLAUDE_MEM_CHROMA_TENANT: 'default_tenant',
-    CLAUDE_MEM_CHROMA_DATABASE: 'default_database',
-    CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS: '120000',
-    CLAUDE_MEM_TELEGRAM_ENABLED: 'true',
-    CLAUDE_MEM_TELEGRAM_BOT_TOKEN: '',
-    CLAUDE_MEM_TELEGRAM_CHAT_ID: '',
-    CLAUDE_MEM_TELEGRAM_TRIGGER_TYPES: 'security_alert',
-    CLAUDE_MEM_TELEGRAM_TRIGGER_CONCEPTS: '',
-    CLAUDE_MEM_QUEUE_ENGINE: 'sqlite',
-    CLAUDE_MEM_REDIS_URL: '',
-    CLAUDE_MEM_REDIS_HOST: '127.0.0.1',
-    CLAUDE_MEM_REDIS_PORT: '6379',
-    CLAUDE_MEM_REDIS_MODE: 'external',
-    CLAUDE_MEM_QUEUE_REDIS_PREFIX: `claude_mem_${process.env.CLAUDE_MEM_WORKER_PORT ?? String(37700 + ((process.getuid?.() ?? 77) % 100))}`,
-    CLAUDE_MEM_AUTH_MODE: 'api-key',
-    CLAUDE_MEM_RUNTIME: 'worker',
+    MEMSMITH_MODE: 'code', // Default mode profile
+    MEMSMITH_CONTEXT_SHOW_READ_TOKENS: 'false',
+    MEMSMITH_CONTEXT_SHOW_WORK_TOKENS: 'false',
+    MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT: 'false',
+    MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT: 'true',
+    MEMSMITH_CONTEXT_FULL_COUNT: '0',
+    MEMSMITH_CONTEXT_FULL_FIELD: 'narrative',
+    MEMSMITH_CONTEXT_SESSION_COUNT: '10',
+    MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY: 'true',
+    MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE: 'false',
+    MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',
+    MEMSMITH_WELCOME_HINT_ENABLED: 'true',
+    MEMSMITH_FOLDER_CLAUDEMD_ENABLED: 'false',
+    MEMSMITH_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
+    MEMSMITH_TRANSCRIPTS_ENABLED: 'true',
+    MEMSMITH_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.memsmith', 'transcript-watch.json'),
+    MEMSMITH_CODEX_TRANSCRIPT_INGESTION: 'false',
+    MEMSMITH_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
+    MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
+    MEMSMITH_EXCLUDED_PROJECTS: '',  // Comma-separated glob patterns for excluded project paths
+    MEMSMITH_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
+    MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
+    MEMSMITH_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
+    MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
+    MEMSMITH_TIER_ROUTING_ENABLED: 'true',         // Route observations to models by complexity
+    MEMSMITH_TIER_SIMPLE_MODEL: 'haiku', // Portable tier alias — works across Direct API, Bedrock, Vertex, Azure (see #1463)
+    MEMSMITH_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
+    MEMSMITH_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
+    MEMSMITH_TIER_SMART_MODEL: 'sonnet',            // #2289 — $TIER:smart resolves here (portable alias)
+    MEMSMITH_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
+    MEMSMITH_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
+    MEMSMITH_CHROMA_HOST: '127.0.0.1',
+    MEMSMITH_CHROMA_PORT: '8000',
+    MEMSMITH_CHROMA_SSL: 'false',
+    MEMSMITH_CHROMA_API_KEY: '',
+    MEMSMITH_CHROMA_TENANT: 'default_tenant',
+    MEMSMITH_CHROMA_DATABASE: 'default_database',
+    MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: '120000',
+    MEMSMITH_TELEGRAM_ENABLED: 'true',
+    MEMSMITH_TELEGRAM_BOT_TOKEN: '',
+    MEMSMITH_TELEGRAM_CHAT_ID: '',
+    MEMSMITH_TELEGRAM_TRIGGER_TYPES: 'security_alert',
+    MEMSMITH_TELEGRAM_TRIGGER_CONCEPTS: '',
+    MEMSMITH_QUEUE_ENGINE: 'sqlite',
+    MEMSMITH_REDIS_URL: '',
+    MEMSMITH_REDIS_HOST: '127.0.0.1',
+    MEMSMITH_REDIS_PORT: '6379',
+    MEMSMITH_REDIS_MODE: 'external',
+    MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(37700 + ((process.getuid?.() ?? 77) % 100))}`,
+    MEMSMITH_AUTH_MODE: 'api-key',
+    MEMSMITH_RUNTIME: 'worker',
     // Phase 1a (cmem-sdk rename): canonical server settings keys. Hooks read
     // these first; the legacy `*_BETA_*` defaults below remain so existing
     // settings.json files still resolve correctly.
-    CLAUDE_MEM_SERVER_URL: `http://127.0.0.1:${process.env.CLAUDE_MEM_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
-    CLAUDE_MEM_SERVER_API_KEY: '',                          // Local hook API key, populated by installer when runtime=server
-    CLAUDE_MEM_SERVER_PROJECT_ID: '',                       // Default Postgres project_id used by hooks when runtime=server
-    CLAUDE_MEM_SERVER_BETA_URL: `http://127.0.0.1:${process.env.CLAUDE_MEM_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
-    CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when CLAUDE_MEM_SERVER_API_KEY unset)
-    CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
-    CLAUDE_MEM_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
-    CLAUDE_MEM_TEAM_SERVER_URL: '',                         // Sprint 3 follow-up — team-inject bridge server URL (default '' = bridge off)
-    CLAUDE_MEM_TEAM_API_KEY: '',                            // Sprint 3 follow-up — team-inject bridge scoped key (default '' = bridge off)
-    CLAUDE_MEM_GATE_TOOLS: '',                              // Hook-activation — discovery-gate tool list (default '' = gate off)
-    CLAUDE_MEM_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
+    MEMSMITH_SERVER_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_API_KEY: '',                          // Local hook API key, populated by installer when runtime=server
+    MEMSMITH_SERVER_PROJECT_ID: '',                       // Default Postgres project_id used by hooks when runtime=server
+    MEMSMITH_SERVER_BETA_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when MEMSMITH_SERVER_API_KEY unset)
+    MEMSMITH_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when MEMSMITH_SERVER_PROJECT_ID unset)
+    MEMSMITH_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
+    MEMSMITH_TEAM_SERVER_URL: '',                         // Sprint 3 follow-up — team-inject bridge server URL (default '' = bridge off)
+    MEMSMITH_TEAM_API_KEY: '',                            // Sprint 3 follow-up — team-inject bridge scoped key (default '' = bridge off)
+    MEMSMITH_GATE_TOOLS: '',                              // Hook-activation — discovery-gate tool list (default '' = gate off)
+    MEMSMITH_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
   };
 
   static getAllDefaults(): SettingsDefaults {

@@ -130,13 +130,13 @@ export const observationHandler: EventHandler = {
     const result = await dispatchToWorker(input, platformSource);
     try {
       const settings = loadFromFileOnce();
-      if (settings.CLAUDE_MEM_REDISCOVERY_LOG === 'true' && toolName) {
+      if (settings.MEMSMITH_REDISCOVERY_LOG === 'true' && toolName) {
         const projectName = getProjectContext(cwd).primary;
         const r = await shouldLogRediscovery(
           { fetchTeamMemory: realFetchTeamMemory },
           { toolName, toolInput: (toolInput as Record<string, unknown>) ?? {}, projectName,
-            enabled: true, gateTools: settings.CLAUDE_MEM_GATE_TOOLS ?? '',
-            serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '', apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '' },
+            enabled: true, gateTools: settings.MEMSMITH_GATE_TOOLS ?? '',
+            serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '', apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '' },
         );
         if (r.rediscovered) logger.info('HOOK', 'rediscovery: memory already held an answer for this discovery query', { toolName, matchedIds: r.matchedIds });
       }

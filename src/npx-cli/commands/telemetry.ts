@@ -1,10 +1,10 @@
 /**
- * `npx claude-mem telemetry [status|enable|disable]` — manage anonymous usage
+ * `npx memsmith telemetry [status|enable|disable]` — manage anonymous usage
  * analytics. Telemetry is ON by default (opt-out): anonymous events only,
  * identified by a random install UUID. Turn it off anytime with
- * `telemetry disable`, CLAUDE_MEM_TELEMETRY=0, or DO_NOT_TRACK=1.
+ * `telemetry disable`, MEMSMITH_TELEMETRY=0, or DO_NOT_TRACK=1.
  *
- * Full privacy documentation: https://docs.claude-mem.ai/telemetry
+ * Full privacy documentation: https://docs.memsmith.ai/telemetry
  */
 
 import * as p from '@clack/prompts';
@@ -18,10 +18,10 @@ import {
   type TelemetryConsentSource,
 } from '../../services/telemetry/consent.js';
 
-const DOCS_URL = 'https://docs.claude-mem.ai/telemetry';
+const DOCS_URL = 'https://docs.memsmith.ai/telemetry';
 
 const COLLECTED_FIELDS = [
-  'version          claude-mem version (e.g. 13.4.2)',
+  'version          memsmith version (e.g. 13.4.2)',
   'os               platform (darwin / linux / win32)',
   'os_version       OS kernel release (e.g. 10.0.22631)',
   'is_wsl           whether running under WSL',
@@ -34,7 +34,7 @@ const COLLECTED_FIELDS = [
   'error_category   coarse error bucket (never a message)',
   'locale           language tag (e.g. en-US)',
   'is_ci            whether running in CI',
-  'endpoint         which claude-mem search route (our route names)',
+  'endpoint         which memsmith search route (our route names)',
   'ide              installer IDE choice (claude-code / cursor / ...)',
   'provider         LLM provider choice (claude / gemini / openrouter)',
   'runtime_mode     worker or server',
@@ -46,7 +46,7 @@ const COLLECTED_FIELDS = [
   'install_method   npm / bun / pnpm / yarn (launcher of the CLI)',
   'bun_version / uv_version / claude_code_version',
   '                 toolchain versions detected during install',
-  'mode             active claude-mem mode id',
+  'mode             active memsmith mode id',
   'model            model id used for compression',
   'hook             compression trigger (init / ingest / summarize)',
   'observation_type / obs_type_*   observation type buckets (counts only)',
@@ -96,13 +96,13 @@ const EVENT_NAMES = [
 
 const SOURCE_LABELS: Record<TelemetryConsentSource, string> = {
   DO_NOT_TRACK: 'DO_NOT_TRACK environment variable',
-  env: 'CLAUDE_MEM_TELEMETRY environment variable',
+  env: 'MEMSMITH_TELEMETRY environment variable',
   config: 'telemetry.json config file',
   default: 'default (on — no opt-out recorded)',
 };
 
 function printTelemetryUsage(): void {
-  console.error(`Usage: ${styleText('bold', 'npx claude-mem telemetry [status|enable|disable]')}`);
+  console.error(`Usage: ${styleText('bold', 'npx memsmith telemetry [status|enable|disable]')}`);
   console.error('  status   Show whether telemetry is on and which setting decided it (default)');
   console.error('  enable   Turn anonymous usage analytics back on (interactive)');
   console.error('  disable  Opt out of telemetry');
@@ -135,7 +135,7 @@ async function runTelemetryEnable(): Promise<void> {
     process.exit(1);
   }
 
-  p.intro(styleText(['bgBlue', 'white'], ' claude-mem telemetry '));
+  p.intro(styleText(['bgBlue', 'white'], ' memsmith telemetry '));
 
   p.note(
     [
@@ -183,7 +183,7 @@ async function runTelemetryEnable(): Promise<void> {
   });
 
   p.log.success(`Telemetry enabled. Config: ${getTelemetryConfigPath()}`);
-  p.outro(`Change your mind anytime: ${styleText('cyan', 'npx claude-mem telemetry disable')}`);
+  p.outro(`Change your mind anytime: ${styleText('cyan', 'npx memsmith telemetry disable')}`);
 }
 
 function runTelemetryDisable(): void {

@@ -35,13 +35,13 @@ function readTimeoutEnv(
 }
 
 const HEALTH_CHECK_TIMEOUT_MS = readTimeoutEnv(
-  'CLAUDE_MEM_HEALTH_TIMEOUT_MS',
+  'MEMSMITH_HEALTH_TIMEOUT_MS',
   getTimeout(HOOK_TIMEOUTS.HEALTH_CHECK),
   { min: 500, max: 300000 }
 );
 
 const HOOK_READINESS_TIMEOUT_MS = readTimeoutEnv(
-  'CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS',
+  'MEMSMITH_HOOK_READINESS_TIMEOUT_MS',
   getTimeout(HOOK_TIMEOUTS.HOOK_READINESS_WAIT),
   { min: 0, max: 300000 }
 );
@@ -70,7 +70,7 @@ let cachedSettings: SettingsDefaults | null = null;
 let cachedApiRequestTimeoutMs: number | null = null;
 
 function getWorkerSettingsPath(): string {
-  return path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), 'settings.json');
+  return path.join(SettingsDefaultsManager.get('MEMSMITH_DATA_DIR'), 'settings.json');
 }
 
 function getWorkerSettings(): SettingsDefaults {
@@ -129,7 +129,7 @@ export function getWorkerPort(): number {
   }
 
   const settings = getWorkerSettings();
-  cachedPort = parseInt(settings.CLAUDE_MEM_WORKER_PORT, 10);
+  cachedPort = parseInt(settings.MEMSMITH_WORKER_PORT, 10);
   return cachedPort;
 }
 
@@ -139,7 +139,7 @@ export function getWorkerHost(): string {
   }
 
   const settings = getWorkerSettings();
-  cachedHost = settings.CLAUDE_MEM_WORKER_HOST;
+  cachedHost = settings.MEMSMITH_WORKER_HOST;
   return cachedHost;
 }
 
@@ -149,7 +149,7 @@ export function getWorkerApiRequestTimeoutMs(): number {
   }
 
   cachedApiRequestTimeoutMs = readSettingsBackedTimeout(
-    'CLAUDE_MEM_API_TIMEOUT_MS',
+    'MEMSMITH_API_TIMEOUT_MS',
     getTimeout(HOOK_TIMEOUTS.API_REQUEST),
     API_REQUEST_TIMEOUT_BOUNDS
   );
@@ -554,7 +554,7 @@ function writeHookFailureStateAtomic(state: HookFailureState): void {
 function getFailLoudThreshold(): number {
   try {
     const settings = loadFromFileOnce();
-    const raw = settings.CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD;
+    const raw = settings.MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD;
     const parsed = parseInt(raw, 10);
     if (Number.isFinite(parsed) && parsed >= 1) return parsed;
   } catch {
@@ -623,7 +623,7 @@ export async function recordWorkerUnreachable(): Promise<number> {
     // via the bypass channel + exits 2. Previously this raw process.stderr.write
     // was swallowed by hookCommand's blanket no-op, so the user/model never saw it.
     emitBlockingError(
-      `claude-mem worker unreachable for ${next.consecutiveFailures} consecutive hooks.`
+      `memsmith worker unreachable for ${next.consecutiveFailures} consecutive hooks.`
     );
   }
   return next.consecutiveFailures;
@@ -635,7 +635,7 @@ function resetWorkerFailureCounter(): void {
   writeHookFailureStateAtomic({ consecutiveFailures: 0, lastFailureAt: 0 });
 }
 
-const WORKER_FALLBACK_BRAND: unique symbol = Symbol.for('claude-mem/worker-fallback');
+const WORKER_FALLBACK_BRAND: unique symbol = Symbol.for('memsmith/worker-fallback');
 
 export type WorkerFallback =
   | { continue: true; [WORKER_FALLBACK_BRAND]: true }

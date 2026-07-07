@@ -34,7 +34,7 @@ import { clearDependencyStatus, recordClaudeCliSetupRequired } from '../../share
 /**
  * Module-scoped guard so the "effort parameter" hint only fires once per
  * worker process. The underlying cause (a leaked CLAUDE_CODE_EFFORT_LEVEL in
- * ~/.claude-mem/.env, see #2357) is environmental — re-logging it on every
+ * ~/.memsmith/.env, see #2357) is environmental — re-logging it on every
  * SDK call would spam the logs without adding signal.
  *
  * Exported solely for tests to reset the latch between cases.
@@ -129,8 +129,8 @@ export function classifyClaudeError(err: unknown): ClassifiedProviderError {
       logger.warn(
         'SDK',
         'Anthropic API rejected request with HTTP 400: this model does not support the `effort` parameter. ' +
-          'CLAUDE_CODE_EFFORT_LEVEL is likely leaking into the SDK subprocess env via ~/.claude-mem/.env — ' +
-          'remove it or scope it to models that support effort. See https://github.com/thedotmack/claude-mem/issues/2357.',
+          'CLAUDE_CODE_EFFORT_LEVEL is likely leaking into the SDK subprocess env via ~/.memsmith/.env — ' +
+          'remove it or scope it to models that support effort. See https://github.com/shshalom/memsmith/issues/2357.',
         { status: 400 }
       );
     }
@@ -210,7 +210,7 @@ export class ClaudeProvider {
     }
 
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const maxConcurrent = parseInt(settings.CLAUDE_MEM_MAX_CONCURRENT_AGENTS, 10) || 2;
+    const maxConcurrent = parseInt(settings.MEMSMITH_MAX_CONCURRENT_AGENTS, 10) || 2;
     await waitForSlot(maxConcurrent, session.abortController.signal);
 
     const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth());
@@ -246,7 +246,7 @@ export class ClaudeProvider {
         contentSessionId: session.contentSessionId,
         project: session.project,
         model: modelId,
-        env: isolatedEnv,  // Use isolated credentials from ~/.claude-mem/.env, not process.env
+        env: isolatedEnv,  // Use isolated credentials from ~/.memsmith/.env, not process.env
         pathToClaudeCodeExecutable: claudePath,
         abortController: session.abortController,
         ...(shouldResume && session.memorySessionId ? { resume: session.memorySessionId } : {}),
@@ -365,7 +365,7 @@ export class ClaudeProvider {
           }
 
           if (typeof textContent === 'string' && textContent.includes('Invalid API key')) {
-            throw new Error('Invalid API key: check your API key configuration in ~/.claude-mem/settings.json or ~/.claude-mem/.env');
+            throw new Error('Invalid API key: check your API key configuration in ~/.memsmith/settings.json or ~/.memsmith/.env');
           }
 
           await processAgentResponse(
@@ -549,6 +549,6 @@ export class ClaudeProvider {
     const settingsPath = paths.settings();
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
     // Resolve $TIER:<fast|smart|simple|summary> aliases at request time (#2289).
-    return resolveTierAlias(settings.CLAUDE_MEM_MODEL, settings);
+    return resolveTierAlias(settings.MEMSMITH_MODEL, settings);
   }
 }

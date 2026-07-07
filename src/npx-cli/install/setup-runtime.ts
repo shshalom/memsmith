@@ -9,7 +9,7 @@ import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { IS_WINDOWS } from '../utils/paths.js';
 
 const INSTALL_TIMEOUT_MS = (() => {
-  const override = process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS;
+  const override = process.env.MEMSMITH_INSTALL_TIMEOUT_MS;
   if (override && Number.isFinite(Number(override))) return Number(override);
   return 5 * 60 * 1000;
 })();
@@ -20,14 +20,14 @@ const INSTALL_TIMEOUT_MS = (() => {
  */
 export function platformBunRemediation(): string {
   return IS_WINDOWS
-    ? 'Install Bun manually: `winget install Oven-sh.Bun` (or `powershell -c "irm bun.sh/install.ps1 | iex"`), then re-run `npx claude-mem install`.'
-    : 'Install Bun manually: `curl -fsSL https://bun.sh/install | bash` (or `brew install oven-sh/bun/bun`), then re-run `npx claude-mem install`.';
+    ? 'Install Bun manually: `winget install Oven-sh.Bun` (or `powershell -c "irm bun.sh/install.ps1 | iex"`), then re-run `npx memsmith install`.'
+    : 'Install Bun manually: `curl -fsSL https://bun.sh/install | bash` (or `brew install oven-sh/bun/bun`), then re-run `npx memsmith install`.';
 }
 
 export function platformUvRemediation(): string {
   return IS_WINDOWS
-    ? 'Install uv manually: `winget install astral-sh.uv` (or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`), then re-run `npx claude-mem install`.'
-    : 'Install uv manually: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`), then re-run `npx claude-mem install`.';
+    ? 'Install uv manually: `winget install astral-sh.uv` (or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`), then re-run `npx memsmith install`.'
+    : 'Install uv manually: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`), then re-run `npx memsmith install`.';
 }
 
 function userHasOptedOutOfVectorSearch(): boolean {
@@ -39,7 +39,7 @@ function userHasOptedOutOfVectorSearch(): boolean {
     raw = JSON.parse(readFileSync(USER_SETTINGS_PATH, 'utf-8'));
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.warn(`claude-mem: could not read ${USER_SETTINGS_PATH} while checking vector-search opt-out:`, err);
+    console.warn(`memsmith: could not read ${USER_SETTINGS_PATH} while checking vector-search opt-out:`, err);
     return false;
   }
   if (!raw || typeof raw !== 'object') return false;
@@ -47,7 +47,7 @@ function userHasOptedOutOfVectorSearch(): boolean {
   const envBlock = (record.env && typeof record.env === 'object')
     ? (record.env as Record<string, unknown>)
     : {};
-  const value = record.CLAUDE_MEM_DISABLE_VECTOR_SEARCH ?? envBlock.CLAUDE_MEM_DISABLE_VECTOR_SEARCH;
+  const value = record.MEMSMITH_DISABLE_VECTOR_SEARCH ?? envBlock.MEMSMITH_DISABLE_VECTOR_SEARCH;
   return value === true || value === 'true' || value === '1';
 }
 
@@ -105,7 +105,7 @@ function getBunVersion(): string | null {
     return result.status === 0 ? result.stdout.trim() : null;
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.warn('claude-mem: bun --version probe failed:', err);
+    console.warn('memsmith: bun --version probe failed:', err);
     return null;
   }
 }
@@ -142,7 +142,7 @@ function getUvVersion(): string | null {
     return result.status === 0 ? result.stdout.trim() : null;
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.warn('claude-mem: uv --version probe failed:', err);
+    console.warn('memsmith: uv --version probe failed:', err);
     return null;
   }
 }

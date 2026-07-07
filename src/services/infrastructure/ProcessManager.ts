@@ -225,7 +225,7 @@ function classifyCwdForRemap(cwd: string): CwdClassification {
 export function runOneTimeCwdRemap(dataDirectory?: string): void {
   const effectiveDataDir = dataDirectory ?? DATA_DIR;
   const markerPath = path.join(effectiveDataDir, CWD_REMAP_MARKER_FILENAME);
-  const dbPath = path.join(effectiveDataDir, 'claude-mem.db');
+  const dbPath = path.join(effectiveDataDir, 'memsmith.db');
 
   if (existsSync(markerPath)) {
     logger.debug('SYSTEM', 'cwd-remap marker exists, skipping');
@@ -343,7 +343,7 @@ export function spawnDaemon(
 
   const env = sanitizeEnv({
     ...process.env,
-    CLAUDE_MEM_WORKER_PORT: String(port),
+    MEMSMITH_WORKER_PORT: String(port),
     ...extraEnv
   });
 

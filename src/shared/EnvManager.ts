@@ -11,23 +11,23 @@ import {
 } from './oauth-token.js';
 
 // Resolved lazily so tests (and any rare runtime path-overrides) can target a
-// temp file via CLAUDE_MEM_ENV_FILE without depending on module-load order.
-// Production callers see the canonical ~/.claude-mem/.env path through
+// temp file via MEMSMITH_ENV_FILE without depending on module-load order.
+// Production callers see the canonical ~/.memsmith/.env path through
 // paths.envFile() unchanged.
 export function envFilePath(): string {
-  return process.env.CLAUDE_MEM_ENV_FILE ?? paths.envFile();
+  return process.env.MEMSMITH_ENV_FILE ?? paths.envFile();
 }
 
 const BLOCKED_ENV_VARS = [
   'ANTHROPIC_API_KEY',       // Issue #733: Prevent auto-discovery from project .env files
   'ANTHROPIC_AUTH_TOKEN',    // Same leak risk as ANTHROPIC_API_KEY; a token inherited from the
                              // shell would otherwise short-circuit OAuth lookup at spawn time.
-                             // The fresh token from ~/.claude-mem/.env is re-injected below
+                             // The fresh token from ~/.memsmith/.env is re-injected below
                              // when explicit gateway credentials are configured.
   'ANTHROPIC_BASE_URL',      // Issue #2375: same leak class as AUTH_TOKEN. A leaked BASE_URL
                              // alone (no token) was enough to trigger the OAuth-skip path,
                              // sending the subprocess to a proxy with no credentials.
-                             // Re-injected from ~/.claude-mem/.env when configured.
+                             // Re-injected from ~/.memsmith/.env when configured.
   'CLAUDECODE',              // Prevent "cannot be launched inside another Claude Code session" error
   'CLAUDE_CODE_OAUTH_TOKEN', // Issue #2215: prevent stale parent-process token from leaking into
                              // isolated env. The fresh token is read from the keychain at spawn
@@ -45,7 +45,7 @@ const BLOCKED_ENV_VARS = [
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
 ];
 
-export interface ClaudeMemEnv {
+export interface MemSmithEnv {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   ANTHROPIC_AUTH_TOKEN?: string;
@@ -54,7 +54,7 @@ export interface ClaudeMemEnv {
 }
 
 /**
- * The only env keys ever copied out of ~/.claude-mem/.env. This is the
+ * The only env keys ever copied out of ~/.memsmith/.env. This is the
  * whitelist that load/save/buildIsolatedEnv enforce — only these five keys
  * cross the boundary. Do NOT replace the per-key copy loops with
  * Object.assign(result, parsed): that would let arbitrary keys (a leaked
@@ -71,7 +71,7 @@ const CREDENTIAL_KEYS = [
 // Node's stdlib .env parser (util.parseEnv, Node ≥20.12 / stable in 24):
 // handles `#` comments, blank lines, KEY=VALUE, and quote-stripping. The
 // downstream CREDENTIAL_KEYS whitelist still filters the result — arbitrary
-// keys in the file never reach a ClaudeMemEnv. serializeEnvFile is kept custom
+// keys in the file never reach a MemSmithEnv. serializeEnvFile is kept custom
 // (header banner + selective quoting; no stdlib equivalent).
 function parseEnvFile(content: string): Record<string, string> {
   return parseEnv(content) as Record<string, string>;
@@ -79,9 +79,9 @@ function parseEnvFile(content: string): Record<string, string> {
 
 function serializeEnvFile(env: Record<string, string>): string {
   const lines: string[] = [
-    '# claude-mem credentials',
-    '# This file stores keys and gateway settings for the claude-mem memory agent',
-    '# Edit this file or use claude-mem settings to configure',
+    '# memsmith credentials',
+    '# This file stores keys and gateway settings for the memsmith memory agent',
+    '# Edit this file or use memsmith settings to configure',
     '',
   ];
 
@@ -99,7 +99,7 @@ function serializeEnvFile(env: Record<string, string>): string {
  * Single source of truth for non-OAuth Anthropic credentials (#2375).
  *
  * Contract: ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, and ANTHROPIC_AUTH_TOKEN
- * are populated ONLY from ~/.claude-mem/.env — never from the parent shell.
+ * are populated ONLY from ~/.memsmith/.env — never from the parent shell.
  * All three are in BLOCKED_ENV_VARS so process.env values cannot leak into
  * the SDK subprocess; they are re-injected here (and in buildIsolatedEnv)
  * exclusively from the file.
@@ -108,7 +108,7 @@ function serializeEnvFile(env: Record<string, string>): string {
  * five named keys are ever copied out (see CREDENTIAL_KEYS for why this must
  * not become Object.assign(result, parsed)).
  */
-export function loadClaudeMemEnv(): ClaudeMemEnv {
+export function loadMemSmithEnv(): MemSmithEnv {
   const envFile = envFilePath();
   if (!existsSync(envFile)) {
     return {};
@@ -118,7 +118,7 @@ export function loadClaudeMemEnv(): ClaudeMemEnv {
     const content = readFileSync(envFile, 'utf-8');
     const parsed = parseEnvFile(content);
 
-    const result: ClaudeMemEnv = {};
+    const result: MemSmithEnv = {};
     for (const key of CREDENTIAL_KEYS) {
       if (parsed[key]) result[key] = parsed[key];
     }
@@ -130,7 +130,7 @@ export function loadClaudeMemEnv(): ClaudeMemEnv {
   }
 }
 
-export function saveClaudeMemEnv(env: ClaudeMemEnv): void {
+export function saveMemSmithEnv(env: MemSmithEnv): void {
   const envFile = envFilePath();
   let existing: Record<string, string> = {};
   try {
@@ -180,10 +180,10 @@ export function buildIsolatedEnv(includeCredentials: boolean = true): Record<str
 
   isolatedEnv.CLAUDE_CODE_ENTRYPOINT = 'sdk-ts';
 
-  isolatedEnv.CLAUDE_MEM_INTERNAL = '1';
+  isolatedEnv.MEMSMITH_INTERNAL = '1';
 
   if (includeCredentials) {
-    const credentials = loadClaudeMemEnv();
+    const credentials = loadMemSmithEnv();
 
     for (const key of CREDENTIAL_KEYS) {
       const value = credentials[key];
@@ -228,13 +228,13 @@ export async function buildIsolatedEnvWithFreshOAuth(
 
   // Custom gateway: never inject OAuth (would leak the user's Anthropic OAuth
   // token to a third-party gateway). The user must explicitly configure a
-  // gateway-appropriate token in ~/.claude-mem/.env if their gateway requires
+  // gateway-appropriate token in ~/.memsmith/.env if their gateway requires
   // one. A bare BASE_URL with no token = tokenless gateway (e.g. mTLS at the
   // network boundary).
   //
   // Post-#2375: ANTHROPIC_BASE_URL is in BLOCKED_ENV_VARS, so it can ONLY be
   // present in isolatedEnv when the user intentionally configured it in
-  // ~/.claude-mem/.env (see loadClaudeMemEnv re-injection above). A BASE_URL
+  // ~/.memsmith/.env (see loadMemSmithEnv re-injection above). A BASE_URL
   // leaked from the parent shell no longer reaches this predicate — that was
   // the root cause of #2375 (leaked BASE_URL → OAuth-skip → no credential at
   // all). Keeping the BASE_URL branch here is therefore the *security*-correct
@@ -294,27 +294,27 @@ export async function buildIsolatedEnvWithFreshOAuth(
   return isolatedEnv;
 }
 
-export function getCredential(key: keyof ClaudeMemEnv): string | undefined {
-  const env = loadClaudeMemEnv();
+export function getCredential(key: keyof MemSmithEnv): string | undefined {
+  const env = loadMemSmithEnv();
   return env[key];
 }
 
 export function hasAnthropicApiKey(): boolean {
-  const env = loadClaudeMemEnv();
+  const env = loadMemSmithEnv();
   return !!env.ANTHROPIC_API_KEY;
 }
 
 export function hasAnthropicAuthToken(): boolean {
-  const env = loadClaudeMemEnv();
+  const env = loadMemSmithEnv();
   return !!env.ANTHROPIC_AUTH_TOKEN;
 }
 
 export function getAuthMethodDescription(): string {
   if (hasAnthropicApiKey()) {
-    return 'API key (from ~/.claude-mem/.env)';
+    return 'API key (from ~/.memsmith/.env)';
   }
   if (hasAnthropicAuthToken()) {
-    return 'Gateway auth token (from ~/.claude-mem/.env)';
+    return 'Gateway auth token (from ~/.memsmith/.env)';
   }
   // Note: this is a quick sync hint for logging — the authoritative OAuth
   // path is buildIsolatedEnvWithFreshOAuth() which reads the keychain at

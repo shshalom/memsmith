@@ -20,20 +20,20 @@ export interface RedisQueueConfig {
 }
 
 export function getObservationQueueEngineName(): ObservationQueueEngineName {
-  const raw = getQueueSetting('CLAUDE_MEM_QUEUE_ENGINE').trim().toLowerCase();
+  const raw = getQueueSetting('MEMSMITH_QUEUE_ENGINE').trim().toLowerCase();
   if (raw === 'sqlite' || raw === 'bullmq') {
     return raw;
   }
-  throw new Error(`Invalid CLAUDE_MEM_QUEUE_ENGINE=${raw}; expected sqlite or bullmq`);
+  throw new Error(`Invalid MEMSMITH_QUEUE_ENGINE=${raw}; expected sqlite or bullmq`);
 }
 
 export function getRedisQueueConfig(): RedisQueueConfig {
   const engine = getObservationQueueEngineName();
-  const mode = normalizeRedisMode(getQueueSetting('CLAUDE_MEM_REDIS_MODE'));
-  const url = getQueueSetting('CLAUDE_MEM_REDIS_URL').trim() || null;
-  const host = getQueueSetting('CLAUDE_MEM_REDIS_HOST').trim() || '127.0.0.1';
-  const port = parseRedisPort(getQueueSetting('CLAUDE_MEM_REDIS_PORT'));
-  const prefix = sanitizePrefix(getQueueSetting('CLAUDE_MEM_QUEUE_REDIS_PREFIX'));
+  const mode = normalizeRedisMode(getQueueSetting('MEMSMITH_REDIS_MODE'));
+  const url = getQueueSetting('MEMSMITH_REDIS_URL').trim() || null;
+  const host = getQueueSetting('MEMSMITH_REDIS_HOST').trim() || '127.0.0.1';
+  const port = parseRedisPort(getQueueSetting('MEMSMITH_REDIS_PORT'));
+  const prefix = sanitizePrefix(getQueueSetting('MEMSMITH_QUEUE_REDIS_PREFIX'));
   const connection = url ? connectionFromUrl(url) : connectionFromHost(host, port);
 
   return {
@@ -65,19 +65,19 @@ function normalizeRedisMode(value: string): RedisMode {
   if (normalized === 'external' || normalized === 'managed' || normalized === 'docker') {
     return normalized;
   }
-  throw new Error(`Invalid CLAUDE_MEM_REDIS_MODE=${value}; expected external, managed, or docker`);
+  throw new Error(`Invalid MEMSMITH_REDIS_MODE=${value}; expected external, managed, or docker`);
 }
 
 function parseRedisPort(value: string): number {
   const port = Number.parseInt(value, 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`Invalid CLAUDE_MEM_REDIS_PORT=${value}; expected a TCP port`);
+    throw new Error(`Invalid MEMSMITH_REDIS_PORT=${value}; expected a TCP port`);
   }
   return port;
 }
 
 function sanitizePrefix(value: string): string {
-  return (value.trim() || 'claude_mem').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return (value.trim() || 'memsmith').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function connectionFromHost(host: string, port: number): RedisOptions {
@@ -93,13 +93,13 @@ function connectionFromHost(host: string, port: number): RedisOptions {
 function connectionFromUrl(rawUrl: string): RedisOptions {
   const parsed = new URL(rawUrl);
   if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
-    throw new Error('CLAUDE_MEM_REDIS_URL must use redis:// or rediss://');
+    throw new Error('MEMSMITH_REDIS_URL must use redis:// or rediss://');
   }
   const db = parsed.pathname.length > 1
     ? Number.parseInt(parsed.pathname.slice(1), 10)
     : undefined;
   if (db !== undefined && (!Number.isInteger(db) || db < 0)) {
-    throw new Error(`Invalid Redis database in CLAUDE_MEM_REDIS_URL: ${parsed.pathname}`);
+    throw new Error(`Invalid Redis database in MEMSMITH_REDIS_URL: ${parsed.pathname}`);
   }
   return {
     host: parsed.hostname || '127.0.0.1',

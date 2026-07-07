@@ -7,7 +7,7 @@ export interface InjectDeps {
 }
 
 function tieringEnabled(): boolean {
-  const v = process.env.CLAUDE_MEM_TIERING;
+  const v = process.env.MEMSMITH_TIERING;
   return v !== '0' && v !== 'off';
 }
 
@@ -37,7 +37,7 @@ export async function buildInjectionBlock(
     }
   }
 
-  // Legacy whole-item-drop behavior (also the CLAUDE_MEM_TIERING=0 path).
+  // Legacy whole-item-drop behavior (also the MEMSMITH_TIERING=0 path).
   const contents = visible.map(r => r.content);
   for (let n = Math.min(contents.length, maxItems); n >= 1; n--) {
     const body = positionForInjection(contents.slice(0, n), maxItems);

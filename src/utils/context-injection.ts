@@ -3,8 +3,8 @@ import path from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { toBmpSafe } from './bmp-safe.js';
 
-export const CONTEXT_TAG_OPEN = '<claude-mem-context>';
-export const CONTEXT_TAG_CLOSE = '</claude-mem-context>';
+export const CONTEXT_TAG_OPEN = '<memsmith-context>';
+export const CONTEXT_TAG_CLOSE = '</memsmith-context>';
 
 export function injectContextIntoMarkdownFile(
   filePath: string,

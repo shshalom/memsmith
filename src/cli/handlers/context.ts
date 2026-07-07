@@ -62,7 +62,7 @@ export const contextHandler: EventHandler = {
     const port = getWorkerPort();
 
     const settings = loadFromFileOnce();
-    const showTerminalOutput = settings.CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
+    const showTerminalOutput = settings.MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
 
     const projectsParam = context.allProjects.join(',');
     const normalizedPlatformSource = input.platform
@@ -110,7 +110,7 @@ export const contextHandler: EventHandler = {
     // a previous worker spawn detected an expired keychain entry.
     const staleReason = readStaleMarker();
     if (staleReason) {
-      const hint = `[claude-mem] Claude Desktop OAuth token is stale: ${staleReason}\nPlease re-login via Claude Desktop to refresh the token.`;
+      const hint = `[memsmith] Claude Desktop OAuth token is stale: ${staleReason}\nPlease re-login via Claude Desktop to refresh the token.`;
       additionalContext = additionalContext
         ? `${hint}\n\n${additionalContext}`
         : hint;
@@ -148,7 +148,7 @@ export const contextHandler: EventHandler = {
       : undefined;
 
     // Sprint 3: opt-in team-memory injection (default OFF — default path is byte-identical to pre-sprint3).
-    const teamInject = settings.CLAUDE_MEM_TEAM_INJECT === 'true';
+    const teamInject = settings.MEMSMITH_TEAM_INJECT === 'true';
     if (teamInject) {
       // Team-memory bridge: this SessionStart handler runs in WORKER mode, but
       // team memory lives in the SERVER-mode Postgres store (Sprints 1-2). We
@@ -159,8 +159,8 @@ export const contextHandler: EventHandler = {
       // fetch can never break session startup. Default path is unaffected.
       try {
         const rows = await fetchTeamMemory({
-          serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
-          apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+          serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
+          apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
           projectId: context.primary,
           teamId: '',  // team is resolved server-side from the scoped key
           query: context.primary,

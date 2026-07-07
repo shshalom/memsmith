@@ -25,7 +25,7 @@ export function claudeConfigDirectory(): string {
 }
 
 export function marketplaceDirectory(): string {
-  return join(claudeConfigDirectory(), 'plugins', 'marketplaces', 'thedotmack');
+  return join(claudeConfigDirectory(), 'plugins', 'marketplaces', 'shshalom');
 }
 
 export function pluginsDirectory(): string {
@@ -45,7 +45,7 @@ export function claudeSettingsPath(): string {
 }
 
 export function pluginCacheDirectory(version: string): string {
-  return join(pluginsDirectory(), 'cache', 'thedotmack', 'claude-mem', version);
+  return join(pluginsDirectory(), 'cache', 'shshalom', 'memsmith', version);
 }
 
 export function npmPackageRootDirectory(): string {
@@ -133,7 +133,7 @@ export function writeJsonFileAtomic(filepath: string, data: any): void {
       } catch (realpathErr) {
         // Dangling symlink (target missing) — resolve one level manually.
         const realpathError = realpathErr instanceof Error ? realpathErr : new Error(String(realpathErr));
-        console.warn(`claude-mem: realpathSync failed for ${filepath}, resolving symlink manually:`, realpathError);
+        console.warn(`memsmith: realpathSync failed for ${filepath}, resolving symlink manually:`, realpathError);
         const linkTarget = readlinkSync(filepath);
         resolved = resolve(dirname(filepath), linkTarget);
       }
@@ -193,7 +193,7 @@ export function writeJsonFileAtomic(filepath: string, data: any): void {
       } catch (dirSyncErr) {
         // Best-effort durability.
         const dirSyncError = dirSyncErr instanceof Error ? dirSyncErr : new Error(String(dirSyncErr));
-        console.warn(`claude-mem: directory fsync failed for ${dir}:`, dirSyncError);
+        console.warn(`memsmith: directory fsync failed for ${dir}:`, dirSyncError);
       } finally {
         if (dirFd !== undefined) {
           try { closeSync(dirFd); } catch { /* ignore */ }

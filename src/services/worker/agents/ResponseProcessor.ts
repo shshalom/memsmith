@@ -338,7 +338,7 @@ async function syncAndBroadcastObservations(
   }
 
   const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-  const settingValue: unknown = settings.CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED;
+  const settingValue: unknown = settings.MEMSMITH_FOLDER_CLAUDEMD_ENABLED;
   const folderClaudeMdEnabled = settingValue === 'true' || settingValue === true;
 
   if (folderClaudeMdEnabled) {

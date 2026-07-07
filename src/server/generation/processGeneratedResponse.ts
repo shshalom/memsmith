@@ -22,7 +22,7 @@ import {
 } from '../../storage/postgres/pool.js';
 import { stripTags } from '../../utils/tag-stripping.js';
 
-const QUALITY_FLOOR = Number(process.env.CLAUDE_MEM_QUALITY_FLOOR ?? 20);
+const QUALITY_FLOOR = Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
 
 // Pure, testable core. Returns kept observations with `quality` stamped on.
 export function applyQualityGate<T extends {
@@ -142,7 +142,7 @@ export async function processGeneratedResponse(
   // failure can NEVER roll back the observation + job writes (Greptile #3078: a
   // failed insert aborts the tx, and the catch can't un-abort it). Opt-in;
   // best-effort (logged); awaited so callers observe usage consistently.
-  if (outcome.kind === 'completed' && process.env.CLAUDE_MEM_USAGE_METERING === '1') {
+  if (outcome.kind === 'completed' && process.env.MEMSMITH_USAGE_METERING === '1') {
     try {
       await recordUsageMetering(input, outcome.observations.length);
     } catch (usageError) {

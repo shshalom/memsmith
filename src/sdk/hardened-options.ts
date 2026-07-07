@@ -108,7 +108,7 @@ export function buildHardenedSdkOptions(input: HardenedSdkOptionsInput): Options
     });
     return {
       behavior: 'deny',
-      message: `${input.source} is forbidden from tool use (claude-mem hard lockdown).`,
+      message: `${input.source} is forbidden from tool use (memsmith hard lockdown).`,
     };
   };
 

@@ -21,7 +21,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 
 export function getPostgresDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | null {
-  return env.CLAUDE_MEM_SERVER_DATABASE_URL || null;
+  return env.MEMSMITH_SERVER_DATABASE_URL || null;
 }
 
 export function parsePostgresConfig(options: ParsePostgresConfigOptions = {}): PostgresConfig | null {
@@ -29,17 +29,17 @@ export function parsePostgresConfig(options: ParsePostgresConfigOptions = {}): P
   const connectionString = getPostgresDatabaseUrl(env);
   if (!connectionString) {
     if (options.requireDatabaseUrl) {
-      throw new Error('Postgres requires CLAUDE_MEM_SERVER_DATABASE_URL');
+      throw new Error('Postgres requires MEMSMITH_SERVER_DATABASE_URL');
     }
     return null;
   }
 
   return {
     connectionString,
-    max: parsePositiveInt(env.CLAUDE_MEM_POSTGRES_POOL_MAX, DEFAULT_POOL_MAX),
-    idleTimeoutMillis: parsePositiveInt(env.CLAUDE_MEM_POSTGRES_IDLE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS),
-    connectionTimeoutMillis: parsePositiveInt(env.CLAUDE_MEM_POSTGRES_CONNECTION_TIMEOUT_MS, DEFAULT_CONNECTION_TIMEOUT_MS),
-    statementTimeoutMillis: parsePositiveInt(env.CLAUDE_MEM_POSTGRES_STATEMENT_TIMEOUT_MS, DEFAULT_STATEMENT_TIMEOUT_MS),
+    max: parsePositiveInt(env.MEMSMITH_POSTGRES_POOL_MAX, DEFAULT_POOL_MAX),
+    idleTimeoutMillis: parsePositiveInt(env.MEMSMITH_POSTGRES_IDLE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS),
+    connectionTimeoutMillis: parsePositiveInt(env.MEMSMITH_POSTGRES_CONNECTION_TIMEOUT_MS, DEFAULT_CONNECTION_TIMEOUT_MS),
+    statementTimeoutMillis: parsePositiveInt(env.MEMSMITH_POSTGRES_STATEMENT_TIMEOUT_MS, DEFAULT_STATEMENT_TIMEOUT_MS),
     ssl: parseSsl(connectionString, env)
   };
 }
@@ -53,10 +53,10 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 }
 
 function parseSsl(connectionString: string, env: NodeJS.ProcessEnv): boolean | { rejectUnauthorized: boolean } {
-  if (env.CLAUDE_MEM_POSTGRES_SSL === 'disable' || env.PGSSLMODE === 'disable') {
+  if (env.MEMSMITH_POSTGRES_SSL === 'disable' || env.PGSSLMODE === 'disable') {
     return false;
   }
-  if (env.CLAUDE_MEM_POSTGRES_SSL === 'require' || env.PGSSLMODE === 'require') {
+  if (env.MEMSMITH_POSTGRES_SSL === 'require' || env.PGSSLMODE === 'require') {
     return { rejectUnauthorized: false };
   }
 

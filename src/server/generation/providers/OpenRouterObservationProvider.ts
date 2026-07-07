@@ -60,8 +60,8 @@ export class OpenRouterObservationProvider implements ServerGenerationProvider {
     this.model = options.model ?? DEFAULT_MODEL;
     this.apiUrl = resolveOpenRouterChatCompletionsUrl(options.baseUrl);
     this.maxOutputTokens = options.maxOutputTokens ?? 4096;
-    this.siteUrl = options.siteUrl ?? 'https://github.com/thedotmack/claude-mem';
-    this.appName = options.appName ?? 'claude-mem';
+    this.siteUrl = options.siteUrl ?? 'https://github.com/shshalom/memsmith';
+    this.appName = options.appName ?? 'memsmith';
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 

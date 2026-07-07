@@ -7,7 +7,7 @@ import { logger } from '../../../../utils/logger.js';
 import type { PostgresAgentEvent } from '../../../../storage/postgres/agent-events.js';
 import type { ServerGenerationContext } from './types.js';
 
-// Fallback list mirrors the default observation types used by claude-mem
+// Fallback list mirrors the default observation types used by memsmith
 // modes. The server-beta prompt does not strictly need a loaded mode file —
 // the parser accepts any of these as the <type> value — so when no mode is
 // loaded (tests, fresh installs) we synthesize a minimal type list rather
@@ -27,7 +27,7 @@ const FALLBACK_OBSERVATION_TYPES: ReadonlyArray<Pick<ObservationType, 'id'>> = [
 // model. parseAgentXml(...) accepts the response unchanged.
 //
 // Privacy: every event payload field passes through `stripTags` (which
-// removes <private>, <claude-mem-context>, <system-reminder>, etc.) before
+// removes <private>, <memsmith-context>, <system-reminder>, etc.) before
 // being included in the prompt. Privacy enforcement here is belt-and-suspenders
 // — `processGeneratedResponse` also discards observations that are entirely
 // derived from privately-tagged inputs.

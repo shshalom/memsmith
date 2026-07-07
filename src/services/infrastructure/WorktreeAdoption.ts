@@ -147,7 +147,7 @@ export async function adoptMergedWorktrees(opts: {
     return result;
   }
 
-  const dbPath = path.join(dataDirectory, 'claude-mem.db');
+  const dbPath = path.join(dataDirectory, 'memsmith.db');
   if (!existsSync(dbPath)) {
     logger.debug('SYSTEM', 'Worktree adoption skipped (no DB yet)', { dbPath });
     return result;
@@ -265,7 +265,7 @@ export async function adoptMergedWorktrees(opts: {
   }
 
   if (!dryRun && adoptedSqliteIds.length > 0) {
-    const chromaSync = new ChromaSync('claude-mem');
+    const chromaSync = new ChromaSync('memsmith');
     try {
       await chromaSync.updateMergedIntoProject(adoptedSqliteIds, parentProject);
       result.chromaUpdates = adoptedSqliteIds.length;
@@ -315,7 +315,7 @@ export async function adoptMergedWorktreesForAllKnownRepos(opts: {
   dryRun?: boolean;
 } = {}): Promise<AdoptionResult[]> {
   const dataDirectory = opts.dataDirectory ?? DEFAULT_DATA_DIR;
-  const dbPath = path.join(dataDirectory, 'claude-mem.db');
+  const dbPath = path.join(dataDirectory, 'memsmith.db');
   const results: AdoptionResult[] = [];
 
   if (!existsSync(dbPath)) {

@@ -4,7 +4,7 @@
  * Used by SDKAgent and KnowledgeAgent to locate a working Claude Code CLI.
  *
  * Every candidate is probed with the CAPABILITY PROBE — `--permission-mode
- * dontAsk --version` — not just `--version`. claude-mem passes
+ * dontAsk --version` — not just `--version`. memsmith passes
  * `--permission-mode dontAsk` on every Observer/KnowledgeAgent spawn (see
  * buildHardenedSdkOptions in src/sdk/hardened-options.ts), and CLIs older than
  * the 2.1.x line reject it with "argument 'dontAsk' is invalid" and exit 1
@@ -109,7 +109,7 @@ function looksLikeDesktopAppPath(candidatePath: string): boolean {
 }
 
 type ProbeResult =
-  /** Runs and accepts every flag claude-mem passes. */
+  /** Runs and accepts every flag memsmith passes. */
   | { kind: 'capable'; version: string }
   /** Runs (`--version` works) but rejects the capability flags — too old. */
   | { kind: 'incompatible'; version: string; detail: string }
@@ -258,7 +258,7 @@ function discoverCandidates(): string[] {
 function updateInstructions(): string {
   return (
     'Update it (`claude update`, or `npm install -g @anthropic-ai/claude-code@latest` for npm installs), ' +
-    'remove stale duplicate installs, or set CLAUDE_CODE_PATH in ~/.claude-mem/settings.json to a current CLI.'
+    'remove stale duplicate installs, or set CLAUDE_CODE_PATH in ~/.memsmith/settings.json to a current CLI.'
   );
 }
 
@@ -272,7 +272,7 @@ function updateInstructions(): string {
  *      capability; the newest capable version is returned
  *
  * @param logComponent  Logger {@link Component} tag (e.g. 'SDK', 'WORKER')
- * @throws {Error} when no Claude CLI compatible with claude-mem can be found
+ * @throws {Error} when no Claude CLI compatible with memsmith can be found
  */
 export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
   if (cachedResolution && cachedResolution.expiresAtMs > Date.now() && _internals.existsSync(cachedResolution.path)) {
@@ -302,7 +302,7 @@ export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
     }
     if (probe.kind === 'incompatible') {
       throw new Error(
-        `CLAUDE_CODE_PATH is set to "${settings.CLAUDE_CODE_PATH}" (${probe.version}) but that CLI is too old for claude-mem — ` +
+        `CLAUDE_CODE_PATH is set to "${settings.CLAUDE_CODE_PATH}" (${probe.version}) but that CLI is too old for memsmith — ` +
         `it rejects flags every memory agent spawn requires (${probe.detail}). ${updateInstructions()}`
       );
     }
@@ -336,7 +336,7 @@ export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
       incompatible.push({ path: candidate, version: probe.version, detail: probe.detail });
       logger.warn(
         logComponent,
-        `Skipping "${candidate}" (${probe.version}) — too old for claude-mem: ${probe.detail}`
+        `Skipping "${candidate}" (${probe.version}) — too old for memsmith: ${probe.detail}`
       );
       continue;
     }
@@ -374,7 +374,7 @@ export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
       .map((entry) => `  - ${entry.path} (${entry.version}) — ${entry.detail}`)
       .join('\n');
     throw new Error(
-      `Every Claude CLI found is too old for claude-mem (each rejects flags the memory agent passes on every spawn):\n` +
+      `Every Claude CLI found is too old for memsmith (each rejects flags the memory agent passes on every spawn):\n` +
       `${lines}\n${updateInstructions()}`
     );
   }
@@ -382,6 +382,6 @@ export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
   throw new Error(
     'Claude executable not found. Please either:\n' +
     '1. Add "claude" to your system PATH, or\n' +
-    '2. Set CLAUDE_CODE_PATH in ~/.claude-mem/settings.json'
+    '2. Set CLAUDE_CODE_PATH in ~/.memsmith/settings.json'
   );
 }

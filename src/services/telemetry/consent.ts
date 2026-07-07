@@ -38,9 +38,9 @@ export type TelemetryConsentExplanation = {
  *
  * Precedence (first match wins):
  * 1. DO_NOT_TRACK set (truthy) -> always off
- * 2. CLAUDE_MEM_TELEMETRY env: '0'/'false'/'off' -> off, '1'/'true'/'on' -> on
+ * 2. MEMSMITH_TELEMETRY env: '0'/'false'/'off' -> off, '1'/'true'/'on' -> on
  * 3. telemetry.json config: enabled === true -> on, enabled === false -> off
- * 4. Default: on (opt-out — anonymous events only; see docs.claude-mem.ai/telemetry)
+ * 4. Default: on (opt-out — anonymous events only; see docs.memsmith.ai/telemetry)
  */
 export function explainTelemetryConsent(
   env: NodeJS.ProcessEnv,
@@ -48,7 +48,7 @@ export function explainTelemetryConsent(
 ): TelemetryConsentExplanation {
   if (isDoNotTrackSet(env)) return { enabled: false, source: 'DO_NOT_TRACK' };
 
-  const override = env.CLAUDE_MEM_TELEMETRY?.toLowerCase();
+  const override = env.MEMSMITH_TELEMETRY?.toLowerCase();
   if (override === '0' || override === 'false' || override === 'off') {
     return { enabled: false, source: 'env' };
   }
@@ -76,7 +76,7 @@ export function resolveTelemetryConsent(
 /**
  * Error-tracking kill-switch, INDEPENDENT of the analytics consent chain above.
  *
- * `CLAUDE_MEM_TELEMETRY_ERRORS=0` (or 'false'/'off') disables real exception
+ * `MEMSMITH_TELEMETRY_ERRORS=0` (or 'false'/'off') disables real exception
  * capture ($exception with redacted message/stack) WITHOUT touching analytics:
  * an operator who is fine with anonymous counters but not error text can opt out
  * of just the error path. Defaults ON whenever telemetry consent is on — error
@@ -84,12 +84,12 @@ export function resolveTelemetryConsent(
  * "consent off" already implies "no errors". Pure — no I/O.
  */
 export function isErrorTelemetryEnabled(env: NodeJS.ProcessEnv): boolean {
-  const value = env.CLAUDE_MEM_TELEMETRY_ERRORS?.toLowerCase();
+  const value = env.MEMSMITH_TELEMETRY_ERRORS?.toLowerCase();
   if (value === '0' || value === 'false' || value === 'off') return false;
   return true;
 }
 
-/** Absolute path of telemetry.json inside the claude-mem data dir. */
+/** Absolute path of telemetry.json inside the memsmith data dir. */
 export function getTelemetryConfigPath(): string {
   return join(resolveDataDir(), TELEMETRY_CONFIG_FILENAME);
 }

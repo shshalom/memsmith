@@ -1,6 +1,6 @@
 // BMP-safe context sanitization (issue #2787).
 //
-// claude-mem injects a <claude-mem-context> block into auto-loaded CLAUDE.md /
+// memsmith injects a <memsmith-context> block into auto-loaded CLAUDE.md /
 // AGENTS.md / *.mdc files. Claude Code has a known bug class where it truncates
 // the auto-loaded context at a UTF-16 code-unit boundary; if the cut lands
 // inside an astral (non-BMP) character's surrogate pair, a LONE surrogate is
@@ -8,7 +8,7 @@
 // "400 ... no low surrogate in string". The session is bricked and SURVIVES
 // /clear, because the bad bytes live in the always-reloaded context file.
 //
-// claude-mem is the source of the astral characters (emoji type markers from
+// memsmith is the source of the astral characters (emoji type markers from
 // modes/*.json, plus any emoji in observation text). We can't fix Claude Code's
 // truncation, but we can guarantee we never EMIT a surrogate pair into the
 // injected block. Every code point we write is <= U+FFFF, so no cut can split a

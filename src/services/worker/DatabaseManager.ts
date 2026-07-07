@@ -21,11 +21,11 @@ export class DatabaseManager {
     this.sessionSearch = new SessionSearch(this.db);
 
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+    const chromaEnabled = settings.MEMSMITH_CHROMA_ENABLED !== 'false';
     if (chromaEnabled) {
-      this.chromaSync = new ChromaSync('claude-mem');
+      this.chromaSync = new ChromaSync('memsmith');
     } else {
-      logger.info('DB', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
+      logger.info('DB', 'Chroma disabled via MEMSMITH_CHROMA_ENABLED=false, using SQLite-only search');
     }
 
     logger.info('DB', 'Database initialized (shared connection)');

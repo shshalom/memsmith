@@ -7,7 +7,7 @@ import { asMs } from './common.js';
  * to the worker_started lifecycle event (start + daily heartbeat) and set as
  * person properties on the anonymous install UUID. This is what tells us the
  * real state of the installed base: how big installs are, how long people
- * have had claude-mem, and whether they are still actively using it.
+ * have had memsmith, and whether they are still actively using it.
  *
  * Privacy: counts, a file size, and day-granularity deltas ONLY — never
  * project names, observation text, or anything derived from content. Every

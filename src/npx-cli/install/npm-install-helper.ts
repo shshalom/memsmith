@@ -10,7 +10,7 @@
  *
  * `--ignore-scripts` is the default: per the v12.6.1 -> v12.6.2 incident, a
  * transitive dep's network postinstall (tree-sitter-swift's nested
- * tree-sitter-cli) could hang `npx claude-mem install`. npm does NOT honor
+ * tree-sitter-cli) could hang `npx memsmith install`. npm does NOT honor
  * `trustedDependencies` (Bun-only), so we suppress scripts at the CLI level.
  */
 
@@ -27,7 +27,7 @@ export interface NpmResult {
 }
 
 export function resolveInstallTimeoutMs(): number {
-  const override = process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS;
+  const override = process.env.MEMSMITH_INSTALL_TIMEOUT_MS;
   if (override && Number.isFinite(Number(override))) return Number(override);
   return TIMEOUT_MS;
 }

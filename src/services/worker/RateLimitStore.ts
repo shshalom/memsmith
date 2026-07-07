@@ -201,7 +201,7 @@ export function shouldAbortForQuota(
 /**
  * Detects API-key auth from a free-form auth-method label. Matches the
  * verbose strings produced by `getAuthMethodDescription()` (e.g.
- * "API key (from ~/.claude-mem/.env)") as well as concise tokens like
+ * "API key (from ~/.memsmith/.env)") as well as concise tokens like
  * "api_key".
  */
 export function isApiKeyAuth(authMethod: string): boolean {
