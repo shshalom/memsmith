@@ -9,10 +9,10 @@ export type Tier = 0 | 1 | 2 | 3;
 export type TierInput = { content: string; metadata: Record<string, unknown> };
 
 function str(v: unknown): string | null {
-  return typeof v === 'string' && v.trim().length > 0 ? v : null;
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
 }
 function strArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
 }
 function firstLine(content: string): string {
   const i = content.indexOf('\n');
@@ -44,4 +44,35 @@ export function renderAtTier(obs: TierInput, tier: Tier): string {
     // Never throw — fall back to full content.
     return obs.content;
   }
+}
+
+export function tierToBudget(
+  ranked: TierInput[],
+  opts: { maxChars: number; maxItems: number },
+): string[] {
+  const items = ranked.slice(0, Math.max(0, opts.maxItems));
+  if (items.length === 0) return [];
+  const tiers: Tier[] = items.map(() => 3);
+  const joinedLen = (arr: string[]) => arr.reduce((s, x) => s + x.length, 0) + Math.max(0, arr.length - 1); // '\n' separators
+  const render = () => items.map((it, i) => renderAtTier(it, tiers[i]));
+
+  // Step down the lowest-ranked item still above L0 until we fit or all at L0.
+  while (joinedLen(render()) > opts.maxChars) {
+    let stepped = false;
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (tiers[i] > 0) { tiers[i] = (tiers[i] - 1) as Tier; stepped = true; break; }
+    }
+    if (!stepped) break; // everyone at L0
+  }
+
+  let out = render();
+  // Still over with all at L0: drop trailing items one at a time.
+  while (out.length > 1 && joinedLen(out) > opts.maxChars) {
+    out = out.slice(0, out.length - 1);
+  }
+  // A single remaining item that still overflows: hard-slice it.
+  if (out.length === 1 && out[0].length > opts.maxChars) {
+    out = [out[0].slice(0, opts.maxChars)];
+  }
+  return out;
 }
