@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { PostgresQueryable } from '../../storage/postgres/utils.js';
+import { resolveHeads } from '../retrieval/supersession.js';
 
 type Scope = { teamId: string; projectId?: string };
 const scopeWhere = (s: Scope) => s.projectId
@@ -15,8 +16,20 @@ export async function lifecycleBoard(db: PostgresQueryable, s: Scope) {
 }
 export async function decisionLog(db: PostgresQueryable, s: Scope) {
   const w = scopeWhere(s);
-  const { rows } = await db.query(`SELECT * FROM observations WHERE ${w.sql} AND obs_type='decision' ORDER BY created_at DESC`, w.args);
-  return rows.map((r: any) => ({ ...r, metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata }));
+  const { rows } = await db.query(`SELECT * FROM observations WHERE ${w.sql} AND obs_type='decision' ORDER BY created_at ASC`, w.args);
+  const parse = (r: any) => ({ ...r, metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata });
+  const rowsById = new Map<string, any>(rows.map((r: any) => [r.id, parse(r)]));
+  const heads = await resolveHeads(db, rows.map((r: any) => r.id), s);
+  const chains = new Map<string, any[]>();
+  for (const r of rows) { const h = heads.get(r.id)!; (chains.get(h) ?? chains.set(h, []).get(h)!).push(rowsById.get(r.id)); }
+  const out = [];
+  for (const [headId, members] of chains) {
+    const head = rowsById.get(headId); if (!head) continue;
+    const history = members.filter((m: any) => m.id !== headId); // rows already created_at ASC
+    out.push({ head, history });
+  }
+  out.sort((a, b) => new Date(b.head.created_at).getTime() - new Date(a.head.created_at).getTime());
+  return out;
 }
 export async function blockedOnWhom(db: PostgresQueryable, s: Scope) {
   const w = scopeWhere(s);
