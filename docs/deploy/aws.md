@@ -288,6 +288,7 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 | `CLAUDE_MEM_VEC_WEIGHT` | `1` | Weight of vector similarity component in hybrid RRF retrieval |
 | `CLAUDE_MEM_RRF_K` | `60` | RRF rank fusion constant |
 | `CLAUDE_MEM_QUERY_EXPANSION` | `off` | Enable deterministic (no-LLM) query expansion before hybrid search |
+| `CLAUDE_MEM_TIERING` | `on` | SessionStart/discovery-gate memory injection renders lower-ranked observations at reduced detail (L0 title → L1 +facts → L2 +why → L3 full) to fit more signal into the char budget instead of dropping whole items. Deterministic, no LLM. Set `0`/`off` to restore whole-item-drop. |
 | `CLAUDE_MEM_TEAM_INJECT` | `off` | Opt-in cross-team memory injection at SessionStart. **Follow-up:** the live fetch is not yet wired (worker vs server-mode bridge); enabling it is currently a no-op. |
 | `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` | `16` | Max supersession-chain walk depth (clamped 1–256); bounds the forward walk and guards malformed cycles when resolving superseded observations. |
 | `CLAUDE_MEM_INPUT_RATE_PER_MTOK` | `5` | Input $/million-tokens rate used by the dashboard cost panel to estimate USD |
