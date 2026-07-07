@@ -30,22 +30,22 @@ describe('OpenCode installer config registration', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('adds claude-mem to an existing plugin array', () => {
+  it('adds memsmith to an existing plugin array', () => {
     const config = addOpenCodePluginReference({
       plugin: ['context-mode'],
       mcp: { context7: { enabled: true } },
     });
 
-    expect(config.plugin).toEqual(['context-mode', './plugins/claude-mem.js']);
+    expect(config.plugin).toEqual(['context-mode', './plugins/memsmith.js']);
     expect(config.mcp).toEqual({ context7: { enabled: true } });
   });
 
-  it('does not duplicate an existing claude-mem plugin reference', () => {
+  it('does not duplicate an existing memsmith plugin reference', () => {
     const config = addOpenCodePluginReference({
-      plugin: ['context-mode', './plugins/claude-mem.js'],
+      plugin: ['context-mode', './plugins/memsmith.js'],
     });
 
-    expect(config.plugin).toEqual(['context-mode', './plugins/claude-mem.js']);
+    expect(config.plugin).toEqual(['context-mode', './plugins/memsmith.js']);
   });
 
   it('preserves an existing single-string plugin entry', () => {
@@ -53,12 +53,12 @@ describe('OpenCode installer config registration', () => {
       plugin: 'context-mode',
     });
 
-    expect(config.plugin).toEqual(['context-mode', './plugins/claude-mem.js']);
+    expect(config.plugin).toEqual(['context-mode', './plugins/memsmith.js']);
   });
 
-  it('removes only claude-mem from plugin entries', () => {
+  it('removes only memsmith from plugin entries', () => {
     const config = removeOpenCodePluginReference({
-      plugin: ['context-mode', './plugins/claude-mem.js'],
+      plugin: ['context-mode', './plugins/memsmith.js'],
       provider: { openai: { models: {} } },
     });
 
@@ -74,7 +74,7 @@ describe('OpenCode installer config registration', () => {
 
     const config = JSON.parse(readFileSync(getOpenCodeConfigPath(), 'utf-8'));
     expect(config.$schema).toBe('https://opencode.ai/config.json');
-    expect(config.plugin).toEqual(['./plugins/claude-mem.js']);
+    expect(config.plugin).toEqual(['./plugins/memsmith.js']);
   });
 
   it('preserves existing config fields when registering the plugin', () => {
@@ -88,14 +88,14 @@ describe('OpenCode installer config registration', () => {
 
     expect(result).toBe(0);
     const config = JSON.parse(readFileSync(getOpenCodeConfigPath(), 'utf-8'));
-    expect(config.plugin).toEqual(['context-mode', './plugins/claude-mem.js']);
+    expect(config.plugin).toEqual(['context-mode', './plugins/memsmith.js']);
     expect(config.provider).toEqual({ openai: { models: {} } });
   });
 
   it('removes the plugin reference from opencode.json during deregistration', () => {
     writeFileSync(getOpenCodeConfigPath(), JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
-      plugin: ['context-mode', './plugins/claude-mem.js'],
+      plugin: ['context-mode', './plugins/memsmith.js'],
     }), 'utf-8');
 
     const result = deregisterOpenCodePluginFromConfig();

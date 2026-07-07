@@ -67,7 +67,7 @@ describe('Embedder bundling - npx-cli artifact (when built)', () => {
   // before `npm run build`. When present, it must obey the same contract: the
   // `server` command dynamically imports the Postgres storage layer → embedder,
   // and @huggingface/transformers is a ROOT runtime dependency, so `npx
-  // claude-mem` resolves it from node_modules at runtime.
+  // memsmith` resolves it from node_modules at runtime.
   const abs = path.join(projectRoot, 'dist/npx-cli/index.js');
 
   it('does not bundle onnxruntime-node native binding source', () => {

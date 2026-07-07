@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Paid-readiness primitives: usage metering, per-key rate limiting, monthly
-// quota, and the GET /v1/usage endpoint. Postgres-gated (CLAUDE_MEM_TEST_POSTGRES_URL).
+// quota, and the GET /v1/usage endpoint. Postgres-gated (MEMSMITH_TEST_POSTGRES_URL).
 //
 // The repo + middleware logic is tested directly (deterministic). One full
 // server boot proves the array-middleware wiring (readAuth = [auth, ...guards])
@@ -26,7 +26,7 @@ import { meterRequests } from '../../src/server/middleware/usage-metering.js';
 import { logger } from '../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 // Minimal Express req/res/next doubles for middleware unit tests.
 function fakeCtx(authContext: Record<string, unknown>) {
@@ -44,7 +44,7 @@ function fakeCtx(authContext: Record<string, unknown>) {
 
 describe('paid-readiness (usage metering, rate limit, quota)', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

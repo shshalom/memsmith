@@ -47,7 +47,7 @@ describe('ServerViewerRoutes on the server runtime (#2552)', () => {
     server.registerRoutes({
       setupRoutes(app) {
         app.get('/v1/info', (_req, res) => {
-          res.json({ name: 'claude-mem-server', runtime: 'server-beta' });
+          res.json({ name: 'memsmith-server', runtime: 'server-beta' });
         });
       },
     });

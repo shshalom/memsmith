@@ -26,17 +26,17 @@ describe('Windows #2696 - chroma-mcp spawns uvx directly', () => {
     expect(ChromaMcpManager.resolveUvxCommand('darwin')).toBe('uvx');
   });
 
-  it('honours CLAUDE_MEM_CHROMA_UVX_PATH when it points at a real binary', () => {
-    const previous = process.env.CLAUDE_MEM_CHROMA_UVX_PATH;
+  it('honours MEMSMITH_CHROMA_UVX_PATH when it points at a real binary', () => {
+    const previous = process.env.MEMSMITH_CHROMA_UVX_PATH;
     // process.execPath is guaranteed to exist and be a file (the bun/node binary).
-    process.env.CLAUDE_MEM_CHROMA_UVX_PATH = process.execPath;
+    process.env.MEMSMITH_CHROMA_UVX_PATH = process.execPath;
     try {
       expect(ChromaMcpManager.resolveUvxCommand('win32')).toBe(process.execPath);
     } finally {
       if (previous === undefined) {
-        delete process.env.CLAUDE_MEM_CHROMA_UVX_PATH;
+        delete process.env.MEMSMITH_CHROMA_UVX_PATH;
       } else {
-        process.env.CLAUDE_MEM_CHROMA_UVX_PATH = previous;
+        process.env.MEMSMITH_CHROMA_UVX_PATH = previous;
       }
     }
   });

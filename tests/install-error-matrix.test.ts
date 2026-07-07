@@ -93,13 +93,13 @@ describe('installerError decision logic', () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'cm-installer-'));
-    prevDataDir = process.env.CLAUDE_MEM_DATA_DIR;
-    process.env.CLAUDE_MEM_DATA_DIR = home;
+    prevDataDir = process.env.MEMSMITH_DATA_DIR;
+    process.env.MEMSMITH_DATA_DIR = home;
   });
 
   afterEach(() => {
-    if (prevDataDir === undefined) delete process.env.CLAUDE_MEM_DATA_DIR;
-    else process.env.CLAUDE_MEM_DATA_DIR = prevDataDir;
+    if (prevDataDir === undefined) delete process.env.MEMSMITH_DATA_DIR;
+    else process.env.MEMSMITH_DATA_DIR = prevDataDir;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -254,18 +254,18 @@ describe('cross-IDE failure matrix (11 IDEs x 4 scenarios)', () => {
 
   let prevMatrixDataDir: string | undefined;
   beforeEach(() => {
-    prevMatrixDataDir = process.env.CLAUDE_MEM_DATA_DIR;
-    process.env.CLAUDE_MEM_DATA_DIR = mkdtempSync(join(tmpdir(), 'cm-matrix-'));
+    prevMatrixDataDir = process.env.MEMSMITH_DATA_DIR;
+    process.env.MEMSMITH_DATA_DIR = mkdtempSync(join(tmpdir(), 'cm-matrix-'));
   });
   afterEach(() => {
-    const dir = process.env.CLAUDE_MEM_DATA_DIR;
+    const dir = process.env.MEMSMITH_DATA_DIR;
     if (dir) rmSync(dir, { recursive: true, force: true });
     // Restore (not delete): the preload tripwire (tests/preload.ts) pins a
     // per-run default temp dir, and unconditionally deleting the env var
-    // would expose later test files to the real ~/.claude-mem fallback in
+    // would expose later test files to the real ~/.memsmith fallback in
     // call-time resolvers.
-    if (prevMatrixDataDir === undefined) delete process.env.CLAUDE_MEM_DATA_DIR;
-    else process.env.CLAUDE_MEM_DATA_DIR = prevMatrixDataDir;
+    if (prevMatrixDataDir === undefined) delete process.env.MEMSMITH_DATA_DIR;
+    else process.env.MEMSMITH_DATA_DIR = prevMatrixDataDir;
   });
 
   it('produces 44 cells (11 IDEs x 4 scenarios)', () => {

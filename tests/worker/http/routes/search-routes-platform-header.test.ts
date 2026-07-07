@@ -130,7 +130,7 @@ describe('SearchRoutes platform-source headers', () => {
     callHandler(handlers, '/api/search', makeRequest({
       path: '/api/search',
       query: { query: 'needle', platform_source: 'Codex' },
-      headers: { 'x-claude-mem-platform-source': 'cursor' },
+      headers: { 'x-memsmith-platform-source': 'cursor' },
     }), response.res);
     await flushAsyncHandlers();
 
@@ -152,8 +152,8 @@ describe('SearchRoutes platform-source headers', () => {
 
     try {
       const claudeSessionDbId = store.createSDKSession('recent-claude-content', project, 'CLAUDE_RECENT_PROMPT', undefined, 'claude');
-      store.ensureMemorySessionIdRegistered(claudeSessionDbId, 'recent-claude-memory');
-      store.storeObservation('recent-claude-memory', project, {
+      store.ensureMemorySessionIdRegistered(claudeSessionDbId, 'recent-memsmithory');
+      store.storeObservation('recent-memsmithory', project, {
         type: 'discovery',
         title: 'CLAUDE_RECENT_OBS',
         subtitle: null,

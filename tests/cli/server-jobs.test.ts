@@ -8,7 +8,7 @@ import {
   runServerJobsCommand,
 } from '../../src/npx-cli/commands/server-jobs.js';
 
-// Phase 12 — `claude-mem server jobs` operator console. Uses the
+// Phase 12 — `memsmith server jobs` operator console. Uses the
 // __setServerJobsTestSeams test seam (preferred over mock.module which leaks
 // across Bun test files). Each test wires its own pool + bullmq fakes.
 
@@ -52,8 +52,8 @@ describe('Phase 12 — server jobs CLI', () => {
       throw new Error(`__exit_${code ?? 0}__`);
     }) as never;
 
-    process.env.CLAUDE_MEM_SERVER_DATABASE_URL = 'postgres://test/test';
-    process.env.CLAUDE_MEM_SERVER_ADMIN = '1';
+    process.env.MEMSMITH_SERVER_DATABASE_URL = 'postgres://test/test';
+    process.env.MEMSMITH_SERVER_ADMIN = '1';
   });
 
   afterEach(() => {
@@ -67,7 +67,7 @@ describe('Phase 12 — server jobs CLI', () => {
   });
 
   it('refuses unscoped operations without admin override', async () => {
-    delete process.env.CLAUDE_MEM_SERVER_ADMIN;
+    delete process.env.MEMSMITH_SERVER_ADMIN;
     await expect(runServerJobsCommand(['status'])).rejects.toThrow(/__exit_1__/);
     expect(exitCalls).toContain(1);
     const errMsg = consoleErrSpy.mock.calls.map(c => String(c[0])).join('\n');

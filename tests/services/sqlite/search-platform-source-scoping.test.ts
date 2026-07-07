@@ -64,7 +64,7 @@ describe('search platform_source scoping', () => {
     search = new SessionSearch(store.db);
 
     seedObservation('codex-sess', 'codex-mem', 'codex', 'Codex finding', 'shared scoping keyword from codex');
-    seedObservation('claude-sess', 'claude-mem', 'claude', 'Claude finding', 'shared scoping keyword from claude');
+    seedObservation('claude-sess', 'memsmith', 'claude', 'Claude finding', 'shared scoping keyword from claude');
     seedPrompt('shared-prompt-raw-id', 'codex', 'overlap prompt from codex');
     seedPrompt('shared-prompt-raw-id', 'claude', 'overlap prompt from claude');
   });
@@ -83,7 +83,7 @@ describe('search platform_source scoping', () => {
   it('returns only claude-sourced rows when platformSource=claude (no null-source bleed)', () => {
     const results = search.searchObservations('scoping', { platformSource: 'claude', project: 'scoping-project' });
     expect(results.length).toBe(1);
-    expect(results[0].memory_session_id).toBe('claude-mem');
+    expect(results[0].memory_session_id).toBe('memsmith');
   });
 
   it('returns all sources when platformSource is omitted', () => {
@@ -117,7 +117,7 @@ describe('search platform_source scoping', () => {
 
   it('applies platformSource to summary ID hydration', () => {
     const codexSummaryId = seedSummary('codex-mem', 'codex file summary', 1_700_000_000_000);
-    const claudeSummaryId = seedSummary('claude-mem', 'claude file summary', 1_700_000_001_000);
+    const claudeSummaryId = seedSummary('memsmith', 'claude file summary', 1_700_000_001_000);
 
     const results = store.getSessionSummariesByIds(
       [claudeSummaryId, codexSummaryId],
@@ -130,7 +130,7 @@ describe('search platform_source scoping', () => {
 
   it('applies platformSource to by-file session summary matches', () => {
     seedSummary('codex-mem', 'codex file summary', 1_700_000_000_000);
-    seedSummary('claude-mem', 'claude file summary', 1_700_000_001_000);
+    seedSummary('memsmith', 'claude file summary', 1_700_000_001_000);
 
     const results = search.findByFile('src/shared.ts', {
       platformSource: 'codex',

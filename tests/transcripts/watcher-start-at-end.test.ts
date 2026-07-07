@@ -27,7 +27,7 @@ describe('TranscriptWatcher startAtEnd', () => {
 
   beforeEach(() => {
     sessionInitCalls.length = 0;
-    tmpRoot = join(tmpdir(), `claude-mem-transcript-watch-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    tmpRoot = join(tmpdir(), `memsmith-transcript-watch-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     mkdirSync(tmpRoot, { recursive: true });
     loggerSpies = [
       spyOn(logger, 'info').mockImplementation(() => {}),

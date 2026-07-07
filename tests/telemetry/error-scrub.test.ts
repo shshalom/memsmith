@@ -151,7 +151,7 @@ describe('error-scrub: redactSecrets', () => {
   });
 
   it('does NOT mask 3-part version numbers as IPs', () => {
-    const out = redactSecrets('claude-mem 13.6.2 ready');
+    const out = redactSecrets('memsmith 13.6.2 ready');
     expect(out).toContain('13.6.2');
   });
 

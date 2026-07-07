@@ -39,18 +39,18 @@ describe('Cursor MCP Configuration', () => {
       expect(existsSync(join(tempDir, '.cursor'))).toBe(true);
     });
 
-    it('adds claude-mem server with correct structure', () => {
+    it('adds memsmith server with correct structure', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
 
       expect(config.mcpServers).toBeDefined();
-      expect(config.mcpServers['claude-mem']).toBeDefined();
-      expect(config.mcpServers['claude-mem'].command).toBe('node');
-      expect(config.mcpServers['claude-mem'].args).toEqual([mcpServerPath]);
+      expect(config.mcpServers['memsmith']).toBeDefined();
+      expect(config.mcpServers['memsmith'].command).toBe('node');
+      expect(config.mcpServers['memsmith'].args).toEqual([mcpServerPath]);
     });
 
-    it('preserves existing MCP servers when adding claude-mem', () => {
+    it('preserves existing MCP servers when adding memsmith', () => {
       mkdirSync(join(tempDir, '.cursor'), { recursive: true });
       const existingConfig = {
         mcpServers: {
@@ -68,10 +68,10 @@ describe('Cursor MCP Configuration', () => {
 
       expect(config.mcpServers['other-server']).toBeDefined();
       expect(config.mcpServers['other-server'].command).toBe('python');
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
 
-    it('updates existing claude-mem server path', () => {
+    it('updates existing memsmith server path', () => {
       configureCursorMcp(mcpJsonPath, '/old/path.cjs');
 
       const newPath = '/new/path.cjs';
@@ -79,7 +79,7 @@ describe('Cursor MCP Configuration', () => {
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
 
-      expect(config.mcpServers['claude-mem'].args).toEqual([newPath]);
+      expect(config.mcpServers['memsmith'].args).toEqual([newPath]);
     });
 
     it('recovers from corrupt mcp.json', () => {
@@ -89,7 +89,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
 
     it('handles mcp.json with missing mcpServers key', () => {
@@ -99,7 +99,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
   });
 
@@ -149,7 +149,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, pathWithSpaces);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([pathWithSpaces]);
+      expect(config.mcpServers['memsmith'].args).toEqual([pathWithSpaces]);
     });
 
     it('handles Windows-style path', () => {
@@ -157,7 +157,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, windowsPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([windowsPath]);
+      expect(config.mcpServers['memsmith'].args).toEqual([windowsPath]);
     });
 
     it('handles path with special characters', () => {
@@ -165,10 +165,10 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, specialPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([specialPath]);
+      expect(config.mcpServers['memsmith'].args).toEqual([specialPath]);
 
       const reread: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(reread.mcpServers['claude-mem'].args![0]).toBe(specialPath);
+      expect(reread.mcpServers['memsmith'].args![0]).toBe(specialPath);
     });
   });
 });

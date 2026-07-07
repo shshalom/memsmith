@@ -7,7 +7,7 @@ const rows = Array.from({ length: 6 }, (_, i) => ({
 }));
 const deps = { hybridSearch: async () => rows };
 
-afterEach(() => { delete process.env.CLAUDE_MEM_TIERING; });
+afterEach(() => { delete process.env.MEMSMITH_TIERING; });
 
 describe('buildInjectionBlock tiering', () => {
   test('tight budget keeps MORE items than whole-item-drop would', async () => {
@@ -25,7 +25,7 @@ describe('buildInjectionBlock tiering', () => {
     expect(block).not.toContain('SECRET');
   });
   test('off-switch reproduces whole-item behavior (full content only, no partial tiers)', async () => {
-    process.env.CLAUDE_MEM_TIERING = '0';
+    process.env.MEMSMITH_TIERING = '0';
     const block = await buildInjectionBlock(deps, { projectId: 'p', teamId: 't', query: 'q', maxItems: 5, maxChars: 400 });
     // whole-item mode emits full C#: blobs (or none), never a title-only line without its blob
     if (block.includes('Title 0')) expect(block).toContain('C0:');

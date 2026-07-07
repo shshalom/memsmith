@@ -82,7 +82,7 @@ describe('Cursor Context Update', () => {
       writeContextFile(workspacePath, 'test');
 
       const content = readContextFile(workspacePath);
-      expect(content).toContain("Use claude-mem's MCP search tools for more detailed queries");
+      expect(content).toContain("Use memsmith's MCP search tools for more detailed queries");
     });
 
     it('uses atomic write (no temp file left behind)', () => {

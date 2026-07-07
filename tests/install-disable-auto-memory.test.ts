@@ -10,7 +10,7 @@ import { disableClaudeAutoMemory } from '../src/npx-cli/commands/install.js';
  * Closes anthropics/claude-code#23544 from claude-mem's side: installs now
  * require explicit consent before setting CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 in
  * ~/.claude/settings.json `env` block. The built-in MEMORY.md system creates
- * shadow state outside the user's control and competes with claude-mem's
+ * shadow state outside the user's control and competes with memsmith's
  * hook-based memory for context-window tokens, but we should not disable it
  * without the user's opt-in.
  *
@@ -163,7 +163,7 @@ describe('Install: disable Claude Code auto-memory', () => {
     let originalConfigDir: string | undefined;
 
     beforeEach(() => {
-      tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-disable-auto-memory-'));
+      tempDir = mkdtempSync(join(tmpdir(), 'memsmith-disable-auto-memory-'));
       originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = tempDir;
     });

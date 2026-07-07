@@ -10,7 +10,7 @@ import {
 } from '../../../src/storage/postgres/index.js';
 import { quoteIdentifier } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('server beta postgres schema bootstrap', () => {
   it('acquires and releases a client when bootstrapping from a pool', async () => {
@@ -92,7 +92,7 @@ describe('server beta postgres schema bootstrap', () => {
 
 describe('server beta postgres observation storage', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires explicit CLAUDE_MEM_TEST_POSTGRES_URL for Postgres integration tests', () => {});
+    it.skip('requires explicit MEMSMITH_TEST_POSTGRES_URL for Postgres integration tests', () => {});
     return;
   }
 
@@ -874,7 +874,7 @@ describe('server beta postgres observation storage', () => {
 
 async function createFixtureScope(storage: PostgresStorageRepositories) {
   const team = await storage.teams.create({ name: 'Core' });
-  const project = await storage.projects.create({ teamId: team.id, name: 'Claude Mem' });
+  const project = await storage.projects.create({ teamId: team.id, name: 'MemSmith' });
   const session = await storage.sessions.create({
     projectId: project.id,
     teamId: team.id,

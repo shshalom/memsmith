@@ -16,11 +16,11 @@ import { join } from 'path';
 import '../../src/shared/paths.js';
 
 // The spawn gate's lock path comes from resolveDataDir() (src/shared/paths.ts),
-// which consults CLAUDE_MEM_DATA_DIR — so the env var MUST point at the temp
+// which consults MEMSMITH_DATA_DIR — so the env var MUST point at the temp
 // dir BEFORE the gate module is imported/exercised. The cache-busted dynamic
 // import follows the worker-utils test idiom
 // (tests/shared/worker-utils-version-recycle.test.ts).
-const ORIGINAL_DATA_DIR = process.env.CLAUDE_MEM_DATA_DIR;
+const ORIGINAL_DATA_DIR = process.env.MEMSMITH_DATA_DIR;
 
 async function importGateFresh() {
   return import(`../../src/shared/worker-spawn-gate.js?spawn-gate=${Date.now()}-${Math.random()}`);
@@ -31,16 +31,16 @@ describe('worker-spawn-gate — cross-launcher spawn lockfile', () => {
   let lockPath: string;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-spawn-gate-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
+    tempDir = mkdtempSync(join(tmpdir(), 'memsmith-spawn-gate-'));
+    process.env.MEMSMITH_DATA_DIR = tempDir;
     lockPath = join(tempDir, 'spawn.lock');
   });
 
   afterEach(() => {
     if (ORIGINAL_DATA_DIR === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.MEMSMITH_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = ORIGINAL_DATA_DIR;
+      process.env.MEMSMITH_DATA_DIR = ORIGINAL_DATA_DIR;
     }
     rmSync(tempDir, { recursive: true, force: true });
   });

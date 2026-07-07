@@ -81,13 +81,13 @@ describe('SearchRoutes Welcome Hint', () => {
     };
 
     generateContextStub.mockClear();
-    delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
+    delete process.env.MEMSMITH_WELCOME_HINT_ENABLED;
   });
 
   afterEach(() => {
     loggerSpies.forEach(spy => spy.mockRestore());
-    delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
-    delete process.env.CLAUDE_MEM_WORKER_PORT;
+    delete process.env.MEMSMITH_WELCOME_HINT_ENABLED;
+    delete process.env.MEMSMITH_WORKER_PORT;
   });
 
   afterAll(() => {
@@ -107,7 +107,7 @@ describe('SearchRoutes Welcome Hint', () => {
 
     expect(res.send).toHaveBeenCalledTimes(1);
     const body = (res.send as any).mock.calls[0][0] as string;
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# memsmith status');
     expect(body).toContain('/learn-codebase');
     expect(body).toContain('http://localhost:');
     expect(body).toContain('Memory injection starts on your second session in a project.');
@@ -135,8 +135,8 @@ describe('SearchRoutes Welcome Hint', () => {
     expect(res.send).toHaveBeenCalledWith('CONTEXT_FROM_GENERATOR');
   });
 
-  it('skips the welcome hint when CLAUDE_MEM_WELCOME_HINT_ENABLED=false', async () => {
-    process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED = 'false';
+  it('skips the welcome hint when MEMSMITH_WELCOME_HINT_ENABLED=false', async () => {
+    process.env.MEMSMITH_WELCOME_HINT_ENABLED = 'false';
 
     const routes = new SearchRoutes(mockSearchManager);
     const handler = captureContextInjectHandler(routes);
@@ -238,12 +238,12 @@ describe('SearchRoutes Welcome Hint', () => {
     await new Promise(resolve => setImmediate(resolve));
 
     const body = (emptyRes.send as any).mock.calls[0][0] as string;
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# memsmith status');
     expect(generateContextStub).not.toHaveBeenCalled();
   });
 
   it('uses the request-local worker port env override in the welcome hint URL', async () => {
-    process.env.CLAUDE_MEM_WORKER_PORT = '43210';
+    process.env.MEMSMITH_WORKER_PORT = '43210';
 
     const routes = new SearchRoutes(mockSearchManager);
     const handler = captureContextInjectHandler(routes);

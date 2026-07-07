@@ -15,20 +15,20 @@ const realWorkerUtilsSnapshot = { ...realWorkerUtils };
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'CLAUDE_MEM_DATA_DIR') return join(homedir(), '.claude-mem');
+      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
       return '';
     },
     getInt: () => 0,
-    loadFromFile: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+    loadFromFile: () => ({ MEMSMITH_EXCLUDED_PROJECTS: '' }),
   },
 }));
 
 // loadFromFileOnce() module-caches its result, so mocking SettingsDefaultsManager
 // alone is not enough — an earlier test may have already cached real settings.
 // Mock hook-settings directly so shouldTrackProject() always sees a string
-// CLAUDE_MEM_EXCLUDED_PROJECTS regardless of global mock/cache state.
+// MEMSMITH_EXCLUDED_PROJECTS regardless of global mock/cache state.
 mock.module('../../../src/shared/hook-settings.js', () => ({
-  loadFromFileOnce: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+  loadFromFileOnce: () => ({ MEMSMITH_EXCLUDED_PROJECTS: '' }),
 }));
 
 const workerCallLog: Array<{ path: string; options: any }> = [];

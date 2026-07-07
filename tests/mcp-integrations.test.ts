@@ -27,7 +27,7 @@ function writeMcpJsonConfig(
     existingConfig[serversKeyName] = {};
   }
 
-  existingConfig[serversKeyName]['claude-mem'] = buildMcpServerEntry(mcpServerPath);
+  existingConfig[serversKeyName]['memsmith'] = buildMcpServerEntry(mcpServerPath);
 
   writeFileSync(configFilePath, JSON.stringify(existingConfig, null, 2) + '\n');
 }
@@ -88,7 +88,7 @@ describe('MCP Integrations', () => {
       expect(existsSync(join(tempDir, 'deep', 'nested'))).toBe(true);
     });
 
-    it('writes valid JSON with claude-mem entry', () => {
+    it('writes valid JSON with memsmith entry', () => {
       const configPath = join(tempDir, 'mcp.json');
 
       writeMcpJsonConfig(configPath, '/path/to/mcp.cjs');
@@ -96,9 +96,9 @@ describe('MCP Integrations', () => {
       const content = readFileSync(configPath, 'utf-8');
       const config = JSON.parse(content);
       expect(config.mcpServers).toBeDefined();
-      expect(config.mcpServers['claude-mem']).toBeDefined();
-      expect(config.mcpServers['claude-mem'].command).toBe(process.execPath);
-      expect(config.mcpServers['claude-mem'].args).toEqual(['/path/to/mcp.cjs']);
+      expect(config.mcpServers['memsmith']).toBeDefined();
+      expect(config.mcpServers['memsmith'].command).toBe(process.execPath);
+      expect(config.mcpServers['memsmith'].args).toEqual(['/path/to/mcp.cjs']);
     });
 
     it('uses custom serversKeyName when provided', () => {
@@ -108,11 +108,11 @@ describe('MCP Integrations', () => {
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       expect(config.servers).toBeDefined();
-      expect(config.servers['claude-mem']).toBeDefined();
+      expect(config.servers['memsmith']).toBeDefined();
       expect(config.mcpServers).toBeUndefined();
     });
 
-    it('preserves existing servers when adding claude-mem', () => {
+    it('preserves existing servers when adding memsmith', () => {
       const configPath = join(tempDir, 'mcp.json');
       const existingConfig = {
         mcpServers: {
@@ -129,7 +129,7 @@ describe('MCP Integrations', () => {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       expect(config.mcpServers['other-tool']).toBeDefined();
       expect(config.mcpServers['other-tool'].command).toBe('python');
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
 
     it('preserves non-server keys in existing config', () => {
@@ -146,7 +146,7 @@ describe('MCP Integrations', () => {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       expect(config.version).toBe(2);
       expect(config.settings).toEqual({ theme: 'dark' });
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
   });
 
@@ -159,8 +159,8 @@ describe('MCP Integrations', () => {
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       const serverKeys = Object.keys(config.mcpServers);
-      const claudeMemEntries = serverKeys.filter((k) => k === 'claude-mem');
-      expect(claudeMemEntries).toHaveLength(1);
+      const memSmithEntries = serverKeys.filter((k) => k === 'memsmith');
+      expect(memSmithEntries).toHaveLength(1);
     });
 
     it('updates the server path on re-install', () => {
@@ -170,7 +170,7 @@ describe('MCP Integrations', () => {
       writeMcpJsonConfig(configPath, '/new/path/mcp.cjs');
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual(['/new/path/mcp.cjs']);
+      expect(config.mcpServers['memsmith'].args).toEqual(['/new/path/mcp.cjs']);
     });
   });
 
@@ -222,7 +222,7 @@ describe('MCP Integrations', () => {
       expect(Object.keys(config.mcpServers)).toHaveLength(3);
       expect(config.mcpServers['server-a'].command).toBe('ruby');
       expect(config.mcpServers['server-b'].command).toBe('node');
-      expect(config.mcpServers['claude-mem'].command).toBe(process.execPath);
+      expect(config.mcpServers['memsmith'].command).toBe(process.execPath);
     });
 
     it('preserves other servers when using "servers" key', () => {
@@ -238,7 +238,7 @@ describe('MCP Integrations', () => {
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       expect(config.servers['copilot-tool']).toBeDefined();
-      expect(config.servers['claude-mem']).toBeDefined();
+      expect(config.servers['memsmith']).toBeDefined();
     });
 
     it('handles config with mcpServers as empty object', () => {
@@ -248,7 +248,7 @@ describe('MCP Integrations', () => {
       writeMcpJsonConfig(configPath, '/path/to/mcp.cjs');
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
 
     it('handles config without the servers key at all', () => {
@@ -259,7 +259,7 @@ describe('MCP Integrations', () => {
 
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       expect(config.version).toBe(1);
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['memsmith']).toBeDefined();
     });
   });
 

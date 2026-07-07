@@ -46,13 +46,13 @@ import {
 describe('runtime-selector', () => {
   beforeEach(() => {
     mockSettings = {
-      CLAUDE_MEM_RUNTIME: 'worker',
-      CLAUDE_MEM_SERVER_URL: '',
-      CLAUDE_MEM_SERVER_API_KEY: '',
-      CLAUDE_MEM_SERVER_PROJECT_ID: '',
-      CLAUDE_MEM_SERVER_BETA_URL: '',
-      CLAUDE_MEM_SERVER_BETA_API_KEY: '',
-      CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',
+      MEMSMITH_RUNTIME: 'worker',
+      MEMSMITH_SERVER_URL: '',
+      MEMSMITH_SERVER_API_KEY: '',
+      MEMSMITH_SERVER_PROJECT_ID: '',
+      MEMSMITH_SERVER_BETA_URL: '',
+      MEMSMITH_SERVER_BETA_API_KEY: '',
+      MEMSMITH_SERVER_BETA_PROJECT_ID: '',
     };
     warnLogs.length = 0;
   });
@@ -61,25 +61,25 @@ describe('runtime-selector', () => {
     expect(selectRuntime()).toBe('worker');
   });
 
-  it("selectRuntime returns 'server' when CLAUDE_MEM_RUNTIME='server' (canonical)", () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server';
+  it("selectRuntime returns 'server' when MEMSMITH_RUNTIME='server' (canonical)", () => {
+    mockSettings.MEMSMITH_RUNTIME = 'server';
     expect(selectRuntime()).toBe('server');
   });
 
-  it("selectRuntime returns 'server' when CLAUDE_MEM_RUNTIME='server-beta' (legacy back-compat)", () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server-beta';
+  it("selectRuntime returns 'server' when MEMSMITH_RUNTIME='server-beta' (legacy back-compat)", () => {
+    mockSettings.MEMSMITH_RUNTIME = 'server-beta';
     expect(selectRuntime()).toBe('server');
   });
 
   it('selectRuntime returns worker for unknown values', () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'something-else';
+    mockSettings.MEMSMITH_RUNTIME = 'something-else';
     expect(selectRuntime()).toBe('worker');
   });
 
   it('selectRuntime accepts mixed case / whitespace', () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = '  SERVER  ';
+    mockSettings.MEMSMITH_RUNTIME = '  SERVER  ';
     expect(selectRuntime()).toBe('server');
-    mockSettings.CLAUDE_MEM_RUNTIME = '  Server-Beta  ';
+    mockSettings.MEMSMITH_RUNTIME = '  Server-Beta  ';
     expect(selectRuntime()).toBe('server');
   });
 
@@ -89,19 +89,19 @@ describe('runtime-selector', () => {
   });
 
   it('resolveRuntimeContext falls back to worker when api key is missing', () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server';
-    mockSettings.CLAUDE_MEM_SERVER_URL = 'http://localhost:1234';
-    mockSettings.CLAUDE_MEM_SERVER_PROJECT_ID = 'p1';
+    mockSettings.MEMSMITH_RUNTIME = 'server';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
+    mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'p1';
     const ctx = resolveRuntimeContext();
     expect(ctx.runtime).toBe('worker');
     expect(warnLogs.some(l => l.msg.includes('missing_api_key'))).toBe(true);
   });
 
   it("resolveRuntimeContext returns 'server' context when canonical keys are configured", () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server';
-    mockSettings.CLAUDE_MEM_SERVER_URL = 'http://localhost:1234';
-    mockSettings.CLAUDE_MEM_SERVER_API_KEY = 'cmem_xyz';
-    mockSettings.CLAUDE_MEM_SERVER_PROJECT_ID = 'project-uuid';
+    mockSettings.MEMSMITH_RUNTIME = 'server';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
+    mockSettings.MEMSMITH_SERVER_API_KEY = 'cmem_xyz';
+    mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'project-uuid';
     const ctx = resolveRuntimeContext();
     expect(ctx.runtime).toBe('server');
     if (ctx.runtime === 'server') {
@@ -110,12 +110,12 @@ describe('runtime-selector', () => {
     }
   });
 
-  it("resolveRuntimeContext returns 'server' context when legacy CLAUDE_MEM_RUNTIME='server-beta' + legacy *_BETA_* keys are configured", () => {
+  it("resolveRuntimeContext returns 'server' context when legacy MEMSMITH_RUNTIME='server-beta' + legacy *_BETA_* keys are configured", () => {
     // Simulates an existing installed settings.json from before the rename.
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server-beta';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_URL = 'http://legacy.example:9999';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_API_KEY = 'legacy_key';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID = 'legacy-project';
+    mockSettings.MEMSMITH_RUNTIME = 'server-beta';
+    mockSettings.MEMSMITH_SERVER_BETA_URL = 'http://legacy.example:9999';
+    mockSettings.MEMSMITH_SERVER_BETA_API_KEY = 'legacy_key';
+    mockSettings.MEMSMITH_SERVER_BETA_PROJECT_ID = 'legacy-project';
     const ctx = resolveRuntimeContext();
     // Canonical runtime literal is `'server'` even for legacy input.
     expect(ctx.runtime).toBe('server');
@@ -126,12 +126,12 @@ describe('runtime-selector', () => {
   });
 
   it('buildServerContext prefers new keys when both are set', () => {
-    mockSettings.CLAUDE_MEM_SERVER_URL = 'http://new.example:1111';
-    mockSettings.CLAUDE_MEM_SERVER_API_KEY = 'new_key';
-    mockSettings.CLAUDE_MEM_SERVER_PROJECT_ID = 'new-project';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_URL = 'http://old.example:9999';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_API_KEY = 'old_key';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID = 'old-project';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://new.example:1111';
+    mockSettings.MEMSMITH_SERVER_API_KEY = 'new_key';
+    mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'new-project';
+    mockSettings.MEMSMITH_SERVER_BETA_URL = 'http://old.example:9999';
+    mockSettings.MEMSMITH_SERVER_BETA_API_KEY = 'old_key';
+    mockSettings.MEMSMITH_SERVER_BETA_PROJECT_ID = 'old-project';
     const ctx = buildServerContext();
     expect(ctx).not.toBeNull();
     if (ctx) {
@@ -141,10 +141,10 @@ describe('runtime-selector', () => {
   });
 
   it('buildServerContext falls back to legacy *_BETA_* keys when new keys are unset', () => {
-    // No CLAUDE_MEM_SERVER_* keys set, but legacy ones are.
-    mockSettings.CLAUDE_MEM_SERVER_BETA_URL = 'http://legacy.example:9999';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_API_KEY = 'legacy_key';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID = 'legacy-project';
+    // No MEMSMITH_SERVER_* keys set, but legacy ones are.
+    mockSettings.MEMSMITH_SERVER_BETA_URL = 'http://legacy.example:9999';
+    mockSettings.MEMSMITH_SERVER_BETA_API_KEY = 'legacy_key';
+    mockSettings.MEMSMITH_SERVER_BETA_PROJECT_ID = 'legacy-project';
     const ctx = buildServerContext();
     expect(ctx).not.toBeNull();
     if (ctx) {
@@ -155,9 +155,9 @@ describe('runtime-selector', () => {
   });
 
   it('buildServerContext returns null when project id missing on both new and legacy keys', () => {
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server';
-    mockSettings.CLAUDE_MEM_SERVER_URL = 'http://localhost:1234';
-    mockSettings.CLAUDE_MEM_SERVER_API_KEY = 'cmem_xyz';
+    mockSettings.MEMSMITH_RUNTIME = 'server';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
+    mockSettings.MEMSMITH_SERVER_API_KEY = 'cmem_xyz';
     expect(buildServerContext()).toBeNull();
     expect(warnLogs.some(l => l.msg.includes('missing_project_id'))).toBe(true);
   });
@@ -169,7 +169,7 @@ describe('runtime-selector', () => {
     expect(matched?.msg).toContain('reason=transport');
   });
 
-  // #2564 — switching CLAUDE_MEM_RUNTIME flips which runtime hooks dispatch to
+  // #2564 — switching MEMSMITH_RUNTIME flips which runtime hooks dispatch to
   // WITHOUT a reinstall. The selector reads the setting on every call (via
   // loadFromFileOnce), so flipping the setting and re-resolving must change the
   // resolved runtime. This proves the no-reinstall switch end-to-end at the
@@ -178,15 +178,15 @@ describe('runtime-selector', () => {
   // settings, but the selector normalizes it to the canonical `'server'`.
   it('flips worker <-> server when the setting changes (no reinstall)', () => {
     // Start on worker.
-    mockSettings.CLAUDE_MEM_RUNTIME = 'worker';
+    mockSettings.MEMSMITH_RUNTIME = 'worker';
     expect(resolveRuntimeContext().runtime).toBe('worker');
 
     // Flip to server-beta (fully configured) — hooks now resolve the server runtime.
     // Persisted setting may still be `'server-beta'`; selector normalizes to `'server'`.
-    mockSettings.CLAUDE_MEM_RUNTIME = 'server-beta';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_URL = 'http://localhost:9999';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_API_KEY = 'cmem_flip';
-    mockSettings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID = 'proj-flip';
+    mockSettings.MEMSMITH_RUNTIME = 'server-beta';
+    mockSettings.MEMSMITH_SERVER_BETA_URL = 'http://localhost:9999';
+    mockSettings.MEMSMITH_SERVER_BETA_API_KEY = 'cmem_flip';
+    mockSettings.MEMSMITH_SERVER_BETA_PROJECT_ID = 'proj-flip';
     const flipped = resolveRuntimeContext();
     expect(flipped.runtime).toBe('server');
     if (flipped.runtime === 'server') {
@@ -194,7 +194,7 @@ describe('runtime-selector', () => {
     }
 
     // Flip back to worker — hooks resolve the worker runtime again.
-    mockSettings.CLAUDE_MEM_RUNTIME = 'worker';
+    mockSettings.MEMSMITH_RUNTIME = 'worker';
     expect(resolveRuntimeContext().runtime).toBe('worker');
   });
 });

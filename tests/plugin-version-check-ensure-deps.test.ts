@@ -23,7 +23,7 @@ function runVersionCheck(pluginRoot: string, fakeBinDir: string): Promise<{ stde
         ...process.env,
         PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
         CLAUDE_PLUGIN_ROOT: pluginRoot,
-        CLAUDE_MEM_DATA_DIR: join(pluginRoot, '.claude-mem'),
+        MEMSMITH_DATA_DIR: join(pluginRoot, '.memsmith'),
         CLAUDE_CONFIG_DIR: join(pluginRoot, '.claude'),
       },
       stdio: ['pipe', 'pipe', 'pipe'],

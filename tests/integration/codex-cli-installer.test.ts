@@ -6,40 +6,40 @@ import {
 } from '../../src/services/integrations/CodexCliInstaller.js';
 
 describe('Codex CLI installer config repair', () => {
-  it('adds claude-mem plugin enablement when missing', () => {
-    const result = setTomlPluginEnabled('model = "gpt-5.5"\n', 'claude-mem@claude-mem-local', true);
+  it('adds memsmith plugin enablement when missing', () => {
+    const result = setTomlPluginEnabled('model = "gpt-5.5"\n', 'memsmith@memsmith-local', true);
 
-    expect(result).toContain('[plugins."claude-mem@claude-mem-local"]');
+    expect(result).toContain('[plugins."memsmith@memsmith-local"]');
     expect(result).toContain('enabled = true');
   });
 
   it('updates existing plugin enablement in place', () => {
     const input = [
-      '[plugins."claude-mem@thedotmack"]',
+      '[plugins."memsmith@shshalom"]',
       'enabled = true',
       '',
-      '[marketplaces.claude-mem-local]',
+      '[marketplaces.memsmith-local]',
       'source_type = "git"',
       '',
     ].join('\n');
 
-    const result = setTomlPluginEnabled(input, 'claude-mem@thedotmack', false);
+    const result = setTomlPluginEnabled(input, 'memsmith@shshalom', false);
 
-    expect(result).toContain('[plugins."claude-mem@thedotmack"]\nenabled = false');
-    expect(result).toContain('[marketplaces.claude-mem-local]');
+    expect(result).toContain('[plugins."memsmith@shshalom"]\nenabled = false');
+    expect(result).toContain('[marketplaces.memsmith-local]');
   });
 
   it('inserts enabled into an existing plugin section without touching the next section', () => {
     const input = [
-      '[plugins."claude-mem@claude-mem-local"]',
+      '[plugins."memsmith@memsmith-local"]',
       '',
       '[hooks.state]',
       '',
     ].join('\n');
 
-    const result = setTomlPluginEnabled(input, 'claude-mem@claude-mem-local', true);
+    const result = setTomlPluginEnabled(input, 'memsmith@memsmith-local', true);
 
-    expect(result).toContain('[plugins."claude-mem@claude-mem-local"]\nenabled = true\n');
+    expect(result).toContain('[plugins."memsmith@memsmith-local"]\nenabled = true\n');
     expect(result).toContain('[hooks.state]');
   });
 
@@ -48,7 +48,7 @@ describe('Codex CLI installer config repair', () => {
       '[features]',
       'shell_snapshot = true',
       '',
-      '[plugins."claude-mem@claude-mem-local"]',
+      '[plugins."memsmith@memsmith-local"]',
       'enabled = true',
       '',
     ].join('\n');
@@ -56,11 +56,11 @@ describe('Codex CLI installer config repair', () => {
     const result = setTomlFeatureEnabled(input, 'hooks', true);
 
     expect(result).toContain('[features]\nhooks = true\nshell_snapshot = true');
-    expect(result).toContain('[plugins."claude-mem@claude-mem-local"]');
+    expect(result).toContain('[plugins."memsmith@memsmith-local"]');
     expect(result).not.toContain('codex_hooks');
   });
 
-  it('removes stale legacy claude-mem mcp-search config', () => {
+  it('removes stale legacy memsmith mcp-search config', () => {
     const input = [
       'model = "gpt-5.5"',
       '',
@@ -69,9 +69,9 @@ describe('Codex CLI installer config repair', () => {
       '',
       '[mcp_servers.mcp-search]',
       'command = "node"',
-      'args = ["/Users/alexnewman/.codex/plugins/cache/claude-mem-local/claude-mem/12.7.5/scripts/mcp-server.cjs"]',
+      'args = ["/Users/alexnewman/.codex/plugins/cache/memsmith-local/memsmith/12.7.5/scripts/mcp-server.cjs"]',
       '',
-      '[plugins."claude-mem@claude-mem-local"]',
+      '[plugins."memsmith@memsmith-local"]',
       'enabled = true',
       '',
     ].join('\n');
@@ -79,7 +79,7 @@ describe('Codex CLI installer config repair', () => {
     const result = removeLegacyCodexMcpSearchConfig(input);
 
     expect(result).toContain('[mcp_servers.playwright]');
-    expect(result).toContain('[plugins."claude-mem@claude-mem-local"]');
+    expect(result).toContain('[plugins."memsmith@memsmith-local"]');
     expect(result).not.toContain('[mcp_servers.mcp-search]');
     expect(result).not.toContain('12.7.5/scripts/mcp-server.cjs');
   });
@@ -88,7 +88,7 @@ describe('Codex CLI installer config repair', () => {
     const input = [
       '[mcp_servers.mcp-search]',
       'command = "node"',
-      'args = ["/tmp/claude-mem/scripts/mcp-server.cjs"]',
+      'args = ["/tmp/memsmith/scripts/mcp-server.cjs"]',
       '',
       '[mcp_servers.mcp-search.tools.search]',
       'approval_mode = "approve"',
@@ -108,7 +108,7 @@ describe('Codex CLI installer config repair', () => {
     const input = [
       '[mcp_servers.mcp-search]',
       'command = "node"',
-      'args = ["/tmp/claude-mem/scripts/mcp-server.cjs"]',
+      'args = ["/tmp/memsmith/scripts/mcp-server.cjs"]',
       '',
       '[features]',
       'hooks = true',
@@ -121,7 +121,7 @@ describe('Codex CLI installer config repair', () => {
     expect(result).toStartWith('[features]');
   });
 
-  it('preserves non-claude-mem mcp-search config', () => {
+  it('preserves non-memsmith mcp-search config', () => {
     const input = [
       '[mcp_servers.mcp-search]',
       'command = "python"',

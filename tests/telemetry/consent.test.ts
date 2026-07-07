@@ -41,9 +41,9 @@ describe('resolveTelemetryConsent', () => {
     expect(resolveTelemetryConsent({ DO_NOT_TRACK: '1' }, enabledConfig)).toBe(false);
   });
 
-  it('DO_NOT_TRACK beats CLAUDE_MEM_TELEMETRY=1', () => {
+  it('DO_NOT_TRACK beats MEMSMITH_TELEMETRY=1', () => {
     expect(
-      resolveTelemetryConsent({ DO_NOT_TRACK: '1', CLAUDE_MEM_TELEMETRY: '1' }, enabledConfig)
+      resolveTelemetryConsent({ DO_NOT_TRACK: '1', MEMSMITH_TELEMETRY: '1' }, enabledConfig)
     ).toBe(false);
   });
 
@@ -66,30 +66,30 @@ describe('resolveTelemetryConsent', () => {
     expect(resolveTelemetryConsent({ DO_NOT_TRACK: '' }, disabledConfig)).toBe(false);
   });
 
-  it('CLAUDE_MEM_TELEMETRY=0 beats an enabled config', () => {
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: '0' }, enabledConfig)).toBe(false);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'false' }, enabledConfig)).toBe(false);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'off' }, enabledConfig)).toBe(false);
+  it('MEMSMITH_TELEMETRY=0 beats an enabled config', () => {
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: '0' }, enabledConfig)).toBe(false);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'false' }, enabledConfig)).toBe(false);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'off' }, enabledConfig)).toBe(false);
   });
 
-  it('CLAUDE_MEM_TELEMETRY=1 enables without any config', () => {
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: '1' }, null)).toBe(true);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'true' }, null)).toBe(true);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'on' }, null)).toBe(true);
+  it('MEMSMITH_TELEMETRY=1 enables without any config', () => {
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: '1' }, null)).toBe(true);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'true' }, null)).toBe(true);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'on' }, null)).toBe(true);
   });
 
-  it('CLAUDE_MEM_TELEMETRY=1 beats a disabled config', () => {
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: '1' }, disabledConfig)).toBe(true);
+  it('MEMSMITH_TELEMETRY=1 beats a disabled config', () => {
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: '1' }, disabledConfig)).toBe(true);
   });
 
-  it('CLAUDE_MEM_TELEMETRY values are case-insensitive', () => {
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'OFF' }, enabledConfig)).toBe(false);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'ON' }, null)).toBe(true);
+  it('MEMSMITH_TELEMETRY values are case-insensitive', () => {
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'OFF' }, enabledConfig)).toBe(false);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'ON' }, null)).toBe(true);
   });
 
-  it('unrecognized CLAUDE_MEM_TELEMETRY values fall through to config', () => {
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'maybe' }, disabledConfig)).toBe(false);
-    expect(resolveTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'maybe' }, null)).toBe(true);
+  it('unrecognized MEMSMITH_TELEMETRY values fall through to config', () => {
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'maybe' }, disabledConfig)).toBe(false);
+    expect(resolveTelemetryConsent({ MEMSMITH_TELEMETRY: 'maybe' }, null)).toBe(true);
   });
 
   it('config enabled=true enables with empty env', () => {
@@ -111,19 +111,19 @@ describe('explainTelemetryConsent', () => {
 
   it('DO_NOT_TRACK wins over an enabling env override', () => {
     expect(
-      explainTelemetryConsent({ DO_NOT_TRACK: '1', CLAUDE_MEM_TELEMETRY: '1' }, enabledConfig)
+      explainTelemetryConsent({ DO_NOT_TRACK: '1', MEMSMITH_TELEMETRY: '1' }, enabledConfig)
     ).toEqual({ enabled: false, source: 'DO_NOT_TRACK' });
   });
 
-  it('attributes CLAUDE_MEM_TELEMETRY to the env layer (off)', () => {
-    expect(explainTelemetryConsent({ CLAUDE_MEM_TELEMETRY: '0' }, enabledConfig)).toEqual({
+  it('attributes MEMSMITH_TELEMETRY to the env layer (off)', () => {
+    expect(explainTelemetryConsent({ MEMSMITH_TELEMETRY: '0' }, enabledConfig)).toEqual({
       enabled: false,
       source: 'env',
     });
   });
 
-  it('attributes CLAUDE_MEM_TELEMETRY to the env layer (on)', () => {
-    expect(explainTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'on' }, null)).toEqual({
+  it('attributes MEMSMITH_TELEMETRY to the env layer (on)', () => {
+    expect(explainTelemetryConsent({ MEMSMITH_TELEMETRY: 'on' }, null)).toEqual({
       enabled: true,
       source: 'env',
     });
@@ -145,11 +145,11 @@ describe('explainTelemetryConsent', () => {
   });
 
   it('unrecognized env values fall through to config/default', () => {
-    expect(explainTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'maybe' }, disabledConfig)).toEqual({
+    expect(explainTelemetryConsent({ MEMSMITH_TELEMETRY: 'maybe' }, disabledConfig)).toEqual({
       enabled: false,
       source: 'config',
     });
-    expect(explainTelemetryConsent({ CLAUDE_MEM_TELEMETRY: 'maybe' }, null)).toEqual({
+    expect(explainTelemetryConsent({ MEMSMITH_TELEMETRY: 'maybe' }, null)).toEqual({
       enabled: true,
       source: 'default',
     });
@@ -158,8 +158,8 @@ describe('explainTelemetryConsent', () => {
   it('agrees with resolveTelemetryConsent for every layer', () => {
     const cases: Array<[NodeJS.ProcessEnv, TelemetryConfig | null]> = [
       [{ DO_NOT_TRACK: '1' }, enabledConfig],
-      [{ CLAUDE_MEM_TELEMETRY: '0' }, enabledConfig],
-      [{ CLAUDE_MEM_TELEMETRY: '1' }, disabledConfig],
+      [{ MEMSMITH_TELEMETRY: '0' }, enabledConfig],
+      [{ MEMSMITH_TELEMETRY: '1' }, disabledConfig],
       [{}, enabledConfig],
       [{}, disabledConfig],
       [{}, null],
@@ -179,15 +179,15 @@ describe('telemetry config persistence', () => {
   beforeEach(() => {
     tempDir = join(tmpdir(), `telemetry-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempDir, { recursive: true });
-    previousDataDir = process.env.CLAUDE_MEM_DATA_DIR;
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
+    previousDataDir = process.env.MEMSMITH_DATA_DIR;
+    process.env.MEMSMITH_DATA_DIR = tempDir;
   });
 
   afterEach(() => {
     if (previousDataDir === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.MEMSMITH_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = previousDataDir;
+      process.env.MEMSMITH_DATA_DIR = previousDataDir;
     }
     try {
       rmSync(tempDir, { recursive: true, force: true });
@@ -236,7 +236,7 @@ describe('telemetry config persistence', () => {
   describe('saveTelemetryConfig', () => {
     it('creates the data dir if missing', () => {
       const nestedDir = join(tempDir, 'nested', 'data-dir');
-      process.env.CLAUDE_MEM_DATA_DIR = nestedDir;
+      process.env.MEMSMITH_DATA_DIR = nestedDir;
 
       saveTelemetryConfig(disabledConfig);
 

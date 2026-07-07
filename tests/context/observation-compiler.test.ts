@@ -272,7 +272,7 @@ describe('context compiler platform scoping', () => {
       seed(store, {
         project: 'context-worktree',
         contentSessionId: 'worktree-claude',
-        memorySessionId: 'worktree-claude-memory',
+        memorySessionId: 'worktree-memsmithory',
         platformSource: 'claude',
         title: 'WORKTREE_CLAUDE_OBS',
         summaryRequest: 'WORKTREE_CLAUDE_SUMMARY',

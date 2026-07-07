@@ -14,7 +14,7 @@ import { processSessionSummaryResponse } from '../../../src/server/generation/pr
 import { ModeManager } from '../../../src/services/domain/ModeManager.js';
 import { createIsolatedSchema, dropSchema, poolForSchema } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('SessionGenerationPolicy (pure)', () => {
   it('summary job id is deterministic per server_session_id', () => {
@@ -29,7 +29,7 @@ describe('SessionGenerationPolicy (pure)', () => {
 
 describe('PostgresServerSessionsRepository + Postgres', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

@@ -251,7 +251,7 @@ describe('DataRoutes platform-scoped hydration', () => {
     const matchResponse = makeResponse();
     handler(makeRequest({
       params: { id: String(ids.cursorObservationId) },
-      headers: { 'x-claude-mem-platform-source': 'cursor' },
+      headers: { 'x-memsmith-platform-source': 'cursor' },
     }), matchResponse.res);
     expect(matchResponse.json).toHaveBeenCalledWith(
       expect.objectContaining({ id: ids.cursorObservationId, title: 'CURSOR_ROUTE_OBS' })

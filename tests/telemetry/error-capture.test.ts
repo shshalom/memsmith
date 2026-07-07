@@ -26,22 +26,22 @@ import { logger } from '../../src/utils/logger';
 let tempDir: string;
 const savedEnv: Record<string, string | undefined> = {};
 const ENV_KEYS = [
-  'CLAUDE_MEM_DATA_DIR',
-  'CLAUDE_MEM_TELEMETRY',
-  'CLAUDE_MEM_TELEMETRY_ERRORS',
-  'CLAUDE_MEM_TELEMETRY_DEBUG',
-  'CLAUDE_MEM_TELEMETRY_KEY',
+  'MEMSMITH_DATA_DIR',
+  'MEMSMITH_TELEMETRY',
+  'MEMSMITH_TELEMETRY_ERRORS',
+  'MEMSMITH_TELEMETRY_DEBUG',
+  'MEMSMITH_TELEMETRY_KEY',
   'DO_NOT_TRACK',
 ];
 
 beforeAll(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
-  tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-error-capture-'));
-  process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-  process.env.CLAUDE_MEM_TELEMETRY = '1';
-  delete process.env.CLAUDE_MEM_TELEMETRY_ERRORS;
-  delete process.env.CLAUDE_MEM_TELEMETRY_DEBUG;
-  delete process.env.CLAUDE_MEM_TELEMETRY_KEY;
+  tempDir = mkdtempSync(join(tmpdir(), 'memsmith-error-capture-'));
+  process.env.MEMSMITH_DATA_DIR = tempDir;
+  process.env.MEMSMITH_TELEMETRY = '1';
+  delete process.env.MEMSMITH_TELEMETRY_ERRORS;
+  delete process.env.MEMSMITH_TELEMETRY_DEBUG;
+  delete process.env.MEMSMITH_TELEMETRY_KEY;
   delete process.env.DO_NOT_TRACK;
 });
 
@@ -62,8 +62,8 @@ beforeEach(() => {
   postHogConstructorCalls.length = 0;
   postHogCaptureCalls.length = 0;
   postHogExceptionCalls.length = 0;
-  process.env.CLAUDE_MEM_TELEMETRY = '1';
-  delete process.env.CLAUDE_MEM_TELEMETRY_ERRORS;
+  process.env.MEMSMITH_TELEMETRY = '1';
+  delete process.env.MEMSMITH_TELEMETRY_ERRORS;
   delete process.env.DO_NOT_TRACK;
   logger.setErrorSink(null);
 });
@@ -75,7 +75,7 @@ describe('captureException: consent gate', () => {
   });
 
   it('sends ZERO exceptions when consent is OFF (env)', () => {
-    process.env.CLAUDE_MEM_TELEMETRY = '0';
+    process.env.MEMSMITH_TELEMETRY = '0';
     __resetTelemetryForTests();
     captureException(new Error('boom'));
     expect(postHogExceptionCalls.length).toBe(0);
@@ -90,15 +90,15 @@ describe('captureException: consent gate', () => {
 });
 
 describe('captureException: kill-switch', () => {
-  it('CLAUDE_MEM_TELEMETRY_ERRORS=0 ⇒ zero exception captures', () => {
-    process.env.CLAUDE_MEM_TELEMETRY_ERRORS = '0';
+  it('MEMSMITH_TELEMETRY_ERRORS=0 ⇒ zero exception captures', () => {
+    process.env.MEMSMITH_TELEMETRY_ERRORS = '0';
     __resetTelemetryForTests();
     captureException(new Error('boom'));
     expect(postHogExceptionCalls.length).toBe(0);
   });
 
   it('analytics is UNAFFECTED by the error kill-switch', () => {
-    process.env.CLAUDE_MEM_TELEMETRY_ERRORS = '0';
+    process.env.MEMSMITH_TELEMETRY_ERRORS = '0';
     __resetTelemetryForTests();
     captureException(new Error('boom'));
     captureEvent('worker_started');

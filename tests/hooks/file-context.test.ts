@@ -23,11 +23,11 @@ const realProjectFilterSnapshot = { ...realProjectFilter };
 mock.module('../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'CLAUDE_MEM_DATA_DIR') return join(homedir(), '.claude-mem');
+      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
       return '';
     },
     getInt: () => 0,
-    loadFromFile: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: [] }),
+    loadFromFile: () => ({ MEMSMITH_EXCLUDED_PROJECTS: [] }),
   },
 }));
 

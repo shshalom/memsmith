@@ -19,7 +19,7 @@ describe('shouldGateTool', () => {
     expect(shouldGateTool('Read', 'all')).toBe(true);
     expect(shouldGateTool('TodoWrite', 'all')).toBe(false);
   });
-  it('honors an explicit CLAUDE_MEM_GATE_TOOLS list', () => {
+  it('honors an explicit MEMSMITH_GATE_TOOLS list', () => {
     expect(shouldGateTool('Grep', 'Read')).toBe(false);   // only Read gated
     expect(shouldGateTool('Read', 'Read')).toBe(true);
     expect(shouldGateTool('Bash', 'Bash,Grep')).toBe(true);

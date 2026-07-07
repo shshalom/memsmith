@@ -83,18 +83,18 @@ function installFetchMock(): void {
 
 describe('ensureWorkerRunning — recycle waits for the dying worker\'s successor instead of spawning into the corpse', () => {
   const originalFetch = global.fetch;
-  const originalReadinessBudget = process.env.CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS;
-  const originalDataDir = process.env.CLAUDE_MEM_DATA_DIR;
+  const originalReadinessBudget = process.env.MEMSMITH_HOOK_READINESS_TIMEOUT_MS;
+  const originalDataDir = process.env.MEMSMITH_DATA_DIR;
   let tempDataDir: string;
 
   beforeEach(() => {
     // The lazy-spawn fallback now goes through the spawn gate
     // (src/shared/worker-spawn-gate.ts), which writes <DATA_DIR>/spawn.lock.
     // Point DATA_DIR at a temp dir so the test never touches the real
-    // ~/.claude-mem lock (a live launcher's lock would make the fallback
+    // ~/.memsmith lock (a live launcher's lock would make the fallback
     // SKIP its spawn and fail the expectation below).
-    tempDataDir = mkdtempSync(join(tmpdir(), 'claude-mem-recycle-successor-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDataDir;
+    tempDataDir = mkdtempSync(join(tmpdir(), 'memsmith-recycle-successor-'));
+    process.env.MEMSMITH_DATA_DIR = tempDataDir;
     installFetchMock();
     spawnCalls.length = 0;
   });
@@ -102,14 +102,14 @@ describe('ensureWorkerRunning — recycle waits for the dying worker\'s successo
   afterEach(() => {
     global.fetch = originalFetch;
     if (originalReadinessBudget === undefined) {
-      delete process.env.CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS;
+      delete process.env.MEMSMITH_HOOK_READINESS_TIMEOUT_MS;
     } else {
-      process.env.CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS = originalReadinessBudget;
+      process.env.MEMSMITH_HOOK_READINESS_TIMEOUT_MS = originalReadinessBudget;
     }
     if (originalDataDir === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.MEMSMITH_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = originalDataDir;
+      process.env.MEMSMITH_DATA_DIR = originalDataDir;
     }
     rmSync(tempDataDir, { recursive: true, force: true });
     mock.restore();
@@ -127,7 +127,7 @@ describe('ensureWorkerRunning — recycle waits for the dying worker\'s successo
     // Call 2+ = the successor reports the plugin version.
     healthVersionScript = [STALE_VERSION, STALE_VERSION, PLUGIN_VERSION];
     // Generous budget — success arrives on poll 2 (~500ms in).
-    process.env.CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS = '3000';
+    process.env.MEMSMITH_HOOK_READINESS_TIMEOUT_MS = '3000';
 
     const { ensureWorkerRunning } = await importWorkerUtilsFresh();
     const result = await ensureWorkerRunning();
@@ -145,7 +145,7 @@ describe('ensureWorkerRunning — recycle waits for the dying worker\'s successo
   it('falls back to lazy-spawn when no successor ever appears within the budget', async () => {
     healthVersionScript = [STALE_VERSION]; // health never recovers to the plugin version
     // Small budget so the successor wait expires fast.
-    process.env.CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS = '700';
+    process.env.MEMSMITH_HOOK_READINESS_TIMEOUT_MS = '700';
 
     const { ensureWorkerRunning } = await importWorkerUtilsFresh();
     const result = await ensureWorkerRunning();

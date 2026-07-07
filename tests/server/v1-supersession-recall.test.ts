@@ -3,7 +3,7 @@
 // Task 2: Supersession-chain read — /v1/context collapses superseded hits to
 // their heads; /v1/search annotates them with supersededBy and appends the head.
 //
-// Postgres-gated: requires CLAUDE_MEM_TEST_POSTGRES_URL.
+// Postgres-gated: requires MEMSMITH_TEST_POSTGRES_URL.
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import pg from 'pg';
@@ -21,11 +21,11 @@ import { logger } from '../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey, createIsolatedSchema, dropSchema, TEST_POOL_MAX } from '../sdk/pg-isolation.js';
 import * as supersessionModule from '../../src/server/retrieval/supersession.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('supersession-chain recall: /v1/context collapse and /v1/search annotate', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 
@@ -118,11 +118,11 @@ describe('supersession-chain recall: /v1/context collapse and /v1/search annotat
 
   // Force plain FTS so tests are stable (no embedder in CI).
   const withFts = (fn: () => Promise<void>) => async () => {
-    const prev = process.env.CLAUDE_MEM_SEARCH_HYBRID;
-    process.env.CLAUDE_MEM_SEARCH_HYBRID = '0';
+    const prev = process.env.MEMSMITH_SEARCH_HYBRID;
+    process.env.MEMSMITH_SEARCH_HYBRID = '0';
     try { await fn(); } finally {
-      if (prev === undefined) delete process.env.CLAUDE_MEM_SEARCH_HYBRID;
-      else process.env.CLAUDE_MEM_SEARCH_HYBRID = prev;
+      if (prev === undefined) delete process.env.MEMSMITH_SEARCH_HYBRID;
+      else process.env.MEMSMITH_SEARCH_HYBRID = prev;
     }
   };
 

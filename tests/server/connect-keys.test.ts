@@ -21,12 +21,12 @@ import { DisabledServerQueueManager } from '../../src/server/runtime/types.js';
 import { logger } from '../../src/utils/logger.js';
 import { newApiKey } from '../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 const q = (n: string) => `"${n.replaceAll('"', '""')}"`;
 
 describe('POST /v1/keys + GET /v1/connect', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

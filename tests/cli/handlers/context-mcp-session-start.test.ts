@@ -18,7 +18,7 @@ let mcpMode: 'success' | 'throw' | 'error' = 'success';
 
 mock.module('../../../src/shared/hook-settings.js', () => ({
   loadFromFileOnce: () => ({
-    CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: 'false',
+    MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT: 'false',
   }),
 }));
 

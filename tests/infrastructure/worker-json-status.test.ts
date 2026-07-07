@@ -194,7 +194,7 @@ describe('worker-json-status', () => {
         },
       });
 
-      expect(hint).toBe('  Dependencies: degraded (Claude CLI setup required, uvx unavailable for vector search). Run npx claude-mem doctor or open Settings for remediation.');
+      expect(hint).toBe('  Dependencies: degraded (Claude CLI setup required, uvx unavailable for vector search). Run npx memsmith doctor or open Settings for remediation.');
     });
 
     it('returns null when dependencies are healthy or absent', () => {

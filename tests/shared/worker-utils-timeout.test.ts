@@ -13,37 +13,37 @@ import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManage
 // point the env var is the per-RUN temp dir pinned by the preload tripwire
 // (tests/preload.ts), so paths.ts freezes on a stable, isolated dir that
 // outlives this file. worker-utils itself is unaffected: it resolves its
-// settings path at call time via SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR').
+// settings path at call time via SettingsDefaultsManager.get('MEMSMITH_DATA_DIR').
 import '../../src/shared/paths.js';
 
 describe('worker-utils API timeout resolution', () => {
   let tempDir: string;
   let settingsPath: string;
-  const originalDataDir = process.env.CLAUDE_MEM_DATA_DIR;
-  const originalTimeout = process.env.CLAUDE_MEM_API_TIMEOUT_MS;
+  const originalDataDir = process.env.MEMSMITH_DATA_DIR;
+  const originalTimeout = process.env.MEMSMITH_API_TIMEOUT_MS;
 
   beforeEach(() => {
     tempDir = join(tmpdir(), `worker-timeout-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempDir, { recursive: true });
     settingsPath = join(tempDir, 'settings.json');
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    delete process.env.CLAUDE_MEM_API_TIMEOUT_MS;
+    process.env.MEMSMITH_DATA_DIR = tempDir;
+    delete process.env.MEMSMITH_API_TIMEOUT_MS;
     mock.restore();
   });
 
   afterEach(() => {
     mock.restore();
-    if (originalDataDir === undefined) delete process.env.CLAUDE_MEM_DATA_DIR;
-    else process.env.CLAUDE_MEM_DATA_DIR = originalDataDir;
-    if (originalTimeout === undefined) delete process.env.CLAUDE_MEM_API_TIMEOUT_MS;
-    else process.env.CLAUDE_MEM_API_TIMEOUT_MS = originalTimeout;
+    if (originalDataDir === undefined) delete process.env.MEMSMITH_DATA_DIR;
+    else process.env.MEMSMITH_DATA_DIR = originalDataDir;
+    if (originalTimeout === undefined) delete process.env.MEMSMITH_API_TIMEOUT_MS;
+    else process.env.MEMSMITH_API_TIMEOUT_MS = originalTimeout;
     rmSync(tempDir, { recursive: true, force: true });
   });
 
   function writeSettings(timeout: string): void {
     const settings = SettingsDefaultsManager.getAllDefaults();
-    settings.CLAUDE_MEM_DATA_DIR = tempDir;
-    settings.CLAUDE_MEM_API_TIMEOUT_MS = timeout;
+    settings.MEMSMITH_DATA_DIR = tempDir;
+    settings.MEMSMITH_API_TIMEOUT_MS = timeout;
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
   }
 
@@ -57,7 +57,7 @@ describe('worker-utils API timeout resolution', () => {
 
   it('prefers env timeout over settings.json', async () => {
     writeSettings('45000');
-    process.env.CLAUDE_MEM_API_TIMEOUT_MS = '1200';
+    process.env.MEMSMITH_API_TIMEOUT_MS = '1200';
 
     const workerUtils = await import('../../src/shared/worker-utils.js');
     workerUtils.clearPortCache();
@@ -67,7 +67,7 @@ describe('worker-utils API timeout resolution', () => {
 
   it('warns and falls back to default when env timeout is invalid', async () => {
     writeSettings('45000');
-    process.env.CLAUDE_MEM_API_TIMEOUT_MS = '999999';
+    process.env.MEMSMITH_API_TIMEOUT_MS = '999999';
 
     const workerUtils = await import('../../src/shared/worker-utils.js');
     const loggerModule = await import('../../src/utils/logger.js');
@@ -76,11 +76,11 @@ describe('worker-utils API timeout resolution', () => {
     workerUtils.clearPortCache();
 
     expect(workerUtils.getWorkerApiRequestTimeoutMs()).toBe(
-      parseInt(SettingsDefaultsManager.getAllDefaults().CLAUDE_MEM_API_TIMEOUT_MS, 10)
+      parseInt(SettingsDefaultsManager.getAllDefaults().MEMSMITH_API_TIMEOUT_MS, 10)
     );
     expect(warnSpy).toHaveBeenCalledWith(
       'SYSTEM',
-      'Invalid CLAUDE_MEM_API_TIMEOUT_MS, using default',
+      'Invalid MEMSMITH_API_TIMEOUT_MS, using default',
       expect.objectContaining({ value: '999999', min: 500, max: 300000 })
     );
   });

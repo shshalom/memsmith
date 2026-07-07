@@ -14,11 +14,11 @@ import { DisabledServerQueueManager } from '../../../src/server/runtime/types.js
 import { logger } from '../../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('Phase 11 — team/project queue listing endpoints', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

@@ -5,7 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManager.js';
 
-describe('CLAUDE_MEM_WELCOME_HINT_ENABLED default', () => {
+describe('MEMSMITH_WELCOME_HINT_ENABLED default', () => {
   let tempDir: string;
   let settingsPath: string;
   let originalEnvValue: string | undefined;
@@ -14,15 +14,15 @@ describe('CLAUDE_MEM_WELCOME_HINT_ENABLED default', () => {
     tempDir = join(tmpdir(), `welcome-hint-default-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempDir, { recursive: true });
     settingsPath = join(tempDir, 'settings.json');
-    originalEnvValue = process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
-    delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
+    originalEnvValue = process.env.MEMSMITH_WELCOME_HINT_ENABLED;
+    delete process.env.MEMSMITH_WELCOME_HINT_ENABLED;
   });
 
   afterEach(() => {
     if (originalEnvValue === undefined) {
-      delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
+      delete process.env.MEMSMITH_WELCOME_HINT_ENABLED;
     } else {
-      process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED = originalEnvValue;
+      process.env.MEMSMITH_WELCOME_HINT_ENABLED = originalEnvValue;
     }
     try {
       rmSync(tempDir, { recursive: true, force: true });
@@ -33,7 +33,7 @@ describe('CLAUDE_MEM_WELCOME_HINT_ENABLED default', () => {
 
   it('is set to "true" in getAllDefaults()', () => {
     const defaults = SettingsDefaultsManager.getAllDefaults();
-    expect(defaults.CLAUDE_MEM_WELCOME_HINT_ENABLED).toBe('true');
+    expect(defaults.MEMSMITH_WELCOME_HINT_ENABLED).toBe('true');
   });
 
   it('resolves to "true" when settings file is missing (auto-created with defaults)', () => {
@@ -41,7 +41,7 @@ describe('CLAUDE_MEM_WELCOME_HINT_ENABLED default', () => {
 
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    expect(settings.CLAUDE_MEM_WELCOME_HINT_ENABLED).toBe('true');
+    expect(settings.MEMSMITH_WELCOME_HINT_ENABLED).toBe('true');
     expect(existsSync(settingsPath)).toBe(true);
   });
 
@@ -50,18 +50,18 @@ describe('CLAUDE_MEM_WELCOME_HINT_ENABLED default', () => {
 
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    expect(settings.CLAUDE_MEM_WELCOME_HINT_ENABLED).toBe('true');
+    expect(settings.MEMSMITH_WELCOME_HINT_ENABLED).toBe('true');
   });
 
   it('preserves an explicit "false" value through loadFromFile', () => {
     writeFileSync(
       settingsPath,
-      JSON.stringify({ CLAUDE_MEM_WELCOME_HINT_ENABLED: 'false' }, null, 2),
+      JSON.stringify({ MEMSMITH_WELCOME_HINT_ENABLED: 'false' }, null, 2),
       'utf-8',
     );
 
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    expect(settings.CLAUDE_MEM_WELCOME_HINT_ENABLED).toBe('false');
+    expect(settings.MEMSMITH_WELCOME_HINT_ENABLED).toBe('false');
   });
 });

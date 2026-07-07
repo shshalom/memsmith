@@ -6,15 +6,15 @@ import type { PidInfo } from '../../src/services/infrastructure/index.js';
 
 // ── Data-dir isolation (Phase 6, worker-restart plan) ──────────────────────
 // These tests write corrupt JSON and sentinel PIDs into the worker PID file,
-// so that file must NEVER be the real ~/.claude-mem/worker.pid. paths.ts
+// so that file must NEVER be the real ~/.memsmith/worker.pid. paths.ts
 // freezes DATA_DIR at first evaluation and ProcessManager freezes PID_FILE
 // from it at import time — and ESM hoists static imports above any env
 // assignment — so the env var is set FIRST and the code under test is loaded
 // with dynamic imports below. (`import type` above is erased at compile time
 // and loads nothing.)
-const TEST_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'claude-mem-pm-test-'));
-const PREVIOUS_DATA_DIR = process.env.CLAUDE_MEM_DATA_DIR;
-process.env.CLAUDE_MEM_DATA_DIR = TEST_DATA_DIR;
+const TEST_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'memsmith-pm-test-'));
+const PREVIOUS_DATA_DIR = process.env.MEMSMITH_DATA_DIR;
+process.env.MEMSMITH_DATA_DIR = TEST_DATA_DIR;
 
 const {
   writePidFile,
@@ -35,13 +35,13 @@ const { paths } = await import('../../src/shared/paths.js');
 // If an earlier test file in this bun process already evaluated paths.ts, the
 // module cache wins and DATA_DIR stays frozen on that earlier value — which is
 // the preload tripwire's per-run temp dir (tests/preload.ts), never the real
-// ~/.claude-mem. Derive the paths the assertions use from the SAME frozen
+// ~/.memsmith. Derive the paths the assertions use from the SAME frozen
 // module the code under test uses, so test and code can never diverge.
 const DATA_DIR = paths.dataDir();
 const PID_FILE = paths.workerPid();
 
 describe('ProcessManager', () => {
-  const REAL_DATA_DIR = path.join(homedir(), '.claude-mem');
+  const REAL_DATA_DIR = path.join(homedir(), '.memsmith');
 
   beforeEach(() => {
     mkdirSync(DATA_DIR, { recursive: true });
@@ -54,9 +54,9 @@ describe('ProcessManager', () => {
 
   afterAll(() => {
     if (PREVIOUS_DATA_DIR === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.MEMSMITH_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = PREVIOUS_DATA_DIR;
+      process.env.MEMSMITH_DATA_DIR = PREVIOUS_DATA_DIR;
     }
     if (DATA_DIR === TEST_DATA_DIR) {
       // paths.ts froze on our per-file dir (this file evaluated it first):
@@ -70,7 +70,7 @@ describe('ProcessManager', () => {
   });
 
   describe('test isolation (Phase 6, worker-restart plan)', () => {
-    it('resolves the PID file into a temp dir, never the real ~/.claude-mem', () => {
+    it('resolves the PID file into a temp dir, never the real ~/.memsmith', () => {
       expect(DATA_DIR).not.toBe(REAL_DATA_DIR);
       expect(PID_FILE.startsWith(REAL_DATA_DIR + path.sep)).toBe(false);
       expect(PID_FILE).toBe(path.join(DATA_DIR, 'worker.pid'));
