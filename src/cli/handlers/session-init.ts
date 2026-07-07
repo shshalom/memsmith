@@ -49,7 +49,12 @@ const defaultDependencies = {
 };
 
 function teamServerConfigured(settings: SettingsDefaults): boolean {
-  return !!(settings.CLAUDE_MEM_TEAM_SERVER_URL?.trim() && settings.CLAUDE_MEM_TEAM_API_KEY?.trim());
+  // Honor the SAME master opt-in as SessionStart (context.ts): team injection
+  // requires CLAUDE_MEM_TEAM_INJECT=true AND a configured server URL + key. This
+  // keeps per-prompt injection consistent with SessionStart — an operator who
+  // left CLAUDE_MEM_TEAM_INJECT off gets no server-path injection on either hook.
+  return settings.CLAUDE_MEM_TEAM_INJECT === 'true'
+    && !!(settings.CLAUDE_MEM_TEAM_SERVER_URL?.trim() && settings.CLAUDE_MEM_TEAM_API_KEY?.trim());
 }
 
 let dependencies = defaultDependencies;

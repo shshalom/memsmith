@@ -93,6 +93,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
           CLAUDE_MEM_RUNTIME: 'worker',
           CLAUDE_MEM_SEMANTIC_INJECT: 'true',
           CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+          CLAUDE_MEM_TEAM_INJECT: 'true',
           CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
           CLAUDE_MEM_TEAM_API_KEY: 'test-key',
         }),
@@ -215,6 +216,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
           CLAUDE_MEM_RUNTIME: 'worker',
           CLAUDE_MEM_SEMANTIC_INJECT: 'true',
           CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+          CLAUDE_MEM_TEAM_INJECT: 'true',
           CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
           CLAUDE_MEM_TEAM_API_KEY: 'test-key',
         }),
@@ -270,6 +272,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
           CLAUDE_MEM_RUNTIME: 'worker',
           CLAUDE_MEM_SEMANTIC_INJECT: 'true',
           CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+          CLAUDE_MEM_TEAM_INJECT: 'true',
           CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
           CLAUDE_MEM_TEAM_API_KEY: 'test-key',
         }),
@@ -386,6 +389,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
           CLAUDE_MEM_RUNTIME: 'worker',
           CLAUDE_MEM_SEMANTIC_INJECT: 'true',
           CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+          CLAUDE_MEM_TEAM_INJECT: 'true',
           CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
           CLAUDE_MEM_TEAM_API_KEY: 'test-key',
         }),
@@ -417,6 +421,69 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
       if (!result || !result.continue) throw new Error('handler must return { continue: true } even on server error: ' + JSON.stringify(result));
       if (result.hookSpecificOutput?.additionalContext !== 'worker fallback after error') {
         throw new Error('expected worker fallback context after server error, got: ' + JSON.stringify(result.hookSpecificOutput?.additionalContext));
+      }
+    `;
+
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, '--eval', script],
+      cwd: process.cwd(),
+      env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    expect(new TextDecoder().decode(result.stderr)).toBe('');
+    expect(new TextDecoder().decode(result.stdout)).toBe('');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('7: server URL+key set but CLAUDE_MEM_TEAM_INJECT not true → server path skipped, worker path used (master-switch guard)', async () => {
+    const env = { ...process.env };
+    delete env.CLAUDE_MEM_INTERNAL;
+    const prompt = 'This prompt has URL and key set but the master TEAM_INJECT switch is off.';
+    const script = `
+      let fetchTeamMemoryCalled = false;
+      const workerCallLog = [];
+      const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
+      setSessionInitDependenciesForTesting({
+        loadFromFileOnce: () => ({
+          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
+          CLAUDE_MEM_RUNTIME: 'worker',
+          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
+          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+          // CLAUDE_MEM_TEAM_INJECT is intentionally absent (master switch off)
+          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
+          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+        }),
+        resolveRuntimeContext: () => ({ runtime: 'worker' }),
+        shouldTrackProject: () => true,
+        fetchTeamMemory: async () => {
+          fetchTeamMemoryCalled = true;
+          return [];
+        },
+        buildInjectionBlock: async () => {
+          throw new Error('buildInjectionBlock should not be called when CLAUDE_MEM_TEAM_INJECT is not true');
+        },
+        executeWithWorkerFallback: async (apiPath, method, body) => {
+          workerCallLog.push({ path: apiPath, method, body });
+          if (apiPath === '/api/sessions/init') return { sessionDbId: 42, promptNumber: 1 };
+          if (apiPath === '/api/context/semantic') return { context: 'worker semantic context', count: 1 };
+          throw new Error('Unexpected worker call: ' + apiPath);
+        },
+        isWorkerFallback: () => false,
+      });
+      const result = await sessionInitHandler.execute({
+        sessionId: 'session-hybrid-7',
+        cwd: '/tmp/session-hybrid-test',
+        platform: 'claude-code',
+        prompt: ${JSON.stringify(prompt)},
+      });
+      if (!result.continue) throw new Error('result.continue must be true: ' + JSON.stringify(result));
+      if (fetchTeamMemoryCalled) throw new Error('fetchTeamMemory should NOT have been called when CLAUDE_MEM_TEAM_INJECT is absent');
+      const semanticWorkerCalls = workerCallLog.filter(c => c.path === '/api/context/semantic');
+      if (semanticWorkerCalls.length !== 1) throw new Error('worker semantic should have been called once, got: ' + semanticWorkerCalls.length);
+      if (result.hookSpecificOutput?.additionalContext !== 'worker semantic context') {
+        throw new Error('expected worker semantic context, got: ' + JSON.stringify(result.hookSpecificOutput?.additionalContext));
       }
     `;
 
