@@ -289,6 +289,7 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 | `CLAUDE_MEM_RRF_K` | `60` | RRF rank fusion constant |
 | `CLAUDE_MEM_QUERY_EXPANSION` | `off` | Enable deterministic (no-LLM) query expansion before hybrid search |
 | `CLAUDE_MEM_TEAM_INJECT` | `off` | Opt-in cross-team memory injection at SessionStart. **Follow-up:** the live fetch is not yet wired (worker vs server-mode bridge); enabling it is currently a no-op. |
+| `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` | `16` | Max supersession-chain walk depth (clamped 1–256); bounds the forward walk and guards malformed cycles when resolving superseded observations. |
 | `CLAUDE_MEM_INPUT_RATE_PER_MTOK` | `5` | Input $/million-tokens rate used by the dashboard cost panel to estimate USD |
 | `CLAUDE_MEM_GATE_TOOLS` | `Grep,Read,Glob,WebSearch` | Tools that would trigger the PreToolUse discovery gate. **Follow-up:** Grep/Glob/WebSearch gating is not yet wired in `hooks.json` (only `Read` fires today); this var is reserved for that follow-up. |
 
