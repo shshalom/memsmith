@@ -1,13 +1,13 @@
 # Claude-Mem OpenClaw Plugin — Setup Guide
 
-This guide walks through setting up the claude-mem plugin on an OpenClaw gateway. By the end, your agents will have persistent memory across sessions via system prompt context injection, and optionally a real-time observation feed streaming to a messaging channel.
+This guide walks through setting up the memsmith plugin on an OpenClaw gateway. By the end, your agents will have persistent memory across sessions via system prompt context injection, and optionally a real-time observation feed streaming to a messaging channel.
 
 ## Quick Install (Recommended)
 
 Run this one-liner to install everything automatically:
 
 ```bash
-curl -fsSL https://install.cmem.ai/openclaw.sh | bash
+curl -fsSL https://install.memsmith.ai/openclaw.sh | bash
 ```
 
 The installer handles dependency checks (Bun, uv), plugin installation, memory slot configuration, AI provider setup, worker startup, and optional observation feed configuration — all interactively.
@@ -17,19 +17,19 @@ The installer handles dependency checks (Bun, uv), plugin installation, memory s
 Pre-select your AI provider and API key to skip interactive prompts:
 
 ```bash
-curl -fsSL https://install.cmem.ai/openclaw.sh | bash -s -- --provider=gemini --api-key=YOUR_KEY
+curl -fsSL https://install.memsmith.ai/openclaw.sh | bash -s -- --provider=gemini --api-key=YOUR_KEY
 ```
 
 For fully unattended installation (defaults to Claude Max Plan, skips observation feed):
 
 ```bash
-curl -fsSL https://install.cmem.ai/openclaw.sh | bash -s -- --non-interactive
+curl -fsSL https://install.memsmith.ai/openclaw.sh | bash -s -- --non-interactive
 ```
 
 To upgrade an existing installation (preserves settings, updates plugin):
 
 ```bash
-curl -fsSL https://install.cmem.ai/openclaw.sh | bash -s -- --upgrade
+curl -fsSL https://install.memsmith.ai/openclaw.sh | bash -s -- --upgrade
 ```
 
 After installation, skip to [Step 4: Restart the Gateway and Verify](#step-4-restart-the-gateway-and-verify) to confirm everything is working.
@@ -42,12 +42,12 @@ The steps below are for manual installation if you prefer not to use the automat
 
 ### Step 1: Clone the Claude-Mem Repo
 
-First, clone the claude-mem repository to a location accessible by your OpenClaw gateway. This gives you the worker service source and the plugin code.
+First, clone the memsmith repository to a location accessible by your OpenClaw gateway. This gives you the worker service source and the plugin code.
 
 ```bash
 cd /opt  # or wherever you want to keep it
-git clone https://github.com/thedotmack/claude-mem.git
-cd claude-mem
+git clone https://github.com/thedotmack/memsmith.git
+cd memsmith
 npm install
 npm run build
 ```
@@ -60,11 +60,11 @@ curl -fsSL https://bun.sh/install | bash
 
 ### Step 2: Get the Worker Running
 
-The claude-mem worker is an HTTP service on port 37777. It stores observations, generates summaries, and serves the context timeline. The plugin talks to it over HTTP — it doesn't matter where the worker is running, just that it's reachable on localhost:37777.
+The memsmith worker is an HTTP service on port 37777. It stores observations, generates summaries, and serves the context timeline. The plugin talks to it over HTTP — it doesn't matter where the worker is running, just that it's reachable on localhost:37777.
 
 #### Check if it's already running
 
-If this machine also runs Claude Code with claude-mem installed, the worker may already be running:
+If this machine also runs Claude Code with memsmith installed, the worker may already be running:
 
 ```bash
 curl http://localhost:37777/api/health
@@ -74,9 +74,9 @@ curl http://localhost:37777/api/health
 
 **Got connection refused or no response?** The worker isn't running. Continue below.
 
-#### If Claude Code has claude-mem installed
+#### If Claude Code has memsmith installed
 
-If claude-mem is installed as a Claude Code plugin (at `~/.claude/plugins/marketplaces/thedotmack/`), start the worker from that installation:
+If memsmith is installed as a Claude Code plugin (at `~/.claude/plugins/marketplaces/thedotmack/`), start the worker from that installation:
 
 ```bash
 cd ~/.claude/plugins/marketplaces/thedotmack
@@ -97,7 +97,7 @@ curl http://localhost:37777/api/health
 Run the worker from the cloned repo:
 
 ```bash
-cd /opt/claude-mem  # wherever you cloned it
+cd /opt/memsmith  # wherever you cloned it
 npm run worker:start
 ```
 
@@ -117,12 +117,12 @@ curl http://localhost:37777/api/health
 
 ### Step 3: Add the Plugin to Your Gateway
 
-Add the `claude-mem` plugin to your OpenClaw gateway configuration:
+Add the `memsmith` plugin to your OpenClaw gateway configuration:
 
 ```json
 {
   "plugins": {
-    "claude-mem": {
+    "memsmith": {
       "enabled": true,
       "config": {
         "project": "my-project",
@@ -142,7 +142,7 @@ Add the `claude-mem` plugin to your OpenClaw gateway configuration:
 
 - **`syncMemoryFileExclude`** (string[], default: `[]`) — Agent IDs excluded from automatic context injection. Useful for agents that curate their own memory. Observations are still recorded for excluded agents.
 
-- **`workerPort`** (number, default: `37777`) — The port where the claude-mem worker service is listening. Only change this if you configured the worker to use a different port.
+- **`workerPort`** (number, default: `37777`) — The port where the memsmith worker service is listening. Only change this if you configured the worker to use a different port.
 
 ---
 
@@ -151,7 +151,7 @@ Add the `claude-mem` plugin to your OpenClaw gateway configuration:
 Restart your OpenClaw gateway so it picks up the new plugin configuration. After restart, check the gateway logs for:
 
 ```
-[claude-mem] OpenClaw plugin loaded — v1.0.0 (worker: 127.0.0.1:37777)
+[memsmith] OpenClaw plugin loaded — v1.0.0 (worker: 127.0.0.1:37777)
 ```
 
 If you see this, the plugin is loaded. You can also verify by running `/claude_mem_status` in any OpenClaw chat:
@@ -170,7 +170,7 @@ The observation feed shows `disconnected` because we haven't configured it yet. 
 
 Have an agent do some work. The plugin automatically records observations through these OpenClaw events:
 
-1. **`before_agent_start`** — Initializes a claude-mem session when the agent starts
+1. **`before_agent_start`** — Initializes a memsmith session when the agent starts
 2. **`before_prompt_build`** — Injects the observation timeline into the agent's system prompt (cached for 60s)
 3. **`tool_result_persist`** — Records each tool use (Read, Write, Bash, etc.) as an observation
 4. **`agent_end`** — Summarizes the session and marks it complete
@@ -183,11 +183,11 @@ You can also check the worker's viewer UI at http://localhost:37777 to see obser
 
 ## Step 6: Set Up the Observation Feed (Streaming to a Channel)
 
-The observation feed connects to the claude-mem worker's SSE (Server-Sent Events) stream and forwards every new observation to a messaging channel in real time. Your agents learn things, and you see them learning in your Telegram/Discord/Slack/etc.
+The observation feed connects to the memsmith worker's SSE (Server-Sent Events) stream and forwards every new observation to a messaging channel in real time. Your agents learn things, and you see them learning in your Telegram/Discord/Slack/etc.
 
 ### What you'll see
 
-Every time claude-mem creates a new observation from your agent's tool usage, a message like this appears in your channel:
+Every time memsmith creates a new observation from your agent's tool usage, a message like this appears in your channel:
 
 ```
 🧠 Claude-Mem Observation
@@ -300,7 +300,7 @@ Your complete plugin config should now look like this (using Telegram as an exam
 ```json
 {
   "plugins": {
-    "claude-mem": {
+    "memsmith": {
       "enabled": true,
       "config": {
         "project": "my-project",
@@ -322,9 +322,9 @@ Your complete plugin config should now look like this (using Telegram as an exam
 Restart the gateway. Check the logs for these three lines in order:
 
 ```
-[claude-mem] Observation feed starting — channel: telegram, target: 123456789
-[claude-mem] Connecting to SSE stream at http://localhost:37777/stream
-[claude-mem] Connected to SSE stream
+[memsmith] Observation feed starting — channel: telegram, target: 123456789
+[memsmith] Connecting to SSE stream at http://localhost:37777/stream
+[memsmith] Connected to SSE stream
 ```
 
 Then run `/claude_mem_feed` in any OpenClaw chat:
@@ -399,7 +399,7 @@ This keeps MEMORY.md under the agent's control for curated long-term memory, whi
 
 ### Observation recording
 
-Every tool use (Read, Write, Bash, etc.) is sent to the claude-mem worker as an observation. The worker's AI agent processes it into a structured observation with title, subtitle, facts, concepts, and narrative. Tools prefixed with `memory_` are skipped to avoid recursive recording.
+Every tool use (Read, Write, Bash, etc.) is sent to the memsmith worker as an observation. The worker's AI agent processes it into a structured observation with title, subtitle, facts, concepts, and narrative. Tools prefixed with `memory_` are skipped to avoid recursive recording.
 
 ### Session lifecycle
 
@@ -419,9 +419,9 @@ A background service connects to the worker's SSE stream and forwards `new_obser
 |---------|---------------|
 | Worker health check fails | Is bun installed? (`bun --version`). Is something else on port 37777? (`lsof -i :37777`). Try running directly: `bun plugin/scripts/worker-service.cjs start` |
 | Worker started from Claude Code install but not responding | Check `cd ~/.claude/plugins/marketplaces/thedotmack && npm run worker:status`. May need `npm run worker:restart`. |
-| Worker started from cloned repo but not responding | Check `cd /path/to/claude-mem && npm run worker:status`. Make sure you ran `npm install && npm run build` first. |
+| Worker started from cloned repo but not responding | Check `cd /path/to/memsmith && npm run worker:status`. Make sure you ran `npm install && npm run build` first. |
 | No context in agent system prompt | Check that `syncMemoryFile` is not set to `false`. Check that the agent's ID is not in `syncMemoryFileExclude`. Verify the worker is running and has observations. |
-| Observations not being recorded | Check gateway logs for `[claude-mem]` messages. The worker must be running and reachable on localhost:37777. |
+| Observations not being recorded | Check gateway logs for `[memsmith]` messages. The worker must be running and reachable on localhost:37777. |
 | Feed shows `disconnected` | Worker's `/stream` endpoint not reachable. Check `workerPort` matches the actual worker port. |
 | Feed shows `reconnecting` | Connection dropped. The plugin auto-reconnects — wait up to 30 seconds. |
 | `Unknown channel type` in logs | The channel plugin (e.g., telegram) isn't loaded on your gateway. Make sure the channel is configured and running. |
@@ -434,7 +434,7 @@ A background service connects to the worker's SSE stream and forwards `new_obser
 ```json
 {
   "plugins": {
-    "claude-mem": {
+    "memsmith": {
       "enabled": true,
       "config": {
         "project": "openclaw",

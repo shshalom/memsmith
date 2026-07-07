@@ -169,7 +169,7 @@ interface FeedEmojiConfig {
   agents?: Record<string, string>;
 }
 
-interface ClaudeMemPluginConfig {
+interface MemSmithPluginConfig {
   syncMemoryFile?: boolean;
   syncMemoryFileExclude?: string[];
   project?: string;
@@ -255,7 +255,7 @@ function circuitAllow(logger: PluginLogger): boolean {
   if (_circuitState === "OPEN") {
     if (Date.now() - _circuitOpenedAt >= CIRCUIT_BREAKER_COOLDOWN_MS) {
       _circuitState = "HALF_OPEN";
-      logger.info("[claude-mem] Circuit breaker: probing worker connection");
+      logger.info("[memsmith] Circuit breaker: probing worker connection");
       if (_halfOpenProbeInFlight) return false;
       _halfOpenProbeInFlight = true;
       return true;
@@ -269,7 +269,7 @@ function circuitAllow(logger: PluginLogger): boolean {
 
 function circuitOnSuccess(logger: PluginLogger): void {
   if (_circuitState !== "CLOSED") {
-    logger.info("[claude-mem] Worker connection restored — circuit closed");
+    logger.info("[memsmith] Worker connection restored — circuit closed");
   }
   _circuitState = "CLOSED";
   _circuitFailures = 0;
@@ -286,7 +286,7 @@ function circuitOnFailure(logger: PluginLogger): void {
     _circuitState = "OPEN";
     _circuitOpenedAt = Date.now();
     logger.warn(
-      `[claude-mem] Worker unreachable — disabling requests for ${CIRCUIT_BREAKER_COOLDOWN_MS / 1000}s`
+      `[memsmith] Worker unreachable — disabling requests for ${CIRCUIT_BREAKER_COOLDOWN_MS / 1000}s`
     );
   }
 }
@@ -313,7 +313,7 @@ async function workerPost(
     });
     if (!response.ok) {
       circuitOnFailure(logger);
-      logger.warn(`[claude-mem] Worker POST ${path} returned ${response.status}`);
+      logger.warn(`[memsmith] Worker POST ${path} returned ${response.status}`);
       return null;
     }
     circuitOnSuccess(logger);
@@ -322,7 +322,7 @@ async function workerPost(
     const message = error instanceof Error ? error.message : String(error);
     circuitOnFailure(logger);
     if (_circuitState !== "OPEN") {
-      logger.warn(`[claude-mem] Worker POST ${path} failed: ${message}`);
+      logger.warn(`[memsmith] Worker POST ${path} failed: ${message}`);
     }
     return null;
   }
@@ -342,7 +342,7 @@ function workerPostFireAndForget(
   }).then((response) => {
     if (!response.ok) {
       circuitOnFailure(logger);
-      logger.warn(`[claude-mem] Worker POST ${path} returned ${response.status}`);
+      logger.warn(`[memsmith] Worker POST ${path} returned ${response.status}`);
       return;
     }
     circuitOnSuccess(logger);
@@ -350,7 +350,7 @@ function workerPostFireAndForget(
     const message = error instanceof Error ? error.message : String(error);
     circuitOnFailure(logger);
     if (_circuitState !== "OPEN") {
-      logger.warn(`[claude-mem] Worker POST ${path} failed: ${message}`);
+      logger.warn(`[memsmith] Worker POST ${path} failed: ${message}`);
     }
   });
 }
@@ -365,7 +365,7 @@ async function workerGetText(
     const response = await fetch(`${workerBaseUrl(port)}${path}`);
     if (!response.ok) {
       circuitOnFailure(logger);
-      logger.warn(`[claude-mem] Worker GET ${path} returned ${response.status}`);
+      logger.warn(`[memsmith] Worker GET ${path} returned ${response.status}`);
       return null;
     }
     circuitOnSuccess(logger);
@@ -374,7 +374,7 @@ async function workerGetText(
     const message = error instanceof Error ? error.message : String(error);
     circuitOnFailure(logger);
     if (_circuitState !== "OPEN") {
-      logger.warn(`[claude-mem] Worker GET ${path} failed: ${message}`);
+      logger.warn(`[memsmith] Worker GET ${path} failed: ${message}`);
     }
     return null;
   }
@@ -391,7 +391,7 @@ async function workerGetJson(
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
-    logger.warn(`[claude-mem] Worker GET ${path} returned non-JSON response`);
+    logger.warn(`[memsmith] Worker GET ${path} returned non-JSON response`);
     return null;
   }
 }
@@ -476,11 +476,11 @@ async function sendDirectTelegram(
     });
     if (!response.ok) {
       const body = await response.text();
-      logger.warn(`[claude-mem] Direct Telegram send failed (${response.status}): ${body}`);
+      logger.warn(`[memsmith] Direct Telegram send failed (${response.status}): ${body}`);
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`[claude-mem] Direct Telegram send error: ${message}`);
+    logger.warn(`[memsmith] Direct Telegram send error: ${message}`);
   }
 }
 
@@ -497,19 +497,19 @@ function sendToChannel(
 
   const mapping = CHANNEL_SEND_MAP[channel];
   if (!mapping) {
-    api.logger.warn(`[claude-mem] Unsupported channel type: ${channel}`);
+    api.logger.warn(`[memsmith] Unsupported channel type: ${channel}`);
     return Promise.resolve();
   }
 
   const channelApi = api.runtime.channel[mapping.namespace];
   if (!channelApi) {
-    api.logger.warn(`[claude-mem] Channel "${channel}" not available in runtime`);
+    api.logger.warn(`[memsmith] Channel "${channel}" not available in runtime`);
     return Promise.resolve();
   }
 
   const senderFunction = channelApi[mapping.functionName];
   if (!senderFunction) {
-    api.logger.warn(`[claude-mem] Channel "${channel}" has no ${mapping.functionName} function`);
+    api.logger.warn(`[memsmith] Channel "${channel}" has no ${mapping.functionName} function`);
     return Promise.resolve();
   }
 
@@ -519,7 +519,7 @@ function sendToChannel(
 
   return senderFunction(...args).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    api.logger.error(`[claude-mem] Failed to send to ${channel}: ${message}`);
+    api.logger.error(`[memsmith] Failed to send to ${channel}: ${message}`);
   });
 }
 
@@ -539,7 +539,7 @@ async function connectToSSEStream(
   while (!abortController.signal.aborted) {
     try {
       setConnectionState("reconnecting");
-      api.logger.info(`[claude-mem] Connecting to SSE stream at ${workerBaseUrl(port)}/stream`);
+      api.logger.info(`[memsmith] Connecting to SSE stream at ${workerBaseUrl(port)}/stream`);
 
       const response = await fetch(`${workerBaseUrl(port)}/stream`, {
         signal: abortController.signal,
@@ -556,7 +556,7 @@ async function connectToSSEStream(
 
       setConnectionState("connected");
       backoffMs = 1000;
-      api.logger.info("[claude-mem] Connected to SSE stream");
+      api.logger.info("[memsmith] Connected to SSE stream");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -569,7 +569,7 @@ async function connectToSSEStream(
         buffer += decoder.decode(value, { stream: true });
 
         if (buffer.length > MAX_SSE_BUFFER_SIZE) {
-          api.logger.warn("[claude-mem] SSE buffer overflow, clearing buffer");
+          api.logger.warn("[memsmith] SSE buffer overflow, clearing buffer");
           buffer = "";
         }
 
@@ -595,7 +595,7 @@ async function connectToSSEStream(
             }
           } catch (parseError: unknown) {
             const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-            api.logger.warn(`[claude-mem] Failed to parse SSE frame: ${errorMessage}`);
+            api.logger.warn(`[memsmith] Failed to parse SSE frame: ${errorMessage}`);
           }
         }
       }
@@ -605,7 +605,7 @@ async function connectToSSEStream(
       }
       setConnectionState("reconnecting");
       const errorMessage = error instanceof Error ? error.message : String(error);
-      api.logger.warn(`[claude-mem] SSE stream error: ${errorMessage}. Reconnecting in ${backoffMs / 1000}s`);
+      api.logger.warn(`[memsmith] SSE stream error: ${errorMessage}. Reconnecting in ${backoffMs / 1000}s`);
     }
 
     if (abortController.signal.aborted) break;
@@ -617,8 +617,8 @@ async function connectToSSEStream(
   setConnectionState("disconnected");
 }
 
-export default function claudeMemPlugin(api: OpenClawPluginApi): void {
-  const userConfig = (api.pluginConfig || {}) as ClaudeMemPluginConfig;
+export default function memSmithPlugin(api: OpenClawPluginApi): void {
+  const userConfig = (api.pluginConfig || {}) as MemSmithPluginConfig;
   const workerPort = userConfig.workerPort || DEFAULT_WORKER_PORT;
   _workerHost = userConfig.workerHost || DEFAULT_WORKER_HOST;
   const baseProjectName = userConfig.project || "openclaw";
@@ -754,7 +754,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
     const projectName = getProjectName(ctx);
 
     if (shouldSkipDuplicatePromptInit(contentSessionId, projectName, promptText)) {
-      api.logger.info(`[claude-mem] Skipping duplicate prompt init: contentSessionId=${contentSessionId} project=${projectName} via=${via}`);
+      api.logger.info(`[memsmith] Skipping duplicate prompt init: contentSessionId=${contentSessionId} project=${projectName} via=${via}`);
       return;
     }
 
@@ -764,7 +764,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       prompt: promptText,
     }, api.logger);
 
-    api.logger.info(`[claude-mem] Session initialized via ${via}: contentSessionId=${contentSessionId} project=${projectName}`);
+    api.logger.info(`[memsmith] Session initialized via ${via}: contentSessionId=${contentSessionId} project=${projectName}`);
   }
 
   api.on("session_start", async (_event, ctx) => {
@@ -773,7 +773,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
 
   api.on("message_received", async (event, ctx) => {
     const { canonicalKey, contentSessionId } = rememberSessionContext(ctx);
-    api.logger.info(`[claude-mem] Message received — prompt capture deferred to before_agent_start: session=${canonicalKey} contentSessionId=${contentSessionId} hasContent=${Boolean(event.content)}`);
+    api.logger.info(`[memsmith] Message received — prompt capture deferred to before_agent_start: session=${canonicalKey} contentSessionId=${contentSessionId} hasContent=${Boolean(event.content)}`);
   });
 
   api.on("after_compaction", async (_event, ctx) => {
@@ -789,13 +789,13 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
 
     const contextText = await getContextForPrompt(ctx);
     if (contextText) {
-      api.logger.info(`[claude-mem] Context injected via system prompt for agent=${ctx.agentId ?? "unknown"}`);
+      api.logger.info(`[memsmith] Context injected via system prompt for agent=${ctx.agentId ?? "unknown"}`);
       return { appendSystemContext: contextText };
     }
   });
 
   api.on("tool_result_persist", (event, ctx) => {
-    api.logger.info(`[claude-mem] tool_result_persist fired: tool=${event.toolName ?? "unknown"} agent=${ctx.agentId ?? "none"} session=${ctx.sessionKey ?? "none"}`);
+    api.logger.info(`[memsmith] tool_result_persist fired: tool=${event.toolName ?? "unknown"} agent=${ctx.agentId ?? "none"} session=${ctx.sessionKey ?? "none"}`);
     const toolName = event.toolName;
     if (!toolName) return;
 
@@ -821,7 +821,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
     // missing ctx field never silently drops a captured observation.
     const workspaceDir = ctx.workspaceDir || process.cwd();
     if (!ctx.workspaceDir) {
-      api.logger.info(`[claude-mem] tool_result_persist missing workspaceDir; using process.cwd(): session=${canonicalKey} tool=${toolName}`);
+      api.logger.info(`[memsmith] tool_result_persist missing workspaceDir; using process.cwd(): session=${canonicalKey} tool=${toolName}`);
     }
 
     workerPostFireAndForget(workerPort, "/api/sessions/observations", {
@@ -862,7 +862,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
 
   api.on("session_end", async (_event, ctx) => {
     clearSessionContext(ctx);
-    api.logger.info(`[claude-mem] Session tracking cleaned up`);
+    api.logger.info(`[memsmith] Session tracking cleaned up`);
   });
 
   api.on("gateway_start", async () => {
@@ -872,7 +872,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
     recentPromptInits.clear();
     canonicalSessionKeys.clear();
     sessionAliasesByCanonicalKey.clear();
-    api.logger.info("[claude-mem] Gateway started — session tracking reset");
+    api.logger.info("[memsmith] Gateway started — session tracking reset");
   });
 
   let sseAbortController: AbortController | null = null;
@@ -880,7 +880,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
   let connectionPromise: Promise<void> | null = null;
 
   api.registerService({
-    id: "claude-mem-observation-feed",
+    id: "memsmith-observation-feed",
     start: async (_ctx) => {
       if (sseAbortController) {
         sseAbortController.abort();
@@ -893,16 +893,16 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       const feedConfig = userConfig.observationFeed;
 
       if (!feedConfig?.enabled) {
-        api.logger.info("[claude-mem] Observation feed disabled");
+        api.logger.info("[memsmith] Observation feed disabled");
         return;
       }
 
       if (!feedConfig.channel || !feedConfig.to) {
-        api.logger.warn("[claude-mem] Observation feed misconfigured — channel or target missing");
+        api.logger.warn("[memsmith] Observation feed misconfigured — channel or target missing");
         return;
       }
 
-      api.logger.info(`[claude-mem] Observation feed starting — channel: ${feedConfig.channel}, target: ${feedConfig.to}`);
+      api.logger.info(`[memsmith] Observation feed starting — channel: ${feedConfig.channel}, target: ${feedConfig.to}`);
 
       sseAbortController = new AbortController();
       connectionPromise = connectToSSEStream(
@@ -926,7 +926,7 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
         connectionPromise = null;
       }
       connectionState = "disconnected";
-      api.logger.info("[claude-mem] Observation feed stopped — SSE connection closed");
+      api.logger.info("[memsmith] Observation feed stopped — SSE connection closed");
     },
   });
 
@@ -953,8 +953,8 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
   }
 
   api.registerCommand({
-    name: "claude_mem_feed",
-    description: "Show or toggle Claude-Mem observation feed status",
+    name: "memsmith_feed",
+    description: "Show or toggle MemSmith observation feed status",
     acceptsArgs: true,
     handler: async (ctx) => {
       const feedConfig = userConfig.observationFeed;
@@ -966,17 +966,17 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       const arg = ctx.args?.trim();
 
       if (arg === "on") {
-        api.logger.info("[claude-mem] Feed enable requested via command");
+        api.logger.info("[memsmith] Feed enable requested via command");
         return { text: "Feed enable requested. Update observationFeed.enabled in your plugin config to persist." };
       }
 
       if (arg === "off") {
-        api.logger.info("[claude-mem] Feed disable requested via command");
+        api.logger.info("[memsmith] Feed disable requested via command");
         return { text: "Feed disable requested. Update observationFeed.enabled in your plugin config to persist." };
       }
 
       return { text: [
-        "Claude-Mem Observation Feed",
+        "MemSmith Observation Feed",
         `Enabled: ${feedConfig.enabled ? "yes" : "no"}`,
         `Channel: ${feedConfig.channel || "not set"}`,
         `Target: ${feedConfig.to || "not set"}`,
@@ -986,13 +986,13 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
   });
 
   api.registerCommand({
-    name: "claude-mem-search",
-    description: "Search Claude-Mem observations by query",
+    name: "memsmith-search",
+    description: "Search MemSmith observations by query",
     acceptsArgs: true,
     handler: async (ctx) => {
       const raw = ctx.args?.trim() || "";
       if (!raw) {
-        return "Usage: /claude-mem-search <query> [limit]";
+        return "Usage: /memsmith-search <query> [limit]";
       }
 
       const pieces = raw.split(/\s+/);
@@ -1008,20 +1008,20 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       );
 
       if (!data) {
-        return "Claude-Mem search failed (worker unavailable or invalid response).";
+        return "MemSmith search failed (worker unavailable or invalid response).";
       }
 
       const items = Array.isArray(data.items) ? data.items : [];
       return [
-        `Claude-Mem Search: \"${query}\"`,
+        `MemSmith Search: \"${query}\"`,
         summarizeSearchResults(items, limit),
       ].join("\n");
     },
   });
 
   api.registerCommand({
-    name: "claude-mem-recent",
-    description: "Show recent Claude-Mem context for a project",
+    name: "memsmith-recent",
+    description: "Show recent MemSmith context for a project",
     acceptsArgs: true,
     handler: async (ctx) => {
       const raw = ctx.args?.trim() || "";
@@ -1042,14 +1042,14 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       );
 
       if (!data) {
-        return "Claude-Mem recent context failed (worker unavailable or invalid response).";
+        return "MemSmith recent context failed (worker unavailable or invalid response).";
       }
 
       const summaries = Array.isArray(data.session_summaries) ? data.session_summaries : [];
       const observations = Array.isArray(data.recent_observations) ? data.recent_observations : [];
 
       return [
-        "Claude-Mem Recent Context",
+        "MemSmith Recent Context",
         `Project: ${project || "(auto)"}`,
         `Session summaries: ${summaries.length}`,
         `Recent observations: ${observations.length}`,
@@ -1059,13 +1059,13 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
   });
 
   api.registerCommand({
-    name: "claude-mem-timeline",
+    name: "memsmith-timeline",
     description: "Find best memory match and show nearby timeline events",
     acceptsArgs: true,
     handler: async (ctx) => {
       const raw = ctx.args?.trim() || "";
       if (!raw) {
-        return "Usage: /claude-mem-timeline <query> [depthBefore] [depthAfter]";
+        return "Usage: /memsmith-timeline <query> [depthBefore] [depthAfter]";
       }
 
       const parts = raw.split(/\s+/);
@@ -1094,14 +1094,14 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
       );
 
       if (!data) {
-        return "Claude-Mem timeline lookup failed (worker unavailable or invalid response).";
+        return "MemSmith timeline lookup failed (worker unavailable or invalid response).";
       }
 
       const timeline = Array.isArray(data.timeline) ? data.timeline : [];
       const anchor = data.anchor ? String(data.anchor) : "(none)";
 
       return [
-        `Claude-Mem Timeline: \"${query}\"`,
+        `MemSmith Timeline: \"${query}\"`,
         `Anchor: ${anchor}`,
         summarizeSearchResults(timeline, 8),
       ].join("\n");
@@ -1109,28 +1109,28 @@ export default function claudeMemPlugin(api: OpenClawPluginApi): void {
   });
 
   api.registerCommand({
-    name: "claude_mem_status",
-    description: "Check Claude-Mem worker health and session status",
+    name: "memsmith_status",
+    description: "Check MemSmith worker health and session status",
     handler: async () => {
       const healthText = await workerGetText(workerPort, "/api/health", api.logger);
       if (!healthText) {
-        return { text: `Claude-Mem worker unreachable at port ${workerPort}` };
+        return { text: `MemSmith worker unreachable at port ${workerPort}` };
       }
 
       try {
         const health = JSON.parse(healthText);
         return { text: [
-          "Claude-Mem Worker Status",
+          "MemSmith Worker Status",
           `Status: ${health.status || "unknown"}`,
           `Port: ${workerPort}`,
           `Active sessions: ${sessionIds.size}`,
           `Observation feed: ${connectionState}`,
         ].join("\n") };
       } catch {
-        return { text: `Claude-Mem worker responded but returned unexpected data` };
+        return { text: `MemSmith worker responded but returned unexpected data` };
       }
     },
   });
 
-  api.logger.info(`[claude-mem] OpenClaw plugin loaded — v1.0.0 (worker: ${_workerHost}:${workerPort})`);
+  api.logger.info(`[memsmith] OpenClaw plugin loaded — v1.0.0 (worker: ${_workerHost}:${workerPort})`);
 }

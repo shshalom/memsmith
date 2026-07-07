@@ -55,7 +55,7 @@ This is the most comprehensive test. It:
 1. Uses the official `ghcr.io/openclaw/openclaw:main` Docker image
 2. Installs the plugin via `openclaw plugins install` (same as a real user)
 3. Enables the plugin via `openclaw plugins enable`
-4. Starts a mock claude-mem worker on port 37777
+4. Starts a mock memsmith worker on port 37777
 5. Starts the OpenClaw gateway with plugin config
 6. Verifies the plugin loads, connects to SSE, and processes events
 
@@ -79,26 +79,26 @@ This drops you into a fully-configured OpenClaw container with the plugin pre-in
 
 ```bash
 node openclaw.mjs plugins list
-node openclaw.mjs plugins info claude-mem
+node openclaw.mjs plugins info memsmith
 node openclaw.mjs plugins doctor
 ```
 
 **Expected:**
-- `claude-mem` appears in the plugins list as "enabled" or "loaded"
-- Info shows version 1.0.0, source at `/home/node/.openclaw/extensions/claude-mem/`
+- `memsmith` appears in the plugins list as "enabled" or "loaded"
+- Info shows version 1.0.0, source at `/home/node/.openclaw/extensions/memsmith/`
 - Doctor reports no issues
 
 #### 2. Inspect plugin files
 
 ```bash
-ls -la /home/node/.openclaw/extensions/claude-mem/
-cat /home/node/.openclaw/extensions/claude-mem/openclaw.plugin.json
-cat /home/node/.openclaw/extensions/claude-mem/package.json
+ls -la /home/node/.openclaw/extensions/memsmith/
+cat /home/node/.openclaw/extensions/memsmith/openclaw.plugin.json
+cat /home/node/.openclaw/extensions/memsmith/package.json
 ```
 
 **Expected:**
 - `dist/index.js` exists (compiled plugin)
-- `openclaw.plugin.json` has `"id": "claude-mem"` and `"kind": "memory"`
+- `openclaw.plugin.json` has `"id": "memsmith"` and `"kind": "memory"`
 - `package.json` has `openclaw.extensions` field pointing to `./dist/index.js`
 
 #### 3. Start mock worker
@@ -132,10 +132,10 @@ cat > /home/node/.openclaw/openclaw.json << 'EOF'
   },
   "plugins": {
     "slots": {
-      "memory": "claude-mem"
+      "memory": "memsmith"
     },
     "entries": {
-      "claude-mem": {
+      "memsmith": {
         "enabled": true,
         "config": {
           "workerPort": 37777,
@@ -155,10 +155,10 @@ node openclaw.mjs gateway --allow-unconfigured --verbose --token e2e-test-token
 ```
 
 **Expected in gateway logs:**
-- `[claude-mem] OpenClaw plugin loaded — v1.0.0`
-- `[claude-mem] Observation feed starting — channel: telegram, target: test-chat-id-12345`
-- `[claude-mem] Connecting to SSE stream at http://localhost:37777/stream`
-- `[claude-mem] Connected to SSE stream`
+- `[memsmith] OpenClaw plugin loaded — v1.0.0`
+- `[memsmith] Observation feed starting — channel: telegram, target: test-chat-id-12345`
+- `[memsmith] Connecting to SSE stream at http://localhost:37777/stream`
+- `[memsmith] Connected to SSE stream`
 
 #### 5. Run automated verification (optional)
 
@@ -172,7 +172,7 @@ From a second shell in the container (or after stopping the gateway):
 
 ## Manual E2E (Real OpenClaw + Real Worker)
 
-For testing with a real claude-mem worker and real messaging channel:
+For testing with a real memsmith worker and real messaging channel:
 
 ### Prerequisites
 
@@ -190,7 +190,7 @@ cd openclaw && npm run build
 openclaw plugins install .
 
 # Enable it
-openclaw plugins enable claude-mem
+openclaw plugins enable memsmith
 ```
 
 ### 2. Configure
@@ -201,7 +201,7 @@ Edit `~/.openclaw/openclaw.json` to add plugin config:
 {
   "plugins": {
     "entries": {
-      "claude-mem": {
+      "memsmith": {
         "enabled": true,
         "config": {
           "workerPort": 37777,
@@ -226,12 +226,12 @@ openclaw restart
 ```
 
 **Look for in logs:**
-- `[claude-mem] OpenClaw plugin loaded — v1.0.0`
-- `[claude-mem] Connected to SSE stream`
+- `[memsmith] OpenClaw plugin loaded — v1.0.0`
+- `[memsmith] Connected to SSE stream`
 
 ### 4. Trigger an observation
 
-Start a Claude Code session with claude-mem enabled and perform any action. The worker will emit a `new_observation` SSE event.
+Start a Claude Code session with memsmith enabled and perform any action. The worker will emit a `new_observation` SSE event.
 
 ### 5. Verify delivery
 
@@ -252,7 +252,7 @@ The plugin was built against the wrong API. Ensure `src/index.ts` uses `api.logg
 
 ### Worker not running
 - **Symptom:** `SSE stream error: fetch failed. Reconnecting in 1s`
-- **Fix:** Start the worker: `cd /path/to/claude-mem && npm run build-and-sync`
+- **Fix:** Start the worker: `cd /path/to/memsmith && npm run build-and-sync`
 
 ### Port mismatch
 - **Fix:** Ensure `workerPort` in config matches the worker's actual port (default: 37777)
@@ -276,4 +276,4 @@ The plugin was built against the wrong API. Ensure `src/index.ts` uses `api.logg
 
 ### Memory slot conflict
 - **Symptom:** `plugin disabled (memory slot set to "memory-core")`
-- **Fix:** Add `"slots": { "memory": "claude-mem" }` to plugins config
+- **Fix:** Add `"slots": { "memory": "memsmith" }` to plugins config

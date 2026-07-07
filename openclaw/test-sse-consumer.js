@@ -7,10 +7,10 @@ const eventHandlers = new Map();
 const logs = [];
 
 const mockApi = {
-  id: "claude-mem",
+  id: "memsmith",
   name: "Claude-Mem (Persistent Memory)",
   version: "1.0.0",
-  source: "/test/extensions/claude-mem/dist/index.js",
+  source: "/test/extensions/memsmith/dist/index.js",
   config: {},
   pluginConfig: {},
   logger: {
@@ -50,27 +50,27 @@ let failures = 0;
 if (!registeredService) {
   console.error("FAIL: No service was registered");
   failures++;
-} else if (registeredService.id !== "claude-mem-observation-feed") {
+} else if (registeredService.id !== "memsmith-observation-feed") {
   console.error(
-    `FAIL: Service ID is "${registeredService.id}", expected "claude-mem-observation-feed"`
+    `FAIL: Service ID is "${registeredService.id}", expected "memsmith-observation-feed"`
   );
   failures++;
 } else {
-  console.log("OK: Service registered with id 'claude-mem-observation-feed'");
+  console.log("OK: Service registered with id 'memsmith-observation-feed'");
 }
 
-if (!registeredCommands.has("claude-mem-feed")) {
-  console.error("FAIL: No 'claude-mem-feed' command registered");
+if (!registeredCommands.has("memsmith-feed")) {
+  console.error("FAIL: No 'memsmith-feed' command registered");
   failures++;
 } else {
-  console.log("OK: Command registered with name 'claude-mem-feed'");
+  console.log("OK: Command registered with name 'memsmith-feed'");
 }
 
-if (!registeredCommands.has("claude-mem-status")) {
-  console.error("FAIL: No 'claude-mem-status' command registered");
+if (!registeredCommands.has("memsmith-status")) {
+  console.error("FAIL: No 'memsmith-status' command registered");
   failures++;
 } else {
-  console.log("OK: Command registered with name 'claude-mem-status'");
+  console.log("OK: Command registered with name 'memsmith-status'");
 }
 
 const expectedEvents = ["before_agent_start", "tool_result_persist", "agent_end", "gateway_start"];

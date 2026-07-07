@@ -26,22 +26,22 @@ section() {
 section "Phase 1: Plugin Discovery"
 
 PLUGIN_LIST=$(node /app/openclaw.mjs plugins list 2>&1)
-if echo "$PLUGIN_LIST" | grep -q "claude-mem"; then
+if echo "$PLUGIN_LIST" | grep -q "memsmith"; then
   pass "Plugin appears in 'plugins list'"
 else
   fail "Plugin NOT found in 'plugins list'"
   echo "$PLUGIN_LIST"
 fi
 
-PLUGIN_INFO=$(node /app/openclaw.mjs plugins info claude-mem 2>&1 || true)
-if echo "$PLUGIN_INFO" | grep -qi "claude-mem"; then
-  pass "Plugin info shows claude-mem details"
+PLUGIN_INFO=$(node /app/openclaw.mjs plugins info memsmith 2>&1 || true)
+if echo "$PLUGIN_INFO" | grep -qi "memsmith"; then
+  pass "Plugin info shows memsmith details"
 else
   fail "Plugin info failed"
   echo "$PLUGIN_INFO"
 fi
 
-if echo "$PLUGIN_LIST" | grep -A1 "claude-mem" | grep -qi "enabled\|loaded"; then
+if echo "$PLUGIN_LIST" | grep -A1 "memsmith" | grep -qi "enabled\|loaded"; then
   pass "Plugin is enabled"
 else
   if echo "$PLUGIN_INFO" | grep -qi "enabled\|loaded"; then
@@ -64,7 +64,7 @@ section "Phase 2: Plugin Files"
 
 EXTENSIONS_DIR="/home/node/.openclaw/extensions/openclaw-plugin"
 if [ ! -d "$EXTENSIONS_DIR" ]; then
-  EXTENSIONS_DIR="/home/node/.openclaw/extensions/claude-mem"
+  EXTENSIONS_DIR="/home/node/.openclaw/extensions/memsmith"
   if [ ! -d "$EXTENSIONS_DIR" ]; then
     FOUND_DIR=$(find /home/node/.openclaw/extensions/ -name "openclaw.plugin.json" -exec dirname {} \; 2>/dev/null | head -1 || true)
     if [ -n "$FOUND_DIR" ]; then
@@ -90,7 +90,7 @@ done
 
 section "Phase 3: Mock Worker + Plugin Integration"
 
-echo "  Starting mock claude-mem worker..."
+echo "  Starting mock memsmith worker..."
 node /app/mock-worker.js &
 MOCK_PID=$!
 
@@ -130,10 +130,10 @@ cat > /home/node/.openclaw/openclaw.json << 'EOFCONFIG'
   },
   "plugins": {
     "slots": {
-      "memory": "claude-mem"
+      "memory": "memsmith"
     },
     "entries": {
-      "claude-mem": {
+      "memsmith": {
         "enabled": true,
         "config": {
           "workerPort": 37777,
@@ -166,10 +166,10 @@ else
   cat "$GATEWAY_LOG" 2>/dev/null | tail -30
 fi
 
-if grep -qi "claude-mem" "$GATEWAY_LOG" 2>/dev/null; then
-  pass "Gateway log mentions claude-mem plugin"
+if grep -qi "memsmith" "$GATEWAY_LOG" 2>/dev/null; then
+  pass "Gateway log mentions memsmith plugin"
 else
-  fail "Gateway log does not mention claude-mem"
+  fail "Gateway log does not mention memsmith"
   echo "  Gateway log (last 20 lines):"
   tail -20 "$GATEWAY_LOG" 2>/dev/null
 fi
