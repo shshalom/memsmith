@@ -12,6 +12,7 @@ import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject as defaultShouldTrackProject } from '../../shared/should-track-project.js';
 import { loadFromFileOnce as defaultLoadFromFileOnce } from '../../shared/hook-settings.js';
+import type { SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { isInternalProtocolPayload } from '../../utils/tag-stripping.js';
 import {
@@ -20,6 +21,8 @@ import {
   type ServerRuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { fetchTeamMemory as defaultFetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
+import { buildInjectionBlock as defaultBuildInjectionBlock } from '../../server/retrieval/inject.js';
 
 interface SessionInitResponse {
   sessionDbId: number;
@@ -41,7 +44,18 @@ const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
   logServerFallback: defaultLogServerFallback,
   shouldTrackProject: defaultShouldTrackProject,
+  fetchTeamMemory: defaultFetchTeamMemory,
+  buildInjectionBlock: defaultBuildInjectionBlock,
 };
+
+function teamServerConfigured(settings: SettingsDefaults): boolean {
+  // Honor the SAME master opt-in as SessionStart (context.ts): team injection
+  // requires CLAUDE_MEM_TEAM_INJECT=true AND a configured server URL + key. This
+  // keeps per-prompt injection consistent with SessionStart — an operator who
+  // left CLAUDE_MEM_TEAM_INJECT off gets no server-path injection on either hook.
+  return settings.CLAUDE_MEM_TEAM_INJECT === 'true'
+    && !!(settings.CLAUDE_MEM_TEAM_SERVER_URL?.trim() && settings.CLAUDE_MEM_TEAM_API_KEY?.trim());
+}
 
 let dependencies = defaultDependencies;
 
@@ -147,15 +161,44 @@ export const sessionInitHandler: EventHandler = {
     let additionalContext = '';
 
     if (semanticInject && prompt && prompt.length >= 20 && prompt !== '[media prompt]') {
-      const limit = settings.CLAUDE_MEM_SEMANTIC_INJECT_LIMIT || '5';
-      const semanticResult = await dependencies.executeWithWorkerFallback<SemanticContextResponse>(
-        '/api/context/semantic',
-        'POST',
-        { q: prompt, project, limit, platformSource },
-      );
-      if (!dependencies.isWorkerFallback(semanticResult) && semanticResult?.context) {
-        logger.debug('HOOK', `Semantic injection: ${semanticResult.count} observations for prompt`, { sessionId: sessionDbId, count: semanticResult.count });
-        additionalContext = semanticResult.context;
+      // Server mode (team server configured): hybrid RRF + L0–L3 tiering, query = the
+      // actual prompt (higher signal than SessionStart's project-name query). Mirrors
+      // the SessionStart team-injection block. fetchTeamMemory never throws (returns []),
+      // and buildInjectionBlock returns '' on empty, so a down/misconfigured server
+      // degrades to the worker path below — never an empty injection where the worker
+      // could have served one.
+      if (teamServerConfigured(settings)) {
+        try {
+          const rows = await dependencies.fetchTeamMemory({
+            serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
+            apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+            projectId: project,
+            teamId: '',            // resolved server-side from the scoped key
+            query: prompt,         // the signal improvement: query with the prompt
+          });
+          const block = await dependencies.buildInjectionBlock(
+            { hybridSearch: async () => rows },
+            { projectId: project, teamId: '', query: prompt },
+          );
+          if (block) additionalContext = block;
+        } catch (error) {
+          logger.warn('HOOK', 'per-prompt hybrid injection failed; falling back to worker semantic', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // Worker semantic path — unchanged; runs when no team server, or the server
+      // path produced nothing.
+      if (!additionalContext) {
+        const limit = settings.CLAUDE_MEM_SEMANTIC_INJECT_LIMIT || '5';
+        const semanticResult = await dependencies.executeWithWorkerFallback<SemanticContextResponse>(
+          '/api/context/semantic', 'POST', { q: prompt, project, limit, platformSource },
+        );
+        if (!dependencies.isWorkerFallback(semanticResult) && semanticResult?.context) {
+          logger.debug('HOOK', `Semantic injection: ${semanticResult.count} observations for prompt`, { sessionId: sessionDbId, count: semanticResult.count });
+          additionalContext = semanticResult.context;
+        }
       }
     }
 
