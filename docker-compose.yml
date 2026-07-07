@@ -1,8 +1,8 @@
 # Phase 10 — server-beta deployable runtime.
 #
 # Stack: Postgres (canonical storage) + Valkey (BullMQ queue) +
-#        claude-mem-server (HTTP, no generation) +
-#        claude-mem-worker (BullMQ generation consumer).
+#        memsmith-server (HTTP, no generation) +
+#        memsmith-worker (BullMQ generation consumer).
 #
 # SECURITY: This file MUST NOT be deployed unmodified to any environment
 # that is reachable from the public internet, including staging behind a
@@ -12,17 +12,17 @@
 # stack will refuse to start if any required secret is missing.
 #
 # The legacy `worker-service.cjs` runtime is NEVER spawned in this stack.
-# `claude-mem-server` runs `server-beta-service.cjs --daemon`; the
-# `claude-mem-worker` service runs `server-beta-service.cjs worker start`
+# `memsmith-server` runs `server-beta-service.cjs --daemon`; the
+# `memsmith-worker` service runs `server-beta-service.cjs worker start`
 # from the same image. Scale generation via:
-#   docker compose up -d --scale claude-mem-worker=N
+#   docker compose up -d --scale memsmith-worker=N
 #
 # Required env vars (validated at startup by validateServerBetaEnv()):
-#   CLAUDE_MEM_RUNTIME=server-beta
-#   CLAUDE_MEM_QUEUE_ENGINE=bullmq
-#   CLAUDE_MEM_SERVER_DATABASE_URL=postgres://...
-#   CLAUDE_MEM_REDIS_URL=redis://valkey:6379
-#   CLAUDE_MEM_AUTH_MODE=api-key   (local-dev is REJECTED inside Docker)
+#   MEMSMITH_RUNTIME=server-beta
+#   MEMSMITH_QUEUE_ENGINE=bullmq
+#   MEMSMITH_SERVER_DATABASE_URL=postgres://...
+#   MEMSMITH_REDIS_URL=redis://valkey:6379
+#   MEMSMITH_AUTH_MODE=api-key   (local-dev is REJECTED inside Docker)
 #
 # Required secrets (no defaults — must be supplied in env or .env):
 #   POSTGRES_USER
@@ -34,7 +34,7 @@
 # automatically; a killed container recovers without operator intervention.
 #
 # #2558 — Redis/Valkey URL has a fallback so the stack is not brittle: the
-# worker/server read CLAUDE_MEM_REDIS_URL with a default of
+# worker/server read MEMSMITH_REDIS_URL with a default of
 # redis://valkey:6379 instead of hard-failing when the var is unset.
 #
 # #2558 — secrets can be supplied via a credentials file mounted into the
@@ -42,7 +42,7 @@
 # of being passed inline through the environment.
 #
 # Auth modes (#2554):
-#   - API-KEY auth (default here, CLAUDE_MEM_AUTH_MODE=api-key): every request
+#   - API-KEY auth (default here, MEMSMITH_AUTH_MODE=api-key): every request
 #     carries a bearer key created with `server api-key create`. Generation
 #     uses a configured provider API key (ANTHROPIC_API_KEY/...). This path
 #     bills per token and can be EXPENSIVE at high observation volume.
@@ -88,7 +88,7 @@ services:
       timeout: 3s
       retries: 12
 
-  claude-mem-server:
+  memsmith-server:
     build:
       context: .
       dockerfile: docker/memsmith/Dockerfile
@@ -99,38 +99,38 @@ services:
       valkey:
         condition: service_healthy
     environment:
-      CLAUDE_MEM_CONTAINER_MODE: server
-      CLAUDE_MEM_DOCKER: "1"
-      CLAUDE_MEM_RUNTIME: server-beta
-      CLAUDE_MEM_HOST: 0.0.0.0
-      CLAUDE_MEM_SERVER_HOST: 0.0.0.0
-      CLAUDE_MEM_SERVER_PORT: "37877"
+      MEMSMITH_CONTAINER_MODE: server
+      MEMSMITH_DOCKER: "1"
+      MEMSMITH_RUNTIME: server-beta
+      MEMSMITH_HOST: 0.0.0.0
+      MEMSMITH_SERVER_HOST: 0.0.0.0
+      MEMSMITH_SERVER_PORT: "37877"
       # Legacy var some libraries still read; keep aligned with server port
       # so the existing E2E driver and viewer continue to work.
-      CLAUDE_MEM_WORKER_HOST: 0.0.0.0
-      CLAUDE_MEM_WORKER_PORT: "37877"
-      CLAUDE_MEM_DATA_DIR: /data/claude-mem
-      CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      MEMSMITH_WORKER_HOST: 0.0.0.0
+      MEMSMITH_WORKER_PORT: "37877"
+      MEMSMITH_DATA_DIR: /data/memsmith
+      MEMSMITH_QUEUE_ENGINE: bullmq
       # #2558 — REDIS_URL fallback: default to the in-stack valkey service so the
-      # var is not a brittle hard requirement; override CLAUDE_MEM_REDIS_URL to
+      # var is not a brittle hard requirement; override MEMSMITH_REDIS_URL to
       # point at an external Redis.
-      CLAUDE_MEM_REDIS_URL: ${CLAUDE_MEM_REDIS_URL:-redis://valkey:6379}
-      CLAUDE_MEM_REDIS_MODE: docker
-      CLAUDE_MEM_SERVER_DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
-      CLAUDE_MEM_AUTH_MODE: api-key
-      CLAUDE_MEM_CHROMA_ENABLED: "false"
+      MEMSMITH_REDIS_URL: ${MEMSMITH_REDIS_URL:-redis://valkey:6379}
+      MEMSMITH_REDIS_MODE: docker
+      MEMSMITH_SERVER_DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      MEMSMITH_AUTH_MODE: api-key
+      MEMSMITH_CHROMA_ENABLED: "false"
       # The HTTP service does not consume BullMQ jobs; the worker container
       # does. This split keeps HTTP latency unaffected by provider calls.
-      CLAUDE_MEM_GENERATION_DISABLED: "true"
+      MEMSMITH_GENERATION_DISABLED: "true"
     ports:
       - "37877:37877"
     volumes:
-      - claude-mem-data:/data/claude-mem
+      - memsmith-data:/data/memsmith
       # #2558 — credentials-file mount. Place provider/API secrets in a file
       # (git-ignored) and mount it read-only instead of inlining secrets in the
       # environment. The entrypoint / operator can `source` it. Uncomment and
       # point CREDENTIALS_FILE at the host path:
-      # - ${CREDENTIALS_FILE:-./.docker-credentials}:/run/secrets/claude-mem-credentials:ro
+      # - ${CREDENTIALS_FILE:-./.docker-credentials}:/run/secrets/memsmith-credentials:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:37877/healthz"]
       interval: 10s
@@ -138,7 +138,7 @@ services:
       retries: 12
       start_period: 20s
 
-  claude-mem-worker:
+  memsmith-worker:
     build:
       context: .
       dockerfile: docker/memsmith/Dockerfile
@@ -148,35 +148,35 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
-      claude-mem-server:
+      memsmith-server:
         condition: service_healthy
     environment:
-      CLAUDE_MEM_CONTAINER_MODE: worker
-      CLAUDE_MEM_DOCKER: "1"
-      CLAUDE_MEM_RUNTIME: server-beta
-      CLAUDE_MEM_DATA_DIR: /data/claude-mem
-      CLAUDE_MEM_QUEUE_ENGINE: bullmq
+      MEMSMITH_CONTAINER_MODE: worker
+      MEMSMITH_DOCKER: "1"
+      MEMSMITH_RUNTIME: server-beta
+      MEMSMITH_DATA_DIR: /data/memsmith
+      MEMSMITH_QUEUE_ENGINE: bullmq
       # #2558 — REDIS_URL fallback (see server service above).
-      CLAUDE_MEM_REDIS_URL: ${CLAUDE_MEM_REDIS_URL:-redis://valkey:6379}
-      CLAUDE_MEM_REDIS_MODE: docker
-      CLAUDE_MEM_SERVER_DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
-      CLAUDE_MEM_AUTH_MODE: api-key
-      CLAUDE_MEM_CHROMA_ENABLED: "false"
+      MEMSMITH_REDIS_URL: ${MEMSMITH_REDIS_URL:-redis://valkey:6379}
+      MEMSMITH_REDIS_MODE: docker
+      MEMSMITH_SERVER_DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      MEMSMITH_AUTH_MODE: api-key
+      MEMSMITH_CHROMA_ENABLED: "false"
       # Provider configuration. ANTHROPIC_API_KEY (or
-      # CLAUDE_MEM_ANTHROPIC_API_KEY) is required for real generation; the
+      # MEMSMITH_ANTHROPIC_API_KEY) is required for real generation; the
       # worker stays running but never produces observations without one.
-      CLAUDE_MEM_SERVER_PROVIDER: ${CLAUDE_MEM_SERVER_PROVIDER:-claude}
+      MEMSMITH_SERVER_PROVIDER: ${MEMSMITH_SERVER_PROVIDER:-claude}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      CLAUDE_MEM_ANTHROPIC_API_KEY: ${CLAUDE_MEM_ANTHROPIC_API_KEY:-}
+      MEMSMITH_ANTHROPIC_API_KEY: ${MEMSMITH_ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
-      - claude-mem-data:/data/claude-mem
+      - memsmith-data:/data/memsmith
       # #2558 — credentials-file mount (see server service above). Keeps
       # provider/API secrets out of the inline environment.
-      # - ${CREDENTIALS_FILE:-./.docker-credentials}:/run/secrets/claude-mem-credentials:ro
+      # - ${CREDENTIALS_FILE:-./.docker-credentials}:/run/secrets/memsmith-credentials:ro
 
 volumes:
-  claude-mem-data:
+  memsmith-data:
   postgres-data:
   valkey-data:

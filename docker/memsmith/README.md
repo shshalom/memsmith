@@ -1,6 +1,6 @@
-# claude-mem Docker harness
+# MemSmith Docker harness
 
-A minimal container for exercising claude-mem end-to-end without polluting your
+A minimal container for exercising MemSmith end-to-end without polluting your
 host. Not a dev environment — just enough to boot `claude` with the locally-built
 plugin and capture observations into a throwaway SQLite DB you can inspect
 afterwards.
@@ -10,7 +10,7 @@ afterwards.
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Image definition (node:20 + Bun + uv + Claude Code CLI + local `plugin/`) |
-| `build.sh` | Runs `npm run build` then `docker build`. Tag defaults to `claude-mem:basic`. |
+| `build.sh` | Runs `npm run build` then `docker build`. Tag defaults to `memsmith:basic`. |
 | `entrypoint.sh` | Runs inside the container. Seeds OAuth creds into `$HOME/.claude/` if mounted, then `exec "$@"`. |
 | `run.sh` | Host-side launcher. Extracts creds (Keychain → file → env), mounts a persistent data dir, drops you into an interactive shell. |
 
@@ -23,17 +23,17 @@ docker/memsmith/run.sh
 ```
 
 `run.sh` drops you into `bash` inside the container with `claude` on `PATH` and
-the plugin pre-staged at `/opt/claude-mem`. Launch it with:
+the plugin pre-staged at `/opt/memsmith`. Launch it with:
 
 ```bash
-claude --plugin-dir /opt/claude-mem
+claude --plugin-dir /opt/memsmith
 ```
 
-On exit, the SQLite DB survives at `./.docker-claude-mem-data/claude-mem.db` on
+On exit, the SQLite DB survives at `./.docker-memsmith-data/memsmith.db` on
 the host — inspect with:
 
 ```bash
-sqlite3 .docker-claude-mem-data/claude-mem.db 'select count(*) from observations'
+sqlite3 .docker-memsmith-data/memsmith.db 'select count(*) from observations'
 ```
 
 ## What's in the image
@@ -41,14 +41,14 @@ sqlite3 .docker-claude-mem-data/claude-mem.db 'select count(*) from observations
 Mirrors the layout of [anthropics/claude-code's devcontainer](https://github.com/anthropics/claude-code/blob/main/.devcontainer/Dockerfile):
 `FROM node:20`, non-root `node` user, global `npm install -g @anthropic-ai/claude-code`.
 Skips the firewall/zsh/fzf/delta/git-hist tooling since this image is about
-running claude-mem, not editing code.
+running MemSmith, not editing code.
 
 On top of that:
 
-- **Bun** (`/usr/local/bun`) — claude-mem's worker service runtime
+- **Bun** (`/usr/local/bun`) — MemSmith's worker service runtime
 - **uv** (`/usr/local/bin/uv`) — provides Python for Chroma per `CLAUDE.md`
-- **`plugin/`** copied to `/opt/claude-mem` — the locally-built plugin tree
-- **`/home/node/.claude`** and **`/home/node/.claude-mem`** — pre-created mount points
+- **`plugin/`** copied to `/opt/memsmith` — the locally-built plugin tree
+- **`/home/node/.claude`** and **`/home/node/.memsmith`** — pre-created mount points
 
 Layer ordering is deliberate: plugin files are copied **after** the `npm install`
 layer so iterating on the plugin doesn't bust the CLI install cache.
@@ -64,7 +64,7 @@ docker build \
   --build-arg BUN_VERSION=1.3.12 \
   --build-arg UV_VERSION=0.11.7 \
   --build-arg CLAUDE_CODE_VERSION=1.2.3 \
-  -t claude-mem:basic .
+  -t memsmith:basic .
 ```
 
 | Arg | Default | Notes |
@@ -95,41 +95,41 @@ If no auth source is found, `run.sh` exits with an error pointing you at
 
 ```bash
 docker run --rm -it \
-  -v $(mktemp -d):/home/node/.claude-mem \
-  -e CLAUDE_MEM_CREDENTIALS_FILE=/auth/.credentials.json \
+  -v $(mktemp -d):/home/node/.memsmith \
+  -e MEMSMITH_CREDENTIALS_FILE=/auth/.credentials.json \
   -v /path/to/creds.json:/auth/.credentials.json:ro \
-  claude-mem:basic
+  memsmith:basic
 ```
 
 Or with API key auth:
 
 ```bash
 docker run --rm -it \
-  -v $(mktemp -d):/home/node/.claude-mem \
+  -v $(mktemp -d):/home/node/.memsmith \
   -e ANTHROPIC_API_KEY \
-  claude-mem:basic
+  memsmith:basic
 ```
 
 ## Environment variables
 
 | Var | Where | Purpose |
 |-----|-------|---------|
-| `TAG` | `build.sh`, `run.sh` | Override image tag (default `claude-mem:basic`). |
-| `HOST_MEM_DIR` | `run.sh` | Override host path for the persistent `.claude-mem` volume (default `$REPO_ROOT/.docker-claude-mem-data`). |
+| `TAG` | `build.sh`, `run.sh` | Override image tag (default `memsmith:basic`). |
+| `HOST_MEM_DIR` | `run.sh` | Override host path for the persistent `.memsmith` volume (default `$REPO_ROOT/.docker-memsmith-data`). |
 | `ANTHROPIC_API_KEY` | `run.sh`, entrypoint | API-key auth. Skips the OAuth creds extraction. |
-| `CLAUDE_MEM_CREDENTIALS_FILE` | entrypoint | Path (inside the container) to a mounted OAuth creds JSON. Copied to `$HOME/.claude/.credentials.json` at startup. |
+| `MEMSMITH_CREDENTIALS_FILE` | entrypoint | Path (inside the container) to a mounted OAuth creds JSON. Copied to `$HOME/.claude/.credentials.json` at startup. |
 
 ## Passing args through
 
 Anything after `run.sh` is forwarded to the container as the command:
 
 ```bash
-docker/memsmith/run.sh claude --plugin-dir /opt/claude-mem --print "what did we learn yesterday?"
+docker/memsmith/run.sh claude --plugin-dir /opt/memsmith --print "what did we learn yesterday?"
 ```
 
 ## Cleanup
 
 ```bash
-rm -rf .docker-claude-mem-data   # wipes the persistent DB + Chroma store
-docker rmi claude-mem:basic       # removes the image
+rm -rf .docker-memsmith-data   # wipes the persistent DB + Chroma store
+docker rmi memsmith:basic       # removes the image
 ```

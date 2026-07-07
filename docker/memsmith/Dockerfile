@@ -38,30 +38,30 @@ USER node
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 USER root
-COPY plugin/ /opt/claude-mem/
-RUN chown -R node:node /opt/claude-mem
+COPY plugin/ /opt/memsmith/
+RUN chown -R node:node /opt/memsmith
 
 USER node
-RUN cd /opt/claude-mem \
+RUN cd /opt/memsmith \
  && npm install --omit=dev --legacy-peer-deps
 
 USER root
-RUN mkdir -p /home/node/.claude /home/node/.claude-mem /data/claude-mem \
- && chown -R node:node /home/node/.claude /home/node/.claude-mem /data/claude-mem
+RUN mkdir -p /home/node/.claude /home/node/.memsmith /data/memsmith \
+ && chown -R node:node /home/node/.claude /home/node/.memsmith /data/memsmith
 
-COPY --chown=node:node docker/claude-mem/entrypoint.sh /usr/local/bin/claude-mem-entrypoint
-RUN chmod +x /usr/local/bin/claude-mem-entrypoint
+COPY --chown=node:node docker/memsmith/entrypoint.sh /usr/local/bin/memsmith-entrypoint
+RUN chmod +x /usr/local/bin/memsmith-entrypoint
 
 USER node
 WORKDIR /home/node
 
 # Phase 10 — server-beta runtime is the only foregrounded process. The legacy
 # worker binaries remain available for tooling but are NEVER spawned by the
-# entrypoint. Mode selection happens via CLAUDE_MEM_CONTAINER_MODE
+# entrypoint. Mode selection happens via MEMSMITH_CONTAINER_MODE
 # (server | worker | shell). `docker run ... bash` works because shell mode
 # falls through to "$@".
-ENV CLAUDE_MEM_CONTAINER_MODE=server
-ENV CLAUDE_MEM_RUNTIME=server-beta
+ENV MEMSMITH_CONTAINER_MODE=server
+ENV MEMSMITH_RUNTIME=server-beta
 
-ENTRYPOINT ["/usr/local/bin/claude-mem-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/memsmith-entrypoint"]
 CMD []

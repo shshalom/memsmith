@@ -5,14 +5,14 @@ services:
   server-e2e:
     image: node:20-alpine
     depends_on:
-      claude-mem-server:
+      memsmith-server:
         condition: service_healthy
       valkey:
         condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
-      E2E_BASE_URL: http://claude-mem-server:37877
+      E2E_BASE_URL: http://memsmith-server:37877
       E2E_REDIS_HOST: valkey
       E2E_REDIS_PORT: 6379
       E2E_POSTGRES_HOST: postgres

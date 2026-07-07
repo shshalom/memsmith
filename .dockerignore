@@ -1,6 +1,6 @@
 node_modules/
 .git/
 logs/
-.docker-claude-mem-data/
+.docker-memsmith-data/
 .venv
 .venv-*
