@@ -1,13 +1,13 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Claude-Mem",
+  "name": "MemSmith",
   "description": "Persistent memory compression system that preserves context across Claude Code sessions",
   "theme": "mint",
   "favicon": "/memsmith-logomark.webp",
   "logo": {
     "light": "/memsmith-logo-for-light-mode.webp",
     "dark": "/memsmith-logo-for-dark-mode.webp",
-    "href": "https://github.com/thedotmack/claude-mem"
+    "href": "https://github.com/shshalom/memsmith"
   },
   "colors": {
     "primary": "#3B82F6",
@@ -18,13 +18,13 @@
     "links": [
       {
         "label": "GitHub",
-        "href": "https://github.com/thedotmack/claude-mem"
+        "href": "https://github.com/shshalom/memsmith"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Install",
-      "href": "https://github.com/thedotmack/claude-mem#quick-start"
+      "href": "https://github.com/shshalom/memsmith#quick-start"
     }
   },
   "navigation": {
@@ -115,7 +115,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/thedotmack/claude-mem"
+      "github": "https://github.com/shshalom/memsmith"
     },
     "links": [
       {
@@ -123,11 +123,11 @@
         "items": [
           {
             "label": "Documentation",
-            "href": "https://github.com/thedotmack/claude-mem"
+            "href": "https://github.com/shshalom/memsmith"
           },
           {
             "label": "Issues",
-            "href": "https://github.com/thedotmack/claude-mem/issues"
+            "href": "https://github.com/shshalom/memsmith/issues"
           }
         ]
       },
@@ -136,7 +136,7 @@
         "items": [
           {
             "label": "License (Apache-2.0)",
-            "href": "https://github.com/thedotmack/claude-mem/blob/main/LICENSE"
+            "href": "https://github.com/shshalom/memsmith/blob/main/LICENSE"
           }
         ]
       }
@@ -146,7 +146,7 @@
     "indexing": "all",
     "metatags": {
       "og:type": "website",
-      "og:site_name": "Claude-Mem Documentation",
+      "og:site_name": "MemSmith Documentation",
       "og:description": "Persistent memory compression system that preserves context across Claude Code sessions"
     }
   },

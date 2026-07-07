@@ -1,6 +1,6 @@
 ---
 title: "Antigravity CLI Setup"
-description: "Add persistent memory to Antigravity CLI with claude-mem"
+description: "Add persistent memory to Antigravity CLI with memsmith"
 ---
 
 # Antigravity CLI Setup
@@ -25,17 +25,17 @@ Antigravity CLI is a different product from the Antigravity **desktop IDE** (`an
 
 ## Installation
 
-### Step 1: Install claude-mem
+### Step 1: Install memsmith
 
 ```bash
-npx claude-mem install --ide antigravity
+npx memsmith install --ide antigravity
 ```
 
 The installer will:
 1. Auto-detect Antigravity CLI (checks for `agy` in `PATH`, or an existing `~/.gemini/antigravity` directory)
 2. Install 8 lifecycle hooks into `~/.gemini/settings.json`
 3. Inject context configuration into `~/.gemini/GEMINI.md`
-4. Register claude-mem's MCP server in `~/.gemini/antigravity/mcp_config.json` **and** `~/.gemini/config/mcp_config.json`
+4. Register memsmith's MCP server in `~/.gemini/antigravity/mcp_config.json` **and** `~/.gemini/config/mcp_config.json`
 5. Write a rules/context placeholder to `~/.agents/rules/memsmith-context.md`
 6. Start the worker service
 
@@ -51,11 +51,11 @@ Claude-mem needs an AI provider to extract observations from your sessions. Choo
     2. Add it to your settings:
 
     ```bash
-    mkdir -p ~/.claude-mem
-    cat > ~/.claude-mem/settings.json << 'EOF'
+    mkdir -p ~/.memsmith
+    cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "CLAUDE_MEM_PROVIDER": "gemini",
-      "CLAUDE_MEM_GEMINI_API_KEY": "YOUR_API_KEY"
+      "MEMSMITH_PROVIDER": "gemini",
+      "MEMSMITH_GEMINI_API_KEY": "YOUR_API_KEY"
     }
     EOF
     ```
@@ -68,10 +68,10 @@ Claude-mem needs an AI provider to extract observations from your sessions. Choo
     If you have a Claude API key:
 
     ```bash
-    mkdir -p ~/.claude-mem
-    cat > ~/.claude-mem/settings.json << 'EOF'
+    mkdir -p ~/.memsmith
+    cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "CLAUDE_MEM_PROVIDER": "claude"
+      "MEMSMITH_PROVIDER": "claude"
     }
     EOF
     ```
@@ -85,11 +85,11 @@ Claude-mem needs an AI provider to extract observations from your sessions. Choo
     For access to 100+ models:
 
     ```bash
-    mkdir -p ~/.claude-mem
-    cat > ~/.claude-mem/settings.json << 'EOF'
+    mkdir -p ~/.memsmith
+    cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "CLAUDE_MEM_PROVIDER": "openrouter",
-      "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_KEY"
+      "MEMSMITH_PROVIDER": "openrouter",
+      "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
     }
     EOF
     ```
@@ -100,14 +100,14 @@ Claude-mem needs an AI provider to extract observations from your sessions. Choo
 
 ```bash
 # Check worker is running
-npx claude-mem status
+npx memsmith status
 
-# Check hooks are installed — look for claude-mem entries
-cat ~/.gemini/settings.json | grep claude-mem
+# Check hooks are installed — look for memsmith entries
+cat ~/.gemini/settings.json | grep memsmith
 
 # Check MCP registration in either candidate config path
-cat ~/.gemini/antigravity/mcp_config.json | grep claude-mem
-cat ~/.gemini/config/mcp_config.json | grep claude-mem
+cat ~/.gemini/antigravity/mcp_config.json | grep memsmith
+cat ~/.gemini/config/mcp_config.json | grep memsmith
 ```
 
 Open http://localhost:37777 to see the memory viewer.
@@ -120,7 +120,7 @@ Launch Antigravity CLI normally. Claude-mem works in the background:
 agy
 ```
 
-On session start, you'll see claude-mem context injected with your recent observations and project history.
+On session start, you'll see memsmith context injected with your recent observations and project history.
 
 ## What gets captured
 
@@ -146,11 +146,11 @@ Antigravity CLI has native MCP support, but which config path it reads was genui
 - `~/.gemini/antigravity/mcp_config.json`
 - `~/.gemini/config/mcp_config.json`
 
-This gives claude-mem's search tools (`search`, `smart_search`, `timeline`, etc.) a chance to register correctly regardless of which path Antigravity CLI actually reads.
+This gives memsmith's search tools (`search`, `smart_search`, `timeline`, etc.) a chance to register correctly regardless of which path Antigravity CLI actually reads.
 
 ## Future enhancement (not implemented in this release)
 
-Antigravity CLI ships a first-class plugin-marketplace subcommand system: `agy plugin {list,import,install,uninstall,enable,disable,validate,link}`. Notably, `agy plugin import gemini|claude` suggests native cross-tool plugin migration — structurally similar to Codex CLI's `.codex-plugin/plugin.json` marketplace mechanism. This could eventually be a cleaner, more idiomatic way to bundle claude-mem's hooks + MCP + skills registration than hand-editing `settings.json`. It isn't implemented here because its manifest schema isn't discoverable without running `agy plugin import`/`install` against a real manifest, which would mutate a user's live local plugin state. Tracked as a candidate follow-up.
+Antigravity CLI ships a first-class plugin-marketplace subcommand system: `agy plugin {list,import,install,uninstall,enable,disable,validate,link}`. Notably, `agy plugin import gemini|claude` suggests native cross-tool plugin migration — structurally similar to Codex CLI's `.codex-plugin/plugin.json` marketplace mechanism. This could eventually be a cleaner, more idiomatic way to bundle memsmith's hooks + MCP + skills registration than hand-editing `settings.json`. It isn't implemented here because its manifest schema isn't discoverable without running `agy plugin import`/`install` against a real manifest, which would mutate a user's live local plugin state. Tracked as a candidate follow-up.
 
 ## Troubleshooting
 
@@ -160,49 +160,49 @@ Antigravity CLI ships a first-class plugin-marketplace subcommand system: `agy p
    ```bash
    cat ~/.gemini/settings.json
    ```
-   You should see entries like `"SessionStart"`, `"AfterTool"`, etc. with claude-mem commands.
+   You should see entries like `"SessionStart"`, `"AfterTool"`, etc. with memsmith commands.
 
 2. Restart Antigravity CLI after installation.
 
 3. Re-run the installer:
    ```bash
-   npx claude-mem install --ide antigravity
+   npx memsmith install --ide antigravity
    ```
 
 ### Worker not running
 
 ```bash
 # Check status
-npx claude-mem status
+npx memsmith status
 
 # View logs
-npx claude-mem logs
+npx memsmith logs
 
 # Restart worker
-npx claude-mem restart
+npx memsmith restart
 ```
 
 ### No context appearing at session start
 
 1. Ensure the worker is running (check http://localhost:37777)
 2. You need at least one previous session with observations for context to appear
-3. Check your AI provider is configured in `~/.claude-mem/settings.json`
+3. Check your AI provider is configured in `~/.memsmith/settings.json`
 
 ### Raw escape codes in output
 
-If you see characters like `[31m` or `[0m` in the session context, your claude-mem version may need updating — the Antigravity CLI adapter strips ANSI color codes automatically:
+If you see characters like `[31m` or `[0m` in the session context, your memsmith version may need updating — the Antigravity CLI adapter strips ANSI color codes automatically:
 
 ```bash
-npx claude-mem install --ide antigravity
+npx memsmith install --ide antigravity
 ```
 
 ## Uninstalling
 
 ```bash
-npx claude-mem uninstall
+npx memsmith uninstall
 ```
 
-This removes claude-mem's hooks from `~/.gemini/settings.json`, cleans up the context section in `~/.gemini/GEMINI.md`, removes claude-mem's entry from both MCP config files, and removes the rules context section — while preserving everything else in those files.
+This removes memsmith's hooks from `~/.gemini/settings.json`, cleans up the context section in `~/.gemini/GEMINI.md`, removes memsmith's entry from both MCP config files, and removes the rules context section — while preserving everything else in those files.
 
 ## Next Steps
 

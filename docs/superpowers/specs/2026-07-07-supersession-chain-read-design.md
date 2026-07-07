@@ -68,7 +68,7 @@ loop up to MAX_CHAIN_DEPTH:
 return current
 ```
 
-`MAX_CHAIN_DEPTH` is overridable via `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` (clamp 1–256,
+`MAX_CHAIN_DEPTH` is overridable via `MEMSMITH_SUPERSEDE_MAX_DEPTH` (clamp 1–256,
 default 16) for the pathological deep-chain case; not expected to be set.
 
 ### Consumers
@@ -143,4 +143,4 @@ Postgres-gated integration tests (test container :55432), one schema per test vi
   out of scope here).
 - No graph traversal beyond linear supersession (KG is Phase 4).
 - No new env flag to disable the feature — collapse/annotate are the correct default
-  behaviors; the only knob is `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH`.
+  behaviors; the only knob is `MEMSMITH_SUPERSEDE_MAX_DEPTH`.

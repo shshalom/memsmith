@@ -1,6 +1,6 @@
 ---
 title: "Hosted Server (Beta)"
-description: "Remote authenticated MCP recall, usage metering + quotas, and data deletion — how claude-mem's cloud server works today."
+description: "Remote authenticated MCP recall, usage metering + quotas, and data deletion — how memsmith's cloud server works today."
 ---
 
 # Hosted Server (Beta)
@@ -14,9 +14,9 @@ the *paving* to be unfinished. Routes, env var names, and the first-key bootstra
 flow may shift as we wire up the dashboard. Pin a version if you're integrating.
 </Warning>
 
-The hosted server is the cloud side of claude-mem: a Postgres-backed HTTP service
+The hosted server is the cloud side of memsmith: a Postgres-backed HTTP service
 (`/v1`) plus a separate BullMQ generation worker. Where the local plugin keeps
-memory in `~/.claude-mem/claude-mem.db` on your machine, the hosted server keeps
+memory in `~/.memsmith/memsmith.db` on your machine, the hosted server keeps
 it per **team** and per **project** in Postgres, and exposes it back to any MCP
 client over an authenticated link.
 
@@ -45,7 +45,7 @@ Three capabilities landed together and are documented here:
         ▼
  ┌─────────────────────────────┐        ┌──────────────────────────┐
  │  HTTP server  (/v1)          │  jobs  │  BullMQ generation worker │
- │  - auth (api-key mode)       ├───────▶│  claude-mem server         │
+ │  - auth (api-key mode)       ├───────▶│  memsmith server         │
  │  - rate limit / quota / meter │        │    worker start            │
  │  - REST + /v1/mcp recall      │        │  - provider call           │
  │  - data deletion              │        │  - writes observations     │
@@ -65,7 +65,7 @@ write, and delete.
 
 ### Authentication
 
-Set `CLAUDE_MEM_AUTH_MODE=api-key` and send `Authorization: Bearer <key>` on every
+Set `MEMSMITH_AUTH_MODE=api-key` and send `Authorization: Bearer <key>` on every
 request. Scopes gate access:
 
 - **Read** endpoints (search, context, recall, usage) require `memories:read`.
@@ -83,7 +83,7 @@ the secure link a user pastes into Claude Code to recall their cloud memory. It 
 bounds every read.
 
 ```bash
-claude mcp add --transport http claude-mem <server-base>/v1/mcp \
+claude mcp add --transport http memsmith <server-base>/v1/mcp \
   --header "Authorization: Bearer cm_..."
 ```
 
@@ -119,13 +119,13 @@ Two routes turn "I have a server" into "Claude Code is recalling my cloud memory
     "scopes": ["memories:read"],
     "expiresAt": null,
     "mcpUrl": "https://<host>/v1/mcp",
-    "connectCommand": "claude mcp add --transport http claude-mem https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
+    "connectCommand": "claude mcp add --transport http memsmith https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
   }
   ```
 
 - **`GET /v1/connect`** (requires `memories:read`) returns the same command with a
   `<YOUR_API_KEY>` placeholder — a GET never mints. The `mcpUrl` is built from
-  `CLAUDE_MEM_PUBLIC_URL` (recommended when behind a proxy or load balancer) or,
+  `MEMSMITH_PUBLIC_URL` (recommended when behind a proxy or load balancer) or,
   failing that, the request host.
 
 <Warning>
@@ -146,10 +146,10 @@ error never blocks a legitimate request.
 
 | Env var | Effect | Response when exceeded |
 |---------|--------|------------------------|
-| `CLAUDE_MEM_RATE_LIMIT_PER_MIN` | Max requests per **API key** per minute. | `429` with `Retry-After` and `X-RateLimit-*` headers. |
-| `CLAUDE_MEM_MONTHLY_REQUEST_CAP` | Max requests per **team** per calendar month (UTC). | `402 quota_exceeded`. |
-| `CLAUDE_MEM_MONTHLY_TOKEN_CAP` | Max provider **tokens** per team per month. Gates **writes only** — reads stay open so a team over budget can still recall. | `402` at the cap. |
-| `CLAUDE_MEM_USAGE_METERING=1` | Records one `request` usage event per authenticated call (fire-and-forget). | — |
+| `MEMSMITH_RATE_LIMIT_PER_MIN` | Max requests per **API key** per minute. | `429` with `Retry-After` and `X-RateLimit-*` headers. |
+| `MEMSMITH_MONTHLY_REQUEST_CAP` | Max requests per **team** per calendar month (UTC). | `402 quota_exceeded`. |
+| `MEMSMITH_MONTHLY_TOKEN_CAP` | Max provider **tokens** per team per month. Gates **writes only** — reads stay open so a team over budget can still recall. | `402` at the cap. |
+| `MEMSMITH_USAGE_METERING=1` | Records one `request` usage event per authenticated call (fire-and-forget). | — |
 
 Token and observation metering is written to the same `usage_events` table from
 the generation worker, so usage reflects real provider spend, not just HTTP calls.
@@ -203,7 +203,7 @@ generation:
 Without `wait=true`, the response includes the new event row plus a best-effort
 `generationJob` field. With `wait=true`, that field is always populated (or `null`
 only when generation was explicitly disabled). The actual provider call happens in
-the separate BullMQ worker (`claude-mem server worker start`) — the HTTP path
+the separate BullMQ worker (`memsmith server worker start`) — the HTTP path
 **never blocks** on a provider response.
 
 ## Endpoint reference

@@ -1,4 +1,4 @@
-# Claude-Mem: AI Development Instructions
+# MemSmith: AI Development Instructions
 
 Claude-mem is a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations using the Claude Agent SDK, and injects relevant context into future sessions.
 
@@ -12,9 +12,9 @@ npm run build-and-sync        # Build, sync to marketplace, restart worker
 
 - **Source**: `<project-root>/src/`
 - **Built Plugin**: `<project-root>/plugin/`
-- **Installed Plugin**: `~/.claude/plugins/marketplaces/thedotmack/`
-- **Database**: `~/.claude-mem/claude-mem.db`
-- **Chroma**: `~/.claude-mem/chroma/`
+- **Installed Plugin**: `~/.claude/plugins/marketplaces/shshalom/`
+- **Database**: `~/.memsmith/memsmith.db`
+- **Chroma**: `~/.memsmith/chroma/`
 
 ## Requirements
 
@@ -24,7 +24,7 @@ npm run build-and-sync        # Build, sync to marketplace, restart worker
 
 ## Documentation
 
-**Public Docs**: https://docs.claude-mem.ai (Mintlify)
+**Public Docs**: https://docs.memsmith.ai (Mintlify)
 **Source**: `docs/public/` - MDX files, edit `docs.json` for navigation
 **Deploy**: Auto-deploys from GitHub on push to main
 

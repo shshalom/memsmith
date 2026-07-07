@@ -25,7 +25,7 @@ retrieval. Per-prompt recall should be at least as good as session recall.
 
 ## Behavior (settled)
 
-**When `CLAUDE_MEM_TEAM_SERVER_URL` + `CLAUDE_MEM_TEAM_API_KEY` are configured**, the
+**When `MEMSMITH_TEAM_SERVER_URL` + `MEMSMITH_TEAM_API_KEY` are configured**, the
 per-prompt hook fetches team memory via `fetchTeamMemory({ query: prompt })` (→ scoped
 `/v1/search`, hybrid) and renders it through `buildInjectionBlock` (tiering +
 positioning), exactly as SessionStart does — but with the **prompt text as the query**
@@ -36,7 +36,7 @@ the existing `/api/context/semantic` path runs as today. This is the safe-by-def
 guarantee: an install without a configured team server sees zero behavior change.
 
 Composition: reuses `buildInjectionBlock`, so per-prompt injection automatically
-inherits the private-filter, the `CLAUDE_MEM_TIERING` off-switch, positioning, and the
+inherits the private-filter, the `MEMSMITH_TIERING` off-switch, positioning, and the
 `maxChars` budget already built.
 
 ## Architecture
@@ -52,7 +52,7 @@ if (semanticInject && prompt is injectable) {
   if (teamServerConfigured(settings)) {
     // NEW: hybrid + tiered, query = the actual prompt
     const rows = await fetchTeamMemory({
-      serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL, apiKey: settings.CLAUDE_MEM_TEAM_API_KEY,
+      serverUrl: settings.MEMSMITH_TEAM_SERVER_URL, apiKey: settings.MEMSMITH_TEAM_API_KEY,
       projectId: project, teamId: '', query: prompt,
     });
     const block = await buildInjectionBlock({ hybridSearch: async () => rows },
@@ -66,8 +66,8 @@ if (semanticInject && prompt is injectable) {
 }
 ```
 
-`teamServerConfigured(settings)` = both `CLAUDE_MEM_TEAM_SERVER_URL` and
-`CLAUDE_MEM_TEAM_API_KEY` present and non-empty (a helper, mirroring the SessionStart
+`teamServerConfigured(settings)` = both `MEMSMITH_TEAM_SERVER_URL` and
+`MEMSMITH_TEAM_API_KEY` present and non-empty (a helper, mirroring the SessionStart
 gating). Prompt injectability gate (`prompt.length >= 20`, not `[media prompt]`) is
 kept as-is.
 
@@ -90,8 +90,8 @@ falls through to the worker path; injection never breaks the prompt hook.
   `/api/context/semantic` endpoint (still the fallback); the schema; the hook wiring
   (`hooks.json`) — this is a handler-internal routing change, no new hook.
 - **Not in scope:** spawn/subagent injection (FR-1, upstream-blocked).
-- No new env flag — reuses `CLAUDE_MEM_TEAM_SERVER_URL`/`_API_KEY` (the same gate
-  SessionStart uses) and `CLAUDE_MEM_SEMANTIC_INJECT` / `CLAUDE_MEM_TIERING`.
+- No new env flag — reuses `MEMSMITH_TEAM_SERVER_URL`/`_API_KEY` (the same gate
+  SessionStart uses) and `MEMSMITH_SEMANTIC_INJECT` / `MEMSMITH_TIERING`.
 
 ## Error handling
 
@@ -123,6 +123,6 @@ Handler-level tests (mock `fetchTeamMemory` / worker fetch; no live server):
    returns a valid `continue: true` result (falls through / no injection), never
    propagates.
 7. **Private filter + tiering inherited** — because the server path uses
-   `buildInjectionBlock`, a private row is excluded and `CLAUDE_MEM_TIERING=0` restores
+   `buildInjectionBlock`, a private row is excluded and `MEMSMITH_TIERING=0` restores
    whole-item behavior (light assertion that the shared builder is actually the code
    path, e.g. header string matches `buildInjectionBlock`'s).

@@ -1,11 +1,11 @@
 ---
 title: Platform Integration Guide
-description: Complete reference for integrating claude-mem worker service into VSCode extensions, IDE plugins, and CLI tools
+description: Complete reference for integrating memsmith worker service into VSCode extensions, IDE plugins, and CLI tools
 icon: plug
 ---
 
 <Note>
-**Target Audience:** Developers building claude-mem integrations (VSCode extensions, IDE plugins, CLI tools).
+**Target Audience:** Developers building memsmith integrations (VSCode extensions, IDE plugins, CLI tools).
 </Note>
 
 ## Quick Reference
@@ -14,9 +14,9 @@ icon: plug
 
 ```typescript
 // Resolve the worker port at runtime. The default is per-user (37700 + uid % 100),
-// or whatever the user set via CLAUDE_MEM_WORKER_PORT / settings.json. Read it from
-// process.env.CLAUDE_MEM_WORKER_PORT, then ~/.claude-mem/settings.json
-// (CLAUDE_MEM_WORKER_PORT key), then fall back to the deterministic default.
+// or whatever the user set via MEMSMITH_WORKER_PORT / settings.json. Read it from
+// process.env.MEMSMITH_WORKER_PORT, then ~/.memsmith/settings.json
+// (MEMSMITH_WORKER_PORT key), then fall back to the deterministic default.
 const WORKER_BASE_URL = `http://127.0.0.1:${workerPort}`;
 ```
 
@@ -48,11 +48,11 @@ GET /api/context/recent?project=my-project&limit=3
 ### Environment Variables
 
 ```bash
-CLAUDE_MEM_MODEL=claude-haiku-4-5-20251001  # Default Claude model for observations/summaries
-CLAUDE_MEM_CONTEXT_OBSERVATIONS=50          # Observations injected at SessionStart
-CLAUDE_MEM_WORKER_PORT=                     # Optional override; default = 37700 + (uid % 100)
-CLAUDE_MEM_DATA_DIR=                        # Optional override for the data directory
-CLAUDE_MEM_PYTHON_VERSION=3.13              # Python version for chroma-mcp
+MEMSMITH_MODEL=claude-haiku-4-5-20251001  # Default Claude model for observations/summaries
+MEMSMITH_CONTEXT_OBSERVATIONS=50          # Observations injected at SessionStart
+MEMSMITH_WORKER_PORT=                     # Optional override; default = 37700 + (uid % 100)
+MEMSMITH_DATA_DIR=                        # Optional override for the data directory
+MEMSMITH_PYTHON_VERSION=3.13              # Python version for chroma-mcp
 ```
 
 ### Build Commands (Local Development)
@@ -170,7 +170,7 @@ Content-Type: application/json
 
 <Info>
 **Privacy Check:** Skips if user prompt was entirely wrapped in `<private>` tags.
-**Tag Stripping:** Removes `<private>` and `<claude-mem-context>` tags before storage.
+**Tag Stripping:** Removes `<private>` and `<memsmith-context>` tags before storage.
 **Auto-Start:** Ensures SDK agent generator is running to process the queue.
 </Info>
 
@@ -317,7 +317,7 @@ GET /api/stats
     "port": 37742
   },
   "database": {
-    "path": "~/.claude-mem/claude-mem.db",
+    "path": "~/.memsmith/memsmith.db",
     "size": 1048576,
     "observations": 500,
     "sessions": 50,
@@ -334,7 +334,7 @@ GET /api/projects
 
 ```json Response
 {
-  "projects": ["claude-mem", "other-project", ...]
+  "projects": ["memsmith", "other-project", ...]
 }
 ```
 
@@ -812,13 +812,13 @@ const searchTool: SearchTool = {
 };
 
 // Register tool
-vscode.lm.registerTool('claude-mem-search', searchTool);
+vscode.lm.registerTool('memsmith-search', searchTool);
 ```
 
 #### Chat Participant Implementation
 
 ```typescript
-const participant = vscode.chat.createChatParticipant('claude-mem', async (request, context, stream, token) => {
+const participant = vscode.chat.createChatParticipant('memsmith', async (request, context, stream, token) => {
   const claudeSessionId = context.session.id;
 
   // First message in conversation - no initialization needed
@@ -913,7 +913,7 @@ async function isWorkerHealthy(): Promise<boolean> {
 <Info>
 The worker automatically strips privacy tags before storage:
 - `<private>content</private>` - User-level privacy control
-- `<claude-mem-context>content</claude-mem-context>` - System-level tag (prevents recursive storage)
+- `<memsmith-context>content</memsmith-context>` - System-level tag (prevents recursive storage)
 
 **Privacy Check:** Observations/summaries are skipped if the entire user prompt was wrapped in `<private>` tags.
 </Info>
@@ -1006,8 +1006,8 @@ esbuild.build({
 
 ```json
 {
-  "name": "claude-mem-vscode",
-  "displayName": "Claude-Mem",
+  "name": "memsmith-vscode",
+  "displayName": "MemSmith",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.95.0"
@@ -1019,14 +1019,14 @@ esbuild.build({
   "contributes": {
     "chatParticipants": [
       {
-        "id": "claude-mem",
+        "id": "memsmith",
         "name": "memory",
         "description": "Search your persistent memory"
       }
     ],
     "languageModelTools": [
       {
-        "name": "claude-mem-search",
+        "name": "memsmith-search",
         "displayName": "Search Memory",
         "description": "Search persistent memory for observations, sessions, and prompts"
       }
@@ -1139,7 +1139,7 @@ describe('Worker Integration', () => {
   beforeAll(async () => {
     // Start worker process
     workerProcess = spawn('node', ['dist/worker-service.js'], {
-      env: { ...process.env, CLAUDE_MEM_WORKER_PORT: '37778' }
+      env: { ...process.env, MEMSMITH_WORKER_PORT: '37778' }
     });
 
     // Wait for worker to be ready
@@ -1334,7 +1334,7 @@ import { WorkerClient } from './WorkerClient';
 export function registerSearchTool(context: vscode.ExtensionContext) {
   const client = new WorkerClient();
 
-  const searchTool = vscode.lm.registerTool('claude-mem-search', {
+  const searchTool = vscode.lm.registerTool('memsmith-search', {
     description: 'Search persistent memory for observations, sessions, and prompts',
     inputSchema: {
       type: 'object',
@@ -1451,10 +1451,10 @@ const userMessage = '<private>API key: sk-1234567890</private>';
 ## Additional Resources
 
 <CardGroup cols={2}>
-  <Card title="Documentation" icon="book" href="https://claude-mem.ai">
-    Complete claude-mem documentation
+  <Card title="Documentation" icon="book" href="https://memsmith.ai">
+    Complete memsmith documentation
   </Card>
-  <Card title="GitHub" icon="github" href="https://github.com/thedotmack/claude-mem">
+  <Card title="GitHub" icon="github" href="https://github.com/shshalom/memsmith">
     Source code and issue tracker
   </Card>
   <Card title="Worker Service" icon="server" href="/architecture/worker-service">

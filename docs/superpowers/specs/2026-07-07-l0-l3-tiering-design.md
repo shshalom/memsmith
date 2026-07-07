@@ -79,7 +79,7 @@ cap are unchanged. Signature and return type of `buildInjectionBlock` are unchan
 this is an internal behavior swap, so both consumers (`cli/handlers/context.ts`
 SessionStart and `cli/handlers/discovery-gate.ts`) get tiering for free.
 
-Off-switch: `CLAUDE_MEM_TIERING` (default `on`). Set `0`/`off` to restore the
+Off-switch: `MEMSMITH_TIERING` (default `on`). Set `0`/`off` to restore the
 whole-item-drop behavior (tierToBudget then only ever emits L3 or drops), so the
 change is reversible in production without a redeploy.
 
@@ -121,5 +121,5 @@ Unit tests (no DB needed — pure functions):
 8. **buildInjectionBlock integration** — with a tight maxChars, tiering yields MORE
    visible items than the old drop behavior; header + private-filter still applied;
    positioning still puts best at head/tail.
-9. **Off-switch** — `CLAUDE_MEM_TIERING=0` reproduces the whole-item-drop output.
+9. **Off-switch** — `MEMSMITH_TIERING=0` reproduces the whole-item-drop output.
 10. **Never-throws** — a row with malformed metadata still produces a valid block.

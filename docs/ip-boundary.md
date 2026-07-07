@@ -1,11 +1,11 @@
 # IP Boundary
 
-Claude-Mem uses an open-core structure.
+MemSmith uses an open-core structure.
 
 ## Apache-2.0 components
 
 - Core memory engine
-- Claude-Mem Server
+- MemSmith Server
 - CLI
 - SDKs
 - REST API schemas
@@ -20,7 +20,7 @@ Claude-Mem uses an open-core structure.
 
 ## Reserved commercial/private areas
 
-These areas are not shipped by Claude-Mem Server v0.1 and should remain outside
+These areas are not shipped by MemSmith Server v0.1 and should remain outside
 the Apache-2.0 public implementation unless maintainers explicitly open-source
 them later.
 

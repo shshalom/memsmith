@@ -1,13 +1,13 @@
 ---
 title: "Architecture Overview"
-description: "System components and data flow in Claude-Mem"
+description: "System components and data flow in MemSmith"
 ---
 
 # Architecture Overview
 
 ## System Components
 
-Claude-Mem operates as a Claude Code plugin with the following core components:
+MemSmith operates as a Claude Code plugin with the following core components:
 
 1. **Plugin Hooks** - Lifecycle events (Setup version-check + 5 lifecycle hooks: SessionStart, UserPromptSubmit, PreToolUse for `Read`, PostToolUse, Stop)
 2. **Worker Service** - Express HTTP API on a per-user port; processes observations via the Claude Agent SDK (or Gemini / OpenRouter)
@@ -64,7 +64,7 @@ Uses 3-layer progressive disclosure: search → timeline → get_observations
 ┌─────────────────────────────────────────────────────────────────┐
 │ 0. Setup Hook Fires (version-check.js)                          │
 │    Sub-100ms read of .install-version; on mismatch prints       │
-│    "run: npx claude-mem repair" to stderr. Always exits 0.      │
+│    "run: npx memsmith repair" to stderr. Always exits 0.      │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -103,7 +103,7 @@ Uses 3-layer progressive disclosure: search → timeline → get_observations
 ## Directory Structure
 
 ```
-claude-mem/
+memsmith/
 ├── src/
 │   ├── hooks/                  # TypeScript hook implementations (built via esbuild)
 │   ├── sdk/                    # Claude Agent SDK integration
@@ -150,12 +150,12 @@ The plugin registers a Setup-phase `version-check.js` plus five lifecycle hooks.
 - **PostToolUse** (matcher `*`) → `hook claude-code observation`
 - **Stop** → `hook claude-code summarize` (summary generation)
 
-The actual runtime install (Bun, uv, `bun install`) is performed by `npx claude-mem install` / `npx claude-mem repair` with a visible installer spinner; the Setup hook itself only reads the `.install-version` marker.
+The actual runtime install (Bun, uv, `bun install`) is performed by `npx memsmith install` / `npx memsmith repair` with a visible installer spinner; the Setup hook itself only reads the `.install-version` marker.
 
 See [Plugin Hooks](/architecture/hooks) for detailed hook documentation.
 
 ### 2. Worker Service
-Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `CLAUDE_MEM_WORKER_PORT`) with:
+Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `MEMSMITH_WORKER_PORT`) with:
 - Search HTTP API endpoints
 - Viewer UI HTTP/SSE endpoints
 - Async observation processing via the Claude Agent SDK (or Gemini / OpenRouter)
@@ -169,7 +169,7 @@ SQLite3 with bun:sqlite driver featuring:
 - FTS5 virtual tables for full-text search
 - SessionStore for CRUD operations
 - SessionSearch for FTS5 queries
-- Location: `~/.claude-mem/claude-mem.db`
+- Location: `~/.memsmith/memsmith.db`
 
 See [Database Architecture](/architecture/database) for schema and FTS5 search.
 

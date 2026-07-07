@@ -3,11 +3,11 @@
 ---
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-dark-mode.webp">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp" alt="MemSmith" width="400">
     </picture>
   </a>
   <br>
@@ -58,7 +58,7 @@
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
   </a>
-  <a href="https://github.com/thedotmack/awesome-claude-code">
+  <a href="https://github.com/shshalom/awesome-claude-code">
     <img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Claude Code">
   </a>
 </p>
@@ -66,9 +66,9 @@
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg" alt="shshalom/memsmith | Trendshift" width="250" height="55"/>
     </picture>
   </a>
 </p>
@@ -76,9 +76,9 @@
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/cm-preview.gif" alt="MemSmith Preview" width="800">
     </picture>
   </a>
 </p>
@@ -94,7 +94,7 @@
 </p>
 
 <p align="center">
-  A Claude-Mem zökkenőmentesen megőrzi a kontextust munkamenetek között azáltal, hogy automatikusan rögzíti az eszközhasználati megfigyeléseket, szemantikus összefoglalókat generál, és elérhetővé teszi azokat a jövőbeli munkamenetekben. Ez lehetővé teszi Claude számára, hogy fenntartsa a projektekkel kapcsolatos tudás folytonosságát még a munkamenetek befejezése vagy újracsatlakozása után is.
+  A MemSmith zökkenőmentesen megőrzi a kontextust munkamenetek között azáltal, hogy automatikusan rögzíti az eszközhasználati megfigyeléseket, szemantikus összefoglalókat generál, és elérhetővé teszi azokat a jövőbeli munkamenetekben. Ez lehetővé teszi Claude számára, hogy fenntartsa a projektekkel kapcsolatos tudás folytonosságát még a munkamenetek befejezése vagy újracsatlakozása után is.
 </p>
 
 ---
@@ -104,9 +104,9 @@
 Indítson el egy új Claude Code munkamenetet a terminálban, és írja be a következő parancsokat:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add shshalom/memsmith
 
-> /plugin install claude-mem
+> /plugin install memsmith
 ```
 
 Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusan megjelenik az új munkamenetekben.
@@ -128,35 +128,35 @@ Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusa
 
 ## Dokumentáció
 
-📚 **[Teljes dokumentáció megtekintése](https://docs.claude-mem.ai/)** - Böngészés a hivatalos weboldalon
+📚 **[Teljes dokumentáció megtekintése](https://docs.memsmith.ai/)** - Böngészés a hivatalos weboldalon
 
 ### Első lépések
 
-- **[Telepítési útmutató](https://docs.claude-mem.ai/installation)** - Gyors indítás és haladó telepítés
-- **[Használati útmutató](https://docs.claude-mem.ai/usage/getting-started)** - Hogyan működik automatikusan a Claude-Mem
-- **[Keresési eszközök](https://docs.claude-mem.ai/usage/search-tools)** - Projekt előzmények lekérdezése természetes nyelvvel
-- **[Béta funkciók](https://docs.claude-mem.ai/beta-features)** - Kísérleti funkciók, mint az Endless Mode kipróbálása
+- **[Telepítési útmutató](https://docs.memsmith.ai/installation)** - Gyors indítás és haladó telepítés
+- **[Használati útmutató](https://docs.memsmith.ai/usage/getting-started)** - Hogyan működik automatikusan a MemSmith
+- **[Keresési eszközök](https://docs.memsmith.ai/usage/search-tools)** - Projekt előzmények lekérdezése természetes nyelvvel
+- **[Béta funkciók](https://docs.memsmith.ai/beta-features)** - Kísérleti funkciók, mint az Endless Mode kipróbálása
 
 ### Bevált gyakorlatok
 
-- **[Kontextus tervezés](https://docs.claude-mem.ai/context-engineering)** - AI ügynök kontextus optimalizálási elvek
-- **[Progresszív felfedés](https://docs.claude-mem.ai/progressive-disclosure)** - A Claude-Mem kontextus előkészítési stratégiájának filozófiája
+- **[Kontextus tervezés](https://docs.memsmith.ai/context-engineering)** - AI ügynök kontextus optimalizálási elvek
+- **[Progresszív felfedés](https://docs.memsmith.ai/progressive-disclosure)** - A MemSmith kontextus előkészítési stratégiájának filozófiája
 
 ### Architektúra
 
-- **[Áttekintés](https://docs.claude-mem.ai/architecture/overview)** - Rendszerkomponensek és adatfolyam
-- **[Architektúra fejlődés](https://docs.claude-mem.ai/architecture-evolution)** - Az út a v3-tól a v5-ig
-- **[Hooks architektúra](https://docs.claude-mem.ai/hooks-architecture)** - Hogyan használja a Claude-Mem az életciklus hookokat
-- **[Hooks referencia](https://docs.claude-mem.ai/architecture/hooks)** - 7 hook szkript magyarázata
-- **[Worker szolgáltatás](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API és Bun kezelés
-- **[Adatbázis](https://docs.claude-mem.ai/architecture/database)** - SQLite séma és FTS5 keresés
-- **[Keresési architektúra](https://docs.claude-mem.ai/architecture/search-architecture)** - Hibrid keresés Chroma vektor adatbázissal
+- **[Áttekintés](https://docs.memsmith.ai/architecture/overview)** - Rendszerkomponensek és adatfolyam
+- **[Architektúra fejlődés](https://docs.memsmith.ai/architecture-evolution)** - Az út a v3-tól a v5-ig
+- **[Hooks architektúra](https://docs.memsmith.ai/hooks-architecture)** - Hogyan használja a MemSmith az életciklus hookokat
+- **[Hooks referencia](https://docs.memsmith.ai/architecture/hooks)** - 7 hook szkript magyarázata
+- **[Worker szolgáltatás](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API és Bun kezelés
+- **[Adatbázis](https://docs.memsmith.ai/architecture/database)** - SQLite séma és FTS5 keresés
+- **[Keresési architektúra](https://docs.memsmith.ai/architecture/search-architecture)** - Hibrid keresés Chroma vektor adatbázissal
 
 ### Konfiguráció és fejlesztés
 
-- **[Konfiguráció](https://docs.claude-mem.ai/configuration)** - Környezeti változók és beállítások
-- **[Fejlesztés](https://docs.claude-mem.ai/development)** - Építés, tesztelés, hozzájárulás
-- **[Hibaelhárítás](https://docs.claude-mem.ai/troubleshooting)** - Gyakori problémák és megoldások
+- **[Konfiguráció](https://docs.memsmith.ai/configuration)** - Környezeti változók és beállítások
+- **[Fejlesztés](https://docs.memsmith.ai/development)** - Építés, tesztelés, hozzájárulás
+- **[Hibaelhárítás](https://docs.memsmith.ai/troubleshooting)** - Gyakori problémák és megoldások
 
 ---
 
@@ -171,13 +171,13 @@ Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusa
 5. **mem-search Skill** - Természetes nyelvi lekérdezések progresszív felfedéssel
 6. **Chroma vektor adatbázis** - Hibrid szemantikus + kulcsszó keresés intelligens kontextus visszakereséshez
 
-További részletekért lásd az [Architektúra áttekintést](https://docs.claude-mem.ai/architecture/overview).
+További részletekért lásd az [Architektúra áttekintést](https://docs.memsmith.ai/architecture/overview).
 
 ---
 
 ## mem-search Skill
 
-A Claude-Mem intelligens keresést biztosít a mem-search skillen keresztül, amely automatikusan aktiválódik, amikor múltbeli munkáról kérdez:
+A MemSmith intelligens keresést biztosít a mem-search skillen keresztül, amely automatikusan aktiválódik, amikor múltbeli munkáról kérdez:
 
 **Hogyan működik:**
 - Csak kérdezzen természetesen: *"Mit csináltunk az előző munkamenetben?"* vagy *"Javítottuk már ezt a hibát korábban?"*
@@ -206,15 +206,15 @@ A Claude-Mem intelligens keresést biztosít a mem-search skillen keresztül, am
 "Mi történt, amikor hozzáadtuk a megjelenítő felületet?"
 ```
 
-Részletes példákért lásd a [Keresési eszközök útmutatót](https://docs.claude-mem.ai/usage/search-tools).
+Részletes példákért lásd a [Keresési eszközök útmutatót](https://docs.memsmith.ai/usage/search-tools).
 
 ---
 
 ## Béta funkciók
 
-A Claude-Mem **béta csatornát** kínál kísérleti funkciókkal, mint az **Endless Mode** (biomimetikus memória architektúra hosszabb munkamenetekhez). Váltson a stabil és béta verziók között a webes megjelenítő felületről a http://localhost:37777 → Settings címen.
+A MemSmith **béta csatornát** kínál kísérleti funkciókkal, mint az **Endless Mode** (biomimetikus memória architektúra hosszabb munkamenetekhez). Váltson a stabil és béta verziók között a webes megjelenítő felületről a http://localhost:37777 → Settings címen.
 
-További részletekért az Endless Mode-ról és annak kipróbálásáról lásd a **[Béta funkciók dokumentációt](https://docs.claude-mem.ai/beta-features)**.
+További részletekért az Endless Mode-ról és annak kipróbálásáról lásd a **[Béta funkciók dokumentációt](https://docs.memsmith.ai/beta-features)**.
 
 ---
 
@@ -230,15 +230,15 @@ További részletekért az Endless Mode-ról és annak kipróbálásáról lásd
 
 ## Konfiguráció
 
-A beállítások a `~/.claude-mem/settings.json` fájlban kezelhetők (automatikusan létrejön alapértelmezett értékekkel az első futtatáskor). Konfigurálható az AI modell, worker port, adatkönyvtár, naplózási szint és kontextus beillesztési beállítások.
+A beállítások a `~/.memsmith/settings.json` fájlban kezelhetők (automatikusan létrejön alapértelmezett értékekkel az első futtatáskor). Konfigurálható az AI modell, worker port, adatkönyvtár, naplózási szint és kontextus beillesztési beállítások.
 
-Az összes elérhető beállításért és példákért lásd a **[Konfigurációs útmutatót](https://docs.claude-mem.ai/configuration)**.
+Az összes elérhető beállításért és példákért lásd a **[Konfigurációs útmutatót](https://docs.memsmith.ai/configuration)**.
 
 ---
 
 ## Fejlesztés
 
-Az építési utasításokért, tesztelésért és hozzájárulási munkafolyamatért lásd a **[Fejlesztési útmutatót](https://docs.claude-mem.ai/development)**.
+Az építési utasításokért, tesztelésért és hozzájárulási munkafolyamatért lásd a **[Fejlesztési útmutatót](https://docs.memsmith.ai/development)**.
 
 ---
 
@@ -246,7 +246,7 @@ Az építési utasításokért, tesztelésért és hozzájárulási munkafolyama
 
 Problémák esetén írja le a problémát Claude-nak, és a troubleshoot skill automatikusan diagnosztizálja és javítási megoldásokat kínál.
 
-Gyakori problémákért és megoldásokért lásd a **[Hibaelhárítási útmutatót](https://docs.claude-mem.ai/troubleshooting)**.
+Gyakori problémákért és megoldásokért lásd a **[Hibaelhárítási útmutatót](https://docs.memsmith.ai/troubleshooting)**.
 
 ---
 
@@ -255,7 +255,7 @@ Gyakori problémákért és megoldásokért lásd a **[Hibaelhárítási útmuta
 Átfogó hibajelentések készítése az automatikus generátorral:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/thedotmack
+cd ~/.claude/plugins/marketplaces/shshalom
 npm run bug-report
 ```
 
@@ -269,7 +269,7 @@ A hozzájárulásokat szívesen fogadjuk! Kérjük:
 4. Frissítse a dokumentációt
 5. Nyújtson be egy Pull Requestet
 
-A hozzájárulási munkafolyamatért lásd a [Fejlesztési útmutatót](https://docs.claude-mem.ai/development).
+A hozzájárulási munkafolyamatért lásd a [Fejlesztési útmutatót](https://docs.memsmith.ai/development).
 
 ---
 
@@ -277,7 +277,7 @@ A hozzájárulási munkafolyamatért lásd a [Fejlesztési útmutatót](https://
 
 This project is licensed under the **Apache License 2.0** (Apache-2.0).
 
-Copyright (C) 2025 Alex Newman (@thedotmack). All rights reserved.
+Copyright (C) 2025 Alex Newman (@shshalom). All rights reserved.
 
 See the [LICENSE](LICENSE) file for full details.
 
@@ -291,9 +291,9 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Támogatás
 
 - **Dokumentáció**: [docs/](docs/)
-- **Hibák**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
-- **Tároló**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
-- **Szerző**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
+- **Hibák**: [GitHub Issues](https://github.com/shshalom/memsmith/issues)
+- **Tároló**: [github.com/shshalom/memsmith](https://github.com/shshalom/memsmith)
+- **Szerző**: Alex Newman ([@shshalom](https://github.com/shshalom))
 
 ---
 

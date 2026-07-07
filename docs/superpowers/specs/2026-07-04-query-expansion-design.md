@@ -8,7 +8,7 @@
 
 ## Components (src/server/retrieval/)
 1. `query-expansion.ts` — pure `expandQuery(query): string[]`. variant[0] = original (always); variant[1] = de-framed (strip leading interrogative framing + trailing '?', collapse to content terms). Deterministic, dependency-free.
-2. `observations.ts` hybridSearch/vectorSearch — internal multi-query path: embed each variant, KNN each, RRF-fuse variant rankings into one vector ranking, then RRF-fuse (weighted) with FTS. Gated by CLAUDE_MEM_QUERY_EXPANSION=1 (or a hybridSearch param); default OFF until measured.
+2. `observations.ts` hybridSearch/vectorSearch — internal multi-query path: embed each variant, KNN each, RRF-fuse variant rankings into one vector ranking, then RRF-fuse (weighted) with FTS. Gated by MEMSMITH_QUERY_EXPANSION=1 (or a hybridSearch param); default OFF until measured.
 
 ## Data flow
 query -> expandQuery() -> [v0,v1,...] -> embed each -> vectorSearch each -> RRF-fuse -> RRF-fuse with FTS(weighted) -> filter -> trim.

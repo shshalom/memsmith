@@ -18,12 +18,12 @@ silently drop observations.
 - Server-beta generation providers live in `src/server/generation/providers/`
   and implement `ServerGenerationProvider` (`shared/types.ts`):
   `generate(context, signal?): Promise<{ rawText, tokensUsed?, providerLabel, modelId? }>`.
-  Registered by `CLAUDE_MEM_SERVER_PROVIDER` in
+  Registered by `MEMSMITH_SERVER_PROVIDER` in
   `instantiateServerGenerationProvider` (`src/server/runtime/create-server-service.ts`).
   Today: `claude` | `gemini` | `openrouter`.
 - Ollama exposes an **OpenAI-compatible** `/v1/chat/completions` API, so
   `OpenRouterObservationProvider` is the correct analog. (Ollama already works
-  *today* via OpenRouter + `CLAUDE_MEM_OPENROUTER_BASE_URL=http://localhost:11434/v1`;
+  *today* via OpenRouter + `MEMSMITH_OPENROUTER_BASE_URL=http://localhost:11434/v1`;
   a dedicated provider is about ergonomics: keyless, clean label, sane defaults.)
 - The prompt is built by the shared `buildServerGenerationPrompt(context, {mode})`
   (`shared/prompt-builder.ts`), which already instructs XML `<observation>` output.
@@ -52,10 +52,10 @@ Differences from OpenRouter:
   If a key *is* supplied (some Ollama deploys sit behind an auth proxy), send it
   as `Authorization: Bearer <key>`; otherwise omit the header.
 - **Default `baseUrl`** = `http://localhost:11434/v1`, override via
-  `CLAUDE_MEM_OLLAMA_URL` (falls back to `CLAUDE_MEM_OPENROUTER_BASE_URL`-style
+  `MEMSMITH_OLLAMA_URL` (falls back to `MEMSMITH_OPENROUTER_BASE_URL`-style
   resolution through `resolveOpenRouterChatCompletionsUrl`, which appends
   `/chat/completions`).
-- **Default `model`** = `llama3.1:8b`, override via `CLAUDE_MEM_SERVER_MODEL`.
+- **Default `model`** = `llama3.1:8b`, override via `MEMSMITH_SERVER_MODEL`.
 - **`providerLabel: 'ollama'`.**
 
 Constructor opts: `{ apiKey?: string; model?: string; baseUrl?: string;
@@ -68,11 +68,11 @@ maxOutputTokens?: number; fetchImpl?: typeof fetch }`.
 - Add to `instantiateServerGenerationProvider` (`create-server-service.ts`):
   ```ts
   if (provider === 'ollama') {
-    const apiKey = process.env.CLAUDE_MEM_OLLAMA_API_KEY ?? '';   // optional
+    const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';   // optional
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {};
     if (apiKey) opts.apiKey = apiKey;
-    opts.model = process.env.CLAUDE_MEM_SERVER_MODEL ?? 'llama3.1:8b';
-    const baseUrl = process.env.CLAUDE_MEM_OLLAMA_URL;
+    opts.model = process.env.MEMSMITH_SERVER_MODEL ?? 'llama3.1:8b';
+    const baseUrl = process.env.MEMSMITH_OLLAMA_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
     return new OllamaObservationProvider(opts);
   }
@@ -120,7 +120,7 @@ it appends a strict addendum after the normal instructions:
 
 ```
 let rawText = (await provider.generate(context, signal)).rawText   // + keep full result for tokens/model
-const maxReformat = clamp(Number(env.CLAUDE_MEM_REFORMAT_RETRIES ?? 1), 0, 3)
+const maxReformat = clamp(Number(env.MEMSMITH_REFORMAT_RETRIES ?? 1), 0, 3)
 let attempts = 0
 while (attempts < maxReformat && !parseAgentXml(rawText).valid) {
   attempts++
@@ -160,8 +160,8 @@ Notes:
 
 ### Config / escape hatch
 
-- `CLAUDE_MEM_REFORMAT_RETRIES` default `1`, clamped `[0,3]`. `0` fully disables
-  the guard (exact pre-guard behavior), mirroring the `CLAUDE_MEM_SEARCH_HYBRID=0`
+- `MEMSMITH_REFORMAT_RETRIES` default `1`, clamped `[0,3]`. `0` fully disables
+  the guard (exact pre-guard behavior), mirroring the `MEMSMITH_SEARCH_HYBRID=0`
   escape-hatch pattern.
 - Job cancellation/timeout is handled at the BullMQ/job layer, not inside
   `generateAndPersist` — this layer receives no `AbortSignal` today (the
@@ -176,14 +176,14 @@ Notes:
    - Happy path: parses `choices[0].message.content` → `rawText`, `tokensUsed`,
      `providerLabel === 'ollama'`, `modelId`.
    - Default URL `http://localhost:11434/v1/chat/completions` when no baseUrl.
-   - `CLAUDE_MEM_OLLAMA_URL` override honored.
+   - `MEMSMITH_OLLAMA_URL` override honored.
    - Keyless construction succeeds (no throw); no `Authorization` header sent
      when no key; `Authorization: Bearer` sent when a key is supplied.
-   - Default model `llama3.1:8b` in the request body; `CLAUDE_MEM_SERVER_MODEL`
+   - Default model `llama3.1:8b` in the request body; `MEMSMITH_SERVER_MODEL`
      override honored.
    - Connection-refused (fetch throws, status undefined) → `transient`.
 2. **Registration** (`create-server-service` test or a targeted unit): provider
-   `'ollama'` instantiates without an API key; `'ollama'` with `CLAUDE_MEM_SERVER_MODEL`
+   `'ollama'` instantiates without an API key; `'ollama'` with `MEMSMITH_SERVER_MODEL`
    uses that model.
 3. **Prompt addendum** (`prompt-builder` test): `reformatReason` set → output
    contains the strict "ONLY the XML … no prose … no code fences" language and
@@ -191,12 +191,12 @@ Notes:
 4. **Reformat guard** (`provider-observation-generator` test): a stub provider
    that returns malformed text on call 1 and valid XML on call 2 → observation
    persists, provider called twice, job completes. A stub that returns malformed
-   text every time with `CLAUDE_MEM_REFORMAT_RETRIES=1` → provider called twice,
+   text every time with `MEMSMITH_REFORMAT_RETRIES=1` → provider called twice,
    job ends `parse_error`→failed (unchanged terminal outcome). With
-   `CLAUDE_MEM_REFORMAT_RETRIES=0` → provider called once, fails (guard disabled).
+   `MEMSMITH_REFORMAT_RETRIES=0` → provider called once, fails (guard disabled).
    A stub that THROWS a transient error on the reformat retry → propagates as a
    provider error (job retryable), not swallowed as a format failure.
-5. Full suite green with and without `CLAUDE_MEM_TEST_POSTGRES_URL`.
+5. Full suite green with and without `MEMSMITH_TEST_POSTGRES_URL`.
 
 ## Out of scope (YAGNI / deferred)
 

@@ -1,6 +1,6 @@
 # AWS Deployment Guide
 
-This guide covers deploying the claude-mem server backend on AWS: RDS Postgres 16 with pgvector, a Fargate (or EC2) container daemon, and an ALB with TLS.
+This guide covers deploying the memsmith server backend on AWS: RDS Postgres 16 with pgvector, a Fargate (or EC2) container daemon, and an ALB with TLS.
 
 ---
 
@@ -8,7 +8,7 @@ This guide covers deploying the claude-mem server backend on AWS: RDS Postgres 1
 
 - AWS CLI configured (`aws configure`)
 - An ACM certificate for your domain (or use `aws acm request-certificate`)
-- Docker image for `claude-mem-server` built and pushed to ECR (or use a public image)
+- Docker image for `memsmith-server` built and pushed to ECR (or use a public image)
 - A VPC with private subnets for RDS and Fargate, and public subnets for the ALB
 
 ---
@@ -19,12 +19,12 @@ This guide covers deploying the claude-mem server backend on AWS: RDS Postgres 1
 
 ```bash
 aws rds create-db-parameter-group \
-  --db-parameter-group-name claude-mem-pg16 \
+  --db-parameter-group-name memsmith-pg16 \
   --db-parameter-group-family postgres16 \
-  --description "claude-mem pgvector parameter group"
+  --description "memsmith pgvector parameter group"
 
 aws rds modify-db-parameter-group \
-  --db-parameter-group-name claude-mem-pg16 \
+  --db-parameter-group-name memsmith-pg16 \
   --parameters "ParameterName=rds.allowed_extensions,ParameterValue=vector,ApplyMethod=pending-reboot"
 ```
 
@@ -34,14 +34,14 @@ aws rds modify-db-parameter-group \
 
 ```bash
 aws rds create-db-instance \
-  --db-instance-identifier claude-mem-prod \
+  --db-instance-identifier memsmith-prod \
   --db-instance-class db.t4g.medium \
   --engine postgres \
   --engine-version 16.3 \
   --master-username cmem \
   --master-user-password YOUR_DB_PASSWORD \
-  --db-name claude_mem \
-  --db-parameter-group-name claude-mem-pg16 \
+  --db-name memsmith \
+  --db-parameter-group-name memsmith-pg16 \
   --vpc-security-group-ids sg-XXXXXXXXXXXXXXXXX \
   --db-subnet-group-name your-db-subnet-group \
   --storage-type gp3 \
@@ -53,17 +53,17 @@ aws rds create-db-instance \
 Wait for the instance to become available:
 
 ```bash
-aws rds wait db-instance-available --db-instance-identifier claude-mem-prod
+aws rds wait db-instance-available --db-instance-identifier memsmith-prod
 ```
 
 Retrieve the endpoint:
 
 ```bash
 aws rds describe-db-instances \
-  --db-instance-identifier claude-mem-prod \
+  --db-instance-identifier memsmith-prod \
   --query 'DBInstances[0].Endpoint.Address' \
   --output text
-# e.g. claude-mem-prod.cabcdefghijk.us-east-1.rds.amazonaws.com
+# e.g. memsmith-prod.cabcdefghijk.us-east-1.rds.amazonaws.com
 ```
 
 ### 1c. Security group
@@ -96,7 +96,7 @@ All migrations are guarded by existence checks so re-running the server on an al
 Connect to the RDS instance from a bastion host or via RDS Proxy:
 
 ```bash
-psql "postgresql://cmem:YOUR_DB_PASSWORD@claude-mem-prod.cabcdefghijk.us-east-1.rds.amazonaws.com:5432/claude_mem"
+psql "postgresql://cmem:YOUR_DB_PASSWORD@memsmith-prod.cabcdefghijk.us-east-1.rds.amazonaws.com:5432/memsmith"
 ```
 
 ```sql
@@ -119,14 +119,14 @@ SELECT * FROM pg_extension WHERE extname = 'vector';
 ### 2a. ECR image
 
 ```bash
-aws ecr create-repository --repository-name claude-mem-server
+aws ecr create-repository --repository-name memsmith-server
 aws ecr get-login-password --region us-east-1 \
   | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
 
-docker build -t claude-mem-server .
-docker tag claude-mem-server:latest \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com/claude-mem-server:latest
-docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/claude-mem-server:latest
+docker build -t memsmith-server .
+docker tag memsmith-server:latest \
+  123456789012.dkr.ecr.us-east-1.amazonaws.com/memsmith-server:latest
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/memsmith-server:latest
 ```
 
 ### 2b. EFS mount for embedder model cache
@@ -137,7 +137,7 @@ The `all-MiniLM-L6-v2` model (~90 MB) is downloaded from huggingface.co on first
 aws efs create-file-system \
   --performance-mode generalPurpose \
   --throughput-mode bursting \
-  --tags Key=Name,Value=claude-mem-model-cache
+  --tags Key=Name,Value=memsmith-model-cache
 
 aws efs create-mount-target \
   --file-system-id fs-XXXXXXXXXXXXXXXXX \
@@ -156,7 +156,7 @@ Save as `task-def.json`:
 
 ```json
 {
-  "family": "claude-mem-server",
+  "family": "memsmith-server",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "1024",
@@ -165,20 +165,20 @@ Save as `task-def.json`:
   "taskRoleArn": "arn:aws:iam::123456789012:role/ecsTaskRole",
   "containerDefinitions": [
     {
-      "name": "claude-mem-server",
-      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/claude-mem-server:latest",
+      "name": "memsmith-server",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/memsmith-server:latest",
       "portMappings": [{ "containerPort": 37777, "protocol": "tcp" }],
       "environment": [
-        { "name": "CLAUDE_MEM_RUNTIME",            "value": "server-beta" },
-        { "name": "CLAUDE_MEM_QUEUE_ENGINE",        "value": "bullmq" },
-        { "name": "CLAUDE_MEM_AUTH_MODE",           "value": "api-key" },
-        { "name": "CLAUDE_MEM_SERVER_DATABASE_URL", "value": "postgresql://cmem:YOUR_DB_PASSWORD@claude-mem-prod.cabcdefghijk.us-east-1.rds.amazonaws.com:5432/claude_mem" },
-        { "name": "CLAUDE_MEM_REDIS_URL",           "value": "redis://your-valkey-or-elasticache:6379" },
-        { "name": "CLAUDE_MEM_GENERATION_DISABLED", "value": "true" },
+        { "name": "MEMSMITH_RUNTIME",            "value": "server-beta" },
+        { "name": "MEMSMITH_QUEUE_ENGINE",        "value": "bullmq" },
+        { "name": "MEMSMITH_AUTH_MODE",           "value": "api-key" },
+        { "name": "MEMSMITH_SERVER_DATABASE_URL", "value": "postgresql://cmem:YOUR_DB_PASSWORD@memsmith-prod.cabcdefghijk.us-east-1.rds.amazonaws.com:5432/memsmith" },
+        { "name": "MEMSMITH_REDIS_URL",           "value": "redis://your-valkey-or-elasticache:6379" },
+        { "name": "MEMSMITH_GENERATION_DISABLED", "value": "true" },
         { "name": "TRANSFORMERS_CACHE",             "value": "/mnt/model-cache" },
-        { "name": "CLAUDE_MEM_FTS_WEIGHT",          "value": "0.3" },
-        { "name": "CLAUDE_MEM_VEC_WEIGHT",          "value": "1" },
-        { "name": "CLAUDE_MEM_RRF_K",               "value": "60" }
+        { "name": "MEMSMITH_FTS_WEIGHT",          "value": "0.3" },
+        { "name": "MEMSMITH_VEC_WEIGHT",          "value": "1" },
+        { "name": "MEMSMITH_RRF_K",               "value": "60" }
       ],
       "mountPoints": [
         {
@@ -190,7 +190,7 @@ Save as `task-def.json`:
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/claude-mem-server",
+          "awslogs-group": "/ecs/memsmith-server",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
@@ -219,16 +219,16 @@ aws ecs register-task-definition --cli-input-json file://task-def.json
 ### 2d. ECS cluster and service
 
 ```bash
-aws ecs create-cluster --cluster-name claude-mem
+aws ecs create-cluster --cluster-name memsmith
 
 aws ecs create-service \
-  --cluster claude-mem \
-  --service-name claude-mem-server \
-  --task-definition claude-mem-server \
+  --cluster memsmith \
+  --service-name memsmith-server \
+  --task-definition memsmith-server \
   --desired-count 1 \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-PRIVATE_SUBNET],securityGroups=[sg-FARGATE_TASK_SG_ID],assignPublicIp=DISABLED}" \
-  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/claude-mem/XXXXXXXXXXXXXXXX,containerName=claude-mem-server,containerPort=37777"
+  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/memsmith/XXXXXXXXXXXXXXXX,containerName=memsmith-server,containerPort=37777"
 ```
 
 ### 2e. ALB with TLS
@@ -236,7 +236,7 @@ aws ecs create-service \
 ```bash
 # Create ALB
 aws elbv2 create-load-balancer \
-  --name claude-mem-alb \
+  --name memsmith-alb \
   --subnets subnet-PUBLIC_1 subnet-PUBLIC_2 \
   --security-groups sg-ALB_SG_ID \
   --scheme internet-facing \
@@ -244,7 +244,7 @@ aws elbv2 create-load-balancer \
 
 # Create target group
 aws elbv2 create-target-group \
-  --name claude-mem \
+  --name memsmith \
   --protocol HTTP \
   --port 37777 \
   --vpc-id vpc-XXXXXXXXXXXXXXXXX \
@@ -253,17 +253,17 @@ aws elbv2 create-target-group \
 
 # Create HTTPS listener (ACM cert required)
 aws elbv2 create-listener \
-  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/claude-mem-alb/XXXXXXXXXXXXXXXX \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/memsmith-alb/XXXXXXXXXXXXXXXX \
   --protocol HTTPS \
   --port 443 \
   --certificates CertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX \
   --ssl-policy ELBSecurityPolicy-TLS13-1-2-2021-06 \
-  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/claude-mem/XXXXXXXXXXXXXXXX
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/memsmith/XXXXXXXXXXXXXXXX
 ```
 
 The ALB security group should allow inbound TCP 443 from `0.0.0.0/0`. The Fargate task security group should allow inbound TCP 37777 from the ALB security group only.
 
-Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazonaws.com` — map your DNS CNAME to this.
+Your server endpoint is `https://memsmith-alb-XXXXXXXXXX.us-east-1.elb.amazonaws.com` — map your DNS CNAME to this.
 
 ---
 
@@ -271,31 +271,31 @@ Your server endpoint is `https://claude-mem-alb-XXXXXXXXXX.us-east-1.elb.amazona
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLAUDE_MEM_RUNTIME` | — | Must be `server-beta` in Docker/Fargate |
-| `CLAUDE_MEM_QUEUE_ENGINE` | — | Must be `bullmq` when using Valkey/Redis |
-| `CLAUDE_MEM_AUTH_MODE` | — | Set to `api-key` in production |
-| `CLAUDE_MEM_SERVER_DATABASE_URL` | — | Postgres connection string (required) |
-| `CLAUDE_MEM_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
-| `CLAUDE_MEM_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
-| `CLAUDE_MEM_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
-| `CLAUDE_MEM_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
-| `CLAUDE_MEM_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
-| `CLAUDE_MEM_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
+| `MEMSMITH_RUNTIME` | — | Must be `server-beta` in Docker/Fargate |
+| `MEMSMITH_QUEUE_ENGINE` | — | Must be `bullmq` when using Valkey/Redis |
+| `MEMSMITH_AUTH_MODE` | — | Set to `api-key` in production |
+| `MEMSMITH_SERVER_DATABASE_URL` | — | Postgres connection string (required) |
+| `MEMSMITH_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
+| `MEMSMITH_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
+| `MEMSMITH_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
+| `MEMSMITH_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
+| `MEMSMITH_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
 | `ANTHROPIC_API_KEY` | — | Worker only (when provider=claude) |
 | `TRANSFORMERS_CACHE` | OS temp | Writable dir for `all-MiniLM-L6-v2` model cache |
-| `CLAUDE_MEM_SEARCH_HYBRID` | `on` | `/v1/search` and `/v1/context` rank with hybrid (FTS+vector RRF) by default. Set `0` to force plain FTS — useful if the embedder is unavailable. Hybrid already degrades to FTS automatically when the vector arm fails, so `0` is a policy switch, not a failure mitigation. |
-| `CLAUDE_MEM_FTS_WEIGHT` | `0.3` | Weight of full-text search component in hybrid RRF retrieval |
-| `CLAUDE_MEM_VEC_WEIGHT` | `1` | Weight of vector similarity component in hybrid RRF retrieval |
-| `CLAUDE_MEM_RRF_K` | `60` | RRF rank fusion constant |
-| `CLAUDE_MEM_QUERY_EXPANSION` | `off` | Enable deterministic (no-LLM) query expansion before hybrid search |
-| `CLAUDE_MEM_TIERING` | `on` | SessionStart/discovery-gate memory injection renders lower-ranked observations at reduced detail (L0 title → L1 +facts → L2 +why → L3 full) to fit more signal into the char budget instead of dropping whole items. Deterministic, no LLM. Set `0`/`off` to restore whole-item-drop. |
-| `CLAUDE_MEM_TEAM_INJECT` | `off` | Master opt-in for team-memory injection. When `true` **and** `CLAUDE_MEM_TEAM_SERVER_URL` + `CLAUDE_MEM_TEAM_API_KEY` are set, the worker bridges to the server's scoped `/v1/search` (hybrid RRF + L0–L3 tiering) at **both** SessionStart **and** per-prompt (`UserPromptSubmit`, query = the prompt text). Off (or missing url/key) → per-prompt falls back to the worker SQLite `/api/context/semantic` path and SessionStart injects nothing extra. Any missing piece disables the server path; never breaks the hook. |
-| `CLAUDE_MEM_TEAM_SERVER_URL` | — | Server base URL the worker calls for team memory (with `CLAUDE_MEM_TEAM_INJECT=true` + `CLAUDE_MEM_TEAM_API_KEY`). |
-| `CLAUDE_MEM_TEAM_API_KEY` | — | Scoped read key (`memories:read`) for the team-memory bridge. Bearer header only; never in URL/logs. |
-| `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` | `16` | Max supersession-chain walk depth (clamped 1–256); bounds the forward walk and guards malformed cycles when resolving superseded observations. |
-| `CLAUDE_MEM_INPUT_RATE_PER_MTOK` | `5` | Input $/million-tokens rate used by the dashboard cost panel to estimate USD |
-| `CLAUDE_MEM_REDISCOVERY_LOG` | `false` | Opt-in: log (Layer-C signal) when memory already held an answer for a discovery-tool query. Runs in the install-active observation path, so it is **off by default** (safe-by-default); a team can set `true` server-side to surface the re-discovery metric. |
-| `CLAUDE_MEM_GATE_TOOLS` | `Grep,Read,Glob,WebSearch` | Tools that would trigger the PreToolUse discovery gate. **Follow-up:** Grep/Glob/WebSearch gating is not yet wired in `hooks.json` (only `Read` fires today); this var is reserved for that follow-up. |
+| `MEMSMITH_SEARCH_HYBRID` | `on` | `/v1/search` and `/v1/context` rank with hybrid (FTS+vector RRF) by default. Set `0` to force plain FTS — useful if the embedder is unavailable. Hybrid already degrades to FTS automatically when the vector arm fails, so `0` is a policy switch, not a failure mitigation. |
+| `MEMSMITH_FTS_WEIGHT` | `0.3` | Weight of full-text search component in hybrid RRF retrieval |
+| `MEMSMITH_VEC_WEIGHT` | `1` | Weight of vector similarity component in hybrid RRF retrieval |
+| `MEMSMITH_RRF_K` | `60` | RRF rank fusion constant |
+| `MEMSMITH_QUERY_EXPANSION` | `off` | Enable deterministic (no-LLM) query expansion before hybrid search |
+| `MEMSMITH_TIERING` | `on` | SessionStart/discovery-gate memory injection renders lower-ranked observations at reduced detail (L0 title → L1 +facts → L2 +why → L3 full) to fit more signal into the char budget instead of dropping whole items. Deterministic, no LLM. Set `0`/`off` to restore whole-item-drop. |
+| `MEMSMITH_TEAM_INJECT` | `off` | Master opt-in for team-memory injection. When `true` **and** `MEMSMITH_TEAM_SERVER_URL` + `MEMSMITH_TEAM_API_KEY` are set, the worker bridges to the server's scoped `/v1/search` (hybrid RRF + L0–L3 tiering) at **both** SessionStart **and** per-prompt (`UserPromptSubmit`, query = the prompt text). Off (or missing url/key) → per-prompt falls back to the worker SQLite `/api/context/semantic` path and SessionStart injects nothing extra. Any missing piece disables the server path; never breaks the hook. |
+| `MEMSMITH_TEAM_SERVER_URL` | — | Server base URL the worker calls for team memory (with `MEMSMITH_TEAM_INJECT=true` + `MEMSMITH_TEAM_API_KEY`). |
+| `MEMSMITH_TEAM_API_KEY` | — | Scoped read key (`memories:read`) for the team-memory bridge. Bearer header only; never in URL/logs. |
+| `MEMSMITH_SUPERSEDE_MAX_DEPTH` | `16` | Max supersession-chain walk depth (clamped 1–256); bounds the forward walk and guards malformed cycles when resolving superseded observations. |
+| `MEMSMITH_INPUT_RATE_PER_MTOK` | `5` | Input $/million-tokens rate used by the dashboard cost panel to estimate USD |
+| `MEMSMITH_REDISCOVERY_LOG` | `false` | Opt-in: log (Layer-C signal) when memory already held an answer for a discovery-tool query. Runs in the install-active observation path, so it is **off by default** (safe-by-default); a team can set `true` server-side to surface the re-discovery metric. |
+| `MEMSMITH_GATE_TOOLS` | `Grep,Read,Glob,WebSearch` | Tools that would trigger the PreToolUse discovery gate. **Follow-up:** Grep/Glob/WebSearch gating is not yet wired in `hooks.json` (only `Read` fires today); this var is reserved for that follow-up. |
 
 ---
 

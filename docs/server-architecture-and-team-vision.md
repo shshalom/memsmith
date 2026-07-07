@@ -1,12 +1,12 @@
 # Server-Beta: Architecture, Team Vision, and the "It Just Works" Future
 
-> A long-form report on what was built across server-beta Phases 4–13, how it integrates with the rest of claude-mem, what changes for single users, and how the substrate is shaped for team-scale shared memory. Concludes with concrete product ideas that fall out of the architecture and an honest list of what hasn't been built yet.
+> A long-form report on what was built across server-beta Phases 4–13, how it integrates with the rest of memsmith, what changes for single users, and how the substrate is shaped for team-scale shared memory. Concludes with concrete product ideas that fall out of the architecture and an honest list of what hasn't been built yet.
 
 ---
 
 ## 1. TL;DR
 
-Server-beta turns claude-mem from a single-machine SQLite tool into a multi-tenant runtime backed by Postgres + BullMQ, while preserving the property that made claude-mem worth using in the first place: **the dev does nothing different**. Hooks, MCP tools, the viewer UI, and the search skill all keep their existing contract. Underneath, every event now carries a full identity triad — `api_key_id` × `actor_id` × `request_id` — and lands in a tenant-scoped substrate that supports teams, projects, scopes, audit chains, and split-process generation workers.
+Server-beta turns memsmith from a single-machine SQLite tool into a multi-tenant runtime backed by Postgres + BullMQ, while preserving the property that made memsmith worth using in the first place: **the dev does nothing different**. Hooks, MCP tools, the viewer UI, and the search skill all keep their existing contract. Underneath, every event now carries a full identity triad — `api_key_id` × `actor_id` × `request_id` — and lands in a tenant-scoped substrate that supports teams, projects, scopes, audit chains, and split-process generation workers.
 
 PR #2383 lands phases 4–13 (~13K LOC across 72 files) and is **APPROVED + CLEAN** after five rounds of automated review and ~20 fixes ranging from a P1 race in `provider.generate()` to escaping XML in prompts. The result is a substrate that can power solo dev memory, squad-shared memory, and org-scale federated memory using the same code path.
 
@@ -14,7 +14,7 @@ PR #2383 lands phases 4–13 (~13K LOC across 72 files) and is **APPROVED + CLEA
 
 ## 2. The seed problem
 
-claude-mem's original pitch is: install once, work normally, your AI suddenly has cross-session memory that "just works". The capture layer (lifecycle hooks) writes events; an asynchronous worker calls Claude, parses observations, persists them; a search skill makes them retrievable. None of this requires the developer to think about it.
+memsmith's original pitch is: install once, work normally, your AI suddenly has cross-session memory that "just works". The capture layer (lifecycle hooks) writes events; an asynchronous worker calls Claude, parses observations, persists them; a search skill makes them retrievable. None of this requires the developer to think about it.
 
 That works beautifully for **one developer, one machine, one SQLite file**. It breaks the moment you want any of:
 
@@ -141,14 +141,14 @@ The plugin's hook layer hasn't changed — `plugin/hooks/hooks.json` still dispa
 ┌──────────────────────────────────────────────────────────┐
 │  worker-service.cjs                                      │
 │   ├─ runtime-selector.ts decides:                       │
-│   │    • CLAUDE_MEM_RUNTIME=worker     → legacy SQLite  │
-│   │    • CLAUDE_MEM_RUNTIME=server-beta → HTTP client   │
+│   │    • MEMSMITH_RUNTIME=worker     → legacy SQLite  │
+│   │    • MEMSMITH_RUNTIME=server-beta → HTTP client   │
 │   └─ ServerBetaClient.recordEvent(input) → /v1/events   │
 └──────────────────────────────────────────────────────────┘
                        │
                        ▼
        ┌──────────────────────────────────────────────────┐
-       │  claude-mem-server (HTTP)                       │
+       │  memsmith-server (HTTP)                       │
        │   /v1/events            ← hook event ingest     │
        │   /v1/events/batch      ← batch ingest          │
        │   /v1/sessions/start    ← session creation      │
@@ -169,7 +169,7 @@ The plugin's hook layer hasn't changed — `plugin/hooks/hooks.json` still dispa
                                                  │
                                                  ▼
                                   ┌──────────────────────────┐
-                                  │ claude-mem-worker        │
+                                  │ memsmith-worker        │
                                   │  ProviderObservationGen  │
                                   │  (no HTTP listener)      │
                                   └──────────────────────────┘
@@ -192,20 +192,20 @@ That last point matters: any client written against the legacy worker keeps work
 
 ## 6. The single-user model
 
-For a developer running claude-mem on one machine, server-beta is invisible. Here's what their first run looks like:
+For a developer running memsmith on one machine, server-beta is invisible. Here's what their first run looks like:
 
-1. `npx claude-mem install` (or upgrading to a server-beta-enabled build).
+1. `npx memsmith install` (or upgrading to a server-beta-enabled build).
 2. `bootstrapServerApiKey()` (`src/services/hooks/server-bootstrap.ts`) runs on first hook fire. It:
    - finds-or-creates a `local-hook-team` row in `teams`,
    - finds-or-creates a `local-hook-project` row in `projects`,
    - generates a 48-byte url-safe random api key, hashes it (sha256), and creates an `api_keys` row scoped to that team+project with hook-only scopes (`events:write`, `sessions:write`, `observations:read`, `jobs:read`),
-   - writes the raw key + project id + server URL into `~/.claude-mem/settings.json` so subsequent hook fires can authenticate.
+   - writes the raw key + project id + server URL into `~/.memsmith/settings.json` so subsequent hook fires can authenticate.
 3. The server-beta daemon starts on a UID-derived port: `37877 + (uid % 100)`. (This was a Phase-12 review fix — previously it hardcoded `37877` and two profiles on the same machine collided.)
 4. Hooks now `POST /v1/events` to that local port with the api key. From the user's perspective, their context still appears in their next session, search still returns relevant observations, the viewer still works.
 
 The single-user case is "team_id = local-hook-team, project_id = local-hook-project, you are the only `actor_id`". Everything multi-tenant degrades cleanly to single-tenant with that mapping.
 
-Multi-account on the same machine: set `CLAUDE_MEM_DATA_DIR=$HOME/.claude-mem-work` for the work profile. Every path (DB, settings, pid, port file) derives from it. The UID-derived port plus per-user data dir means two profiles cohabit without conflict.
+Multi-account on the same machine: set `MEMSMITH_DATA_DIR=$HOME/.memsmith-work` for the work profile. Every path (DB, settings, pid, port file) derives from it. The UID-derived port plus per-user data dir means two profiles cohabit without conflict.
 
 ---
 
@@ -258,7 +258,7 @@ The substrate is the same regardless of size. What changes is how you wire up te
 **Topology**: one team, one project per repo (or one project total for a monorepo).
 
 **Wiring**:
-- Bootstrap a shared team via `claude-mem server api-key create --team <id> --project <id> --scope memories:write,memories:read`. This is a one-time setup by whoever owns the deployment.
+- Bootstrap a shared team via `memsmith server api-key create --team <id> --project <id> --scope memories:write,memories:read`. This is a one-time setup by whoever owns the deployment.
 - Each developer gets their own api key (so revocation is per-person). `actor_id` = `human:alice@org`.
 - All hooks write into the shared (team, project). Observations land in a team pool.
 
@@ -282,7 +282,7 @@ The substrate is the same regardless of size. What changes is how you wire up te
 
 **Observability**: per-team queue lanes via `/api/health`. A squad's runaway generation cost shows up in their lane metrics, not the platform's.
 
-**Governance**: keys rotate via `claude-mem server api-key revoke` + `create`. The audit chain records both the revocation and the new key's first use. Compliance teams can grep for `api_key.revoke` events.
+**Governance**: keys rotate via `memsmith server api-key revoke` + `create`. The audit chain records both the revocation and the new key's first use. Compliance teams can grep for `api_key.revoke` events.
 
 ### 8.3 Large team (50+, regulated / enterprise)
 
@@ -306,7 +306,7 @@ The substrate is the same regardless of size. What changes is how you wire up te
 
 ## 9. Conceptual architecture
 
-Memory in claude-mem is **a write-mostly event log with a derived observation view**. The architecture stacks three loosely-coupled layers:
+Memory in memsmith is **a write-mostly event log with a derived observation view**. The architecture stacks three loosely-coupled layers:
 
 ```
             ┌────────────────────────────────────┐
@@ -385,7 +385,7 @@ The triad is what turns "the AI remembered X" from a black box into a traceable,
 
 `ProviderObservationGenerator` is provider-agnostic via a small interface. Today's providers: Claude (Anthropic SDK), Gemini (Google Generative AI), OpenRouter (any model behind their gateway). Adding a new provider is implementing one method (`generate(input) → { rawText, modelId, providerLabel }`) and registering it. The XML response format and `processGeneratedResponse` stay the same.
 
-This is the "we don't pick winners" property: a team that prefers Gemini for cost, or wants OpenRouter for failover, just sets `CLAUDE_MEM_SERVER_PROVIDER` and the substrate doesn't care.
+This is the "we don't pick winners" property: a team that prefers Gemini for cost, or wants OpenRouter for failover, just sets `MEMSMITH_SERVER_PROVIDER` and the substrate doesn't care.
 
 ### 9.5 Observability primitives
 
@@ -398,26 +398,26 @@ This is the "we don't pick winners" property: a team that prefers Gemini for cos
 
 ## 10. Developer experience walkthrough
 
-**Day one (single user).** `npx claude-mem install`. Open Claude Code. Type. Observations capture. After a few sessions, search returns relevant prior context. Nothing else to learn.
+**Day one (single user).** `npx memsmith install`. Open Claude Code. Type. Observations capture. After a few sessions, search returns relevant prior context. Nothing else to learn.
 
 **Day one (team).** A team admin runs `docker compose up -d` against the project's `docker-compose.yml`. They mint api keys for each developer:
 
 ```bash
-POSTGRES_USER=… POSTGRES_PASSWORD=… POSTGRES_DB=… docker compose exec claude-mem-server \
-  bun /opt/claude-mem/scripts/server-service.cjs server api-key create \
+POSTGRES_USER=… POSTGRES_PASSWORD=… POSTGRES_DB=… docker compose exec memsmith-server \
+  bun /opt/memsmith/scripts/server-service.cjs server api-key create \
     --team <team_id> --project <project_id> \
     --scope events:write,sessions:write,observations:read,jobs:read \
     --name alice-laptop
 ```
 
-The output is a JSON blob with the raw key. Each developer pastes it into their `~/.claude-mem/settings.json` `CLAUDE_MEM_SERVER_BETA_API_KEY`. Done. They use Claude Code normally; their hooks now write to the team substrate.
+The output is a JSON blob with the raw key. Each developer pastes it into their `~/.memsmith/settings.json` `MEMSMITH_SERVER_BETA_API_KEY`. Done. They use Claude Code normally; their hooks now write to the team substrate.
 
 **Day two — operator path**. Something stuck in `processing`?
 
 ```bash
-claude-mem server jobs list --team <team_id> --status processing
-claude-mem server jobs retry <job_id>     # if cancelled or failed
-claude-mem server jobs cancel <job_id>    # active jobs ride out their lifecycle
+memsmith server jobs list --team <team_id> --status processing
+memsmith server jobs retry <job_id>     # if cancelled or failed
+memsmith server jobs cancel <job_id>    # active jobs ride out their lifecycle
 ```
 
 The retry endpoint is now safe across all states (after the Phase-12 + round-4 review fixes): no-op on `queued`, 409 on `processing`, 409 on `completed` (would otherwise duplicate observations due to LLM non-determinism), reset+re-enqueue on `failed`/`cancelled`.
@@ -459,7 +459,7 @@ A condensed list:
 - **Compliance-grade audit.** Every action attributable to (api_key_id, actor_id, request_id, team_id, project_id).
 - **Operator surface.** Retry, cancel, list, paginate.
 - **Privacy by default.** `<private>` tags strip at edge.
-- **Horizontal scale.** `--scale claude-mem-worker=N`.
+- **Horizontal scale.** `--scale memsmith-worker=N`.
 - **Crash-safe persistence.** `reconcileOnStartup` recovers in-flight rows.
 - **Tenant defense in depth.** Auth at HTTP, scope check at worker, ON CONFLICT at storage, audit on every refusal.
 - **Identity-grounded suggestions.** Future: AI suggestions can carry "based on observation X by actor Y at time Z" because the substrate already knows.
@@ -470,7 +470,7 @@ The substrate itself is a product surface. Everything above is unlocked by code 
 
 ## 12. The "it just works" ethos extended
 
-The original claude-mem promise: install once, work normally, get memory as a side effect. The team-mode promise has to be the same — anything less and adoption stalls because somebody has to convince every engineer to opt in.
+The original memsmith promise: install once, work normally, get memory as a side effect. The team-mode promise has to be the same — anything less and adoption stalls because somebody has to convince every engineer to opt in.
 
 Server-beta deliberately preserves this by making the hook contract identical:
 
@@ -479,7 +479,7 @@ Server-beta deliberately preserves this by making the hook contract identical:
 - Same viewer UI port and surface.
 - Same search skill behavior.
 
-What changes is the substrate, and substrate changes are invisible to the developer at the call site. A team admin sets up the deployment once; everyone else uses claude-mem the way they always did.
+What changes is the substrate, and substrate changes are invisible to the developer at the call site. A team admin sets up the deployment once; everyone else uses memsmith the way they always did.
 
 This is the property that makes it possible to layer products on top:
 
@@ -589,7 +589,7 @@ The substrate is rich, but the surface is incomplete. Things deliberately not bu
 - **Search ranking tuning.** FTS handles exact terms well. A team-scope ranker that weights recency × authorship × topic relevance is open.
 - **Geo-replication.** Single-region today. Multi-region needs conflict resolution on the unique idempotency keys.
 - **Worker autoscaling.** `docker compose --scale` for manual; Kubernetes HPA on queue depth needs a Prom exporter that doesn't exist yet (the metrics surface does — `/api/health`).
-- **Provider failover.** `CLAUDE_MEM_SERVER_PROVIDER` is single-valued. Retry-on-different-provider would be a small wrapper above `ProviderObservationGenerator`.
+- **Provider failover.** `MEMSMITH_SERVER_PROVIDER` is single-valued. Retry-on-different-provider would be a small wrapper above `ProviderObservationGenerator`.
 - **Online schema migrations.** `bootstrapServerBetaPostgresSchema` runs on startup. Live deployments need a proper migration tool.
 - **Pre-existing legacy test failures.** 7 tests in the legacy worker path remain skipped/failing; not introduced by server-beta but deferred for a follow-up.
 
@@ -664,4 +664,4 @@ Code referenced throughout this doc, for navigation:
 
 The job of server-beta is to be invisible. A solo developer never knows it's there; their hooks just keep working. A team adopts it; their AI sessions start sharing context across humans, services, and machines without anyone having to learn a new tool. An org deploys it; the audit chain and tenant scope become compliance primitives. The substrate is the same in all three cases — only the wiring changes.
 
-claude-mem's original ethos was *memory that writes itself*. Server-beta extends that to *memory that writes itself, for everyone*. The infrastructure to do this is now merged. The interesting work — feeds, trust labels, federation UX, marketplace packs, cost dashboards, voice capture, multi-modal payloads — is all sitting one layer above a substrate that's already shaped to receive it.
+memsmith's original ethos was *memory that writes itself*. Server-beta extends that to *memory that writes itself, for everyone*. The infrastructure to do this is now merged. The interesting work — feeds, trust labels, federation UX, marketplace packs, cost dashboards, voice capture, multi-modal payloads — is all sitting one layer above a substrate that's already shaped to receive it.

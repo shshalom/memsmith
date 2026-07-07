@@ -2,11 +2,11 @@
 
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/memsmith-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-dark-mode.webp">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp" alt="MemSmith" width="400">
     </picture>
   </a>
   <br>
@@ -57,7 +57,7 @@
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
   </a>
-  <a href="https://github.com/thedotmack/awesome-claude-code">
+  <a href="https://github.com/shshalom/awesome-claude-code">
     <img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Claude Code">
   </a>
 </p>
@@ -65,9 +65,9 @@
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg" alt="shshalom/memsmith | Trendshift" width="250" height="55"/>
     </picture>
   </a>
 </p>
@@ -75,9 +75,9 @@
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/cm-preview.gif" alt="MemSmith Preview" width="800">
     </picture>
   </a>
 </p>
@@ -93,7 +93,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem משמר הקשר בצורה חלקה בין הפעלות על ידי לכידה אוטומטית של תצפיות על שימוש בכלים, יצירת סיכומים סמנטיים, והנגשתם להפעלות עתידיות. זה מאפשר ל-Claude לשמור על המשכיות של ידע על פרויקטים גם לאחר שהפעלות מסתיימות או מתחברות מחדש.
+  MemSmith משמר הקשר בצורה חלקה בין הפעלות על ידי לכידה אוטומטית של תצפיות על שימוש בכלים, יצירת סיכומים סמנטיים, והנגשתם להפעלות עתידיות. זה מאפשר ל-Claude לשמור על המשכיות של ידע על פרויקטים גם לאחר שהפעלות מסתיימות או מתחברות מחדש.
 </p>
 
 ---
@@ -103,9 +103,9 @@
 התחל הפעלה חדשה של Claude Code בטרמינל והזן את הפקודות הבאות:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add shshalom/memsmith
 
-> /plugin install claude-mem
+> /plugin install memsmith
 ```
 
 הפעל מחדש את Claude Code. הקשר מהפעלות קודמות יופיע אוטומטית בהפעלות חדשות.
@@ -127,35 +127,35 @@
 
 ## תיעוד
 
-📚 **[צפה בתיעוד המלא](https://docs.claude-mem.ai/)** - דפדף באתר הרשמי
+📚 **[צפה בתיעוד המלא](https://docs.memsmith.ai/)** - דפדף באתר הרשמי
 
 ### תחילת העבודה
 
-- **[מדריך התקנה](https://docs.claude-mem.ai/installation)** - התחלה מהירה והתקנה מתקדמת
-- **[מדריך שימוש](https://docs.claude-mem.ai/usage/getting-started)** - איך Claude-Mem עובד אוטומטית
-- **[כלי חיפוש](https://docs.claude-mem.ai/usage/search-tools)** - שאל את היסטוריית הפרויקט שלך בשפה טבעית
-- **[תכונות בטא](https://docs.claude-mem.ai/beta-features)** - נסה תכונות ניסיוניות כמו Endless Mode
+- **[מדריך התקנה](https://docs.memsmith.ai/installation)** - התחלה מהירה והתקנה מתקדמת
+- **[מדריך שימוש](https://docs.memsmith.ai/usage/getting-started)** - איך MemSmith עובד אוטומטית
+- **[כלי חיפוש](https://docs.memsmith.ai/usage/search-tools)** - שאל את היסטוריית הפרויקט שלך בשפה טבעית
+- **[תכונות בטא](https://docs.memsmith.ai/beta-features)** - נסה תכונות ניסיוניות כמו Endless Mode
 
 ### שיטות מומלצות
 
-- **[הנדסת הקשר](https://docs.claude-mem.ai/context-engineering)** - עקרונות אופטימיזציה של הקשר לסוכן AI
-- **[גילוי מדורג](https://docs.claude-mem.ai/progressive-disclosure)** - הפילוסופיה מאחורי אסטרטגיית הכנת ההקשר של Claude-Mem
+- **[הנדסת הקשר](https://docs.memsmith.ai/context-engineering)** - עקרונות אופטימיזציה של הקשר לסוכן AI
+- **[גילוי מדורג](https://docs.memsmith.ai/progressive-disclosure)** - הפילוסופיה מאחורי אסטרטגיית הכנת ההקשר של MemSmith
 
 ### ארכיטקטורה
 
-- **[סקירה כללית](https://docs.claude-mem.ai/architecture/overview)** - רכיבי המערכת וזרימת הנתונים
-- **[התפתחות הארכיטקטורה](https://docs.claude-mem.ai/architecture-evolution)** - המסע מגרסה 3 לגרסה 5
-- **[ארכיטקטורת Hooks](https://docs.claude-mem.ai/hooks-architecture)** - איך Claude-Mem משתמש ב-lifecycle hooks
-- **[מדריך Hooks](https://docs.claude-mem.ai/architecture/hooks)** - 7 סקריפטי hook מוסברים
-- **[שירות Worker](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API וניהול Bun
-- **[מסד נתונים](https://docs.claude-mem.ai/architecture/database)** - סכמת SQLite וחיפוש FTS5
-- **[ארכיטקטורת חיפוש](https://docs.claude-mem.ai/architecture/search-architecture)** - חיפוש היברידי עם מסד נתוני וקטורים Chroma
+- **[סקירה כללית](https://docs.memsmith.ai/architecture/overview)** - רכיבי המערכת וזרימת הנתונים
+- **[התפתחות הארכיטקטורה](https://docs.memsmith.ai/architecture-evolution)** - המסע מגרסה 3 לגרסה 5
+- **[ארכיטקטורת Hooks](https://docs.memsmith.ai/hooks-architecture)** - איך MemSmith משתמש ב-lifecycle hooks
+- **[מדריך Hooks](https://docs.memsmith.ai/architecture/hooks)** - 7 סקריפטי hook מוסברים
+- **[שירות Worker](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API וניהול Bun
+- **[מסד נתונים](https://docs.memsmith.ai/architecture/database)** - סכמת SQLite וחיפוש FTS5
+- **[ארכיטקטורת חיפוש](https://docs.memsmith.ai/architecture/search-architecture)** - חיפוש היברידי עם מסד נתוני וקטורים Chroma
 
 ### הגדרות ופיתוח
 
-- **[הגדרות](https://docs.claude-mem.ai/configuration)** - משתני סביבה והגדרות
-- **[פיתוח](https://docs.claude-mem.ai/development)** - בנייה, בדיקה, תרומה
-- **[פתרון בעיות](https://docs.claude-mem.ai/troubleshooting)** - בעיות נפוצות ופתרונות
+- **[הגדרות](https://docs.memsmith.ai/configuration)** - משתני סביבה והגדרות
+- **[פיתוח](https://docs.memsmith.ai/development)** - בנייה, בדיקה, תרומה
+- **[פתרון בעיות](https://docs.memsmith.ai/troubleshooting)** - בעיות נפוצות ופתרונות
 
 ---
 
@@ -170,13 +170,13 @@
 5. **מיומנות mem-search** - שאילתות בשפה טבעית עם גילוי מדורג
 6. **מסד נתוני וקטורים Chroma** - חיפוש היברידי סמנטי + מילות מפתח לאחזור הקשר חכם
 
-ראה [סקירה כללית של הארכיטקטורה](https://docs.claude-mem.ai/architecture/overview) לפרטים.
+ראה [סקירה כללית של הארכיטקטורה](https://docs.memsmith.ai/architecture/overview) לפרטים.
 
 ---
 
 ## מיומנות mem-search
 
-Claude-Mem מספק חיפוש חכם דרך מיומנות mem-search שמופעלת אוטומטית כשאתה שואל על עבודה קודמת:
+MemSmith מספק חיפוש חכם דרך מיומנות mem-search שמופעלת אוטומטית כשאתה שואל על עבודה קודמת:
 
 **איך זה עובד:**
 - פשוט שאל באופן טבעי: *"מה עשינו בהפעלה האחרונה?"* או *"תיקנו את הבאג הזה קודם?"*
@@ -205,15 +205,15 @@ Claude-Mem מספק חיפוש חכם דרך מיומנות mem-search שמופ�
 "What was happening when we added the viewer UI?"
 ```
 
-ראה [מדריך כלי חיפוש](https://docs.claude-mem.ai/usage/search-tools) לדוגמאות מפורטות.
+ראה [מדריך כלי חיפוש](https://docs.memsmith.ai/usage/search-tools) לדוגמאות מפורטות.
 
 ---
 
 ## תכונות בטא
 
-Claude-Mem מציע **ערוץ בטא** עם תכונות ניסיוניות כמו **Endless Mode** (ארכיטקטורת זיכרון ביומימטית להפעלות מורחבות). החלף בין גרסאות יציבות ובטא מממשק הצופה האינטרנט ב-http://localhost:37777 → Settings.
+MemSmith מציע **ערוץ בטא** עם תכונות ניסיוניות כמו **Endless Mode** (ארכיטקטורת זיכרון ביומימטית להפעלות מורחבות). החלף בין גרסאות יציבות ובטא מממשק הצופה האינטרנט ב-http://localhost:37777 → Settings.
 
-ראה **[תיעוד תכונות בטא](https://docs.claude-mem.ai/beta-features)** לפרטים על Endless Mode ואיך לנסות אותו.
+ראה **[תיעוד תכונות בטא](https://docs.memsmith.ai/beta-features)** לפרטים על Endless Mode ואיך לנסות אותו.
 
 ---
 
@@ -229,15 +229,15 @@ Claude-Mem מציע **ערוץ בטא** עם תכונות ניסיוניות כ�
 
 ## הגדרות
 
-ההגדרות מנוהלות ב-`~/.claude-mem/settings.json` (נוצר אוטומטית עם ברירות מחדל בהפעלה הראשונה). הגדר מודל AI, פורט worker, ספריית נתונים, רמת לוג, והגדרות הזרקת הקשר.
+ההגדרות מנוהלות ב-`~/.memsmith/settings.json` (נוצר אוטומטית עם ברירות מחדל בהפעלה הראשונה). הגדר מודל AI, פורט worker, ספריית נתונים, רמת לוג, והגדרות הזרקת הקשר.
 
-ראה **[מדריך הגדרות](https://docs.claude-mem.ai/configuration)** לכל ההגדרות הזמינות ודוגמאות.
+ראה **[מדריך הגדרות](https://docs.memsmith.ai/configuration)** לכל ההגדרות הזמינות ודוגמאות.
 
 ---
 
 ## פיתוח
 
-ראה **[מדריך פיתוח](https://docs.claude-mem.ai/development)** להוראות בנייה, בדיקה, ותהליך תרומה.
+ראה **[מדריך פיתוח](https://docs.memsmith.ai/development)** להוראות בנייה, בדיקה, ותהליך תרומה.
 
 ---
 
@@ -245,7 +245,7 @@ Claude-Mem מציע **ערוץ בטא** עם תכונות ניסיוניות כ�
 
 אם אתה נתקל בבעיות, תאר את הבעיה ל-Claude ומיומנות troubleshoot תאבחן אוטומטית ותספק תיקונים.
 
-ראה **[מדריך פתרון בעיות](https://docs.claude-mem.ai/troubleshooting)** לבעיות נפוצות ופתרונות.
+ראה **[מדריך פתרון בעיות](https://docs.memsmith.ai/troubleshooting)** לבעיות נפוצות ופתרונות.
 
 ---
 
@@ -254,7 +254,7 @@ Claude-Mem מציע **ערוץ בטא** עם תכונות ניסיוניות כ�
 צור דיווחי באגים מקיפים עם המחולל האוטומטי:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/thedotmack
+cd ~/.claude/plugins/marketplaces/shshalom
 npm run bug-report
 ```
 
@@ -268,7 +268,7 @@ npm run bug-report
 4. עדכן תיעוד
 5. שלח Pull Request
 
-ראה [מדריך פיתוח](https://docs.claude-mem.ai/development) לתהליך תרומה.
+ראה [מדריך פיתוח](https://docs.memsmith.ai/development) לתהליך תרומה.
 
 ---
 
@@ -276,7 +276,7 @@ npm run bug-report
 
 This project is licensed under the **Apache License 2.0** (Apache-2.0).
 
-Copyright (C) 2025 Alex Newman (@thedotmack). All rights reserved.
+Copyright (C) 2025 Alex Newman (@shshalom). All rights reserved.
 
 See the [LICENSE](LICENSE) file for full details.
 
@@ -290,9 +290,9 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## תמיכה
 
 - **תיעוד**: [docs/](docs/)
-- **בעיות**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
-- **מאגר**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
-- **מחבר**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
+- **בעיות**: [GitHub Issues](https://github.com/shshalom/memsmith/issues)
+- **מאגר**: [github.com/shshalom/memsmith](https://github.com/shshalom/memsmith)
+- **מחבר**: Alex Newman ([@shshalom](https://github.com/shshalom))
 
 ---
 

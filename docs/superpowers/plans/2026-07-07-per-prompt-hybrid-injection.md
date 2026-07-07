@@ -4,14 +4,14 @@
 
 **Goal:** When a team server is configured, route per-prompt (`UserPromptSubmit`) memory injection through the same hybrid-RRF + L0–L3-tiered path (`fetchTeamMemory` → `buildInjectionBlock`) that SessionStart/PreToolUse use, querying with the prompt text; leave worker-only installs on their existing `/api/context/semantic` path unchanged.
 
-**Architecture:** One change site — the `UserPromptSubmit` branch of `src/cli/handlers/session-init.ts`. Add a server-mode branch (gated on `CLAUDE_MEM_TEAM_SERVER_URL` + `CLAUDE_MEM_TEAM_API_KEY`) that runs before the existing worker semantic call and falls through to it on empty/error. `fetchTeamMemory` is injected as a testable dependency.
+**Architecture:** One change site — the `UserPromptSubmit` branch of `src/cli/handlers/session-init.ts`. Add a server-mode branch (gated on `MEMSMITH_TEAM_SERVER_URL` + `MEMSMITH_TEAM_API_KEY`) that runs before the existing worker semantic call and falls through to it on empty/error. `fetchTeamMemory` is injected as a testable dependency.
 
 **Tech Stack:** TypeScript, bun:test. No DB, no live server (deps mocked). No schema change, no hook-wiring change.
 
 ## Global Constraints
 
 - Safe-by-default: with NO team server configured, behavior is byte-identical to today (existing `/api/context/semantic` path). This is an install-active hook — a plain worker install must see zero change.
-- Reuse existing gates/flags: `CLAUDE_MEM_TEAM_SERVER_URL`, `CLAUDE_MEM_TEAM_API_KEY` (server gate, same as SessionStart), `CLAUDE_MEM_SEMANTIC_INJECT`, `CLAUDE_MEM_SEMANTIC_INJECT_LIMIT`, `CLAUDE_MEM_TIERING`. NO new env flag.
+- Reuse existing gates/flags: `MEMSMITH_TEAM_SERVER_URL`, `MEMSMITH_TEAM_API_KEY` (server gate, same as SessionStart), `MEMSMITH_SEMANTIC_INJECT`, `MEMSMITH_SEMANTIC_INJECT_LIMIT`, `MEMSMITH_TIERING`. NO new env flag.
 - Server-mode query MUST be the user prompt text (the signal improvement), not the project name.
 - Injection MUST NEVER break the prompt hook: `fetchTeamMemory` returns [] on any error; the server branch is wrapped so any throw logs and falls through to the worker path; total failure returns `{ continue: true }` (no injection), as today.
 - The prompt injectability gate (`prompt.length >= 20`, not `[media prompt]`, `semanticInject` on) is preserved and applies to both paths.
@@ -60,7 +60,7 @@ In `session-init.ts`:
 - Add a module-local helper:
 ```ts
 function teamServerConfigured(settings: Record<string, string | undefined>): boolean {
-  return !!(settings.CLAUDE_MEM_TEAM_SERVER_URL?.trim() && settings.CLAUDE_MEM_TEAM_API_KEY?.trim());
+  return !!(settings.MEMSMITH_TEAM_SERVER_URL?.trim() && settings.MEMSMITH_TEAM_API_KEY?.trim());
 }
 ```
 
@@ -79,8 +79,8 @@ if (semanticInject && prompt && prompt.length >= 20 && prompt !== '[media prompt
   if (teamServerConfigured(settings)) {
     try {
       const rows = await dependencies.fetchTeamMemory({
-        serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
-        apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+        serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
+        apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
         projectId: project,
         teamId: '',            // resolved server-side from the scoped key
         query: prompt,         // the signal improvement: query with the prompt
@@ -100,7 +100,7 @@ if (semanticInject && prompt && prompt.length >= 20 && prompt !== '[media prompt
   // Worker semantic path — unchanged; runs when no team server, or the server
   // path produced nothing.
   if (!additionalContext) {
-    const limit = settings.CLAUDE_MEM_SEMANTIC_INJECT_LIMIT || '5';
+    const limit = settings.MEMSMITH_SEMANTIC_INJECT_LIMIT || '5';
     const semanticResult = await dependencies.executeWithWorkerFallback<SemanticContextResponse>(
       '/api/context/semantic', 'POST', { q: prompt, project, limit, platformSource },
     );
@@ -143,7 +143,7 @@ git commit -m "feat(hook): per-prompt injection uses hybrid+tiering when a team 
 
 - [ ] **Step 1: Note the unified per-prompt path**
 
-If `docs/deploy/aws.md` documents `CLAUDE_MEM_TEAM_SERVER_URL` or `CLAUDE_MEM_SEMANTIC_INJECT`, add a one-line note that when a team server is configured, per-prompt (`UserPromptSubmit`) injection uses the hybrid+tiered path (same as SessionStart), querying with the prompt; worker-only installs use the SQLite semantic path. If no natural row exists, add a short note beside the `CLAUDE_MEM_TEAM_SERVER_URL` row.
+If `docs/deploy/aws.md` documents `MEMSMITH_TEAM_SERVER_URL` or `MEMSMITH_SEMANTIC_INJECT`, add a one-line note that when a team server is configured, per-prompt (`UserPromptSubmit`) injection uses the hybrid+tiered path (same as SessionStart), querying with the prompt; worker-only installs use the SQLite semantic path. If no natural row exists, add a short note beside the `MEMSMITH_TEAM_SERVER_URL` row.
 
 - [ ] **Step 2: Commit**
 
