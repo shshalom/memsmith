@@ -21,7 +21,9 @@ export async function buildInjectionBlock(
   const visible: TierInput[] = rows.filter(r => r.metadata?.private !== true);
   if (visible.length === 0) return '';
   const header = '## Relevant team memory (review before acting)\n';
-  // Reserve budget for the header + positioning bullet markers.
+  // Reserve the header from the body budget. Positioning adds ~2 chars/item of
+  // bullet markers on top, so the pre-slice block can run slightly over; the
+  // final .slice(0, maxChars) below is the hard cap that guarantees the limit.
   const bodyBudget = Math.max(0, maxChars - header.length);
 
   if (tieringEnabled()) {
