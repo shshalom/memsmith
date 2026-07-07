@@ -1,6 +1,6 @@
 # Installer Failure Transparency — Cross-IDE Matrix
 
-**Goal:** Stop the universal installer (`npx claude-mem install`) from silently swallowing real failures and falsely reporting "installed successfully" on all 12 IDEs. Convert every error-suppression site to a single `installerError(severity, ctx)` decision point driven by an explicit taxonomy. Make `tree-sitter` ERESOLVE conflicts and missing `uv` fail loudly with platform-specific remediation. Add a 12-IDE × 4-failure-mode validation matrix and CI postinstall regression guards inspired by the v12.6.2 `tree-sitter-swift` fix.
+**Goal:** Stop the universal installer (`npx memsmith install`) from silently swallowing real failures and falsely reporting "installed successfully" on all 12 IDEs. Convert every error-suppression site to a single `installerError(severity, ctx)` decision point driven by an explicit taxonomy. Make `tree-sitter` ERESOLVE conflicts and missing `uv` fail loudly with platform-specific remediation. Add a 12-IDE × 4-failure-mode validation matrix and CI postinstall regression guards inspired by the v12.6.2 `tree-sitter-swift` fix.
 
 **Net effect:**
 - "Installation Complete" is only printed when every ABORT-level dependency was satisfied. Partial outcomes get a yellow "Installation Partial" headline with a remediation block.
@@ -35,7 +35,7 @@ Concrete swallowed errors that exist today:
 
 ### Reference incident (canonical learning)
 
-`CHANGELOG.md:93–110` documents v12.6.1 → v12.6.2: PR #2300 moved 21 tree-sitter grammars from devDependencies to dependencies; `tree-sitter-swift`'s postinstall pulled a nested `tree-sitter-cli` that downloaded a Rust binary and SIGINT'd. **Lesson:** npm does not honor `trustedDependencies` (Bun-only). Any new transitive dep with a network postinstall can hang `npx claude-mem install`. Phase 7 turns this into a CI guard.
+`CHANGELOG.md:93–110` documents v12.6.1 → v12.6.2: PR #2300 moved 21 tree-sitter grammars from devDependencies to dependencies; `tree-sitter-swift`'s postinstall pulled a nested `tree-sitter-cli` that downloaded a Rust binary and SIGINT'd. **Lesson:** npm does not honor `trustedDependencies` (Bun-only). Any new transitive dep with a network postinstall can hang `npx memsmith install`. Phase 7 turns this into a CI guard.
 
 ---
 
@@ -49,8 +49,8 @@ Each implementation phase below cites these facts by line number; do not re-deri
 |---|---|---|
 | Existing clack `runTasks` / `bufferConsole` pattern | `src/npx-cli/commands/install.ts:32–64` | Tasks return a string; orchestrator handles spinner. Reuse, but route every error through `installerError`. |
 | `describeExecError` (stdout/stderr extractor) | `src/npx-cli/install/setup-runtime.ts:100–112` | Already canonical for child_process errors. Move to a shared module. |
-| Marker write pattern for partial state | `src/npx-cli/install/setup-runtime.ts:262–275` | Use the same JSON shape (`{ severity, component, phase, cause, …}`) for the new `~/.claude-mem/last-install-error.json`. |
-| Plugin-cache resolution | `src/npx-cli/utils/paths.ts` (`pluginCacheDirectory`, `marketplaceDirectory`) | All path resolution must honor `CLAUDE_MEM_DATA_DIR`; reuse instead of inventing. |
+| Marker write pattern for partial state | `src/npx-cli/install/setup-runtime.ts:262–275` | Use the same JSON shape (`{ severity, component, phase, cause, …}`) for the new `~/.memsmith/last-install-error.json`. |
+| Plugin-cache resolution | `src/npx-cli/utils/paths.ts` (`pluginCacheDirectory`, `marketplaceDirectory`) | All path resolution must honor `MEMSMITH_DATA_DIR`; reuse instead of inventing. |
 | Existing IDE list (canonical 12) | `src/npx-cli/commands/ide-detection.ts:40–129` | claude-code, gemini-cli, opencode, openclaw, windsurf, codex-cli, cursor, copilot-cli, antigravity, goose, roo-code, warp. |
 | `trustedDependencies` allowlist (postinstall guard) | `scripts/build-hooks.js:106–108` and root `package.json:190–202` | The pattern Phase 7 enforces. |
 | Existing install tests (extend, don't replace) | `tests/install-non-tty.test.ts`, `tests/setup-runtime.test.ts`, `tests/install-disable-auto-memory.test.ts` | Same harness shape (mocked spawn, isolated TMPDIR HOME). |
@@ -66,7 +66,7 @@ Each implementation phase below cites these facts by line number; do not re-deri
 | npm `ERESOLVE` semantics | `npm install` docs (npm v10+) and npm RFC 0023 | `ERESOLVE` is emitted on stderr with a deterministic prefix `npm error code ERESOLVE` followed by `While resolving:` block. `--legacy-peer-deps` skips peer-dep resolution; `--force` accepts conflicting trees. They are NOT equivalent — `--force` is more aggressive and is *not* what we want. |
 | Bun install errors | `bun install` source / docs | Stderr lines start with `error:`. A peer-dep violation prints `error: package "X" has unmet peer "Y"`. A network failure prints `error: failed to resolve`. |
 | uv install script return codes | `https://astral.sh/uv/install.sh` | Exits 0 on success even when binary lands in a non-PATH dir (e.g. `~/.local/bin` not yet on `PATH`). The version probe must check `UV_COMMON_PATHS` after the script runs. |
-| Claude Code hook exit-code contract | `CLAUDE.md` "Exit Code Strategy" | Worker/hook errors exit 0 (Windows Terminal hygiene). The `npx claude-mem install` CLI is NOT a hook and is allowed to exit non-zero on ABORT. |
+| Claude Code hook exit-code contract | `CLAUDE.md` "Exit Code Strategy" | Worker/hook errors exit 0 (Windows Terminal hygiene). The `npx memsmith install` CLI is NOT a hook and is allowed to exit non-zero on ABORT. |
 
 ### Anti-patterns / API methods that DO NOT exist (avoid inventing)
 
@@ -78,7 +78,7 @@ Each implementation phase below cites these facts by line number; do not re-deri
 - The `bufferConsole` wrapper (install.ts:43–64) **swallows** stderr inside the buffer; do not assume stderr ever reaches the terminal in non-interactive mode unless explicitly flushed.
 - `clack`'s `p.spinner()` *overwrites* the line on `.stop()`. Errors emitted via `console.warn` during a spinner are lost. Phase 3's WARN_CONTINUE must enqueue to a summary list, not log live.
 - `ensureUv()` already throws on failure — but the throw is caught one level up by clack's task runner, which displays the message in a single line. Do not assume the user reads it; Phase 5 must add an explicit ABORT block.
-- The `install/public/install.sh` and `install/public/installer.js` files are **already deprecated stubs** (verified — both just print "use npx claude-mem install"). Don't waste audit time on them.
+- The `install/public/install.sh` and `install/public/installer.js` files are **already deprecated stubs** (verified — both just print "use npx memsmith install"). Don't waste audit time on them.
 - `openclaw/install.sh` is the active shell installer (1653 lines). It has its own bash-level audit in Phase 1.
 
 ### File inventory
@@ -204,20 +204,20 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [ /* see seed list below */ ];
 
 | id | Severity | Match heuristic | Remediation summary |
 |---|---|---|---|
-| `bun-missing-after-install` | ABORT | `cause.message.includes('Bun executable not found')` | "Install Bun manually then re-run `npx claude-mem install`. macOS/Linux: `curl -fsSL https://bun.sh/install \| bash`. Windows: `winget install Oven-sh.Bun`." |
+| `bun-missing-after-install` | ABORT | `cause.message.includes('Bun executable not found')` | "Install Bun manually then re-run `npx memsmith install`. macOS/Linux: `curl -fsSL https://bun.sh/install \| bash`. Windows: `winget install Oven-sh.Bun`." |
 | `uv-missing-after-install` | ABORT (downgradable to WARN_CONTINUE if user opted out of vector search — see Phase 5) | `cause.message.includes('uv executable not found') \|\| cause.message.includes('uv installed but version probe failed')` | Platform-specific block from `installUv()` (lines 164–166) surfaced as primary message. |
-| `tree-sitter-eresolve` | ABORT (after one retry with `--legacy-peer-deps`) | stderr contains literal `ERESOLVE` AND `--legacy-peer-deps` retry also failed | "ERESOLVE conflict in marketplace deps that --legacy-peer-deps could not resolve. Open an issue at https://github.com/thedotmack/claude-mem/issues with the conflicting peer ranges below: \<details\>." |
-| `bun-install-network-fail` | SILENT_RETRY → WARN_CONTINUE | bun stderr `error: failed to resolve` for a known package on first try, repeated on retry | "bun install failed to resolve packages — check network connectivity and re-run `npx claude-mem install`. Cached packages in ~/.bun/install/cache will be reused." |
-| `marketplace-dir-not-writable` | ABORT | `EACCES`/`EPERM` on `mkdirSync` / `writeFileSync` to `marketplaceDirectory()` | "Cannot write to marketplace directory `${dataDir}/.claude/plugins/...`. Check filesystem permissions or set CLAUDE_MEM_DATA_DIR to a writable path." |
-| `plugin-json-corrupt` | ABORT | JSON.parse error on `plugin.json` | "Existing plugin.json is corrupt. Run `rm -rf ~/.claude/plugins/marketplaces/thedotmack` and re-run install." |
+| `tree-sitter-eresolve` | ABORT (after one retry with `--legacy-peer-deps`) | stderr contains literal `ERESOLVE` AND `--legacy-peer-deps` retry also failed | "ERESOLVE conflict in marketplace deps that --legacy-peer-deps could not resolve. Open an issue at https://github.com/shshalom/memsmith/issues with the conflicting peer ranges below: \<details\>." |
+| `bun-install-network-fail` | SILENT_RETRY → WARN_CONTINUE | bun stderr `error: failed to resolve` for a known package on first try, repeated on retry | "bun install failed to resolve packages — check network connectivity and re-run `npx memsmith install`. Cached packages in ~/.bun/install/cache will be reused." |
+| `marketplace-dir-not-writable` | ABORT | `EACCES`/`EPERM` on `mkdirSync` / `writeFileSync` to `marketplaceDirectory()` | "Cannot write to marketplace directory `${dataDir}/.claude/plugins/...`. Check filesystem permissions or set MEMSMITH_DATA_DIR to a writable path." |
+| `plugin-json-corrupt` | ABORT | JSON.parse error on `plugin.json` | "Existing plugin.json is corrupt. Run `rm -rf ~/.claude/plugins/marketplaces/shshalom` and re-run install." |
 | `all-ides-failed` | ABORT | `failedIDEs.length === selectedIDEs.length && selectedIDEs.length > 0` | "Every selected IDE integration failed. See per-IDE errors above. Re-run with `--ide=<single>` to isolate." |
-| `single-ide-failed` | FAIL_LOUD_PER_IDE | per-IDE installer non-zero exit | Echo first 20 lines of stderr + "Run `npx claude-mem install --ide=<name>` to retry just this IDE." |
-| `mcp-integration-optional-fail` | WARN_CONTINUE | MCP installer non-zero AND IDE has alternate (non-MCP) integration path | "MCP setup for ${ide} failed; non-MCP features still work. Run `npx claude-mem mcp ${ide}` later." |
+| `single-ide-failed` | FAIL_LOUD_PER_IDE | per-IDE installer non-zero exit | Echo first 20 lines of stderr + "Run `npx memsmith install --ide=<name>` to retry just this IDE." |
+| `mcp-integration-optional-fail` | WARN_CONTINUE | MCP installer non-zero AND IDE has alternate (non-MCP) integration path | "MCP setup for ${ide} failed; non-MCP features still work. Run `npx memsmith mcp ${ide}` later." |
 | `path-update-failed` | WARN_CONTINUE | `applyClaudeCodePathSetupIfNeeded` write fails | "Could not auto-update PATH in ${configFile}. Run manually: `echo '...' >> ${configFile}`." |
 | `auto-memory-toggle-failed` | WARN_CONTINUE | `disableClaudeAutoMemory` throws | "Could not disable Claude Code auto-memory. Add `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` to ~/.claude/settings.json env block." |
 | `version-probe-transient` | SILENT_RETRY → WARN_CONTINUE | bun/uv `--version` returns non-zero once | (no message on first try; on retry: "Could not verify ${tool} version — installation likely OK.") |
 | `idempotent-json-merge-race` | SILENT_RETRY | `EEXIST`/`ENOENT` race during `writeJsonFileAtomic` retry | (silent; retry once.) |
-| `child-process-timeout` | ABORT | spawnSync/execSync timeout (Phase 7's wrapper) | "${command} did not finish in ${timeout}s. Check network connectivity. If the host is slow, set CLAUDE_MEM_INSTALL_TIMEOUT_MS." |
+| `child-process-timeout` | ABORT | spawnSync/execSync timeout (Phase 7's wrapper) | "${command} did not finish in ${timeout}s. Check network connectivity. If the host is slow, set MEMSMITH_INSTALL_TIMEOUT_MS." |
 
 ### Verification checklist
 
@@ -229,7 +229,7 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [ /* see seed list below */ ];
 ### Anti-pattern guards
 
 - Do **not** include a `SILENT` severity (no remediation, no log). It does not exist in this taxonomy.
-- Do **not** hard-code `~/.claude-mem` paths in remediation strings. Always interpolate `dataDir`.
+- Do **not** hard-code `~/.memsmith` paths in remediation strings. Always interpolate `dataDir`.
 - Do **not** add a category for "unknown error" with low severity. Unknown errors must default to ABORT until classified — fail loud is the safe default.
 
 ---
@@ -287,7 +287,7 @@ export function flushSummary(summary: InstallSummary, isInteractive: boolean): v
 
 | Severity | Behavior |
 |---|---|
-| `ABORT` | Write `~/.claude-mem/last-install-error.json` (path resolved via `pluginCacheDirectory` / `CLAUDE_MEM_DATA_DIR`), print remediation block to stderr (ANSI-colored only when `process.stderr.isTTY`), throw `InstallAbortError` with `cause` chained. The top-level `runInstallCommand` catches `InstallAbortError`, prints the headline "Installation Aborted: <category.id>", and `process.exit(1)`. |
+| `ABORT` | Write `~/.memsmith/last-install-error.json` (path resolved via `pluginCacheDirectory` / `MEMSMITH_DATA_DIR`), print remediation block to stderr (ANSI-colored only when `process.stderr.isTTY`), throw `InstallAbortError` with `cause` chained. The top-level `runInstallCommand` catches `InstallAbortError`, prints the headline "Installation Aborted: <category.id>", and `process.exit(1)`. |
 | `FAIL_LOUD_PER_IDE` | Append to `summary.failedIDEs`, append a remediation block to `summary.warnings`. Continue. The top-level summary prints "Installation Partial" (red, not green). Exits 1 only if all IDEs fail (which then triggers `all-ides-failed` ABORT). |
 | `WARN_CONTINUE` | Append to `summary.warnings`. Do **not** log live (clack spinner would clobber). `flushSummary` prints all warnings *after* the spinner / outro. |
 | `SILENT_RETRY` | Increment `summary.retryCount[component]`. If count > 1, escalate to WARN_CONTINUE. Caller uses `withRetry` helper to wrap the action. |
@@ -374,7 +374,7 @@ async function runNpmInstallInMarketplace(summary: InstallSummary): Promise<void
 
   // Phase 7: --ignore-scripts is the default. The 12.6.2 incident proved that
   // any new transitive dep with a postinstall (e.g. tree-sitter-swift's
-  // tree-sitter-cli download) can hang `npx claude-mem install`.
+  // tree-sitter-cli download) can hang `npx memsmith install`.
   const baseFlags = ['install', '--omit=dev', '--ignore-scripts'];
 
   const strictResult = await runNpmStrict(marketplaceDir, baseFlags);
@@ -504,7 +504,7 @@ export async function ensureUv(
 ```
 
 Helpers:
-- `userHasOptedOutOfVectorSearch()` — check `SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH)` for a `CLAUDE_MEM_DISABLE_VECTOR_SEARCH` setting (define if it does not exist; default false).
+- `userHasOptedOutOfVectorSearch()` — check `SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH)` for a `MEMSMITH_DISABLE_VECTOR_SEARCH` setting (define if it does not exist; default false).
 - `platformUvRemediation()` — extract the existing platform-specific block from `installUv` (lines 164–166) into a standalone exported function so both error paths share it.
 
 ### Apply same pattern to `ensureBun`
@@ -547,7 +547,7 @@ Use `bun test`'s existing harness. For each of the 12 IDEs (`claude-code`, `gemi
 
 ### Helpers needed
 
-- `setupIsolatedHome(): { home: string; cleanup: () => void }` — creates a temp HOME, sets `CLAUDE_MEM_DATA_DIR=$home/.claude-mem`, `HOME=$home`, returns paths.
+- `setupIsolatedHome(): { home: string; cleanup: () => void }` — creates a temp HOME, sets `MEMSMITH_DATA_DIR=$home/.memsmith`, `HOME=$home`, returns paths.
 - `mockSpawnSync(matrix: Record<string, { code: number; stdout?: string; stderr?: string }>): void` — installs a mock that matches by command+arg.
 - `runInstallSubprocess(ide: string, env: Record<string, string>): Promise<{ exitCode: number; stdout: string; stderr: string }>` — spawns `bun src/npx-cli/index.ts install --no-auto-start --ide=${ide}` with mocked env via a wrapper that injects the spawn mocks.
 
@@ -594,7 +594,7 @@ Use `bun test`'s existing harness. For each of the 12 IDEs (`claude-code`, `gemi
 //
 // Why: see CHANGELOG.md:93–110 (12.6.1 → 12.6.2 incident). npm does NOT honor
 // trustedDependencies (Bun-only). Any new package with a network postinstall
-// will hang `npx claude-mem install`.
+// will hang `npx memsmith install`.
 
 const ALLOWLIST = new Set([
   'tree-sitter-cli',     // builds bindings; trusted because we explicitly need it
@@ -632,8 +632,8 @@ Every `execSync`/`spawnSync` install command must have an explicit timeout:
 ```typescript
 const TIMEOUT_FIRST_RUN_MS = 5 * 60 * 1000;   // 5 min
 const TIMEOUT_SUBSEQUENT_MS = 2 * 60 * 1000;  // 2 min
-const installTimeout = process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS
-  ? Number(process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS)
+const installTimeout = process.env.MEMSMITH_INSTALL_TIMEOUT_MS
+  ? Number(process.env.MEMSMITH_INSTALL_TIMEOUT_MS)
   : (isFirstRun ? TIMEOUT_FIRST_RUN_MS : TIMEOUT_SUBSEQUENT_MS);
 ```
 
@@ -660,7 +660,7 @@ Audit-driven list of spawns to wrap:
 - Do **not** auto-add packages to the allowlist when CI fails. Failing CI is the point — a human reviews each new postinstall.
 - Do **not** add `tree-sitter-cli` to the allowlist twice (it already lives in `trustedDependencies` in package.json:190 and `scripts/build-hooks.js:106`). The new allowlist is just a CI-time guard, not a duplicate of trustedDependencies.
 - Do **not** remove `--ignore-scripts` from `bun install` even though Bun honors `trustedDependencies` — the belt-and-suspenders is intentional.
-- Do **not** make the timeout configurable per-IDE — one global `CLAUDE_MEM_INSTALL_TIMEOUT_MS` env var is sufficient.
+- Do **not** make the timeout configurable per-IDE — one global `MEMSMITH_INSTALL_TIMEOUT_MS` env var is sufficient.
 
 ---
 
@@ -678,7 +678,7 @@ Audit-driven list of spawns to wrap:
 `docs/public/troubleshooting.mdx`:
 - Section "Installation errors": lists each `id` from the taxonomy table, the error message format, and the remediation. Markdown table mirroring Phase 2's seed taxonomy.
 - Section "Reading the error": shows a sample stderr block and how to copy-paste the bottom block into a GitHub issue.
-- Section "Debug": doc the `CLAUDE_MEM_INSTALL_TIMEOUT_MS` env var and `~/.claude-mem/last-install-error.json`.
+- Section "Debug": doc the `MEMSMITH_INSTALL_TIMEOUT_MS` env var and `~/.memsmith/last-install-error.json`.
 
 `CLAUDE.md` "Exit Code Strategy" — append:
 
@@ -686,7 +686,7 @@ Audit-driven list of spawns to wrap:
 **Installer exit codes** (note: installer is NOT a hook; it follows standard CLI exit semantics):
 
 - **Exit 0**: install succeeded; "Installation Complete" headline; summary may include `WARN_CONTINUE` warnings.
-- **Exit 1**: ABORT or partial-IDE failures. Headline is "Installation Aborted: \<category\>" or "Installation Partial". Structured cause written to `~/.claude-mem/last-install-error.json` (or `$CLAUDE_MEM_DATA_DIR/last-install-error.json`). See `src/npx-cli/install/error-taxonomy.ts` for the full category list.
+- **Exit 1**: ABORT or partial-IDE failures. Headline is "Installation Aborted: \<category\>" or "Installation Partial". Structured cause written to `~/.memsmith/last-install-error.json` (or `$MEMSMITH_DATA_DIR/last-install-error.json`). See `src/npx-cli/install/error-taxonomy.ts` for the full category list.
 ```
 
 `docs.json` (Mintlify nav): add a link to the new troubleshooting page.
@@ -733,7 +733,7 @@ Audit-driven list of spawns to wrap:
 If post-merge a real-world install regression appears:
 1. Revert PR. Each phase is on a separate commit so partial revert is feasible.
 2. The pre-existing `--legacy-peer-deps` unconditional behavior is preserved in git history at the line numbers cited in this plan.
-3. The `~/.claude-mem/last-install-error.json` file written by `installerError` provides a reproducible diagnostic for any user who hits an ABORT — capture this in the rollback issue.
+3. The `~/.memsmith/last-install-error.json` file written by `installerError` provides a reproducible diagnostic for any user who hits an ABORT — capture this in the rollback issue.
 
 ---
 

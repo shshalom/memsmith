@@ -109,5 +109,5 @@
       "startAtEnd": true
     }
   ],
-  "stateFile": "~/.claude-mem/transcript-watch-state.json"
+  "stateFile": "~/.memsmith/transcript-watch-state.json"
 }

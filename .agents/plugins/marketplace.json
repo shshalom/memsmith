@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem-local",
+  "name": "memsmith-local",
   "interface": {
-    "displayName": "claude-mem (local)"
+    "displayName": "memsmith (local)"
   },
   "plugins": [
     {
-      "name": "claude-mem",
+      "name": "memsmith",
       "source": {
         "source": "local",
         "path": "./plugin"

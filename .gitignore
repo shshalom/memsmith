@@ -37,11 +37,11 @@ src/ui/viewer.html
 
 plugin/.cli-installed
 
-plugin/scripts/claude-mem
+plugin/scripts/memsmith
 
 CONTRIB_NOTES.md
 
-.docker-claude-mem-data/
+.docker-memsmith-data/
 
 .docker-blowout-data/
 .scratch/

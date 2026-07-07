@@ -14,7 +14,7 @@ Allowed APIs and patterns:
   It currently resolves the plugin root from `CLAUDE_PLUGIN_ROOT`, then from the
   script directory.
 - Export script reads worker settings via `SettingsDefaultsManager.loadFromFile`.
-  Worker settings must respect `CLAUDE_MEM_DATA_DIR`, because shared path helpers
+  Worker settings must respect `MEMSMITH_DATA_DIR`, because shared path helpers
   and settings defaults already expose that environment override.
 - `/api/sdk-sessions/batch` is registered in
   `src/services/worker/http/routes/DataRoutes.ts` and expects
@@ -32,8 +32,8 @@ Anti-pattern guards:
 - Do not rely only on `schema_versions` for columns that current SQL references.
 - Do not add another install marker format. Read both legacy plain text and the
   current JSON format, but keep writing the JSON marker.
-- Do not make `export-memories.ts` fall back to `~/.claude-mem` when
-  `CLAUDE_MEM_DATA_DIR` is set.
+- Do not make `export-memories.ts` fall back to `~/.memsmith` when
+  `MEMSMITH_DATA_DIR` is set.
 
 ## Phase 1: Install Marker Compatibility
 
@@ -57,8 +57,8 @@ Verification:
 What to implement:
 
 - Update `scripts/export-memories.ts` to load settings from
-  `CLAUDE_MEM_DATA_DIR/settings.json` instead of always using
-  `~/.claude-mem/settings.json`.
+  `MEMSMITH_DATA_DIR/settings.json` instead of always using
+  `~/.memsmith/settings.json`.
 - Change the `/api/sdk-sessions/batch` request body from `sdkSessionIds` to
   `memorySessionIds`.
 - Optionally allow `DataRoutes` to accept the legacy `sdkSessionIds` alias as a
@@ -69,7 +69,7 @@ Verification:
 - Add or update tests around the SDK-session batch route alias/coercion.
 - Add a script-level test if practical; otherwise verify by grep that
   `scripts/export-memories.ts` no longer sends `sdkSessionIds` and no longer
-  hardcodes `homedir(), '.claude-mem'`.
+  hardcodes `homedir(), '.memsmith'`.
 - Run the focused route/export tests.
 
 ## Phase 3: Current Pending Queue Shape Guardrails

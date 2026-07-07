@@ -1,13 +1,13 @@
 {
-  "name": "claude-mem",
+  "name": "memsmith",
   "version": "13.10.1",
   "description": "Memory compression system for Claude Code - persist context across sessions",
   "author": {
     "name": "Alex Newman",
-    "url": "https://github.com/thedotmack"
+    "url": "https://github.com/shshalom"
   },
-  "homepage": "https://github.com/thedotmack/claude-mem#readme",
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "homepage": "https://github.com/shshalom/memsmith#readme",
+  "repository": "https://github.com/shshalom/memsmith",
   "license": "Apache-2.0",
   "keywords": [
     "claude",
@@ -26,16 +26,16 @@
   "mcpServers": "./.mcp.json",
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
-    "displayName": "claude-mem",
+    "displayName": "memsmith",
     "shortDescription": "Persistent memory and context compression across coding sessions.",
-    "longDescription": "claude-mem captures coding-session activity, compresses it into reusable observations, and injects relevant context back into future Claude Code and Codex-compatible sessions.",
+    "longDescription": "memsmith captures coding-session activity, compresses it into reusable observations, and injects relevant context back into future Claude Code and Codex-compatible sessions.",
     "developerName": "Alex Newman",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/thedotmack/claude-mem",
+    "websiteURL": "https://github.com/shshalom/memsmith",
     "defaultPrompt": [
       "Find what I already learned about this codebase before I start a new task.",
       "Show recent observations related to the files I am editing right now.",

@@ -1,12 +1,12 @@
-# Claude-Mem 13 Server Beta: Independent BullMQ Observation Runtime
+# MemSmith 13 Server Beta: Independent BullMQ Observation Runtime
 
 Status: implementation plan  
 Date: 2026-05-07  
-Release target: claude-mem 13 Server (beta)  
+Release target: memsmith 13 Server (beta)  
 Relationship to prior plans:
 
-- Extends `plans/2026-05-07-claude-mem-server-apache-bullmq-team-auth.md`.
-- Supersedes the worker-parity parts of `plans/2026-05-07-claude-mem-13-server-beta-full-worker-parity.md` where that plan allowed Server beta to wrap/copy `WorkerService`.
+- Extends `plans/2026-05-07-memsmith-server-apache-bullmq-team-auth.md`.
+- Supersedes the worker-parity parts of `plans/2026-05-07-memsmith-13-server-beta-full-worker-parity.md` where that plan allowed Server beta to wrap/copy `WorkerService`.
 - Keeps the existing worker in place, but makes Server beta a fully independent runtime, not a facade over worker internals.
 
 ## Executive Decision
@@ -39,9 +39,9 @@ If any compatibility endpoint still uses `/v1/memories`, it should be treated as
 
 ### Local Sources Read
 
-- `plans/2026-05-07-claude-mem-server-apache-bullmq-team-auth.md`
-- `plans/2026-05-07-claude-mem-13-server-beta-full-worker-parity.md`
-- `/Users/alexnewman/Downloads/claude-mem-handoff-docs/claude-mem-server-plan.md`
+- `plans/2026-05-07-memsmith-server-apache-bullmq-team-auth.md`
+- `plans/2026-05-07-memsmith-13-server-beta-full-worker-parity.md`
+- `/Users/alexnewman/Downloads/memsmith-handoff-docs/memsmith-server-plan.md`
 - `src/server/routes/v1/ServerV1Routes.ts`
 - `src/server/queue/BullMqObservationQueueEngine.ts`
 - `src/server/queue/ObservationQueueEngine.ts`
@@ -164,7 +164,7 @@ QueueEvents/SSE/audit/search index update
     - `src/storage/postgres/pool.ts` for the shared `pg.Pool` factory, health check, transactions, and graceful shutdown;
     - `src/storage/postgres/schema.ts` for migration/bootstrap SQL and schema version constants;
     - `src/storage/postgres/index.ts` for exports used by Server beta runtime wiring;
-  - `CLAUDE_MEM_SERVER_DATABASE_URL`;
+  - `MEMSMITH_SERVER_DATABASE_URL`;
   - connection pool size and timeout settings;
   - startup validation that fails Server beta when Postgres is required but unavailable;
   - graceful shutdown that drains and closes the Postgres pool.
@@ -482,7 +482,7 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
   - SSE/event broadcaster boundary as an inert interface with a disabled/no-op adapter;
   - server storage repositories.
 - Phase 2 creates lifecycle/runtime boundaries only. It must not implement BullMQ queue processing, provider-backed observation generation, generation workers, or SSE broadcasting; actual queue manager implementation starts in Phase 3, provider/generation implementation starts in later generation phases, and the real event broadcaster is wired only when its phase requires it.
-- Route `claude-mem server start|stop|restart|status` to `ServerBetaService`, not `WorkerService`.
+- Route `memsmith server start|stop|restart|status` to `ServerBetaService`, not `WorkerService`.
 - Keep worker commands routed to `WorkerService`.
 - Add separate runtime state files:
   - `.server-beta.pid`
@@ -501,7 +501,7 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
 
 - `rg -n "WorkerService|services/worker-service|worker/http" src/server src/npx-cli/commands/server.ts src/npx-cli/commands/worker.ts`
   - Server runtime source must not import or instantiate `WorkerService`.
-- `npx claude-mem server status` reports server-beta state independently of worker state.
+- `npx memsmith server status` reports server-beta state independently of worker state.
 - Worker `start|stop|status` commands still work.
 - Server beta can start while worker is stopped.
 - Server beta can stop without touching worker.
@@ -535,7 +535,7 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
   - enqueue outbox rows in `queued` or stale `processing`;
   - do not enqueue rows for already completed jobs;
   - remove or replace terminal BullMQ jobs before deterministic job ID reuse.
-- Add queue health to `/v1/info`, `/api/health`, and `claude-mem server status`.
+- Add queue health to `/v1/info`, `/api/health`, and `memsmith server status`.
 
 ### Documentation References
 
@@ -817,13 +817,13 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
   - Postgres container for canonical observation/job/session storage;
   - Valkey container for BullMQ.
 - Add env validation:
-  - `CLAUDE_MEM_RUNTIME=server-beta`
-  - `CLAUDE_MEM_QUEUE_ENGINE=bullmq`
+  - `MEMSMITH_RUNTIME=server-beta`
+  - `MEMSMITH_QUEUE_ENGINE=bullmq`
   - Postgres URL required.
   - Redis/Valkey URL required.
   - API-key auth required by default.
 - Add optional separate generation worker process mode:
-  - `claude-mem server worker start`
+  - `memsmith server worker start`
   - same codebase, separate process, same BullMQ queues.
 
 ### Documentation References
@@ -889,10 +889,10 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
 
 ### What To Implement
 
-- Add `claude-mem server jobs status`.
-- Add `claude-mem server jobs retry <id>`.
-- Add `claude-mem server jobs cancel <id>`.
-- Add `claude-mem server jobs failed`.
+- Add `memsmith server jobs status`.
+- Add `memsmith server jobs retry <id>`.
+- Add `memsmith server jobs cancel <id>`.
+- Add `memsmith server jobs failed`.
 - Add queue metrics:
   - waiting;
   - active;
@@ -952,7 +952,7 @@ Phase 13 is not an implementation phase and does not need the implementation-pha
 ```bash
 rg -n "new WorkerService|services/worker-service|services/worker/http/routes" src/server
 rg -n "PendingMessageStore|SessionQueueProcessor" src/server
-rg -n "CLAUDE_MEM_AUTH_MODE=local-dev|ALLOW_LOCAL_DEV_BYPASS" docker docs/server.md
+rg -n "MEMSMITH_AUTH_MODE=local-dev|ALLOW_LOCAL_DEV_BYPASS" docker docs/server.md
 rg -n "POST /v1/events|generationJob|wait=true" docs README.md
 ```
 

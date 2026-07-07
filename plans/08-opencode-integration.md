@@ -2,14 +2,14 @@
 
 ## Defect
 
-claude-mem's OpenCode plugin was written against event names that do not exist in OpenCode's hook API (e.g. `session.created`, `message.updated`, `session.compacted`, `file.edited`, `session.deleted`). Because no real event ever fires, sessions are never initialized and no observations are captured — while `claude-mem install` still reports success. The result is a silent dead loop: OpenCode users believe memory is recording and it is recording nothing. A second defect compounds it: the OpenCode search client parses `data.items` while the worker returns Claude-style `data.content` blocks, so even manual search returns "No results", and it resolves the worker port from the wrong source.
+memsmith's OpenCode plugin was written against event names that do not exist in OpenCode's hook API (e.g. `session.created`, `message.updated`, `session.compacted`, `file.edited`, `session.deleted`). Because no real event ever fires, sessions are never initialized and no observations are captured — while `memsmith install` still reports success. The result is a silent dead loop: OpenCode users believe memory is recording and it is recording nothing. A second defect compounds it: the OpenCode search client parses `data.items` while the worker returns Claude-style `data.content` blocks, so even manual search returns "No results", and it resolves the worker port from the wrong source.
 
 The architectural fix is to bind the plugin to OpenCode's **real** event contract and to the worker's **actual** response shape, then add a contract test so a future OpenCode API change fails CI rather than silently disabling capture.
 
 ## Children
 
 - #2435 — plugin subscribes to non-existent OpenCode event names → zero sessions/observations recorded
-- #2406 — `claude_mem_search` always returns "No results" (`data.items` vs `data.content`); worker-port resolution uses the wrong source
+- #2406 — `memsmith_search` always returns "No results" (`data.items` vs `data.content`); worker-port resolution uses the wrong source
 - #2419 — feature framing of the same gap: OpenCode plugin lacks `tool.execute.after` observation capture
 - #2462 — duplicate user report: OpenCode install reports success but captures no memory
 
@@ -26,7 +26,7 @@ The architectural fix is to bind the plugin to OpenCode's **real** event contrac
 |---|---|---|
 | Tool execution in OpenCode | a tool call | `tool.execute.after` fires → observation POSTed → row appears |
 | Session lifecycle | open/compact/close | session init + compaction handled via real events |
-| `claude_mem_search` | a query with known results | parses `data.content`; returns the rows (not "No results") |
+| `memsmith_search` | a query with known results | parses `data.content`; returns the rows (not "No results") |
 | Worker-port resolution | non-default port via env/settings | client targets the correct port |
 
 The matrix lives in CI. An OpenCode-capture regression must fail CI before a user can file.
