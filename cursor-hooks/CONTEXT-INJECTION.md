@@ -6,7 +6,7 @@ Context is automatically injected via Cursor's **Rules** system:
 
 1. **Install**: `claude-mem cursor install` creates initial context file
 2. **Stop hook**: `session-summary.sh` updates context after each session ends
-3. **Cursor**: Automatically includes `.cursor/rules/claude-mem-context.mdc` in all chats
+3. **Cursor**: Automatically includes `.cursor/rules/memsmith-context.mdc` in all chats
 
 **Result**: Context appears at the start of every conversation, just like Claude Code!
 
@@ -21,7 +21,7 @@ claude-mem cursor install
 This:
 1. Copies hook scripts to `.cursor/hooks/`
 2. Creates `hooks.json` configuration
-3. Fetches existing context from claude-mem and writes to `.cursor/rules/claude-mem-context.mdc`
+3. Fetches existing context from claude-mem and writes to `.cursor/rules/memsmith-context.mdc`
 
 ### Context Updates at Three Points
 
@@ -43,7 +43,7 @@ ensure_worker_running "$worker_port"
 context=$(curl -s ".../api/context/inject?project=...")
 
 # 3. Write to rules file (used immediately by Cursor)
-cat > .cursor/rules/claude-mem-context.mdc << EOF
+cat > .cursor/rules/memsmith-context.mdc << EOF
 ---
 alwaysApply: true
 ---
@@ -64,7 +64,7 @@ curl -X POST .../api/sessions/summarize
 context=$(curl -s ".../api/context/inject?project=...")
 
 # 3. Write to rules file for next session
-cat > .cursor/rules/claude-mem-context.mdc << EOF
+cat > .cursor/rules/memsmith-context.mdc << EOF
 ---
 alwaysApply: true
 ---
@@ -75,7 +75,7 @@ EOF
 
 ### The Rules File
 
-Located at: `.cursor/rules/claude-mem-context.mdc`
+Located at: `.cursor/rules/memsmith-context.mdc`
 
 ```markdown
 ---
@@ -164,10 +164,10 @@ Ask the agent: "Check claude-mem for any previous work on authentication"
 
 The context file is created at:
 ```
-<workspace>/.cursor/rules/claude-mem-context.mdc
+<workspace>/.cursor/rules/memsmith-context.mdc
 ```
 
 This is version-controlled by default. Add to `.gitignore` if you don't want to commit it:
 ```
-.cursor/rules/claude-mem-context.mdc
+.cursor/rules/memsmith-context.mdc
 ```

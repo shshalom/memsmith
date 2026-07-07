@@ -12,7 +12,7 @@ npm run build
 
 echo "[build] docker build -t $TAG"
 docker build \
-  -f docker/claude-mem/Dockerfile \
+  -f docker/memsmith/Dockerfile \
   -t "$TAG" \
   "$REPO_ROOT"
 

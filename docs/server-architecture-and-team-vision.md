@@ -40,7 +40,7 @@ Phases 1–3 (already merged in #2351) delivered the substrate: Postgres schema 
 | 7 | Hooks routed via HTTP (no worker dependency) | `src/services/hooks/runtime-selector.ts`, `src/services/hooks/server-client.ts`, `src/services/hooks/server-bootstrap.ts` |
 | 8 | Dedicated MCP server backed by `/v1/*` core | `src/servers/mcp-server.ts` |
 | 9 | Compatibility adapters for legacy worker payloads | `src/server/compat/SessionsObservationsAdapter.ts`, `src/server/compat/SessionsSummarizeAdapter.ts` |
-| 10 | Docker stack — split-process deployable | `docker-compose.yml`, `docker/claude-mem/Dockerfile`, `scripts/e2e-server-docker.sh` |
+| 10 | Docker stack — split-process deployable | `docker-compose.yml`, `docker/memsmith/Dockerfile`, `scripts/e2e-server-docker.sh` |
 | 11 | Team-aware generation + audit chain | scope checks + audit writes inside `ProviderObservationGenerator.ts`; identity context in `IngestEventsService.ts`; `audit_logs` plumbing throughout |
 | 12 | Observability + operations | `src/server/middleware/request-id.ts`, request_id in BullMQ payload, `/api/health` queue lanes, `src/cli/server-jobs.ts`, operator routes (`POST /v1/jobs/:id/retry`, `POST /v1/jobs/:id/cancel`) |
 | 13 | Release readiness audit | `docs/server-release-readiness.md` |
@@ -642,7 +642,7 @@ Code referenced throughout this doc, for navigation:
   - `src/server/jobs/types.ts`
 - Deployment
   - `docker-compose.yml`
-  - `docker/claude-mem/Dockerfile`
+  - `docker/memsmith/Dockerfile`
   - `scripts/e2e-server-docker.sh`
 - Tests
   - `tests/server/runtime/*`

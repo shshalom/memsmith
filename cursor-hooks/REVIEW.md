@@ -168,7 +168,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 
 **How It Works**:
 1. Fetches context from claude-mem worker
-2. Writes to `.cursor/rules/claude-mem-context.mdc` with `alwaysApply: true`
+2. Writes to `.cursor/rules/memsmith-context.mdc` with `alwaysApply: true`
 3. Cursor auto-includes this rule in all chat sessions
 4. Context refreshes on every prompt submission
 
@@ -178,7 +178,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 3. Get project name
 4. Ensure worker is running
 5. Fetch context from `/api/context/inject`
-6. Write context to `.cursor/rules/claude-mem-context.mdc`
+6. Write context to `.cursor/rules/memsmith-context.mdc`
 7. Output `{"continue": true}`
 
 **Edge Cases Handled**:
@@ -293,7 +293,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
    - ⚠️ Requires jq and curl
 
 3. **Context Injection**:
-   - ✅ Solved via auto-updated `.cursor/rules/claude-mem-context.mdc`
+   - ✅ Solved via auto-updated `.cursor/rules/memsmith-context.mdc`
    - ✅ Context also available via MCP tools
    - ✅ Context also available via web viewer
 

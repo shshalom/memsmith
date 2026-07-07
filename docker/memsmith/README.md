@@ -18,8 +18,8 @@ afterwards.
 
 ```bash
 # From the repo root:
-docker/claude-mem/build.sh
-docker/claude-mem/run.sh
+docker/memsmith/build.sh
+docker/memsmith/run.sh
 ```
 
 `run.sh` drops you into `bash` inside the container with `claude` on `PATH` and
@@ -60,7 +60,7 @@ latest:
 
 ```bash
 docker build \
-  -f docker/claude-mem/Dockerfile \
+  -f docker/memsmith/Dockerfile \
   --build-arg BUN_VERSION=1.3.12 \
   --build-arg UV_VERSION=0.11.7 \
   --build-arg CLAUDE_CODE_VERSION=1.2.3 \
@@ -124,7 +124,7 @@ docker run --rm -it \
 Anything after `run.sh` is forwarded to the container as the command:
 
 ```bash
-docker/claude-mem/run.sh claude --plugin-dir /opt/claude-mem --print "what did we learn yesterday?"
+docker/memsmith/run.sh claude --plugin-dir /opt/claude-mem --print "what did we learn yesterday?"
 ```
 
 ## Cleanup

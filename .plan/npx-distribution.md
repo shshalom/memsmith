@@ -522,7 +522,7 @@ return {
      ```
    - Note: Tilde expansion (`~`) is NOT supported in `working_directory` — use absolute paths
    - Merge order: cloud → system → user → workspace (all hooks at all levels execute)
-   - Context injection via `.windsurf/rules/claude-mem-context.md` (workspace-level; Windsurf rules are workspace-scoped)
+   - Context injection via `.windsurf/rules/memsmith-context.md` (workspace-level; Windsurf rules are workspace-scoped)
    - Rule limits: 6,000 chars per file, 12,000 chars total across all rules
 
 3. **Register `windsurf` in `getPlatformAdapter()`** at `src/cli/adapters/index.ts`
@@ -534,7 +534,7 @@ return {
 - `npx claude-mem install --ide windsurf` creates hooks config at `~/.codeium/windsurf/hooks.json`
 - Windsurf sessions are captured by the worker via post-action hooks
 - `trajectory_id` is used as session identifier
-- Context is injected via `.windsurf/rules/claude-mem-context.md` (under 6K char limit)
+- Context is injected via `.windsurf/rules/memsmith-context.md` (under 6K char limit)
 - Existing hooks.json is preserved (merge, not overwrite)
 
 ### Windsurf Anti-patterns
@@ -618,7 +618,7 @@ MCP-only integrations provide: search tools + context injection. They do NOT cap
 
 2. **Antigravity MCP setup**:
    - Write MCP config to `~/.gemini/antigravity/mcp_config.json` (merge, not overwrite)
-   - Context injection: `~/.gemini/GEMINI.md` (shared with Gemini CLI) and/or `.agent/rules/claude-mem-context.md`
+   - Context injection: `~/.gemini/GEMINI.md` (shared with Gemini CLI) and/or `.agent/rules/memsmith-context.md`
    - Detection: `~/.gemini/antigravity/` exists
    - Note: Antigravity has NO hook system — MCP is the only integration path
 
@@ -633,7 +633,7 @@ MCP-only integrations provide: search tools + context injection. They do NOT cap
 
 5. **Roo Code MCP setup**:
    - Write MCP config to `.roo/` or workspace settings
-   - Context injection: `.roo/rules/claude-mem-context.md`
+   - Context injection: `.roo/rules/memsmith-context.md`
    - Detection: Check for VS Code extension directory containing `roo-code`
 
 6. **Warp MCP setup**:

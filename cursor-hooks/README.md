@@ -44,7 +44,7 @@ The hooks bridge Cursor's hook system to claude-mem's worker API, allowing:
 Context is automatically injected via Cursor's **Rules** system:
 
 1. **Install**: `claude-mem cursor install` generates initial context
-2. **Stop hook**: Updates context in `.cursor/rules/claude-mem-context.mdc` after each session
+2. **Stop hook**: Updates context in `.cursor/rules/memsmith-context.mdc` after each session
 3. **Cursor**: Automatically includes this rule in ALL chat sessions
 
 **The context updates after each session ends**, so the next session sees fresh context.
@@ -150,7 +150,7 @@ chmod +x .cursor/hooks/*.sh
 ### Session Summary (`session-summary.sh`)
 - Called when agent loop ends (stop hook)
 - Requests summary generation from claude-mem
-- **Updates context file** in `.cursor/rules/claude-mem-context.mdc` for next session
+- **Updates context file** in `.cursor/rules/memsmith-context.mdc` for next session
 
 ## Configuration
 

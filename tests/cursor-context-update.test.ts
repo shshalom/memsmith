@@ -6,7 +6,7 @@ import { writeContextFile } from '../src/utils/cursor-utils';
 
 // Read-back helper for verifying writeContextFile output.
 function readContextFile(workspacePath: string): string | null {
-  const rulesFile = join(workspacePath, '.cursor', 'rules', 'claude-mem-context.mdc');
+  const rulesFile = join(workspacePath, '.cursor', 'rules', 'memsmith-context.mdc');
   if (!existsSync(rulesFile)) return null;
   return readFileSync(rulesFile, 'utf-8');
 }
@@ -37,10 +37,10 @@ describe('Cursor Context Update', () => {
       expect(existsSync(rulesDir)).toBe(true);
     });
 
-    it('creates claude-mem-context.mdc file', () => {
+    it('creates memsmith-context.mdc file', () => {
       writeContextFile(workspacePath, 'test context');
 
-      const rulesFile = join(workspacePath, '.cursor', 'rules', 'claude-mem-context.mdc');
+      const rulesFile = join(workspacePath, '.cursor', 'rules', 'memsmith-context.mdc');
       expect(existsSync(rulesFile)).toBe(true);
     });
 
@@ -88,7 +88,7 @@ describe('Cursor Context Update', () => {
     it('uses atomic write (no temp file left behind)', () => {
       writeContextFile(workspacePath, 'test context');
 
-      const tempFile = join(workspacePath, '.cursor', 'rules', 'claude-mem-context.mdc.tmp');
+      const tempFile = join(workspacePath, '.cursor', 'rules', 'memsmith-context.mdc.tmp');
       expect(existsSync(tempFile)).toBe(false);
     });
 

@@ -40,7 +40,7 @@ This document compares claude-mem's Claude Code hooks with the Cursor hooks impl
 **Status**: ✅ Complete parity via auto-updated rules file
 
 **How it works**:
-- Hook writes context to `.cursor/rules/claude-mem-context.mdc`
+- Hook writes context to `.cursor/rules/memsmith-context.mdc`
 - File has `alwaysApply: true` frontmatter
 - Cursor auto-includes this rule in all chat sessions
 - Context refreshes on every prompt submission
@@ -122,7 +122,7 @@ This document compares claude-mem's Claude Code hooks with the Cursor hooks impl
 ## Missing Features (Cursor Limitations)
 
 1. ~~**Direct Context Injection**~~: **SOLVED** via auto-updated rules file
-   - Hook writes context to `.cursor/rules/claude-mem-context.mdc`
+   - Hook writes context to `.cursor/rules/memsmith-context.mdc`
    - Cursor auto-includes rules with `alwaysApply: true`
    - Context refreshes on every prompt
 

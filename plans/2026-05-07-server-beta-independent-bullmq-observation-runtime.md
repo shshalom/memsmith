@@ -829,7 +829,7 @@ CREATE INDEX idx_audit_log_scope_created ON audit_log(project_id, team_id, creat
 ### Documentation References
 
 - Copy current Docker E2E style from `scripts/e2e-server-beta-docker.sh`.
-- Copy current Docker image layout from `docker/claude-mem/Dockerfile`.
+- Copy current Docker image layout from `docker/memsmith/Dockerfile`.
 - Copy Valkey settings from `plans/2026-05-06-redis-dependency-strategy.md`.
 
 ### Verification Checklist

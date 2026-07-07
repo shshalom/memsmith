@@ -91,7 +91,7 @@ services:
   claude-mem-server:
     build:
       context: .
-      dockerfile: docker/claude-mem/Dockerfile
+      dockerfile: docker/memsmith/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -141,7 +141,7 @@ services:
   claude-mem-worker:
     build:
       context: .
-      dockerfile: docker/claude-mem/Dockerfile
+      dockerfile: docker/memsmith/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:

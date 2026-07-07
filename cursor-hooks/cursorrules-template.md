@@ -5,7 +5,7 @@
 The `context-inject.sh` hook **automatically creates and updates** a rules file at:
 
 ```
-.cursor/rules/claude-mem-context.mdc
+.cursor/rules/memsmith-context.mdc
 ```
 
 This file:
@@ -69,7 +69,7 @@ Never fetch full details without filtering first.
 
 | File | Purpose | Created By |
 |------|---------|------------|
-| `.cursor/rules/claude-mem-context.mdc` | Auto-injected context | Hook (automatic) |
+| `.cursor/rules/memsmith-context.mdc` | Auto-injected context | Hook (automatic) |
 | `.cursor/rules/claude-mem-instructions.mdc` | MCP tool instructions | You (optional) |
 
 ## Git Ignore
@@ -78,7 +78,7 @@ If you don't want to commit the auto-generated context file:
 
 ```gitignore
 # .gitignore
-.cursor/rules/claude-mem-context.mdc
+.cursor/rules/memsmith-context.mdc
 ```
 
 The instructions file can be committed to share with your team.

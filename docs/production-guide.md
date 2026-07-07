@@ -41,13 +41,13 @@ sqlite3 ~/.claude-mem/claude-mem.db "
 
 ## Multi-Machine Setup
 
-If running claude-mem on multiple machines, use `claude-mem-sync` to keep observations in sync:
+If running claude-mem on multiple machines, use `memsmith-sync` to keep observations in sync:
 
 ```bash
-claude-mem-sync push <remote-host>    # local -> remote
-claude-mem-sync pull <remote-host>    # remote -> local
-claude-mem-sync sync <remote-host>    # bidirectional
-claude-mem-sync status <remote-host>  # compare counts
+memsmith-sync push <remote-host>    # local -> remote
+memsmith-sync pull <remote-host>    # remote -> local
+memsmith-sync sync <remote-host>    # bidirectional
+memsmith-sync status <remote-host>  # compare counts
 ```
 
 Deduplication is by `(created_at, title)` — safe to run repeatedly.
