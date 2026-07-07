@@ -16,7 +16,7 @@ import {
   type PostgresObservationGenerationJob,
 } from '../../../storage/postgres/generation-jobs.js';
 import { PostgresAuthRepository } from '../../../storage/postgres/auth.js';
-import { PostgresObservationRepository, type PostgresObservation } from '../../../storage/postgres/observations.js';
+import { PostgresObservationRepository, mapObservationRow, type ObservationRow, type PostgresObservation } from '../../../storage/postgres/observations.js';
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth } from '../../middleware/postgres-auth.js';
@@ -1304,7 +1304,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const byId = new Map(ranked.map(r => [r.id, r]));
     const needHead = new Set<string>();
     for (const r of ranked) {
-      const h = heads.get(r.id)!;
+      const h = heads.get(r.id) ?? r.id;
       if (h !== r.id && !byId.has(h)) needHead.add(h);
     }
     const fetched = await this.fetchObservationsByIds([...needHead], scope);
@@ -1314,7 +1314,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const seen = new Set<string>();
       const out: PostgresObservation[] = [];
       for (const r of ranked) {
-        const head = byId.get(heads.get(r.id)!) ?? r;
+        const head = byId.get(heads.get(r.id) ?? r.id) ?? r;
         if (seen.has(head.id)) continue;
         seen.add(head.id);
         out.push(head);
@@ -1325,7 +1325,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const out: PostgresObservation[] = [];
     const emitted = new Set<string>();
     for (const r of ranked) {
-      const headId = heads.get(r.id)!;
+      const headId = heads.get(r.id) ?? r.id;
       const item = headId !== r.id ? { ...r, supersededBy: headId } : r;
       if (!emitted.has(item.id)) { out.push(item); emitted.add(item.id); }
       if (headId !== r.id && !emitted.has(headId)) {
@@ -1344,39 +1344,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const args: unknown[] = [ids, scope.teamId];
     let projClause = '';
     if (scope.projectId) { projClause = ' AND project_id = $3'; args.push(scope.projectId); }
-    const { rows } = await this.options.pool.query<{
-      id: string; project_id: string; team_id: string; server_session_id: string | null;
-      kind: string; content: string; generation_key: string | null; metadata: unknown;
-      embedding: unknown | null; created_by_job_id: string | null; obs_type: string | null;
-      lifecycle_state: string; supersedes: string | null; quality: number | null;
-      embedding_vec: number[] | string | null; created_at: Date; updated_at: Date;
-    }>(
+    const result = await this.options.pool.query<ObservationRow>(
       `SELECT * FROM observations WHERE id = ANY($1) AND team_id = $2${projClause}`,
       args,
     );
-    return rows.map(row => ({
-      id: row.id,
-      projectId: row.project_id,
-      teamId: row.team_id,
-      serverSessionId: row.server_session_id,
-      kind: row.kind,
-      content: row.content,
-      generationKey: row.generation_key,
-      metadata: (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>,
-      embedding: row.embedding as import('../../../storage/postgres/utils.js').JsonValue | null,
-      createdByJobId: row.created_by_job_id,
-      obsType: row.obs_type,
-      lifecycleState: row.lifecycle_state,
-      supersedes: row.supersedes,
-      quality: row.quality,
-      embeddingVec: row.embedding_vec == null
-        ? null
-        : (typeof row.embedding_vec === 'string'
-          ? (row.embedding_vec as string).slice(1, -1).split(',').map(Number)
-          : row.embedding_vec as number[]),
-      createdAtEpoch: row.created_at instanceof Date ? row.created_at.getTime() : Number(row.created_at),
-      updatedAtEpoch: row.updated_at instanceof Date ? row.updated_at.getTime() : Number(row.updated_at),
-    }));
+    return result.rows.map(mapObservationRow);
   }
 
   private async loadScopedById<T>(
