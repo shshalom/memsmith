@@ -24,8 +24,18 @@ export async function decisionLog(db: PostgresQueryable, s: Scope) {
   for (const r of rows) { const h = heads.get(r.id)!; (chains.get(h) ?? chains.set(h, []).get(h)!).push(rowsById.get(r.id)); }
   const out = [];
   for (const [headId, members] of chains) {
-    const head = rowsById.get(headId); if (!head) continue;
-    const history = members.filter((m: any) => m.id !== headId); // rows already created_at ASC
+    let head = rowsById.get(headId);
+    let history: any[];
+    if (head) {
+      // Happy path: the chain head is itself a decision row.
+      history = members.filter((m: any) => m.id !== headId); // rows already created_at ASC
+    } else {
+      // The chain head is a non-decision observation (not in rowsById).
+      // Fall back to the newest decision member (last in ASC-ordered list).
+      if (members.length === 0) continue;
+      head = members[members.length - 1];
+      history = members.slice(0, members.length - 1); // all but the chosen head, oldest→newest
+    }
     out.push({ head, history });
   }
   out.sort((a, b) => new Date(b.head.created_at).getTime() - new Date(a.head.created_at).getTime());

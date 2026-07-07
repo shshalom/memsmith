@@ -91,4 +91,44 @@ describe('decision-log chain grouping', () => {
     const log = await decisionLog(client, { teamId, projectId });
     expect(log.length).toBe(0);
   });
+
+  it('does NOT drop a decision chain whose head is a non-decision observation', async () => {
+    // Scenario: decision D is superseded by a non-decision observation N (obs_type='change').
+    // resolveHeads walks ALL obs_types, so it returns N.id as the chain head.
+    // N is not in rowsById (only decisions are fetched), so without the fix, D is silently dropped.
+    // With the fix, the code falls back to using D (newest decision member) as the displayed head.
+    const repo = new PostgresObservationRepository(client);
+
+    const D = await repo.create({
+      projectId, teamId,
+      content: 'decision D (superseded by a non-decision)',
+      obsType: 'decision',
+      lifecycleState: 'superseded',
+      metadata: { rationale: 'original call' },
+    });
+
+    // N supersedes D but is NOT a decision — it's a 'change' observation.
+    const N = await repo.create({
+      projectId, teamId,
+      content: 'change N (non-decision that supersedes D)',
+      obsType: 'change',
+      lifecycleState: 'resolved',
+      metadata: {},
+      supersedes: D.id,
+    });
+
+    const log = await decisionLog(client, { teamId, projectId });
+
+    // D must NOT be silently dropped — it is the only decision and must appear.
+    expect(log.length).toBe(1);
+
+    // The displayed head should be D (the newest / only decision member of the chain),
+    // not N (which is not a decision and is not in rowsById).
+    expect(log[0].head.id).toBe(D.id);
+    expect(log[0].head.content).toBe('decision D (superseded by a non-decision)');
+    // Metadata must be parsed (not a raw string)
+    expect(log[0].head.metadata.rationale).toBe('original call');
+    // No other decision members, so history is empty
+    expect(log[0].history.length).toBe(0);
+  });
 });
