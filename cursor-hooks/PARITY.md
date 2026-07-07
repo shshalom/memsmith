@@ -1,6 +1,6 @@
-# Feature Parity: Claude-Mem Hooks vs Cursor Hooks
+# Feature Parity: MemSmith Hooks vs Cursor Hooks
 
-This document compares claude-mem's Claude Code hooks with the Cursor hooks implementation to ensure feature parity.
+This document compares memsmith's Claude Code hooks with the Cursor hooks implementation to ensure feature parity.
 
 ## Hook Mapping
 
@@ -115,7 +115,7 @@ This document compares claude-mem's Claude Code hooks with the Cursor hooks impl
 - **Status**: ✅ Match
 
 ### Tag Stripping
-- **Claude Code**: Worker handles `<private>` and `<claude-mem-context>` tags
+- **Claude Code**: Worker handles `<private>` and `<memsmith-context>` tags
 - **Cursor**: Worker handles tags (hooks don't need to strip)
 - **Status**: ✅ Match
 
@@ -160,7 +160,7 @@ This document compares claude-mem's Claude Code hooks with the Cursor hooks impl
 | Summary Generation | ⚠️ Partial (no transcript) |
 | User Experience | ⚠️ Partial (no SessionStart) |
 
-**Overall**: The Cursor hooks implementation achieves **full functional parity** with claude-mem's Claude Code hooks:
+**Overall**: The Cursor hooks implementation achieves **full functional parity** with memsmith's Claude Code hooks:
 - ✅ Session initialization
 - ✅ Context injection (via auto-updated `.cursor/rules/` file)
 - ✅ Observation capture (MCP tools, shell commands, file edits)

@@ -10,7 +10,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 
 1. **Modular Design**: Common utilities extracted to `common.sh` for reusability
 2. **Error Handling**: Graceful degradation - hooks never block Cursor even on failures
-3. **Parity with Claude Code**: Matches claude-mem's hook behavior where possible
+3. **Parity with Claude Code**: Matches memsmith's hook behavior where possible
 4. **Fire-and-Forget**: Observations sent asynchronously, don't block agent execution
 
 ### ⚠️ Limitations (Platform-Specific)
@@ -51,7 +51,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 
 ### 2. `session-init.sh` - Session Initialization
 
-**Purpose**: Initialize claude-mem session when prompt is submitted
+**Purpose**: Initialize memsmith session when prompt is submitted
 
 **Flow**:
 1. Read and validate JSON input
@@ -136,7 +136,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 
 **Parity with Claude Code**:
 - ✅ File edit capture (new feature for Cursor)
-- ✅ Observation format matches claude-mem structure
+- ✅ Observation format matches memsmith structure
 
 ### 5. `session-summary.sh` - Summary Generation
 
@@ -167,7 +167,7 @@ This document provides a thorough review of the Cursor hooks integration, coveri
 **Purpose**: Fetch context and write to `.cursor/rules/` for auto-injection
 
 **How It Works**:
-1. Fetches context from claude-mem worker
+1. Fetches context from memsmith worker
 2. Writes to `.cursor/rules/memsmith-context.mdc` with `alwaysApply: true`
 3. Cursor auto-includes this rule in all chat sessions
 4. Context refreshes on every prompt submission

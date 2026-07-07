@@ -1,4 +1,4 @@
-# Claude-Mem Rules for Cursor
+# MemSmith Rules for Cursor
 
 ## Automatic Context Injection
 
@@ -17,19 +17,19 @@ This file:
 
 ## Optional: Additional Instructions
 
-If you want to add custom instructions about claude-mem (beyond the auto-injected context), create a separate rules file:
+If you want to add custom instructions about memsmith (beyond the auto-injected context), create a separate rules file:
 
-### `.cursor/rules/claude-mem-instructions.mdc`
+### `.cursor/rules/memsmith-instructions.mdc`
 
 ```markdown
 ---
 alwaysApply: true
-description: "Instructions for using claude-mem memory system"
+description: "Instructions for using memsmith memory system"
 ---
 
 # Memory System Usage
 
-You have access to claude-mem, a persistent memory system. In addition to the auto-injected context above, you can search for more detailed information using MCP tools:
+You have access to memsmith, a persistent memory system. In addition to the auto-injected context above, you can search for more detailed information using MCP tools:
 
 ## Available MCP Tools
 
@@ -70,7 +70,7 @@ Never fetch full details without filtering first.
 | File | Purpose | Created By |
 |------|---------|------------|
 | `.cursor/rules/memsmith-context.mdc` | Auto-injected context | Hook (automatic) |
-| `.cursor/rules/claude-mem-instructions.mdc` | MCP tool instructions | You (optional) |
+| `.cursor/rules/memsmith-instructions.mdc` | MCP tool instructions | You (optional) |
 
 ## Git Ignore
 
