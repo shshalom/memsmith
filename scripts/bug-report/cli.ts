@@ -144,7 +144,7 @@ async function main() {
   console.log("✓ Configuration loaded\n");
 
   console.log("📋 System Summary:");
-  console.log(`   MemSmith: v${diagnostics.versions.claudeMem}`);
+  console.log(`   MemSmith: v${diagnostics.versions.memSmith}`);
   console.log(`   Claude Code: ${diagnostics.versions.claudeCode}`);
   console.log(
     `   Platform: ${diagnostics.platform.osVersion} (${diagnostics.platform.arch})`

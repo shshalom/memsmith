@@ -679,8 +679,8 @@ async function buildHooks() {
       }
     }
     const codexMarketplace = JSON.parse(fs.readFileSync('.agents/plugins/marketplace.json', 'utf-8'));
-    const claudeMemMarketplaceEntry = (codexMarketplace.plugins ?? []).find((plugin) => plugin.name === 'memsmith');
-    if (claudeMemMarketplaceEntry?.source?.path !== './plugin') {
+    const memSmithMarketplaceEntry = (codexMarketplace.plugins ?? []).find((plugin) => plugin.name === 'memsmith');
+    if (memSmithMarketplaceEntry?.source?.path !== './plugin') {
       throw new Error('.agents/plugins/marketplace.json must point memsmith source.path at ./plugin so Codex loads the bundled plugin root');
     }
     const bundledMcp = JSON.parse(fs.readFileSync('plugin/.mcp.json', 'utf-8'));

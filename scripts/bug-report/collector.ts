@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 
 export interface SystemDiagnostics {
   versions: {
-    claudeMem: string;
+    memSmith: string;
     claudeCode: string;
     node: string;
     bun: string;
@@ -216,7 +216,7 @@ export async function collectDiagnostics(
   const cwd = process.cwd();
   const isDevMode = cwd.includes("memsmith") && !cwd.includes(".claude");
 
-  const [claudeMem, claudeCode, bun, osVersion] = await Promise.all([
+  const [memSmith, claudeCode, bun, osVersion] = await Promise.all([
     getClaudememVersion(),
     getClaudeCodeVersion(),
     getBunVersion(),
@@ -224,7 +224,7 @@ export async function collectDiagnostics(
   ]);
 
   const versions = {
-    claudeMem,
+    memSmith,
     claudeCode,
     node: process.version,
     bun,
@@ -313,7 +313,7 @@ export function formatDiagnostics(diagnostics: SystemDiagnostics): string {
   let output = "";
 
   output += "## Environment\n\n";
-  output += `- **MemSmith**: ${diagnostics.versions.claudeMem}\n`;
+  output += `- **MemSmith**: ${diagnostics.versions.memSmith}\n`;
   output += `- **Claude Code**: ${diagnostics.versions.claudeCode}\n`;
   output += `- **Node.js**: ${diagnostics.versions.node}\n`;
   output += `- **Bun**: ${diagnostics.versions.bun}\n`;
