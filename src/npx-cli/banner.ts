@@ -35,7 +35,7 @@ function getFrames(): string[] {
     frames = raw.split(FRAME_SEP).filter(Boolean);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.warn('claude-mem: banner frame decoding failed, skipping banner:', err);
+    console.warn('memsmith: banner frame decoding failed, skipping banner:', err);
     frames = [];
   }
   return frames;
@@ -101,7 +101,7 @@ function writeTaglineRow(text: string): string {
 export function isBannerEnabled(): boolean {
   if (!process.stdout.isTTY) return false;
   if (process.env.CI) return false;
-  if (process.env.CLAUDE_MEM_NO_BANNER) return false;
+  if (process.env.MEMSMITH_NO_BANNER) return false;
   if (process.env.NO_COLOR) return false;
   const cols = process.stdout.columns ?? 0;
   return cols >= BANNER.width;

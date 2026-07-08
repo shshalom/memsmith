@@ -13,7 +13,7 @@ export class ChromaRoutes extends BaseRouteHandler {
 
   private handleGetStatus = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+    const chromaEnabled = settings.MEMSMITH_CHROMA_ENABLED !== 'false';
 
     const deepRaw = req.query.deep;
     const deepEnabled =
@@ -26,7 +26,7 @@ export class ChromaRoutes extends BaseRouteHandler {
         status: 'disabled',
         connected: false,
         timestamp: new Date().toISOString(),
-        details: 'Chroma is disabled via CLAUDE_MEM_CHROMA_ENABLED=false',
+        details: 'Chroma is disabled via MEMSMITH_CHROMA_ENABLED=false',
         deep: deepEnabled
       });
       return;

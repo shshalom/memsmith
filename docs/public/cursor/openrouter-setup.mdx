@@ -1,11 +1,11 @@
 ---
 title: "Cursor + OpenRouter Setup"
-description: "Use Claude-Mem in Cursor with OpenRouter's 100+ AI models"
+description: "Use MemSmith in Cursor with OpenRouter's 100+ AI models"
 ---
 
 # Cursor + OpenRouter Setup
 
-This guide walks you through setting up Claude-Mem in Cursor using OpenRouter. OpenRouter provides access to 100+ AI models from various providers, including several free options.
+This guide walks you through setting up MemSmith in Cursor using OpenRouter. OpenRouter provides access to 100+ AI models from various providers, including several free options.
 
 <Info>
 **Model variety:** Access Claude, GPT-4, Gemini, Llama, Mistral, and many more through a single API key.
@@ -23,12 +23,12 @@ This guide walks you through setting up Claude-Mem in Cursor using OpenRouter. O
 **Free models available:** OpenRouter offers free versions of several models including Gemini Flash and others. Check the [model list](https://openrouter.ai/models?show_free=true) for current free options.
 </Tip>
 
-## Step 2: Clone and Build Claude-Mem
+## Step 2: Clone and Build MemSmith
 
 ```bash
 # Clone the repository
-git clone https://github.com/thedotmack/claude-mem.git
-cd claude-mem
+git clone https://github.com/shshalom/memsmith.git
+cd memsmith
 
 # Install dependencies
 bun install
@@ -55,13 +55,13 @@ Create the settings file manually:
 
 ```bash
 # Create settings directory
-mkdir -p ~/.claude-mem
+mkdir -p ~/.memsmith
 
 # Create settings file with OpenRouter configuration
-cat > ~/.claude-mem/settings.json << 'EOF'
+cat > ~/.memsmith/settings.json << 'EOF'
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
 }
 EOF
 ```
@@ -112,28 +112,28 @@ To specify a model, add to your settings:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "your-key",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "google/gemini-2.0-flash-exp:free"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_API_KEY": "your-key",
+  "MEMSMITH_OPENROUTER_MODEL": "google/gemini-2.0-flash-exp:free"
 }
 ```
 
 ## Custom OpenAI-Compatible Endpoints
 
-The OpenRouter provider is a generic OpenAI-compatible client. Set `CLAUDE_MEM_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `CLAUDE_MEM_OPENROUTER_MODEL` is sent verbatim.
+The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `MEMSMITH_OPENROUTER_MODEL` is sent verbatim.
 
 <Info>
-**Base URL resolution:** When `CLAUDE_MEM_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, claude-mem POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
+**Base URL resolution:** When `MEMSMITH_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, memsmith POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
 </Info>
 
 ### DeepSeek
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.deepseek.com",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-chat",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_DEEPSEEK_API_KEY"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_BASE_URL": "https://api.deepseek.com",
+  "MEMSMITH_OPENROUTER_MODEL": "deepseek-chat",
+  "MEMSMITH_OPENROUTER_API_KEY": "YOUR_DEEPSEEK_API_KEY"
 }
 ```
 
@@ -143,9 +143,9 @@ LM Studio exposes an OpenAI-compatible server. No API key is required for local 
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "your-local-model-id"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
+  "MEMSMITH_OPENROUTER_MODEL": "your-local-model-id"
 }
 ```
 
@@ -155,10 +155,10 @@ Any OpenAI-compatible gateway works the same way:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://my-gateway.example.com/v1",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "model-id",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_KEY"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_BASE_URL": "https://my-gateway.example.com/v1",
+  "MEMSMITH_OPENROUTER_MODEL": "model-id",
+  "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
 }
 ```
 
@@ -181,14 +181,14 @@ OpenRouter charges per token. To manage costs:
 Ensure your settings file exists with the correct format:
 
 ```bash
-cat ~/.claude-mem/settings.json
+cat ~/.memsmith/settings.json
 ```
 
 Should output something like:
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-or-..."
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_API_KEY": "sk-or-..."
 }
 ```
 
@@ -224,7 +224,7 @@ You can switch between OpenRouter, Gemini, and Claude SDK at any time by updatin
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "gemini"
+  "MEMSMITH_PROVIDER": "gemini"
 }
 ```
 

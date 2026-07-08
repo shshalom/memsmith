@@ -6,30 +6,30 @@
  * Both the worker-runtime provider (src/services/worker/OpenRouterProvider.ts)
  * and the server-runtime provider
  * (src/server/generation/providers/OpenRouterObservationProvider.ts) use this
- * to turn the optional CLAUDE_MEM_OPENROUTER_BASE_URL setting into a concrete
+ * to turn the optional MEMSMITH_OPENROUTER_BASE_URL setting into a concrete
  * `/chat/completions` endpoint. This makes the OpenRouter client a generic
  * OpenAI-compatible client.
  *
- * Closes #2382 (CLAUDE_MEM_OPENROUTER_BASE_URL), #2590 (custom provider with
+ * Closes #2382 (MEMSMITH_OPENROUTER_BASE_URL), #2590 (custom provider with
  * configurable API base URL), #2622 (DeepSeek — OpenAI-compatible), and #2393
  * (LM Studio local model — OpenAI-compatible). Combined with the existing
- * CLAUDE_MEM_OPENROUTER_MODEL setting (passed verbatim), a user points the base
+ * MEMSMITH_OPENROUTER_MODEL setting (passed verbatim), a user points the base
  * URL at any OpenAI-compatible endpoint and selects an arbitrary model id.
  *
- * Usage examples (set CLAUDE_MEM_PROVIDER=openrouter, then):
+ * Usage examples (set MEMSMITH_PROVIDER=openrouter, then):
  *
  *   DeepSeek:
- *     CLAUDE_MEM_OPENROUTER_BASE_URL = https://api.deepseek.com
- *     CLAUDE_MEM_OPENROUTER_MODEL    = deepseek-chat
- *     OPENROUTER_API_KEY (in ~/.claude-mem/.env) = <deepseek key>
+ *     MEMSMITH_OPENROUTER_BASE_URL = https://api.deepseek.com
+ *     MEMSMITH_OPENROUTER_MODEL    = deepseek-chat
+ *     OPENROUTER_API_KEY (in ~/.memsmith/.env) = <deepseek key>
  *
  *   LM Studio (local, no key required):
- *     CLAUDE_MEM_OPENROUTER_BASE_URL = http://localhost:1234/v1
- *     CLAUDE_MEM_OPENROUTER_MODEL    = <any local model id>
+ *     MEMSMITH_OPENROUTER_BASE_URL = http://localhost:1234/v1
+ *     MEMSMITH_OPENROUTER_MODEL    = <any local model id>
  *
  *   Generic OpenAI-compatible endpoint:
- *     CLAUDE_MEM_OPENROUTER_BASE_URL = https://my-gateway.example.com/v1
- *     CLAUDE_MEM_OPENROUTER_MODEL    = <model id>
+ *     MEMSMITH_OPENROUTER_BASE_URL = https://my-gateway.example.com/v1
+ *     MEMSMITH_OPENROUTER_MODEL    = <model id>
  */
 
 export const DEFAULT_OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';

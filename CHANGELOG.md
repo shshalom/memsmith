@@ -1000,7 +1000,7 @@ v12.3.3 shipped 25 bug fixes under "Issue Blowout 2026" but also introduced bear
 - Summarize hook wraps `workerHttpRequest` in try/catch (no more blocking exit code 2)
 - UserPromptSubmit session-init waits for worker health on Linux/WSL
 - MCP loopback self-check uses `process.execPath` instead of bare `node`
-- Nounset-safe `TTY_ARGS` in `docker/claude-mem/run.sh`
+- Nounset-safe `TTY_ARGS` in `docker/memsmith/run.sh`
 
 ### Removed from v12.3.3
 - `src/shared/auth-token.ts` (deleted)
@@ -1119,7 +1119,7 @@ This patch release resolves error handling anti-patterns across the entire codeb
 
 ## New features
 
-### Basic claude-mem Docker container (`docker/claude-mem/`)
+### Basic claude-mem Docker container (`docker/memsmith/`)
 A ready-to-run container for ad-hoc claude-mem testing with zero local setup beyond Docker.
 
 - `FROM node:20`; layers pinned Bun (1.3.12) + uv (0.11.7) + the built plugin
@@ -1569,7 +1569,7 @@ Every `UserPromptSubmit` now queries ChromaDB for the top-N most relevant past o
 The SDK agent now inspects pending queue complexity before selecting a model. Simple tool-only queues (Read, Glob, Grep) route to Haiku; mixed/complex queues use the default model. Production result: **~52% cost reduction** on SDK agent usage with quality indistinguishable from Sonnet. Includes a new `observation_feedback` table for future Thompson Sampling optimization.
 
 #### Multi-Machine Observation Sync (#1570)
-New `claude-mem-sync` CLI with `push`, `pull`, `sync`, and `status` commands. Bidirectional sync of observations and session summaries between machines via SSH/SCP with deduplication by `(created_at, title)`. Tested syncing 3,400+ observations between two physical servers — a session on the remote machine used transferred memory to deliver a real feature PR.
+New `memsmith-sync` CLI with `push`, `pull`, `sync`, and `status` commands. Bidirectional sync of observations and session summaries between machines via SSH/SCP with deduplication by `(created_at, title)`. Tested syncing 3,400+ observations between two physical servers — a session on the remote machine used transferred memory to deliver a real feature PR.
 
 #### Orphaned Message Drain (#1567)
 When `deleteSession()` aborts the SDK agent via SIGTERM, pending messages are now marked abandoned instead of remaining in `pending` status forever. Production evidence: 15 orphaned messages found before fix → 0 orphaned messages over 23 days after fix.
@@ -3320,7 +3320,7 @@ Complete hook integration with Cursor's native hook system:
 - `context-inject.sh/.ps1` - Load relevant history
 
 ### Context Injection via `.cursor/rules`
-Relevant past context is automatically injected into Cursor sessions via the `.cursor/rules/claude-mem-context.mdc` file, giving your AI immediate awareness of prior work.
+Relevant past context is automatically injected into Cursor sessions via the `.cursor/rules/memsmith-context.mdc` file, giving your AI immediate awareness of prior work.
 
 ### Project Registry
 Multi-project support with automatic project detection:

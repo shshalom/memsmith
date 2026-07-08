@@ -14,7 +14,7 @@ antipattern-czar/
 /plugin/scripts/CLAUDE.md
 
 plugin/node_modules/
-plugin/scripts/claude-mem
+plugin/scripts/memsmith
 plugin/data/
 plugin/data.backup/
 

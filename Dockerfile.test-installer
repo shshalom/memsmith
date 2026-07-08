@@ -26,11 +26,11 @@ RUN node -v && npm -v
 WORKDIR /workspace
 
 RUN cat > /root/.bashrc <<'EOF'
-export PS1='\[\033[1;36m\]cmem-test\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\]\$ '
+export PS1='\[\033[1;36m\]memsmith-test\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\]\$ '
 
 cat <<'BANNER'
 =====================================================================
-  claude-mem installer test sandbox (clean Linux, no Bun, no uv)
+  MemSmith installer test sandbox (clean Linux, no Bun, no uv)
 =====================================================================
 
   Try the new installer interactively:
@@ -43,10 +43,10 @@ cat <<'BANNER'
 
   After install, verify the Setup hook is fast:
 
-      time node ~/.claude/plugins/cache/thedotmack/claude-mem/$(jq -r .version package.json)/scripts/version-check.js
+      time node ~/.claude/plugins/cache/shshalom/memsmith/$(jq -r .version package.json)/scripts/version-check.js
 
   Container HOME=/root is isolated — nothing here touches your real
-  ~/.claude or ~/.claude-mem. Exit with Ctrl-D.
+  ~/.claude or ~/.memsmith. Exit with Ctrl-D.
 
 =====================================================================
 BANNER

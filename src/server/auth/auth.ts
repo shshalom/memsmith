@@ -10,7 +10,7 @@ export function createAuth(database: Database) {
   ensureDir(DATA_DIR);
   return betterAuth({
     database,
-    baseURL: process.env.BETTER_AUTH_URL ?? process.env.CLAUDE_MEM_SERVER_URL ?? 'http://127.0.0.1:37777',
+    baseURL: process.env.BETTER_AUTH_URL ?? process.env.MEMSMITH_SERVER_URL ?? 'http://127.0.0.1:37777',
     basePath: '/api/auth',
     plugins: [
       apiKey(),

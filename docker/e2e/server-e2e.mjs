@@ -12,7 +12,7 @@
 
 import net from 'node:net';
 
-const baseUrl = process.env.E2E_BASE_URL ?? 'http://claude-mem-server:37877';
+const baseUrl = process.env.E2E_BASE_URL ?? 'http://memsmith-server:37877';
 const redisHost = process.env.E2E_REDIS_HOST ?? 'valkey';
 const redisPort = Number.parseInt(process.env.E2E_REDIS_PORT ?? '6379', 10);
 const phase = process.env.E2E_PHASE ?? 'phase1';

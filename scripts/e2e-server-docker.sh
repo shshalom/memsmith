@@ -2,7 +2,7 @@
 #
 # Phase 10 — server-beta Docker E2E.
 #
-# Brings up Postgres + Valkey + claude-mem-server (HTTP) + claude-mem-worker
+# Brings up Postgres + Valkey + memsmith-server (HTTP) + memsmith-worker
 # (BullMQ generation) and verifies:
 #   - no legacy `worker-service.cjs` / WorkerService process anywhere
 #   - POST /v1/events?wait=true generates an observation through the queue
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_NAME="${COMPOSE_PROJECT_NAME:-claude-mem-server-e2e-$(date +%s)}"
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-memsmith-server-e2e-$(date +%s)}"
 RUN_ID="${E2E_RUN_ID:-$(date +%s)-$RANDOM}"
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.e2e.yml)
 # Test-only credentials. docker-compose.yml requires these to be set; the
@@ -24,7 +24,7 @@ export POSTGRES_USER="${POSTGRES_USER:-claudemem_e2e}"
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-claudemem_e2e}"
 export POSTGRES_DB="${POSTGRES_DB:-claudemem_e2e}"
 COMPOSE=(docker compose -p "$PROJECT_NAME" "${COMPOSE_FILES[@]}")
-SERVER_SCRIPT="/opt/claude-mem/scripts/server-service.cjs"
+SERVER_SCRIPT="/opt/memsmith/scripts/server-service.cjs"
 # server-service.cjs has its own `server api-key create|list|revoke`
 # subtree backed by Postgres (NOT the SQLite worker-service tree).
 SERVER_HEALTH_URL="http://127.0.0.1:37877/healthz"
@@ -36,7 +36,7 @@ cleanup() {
   if [[ $exit_code -ne 0 ]]; then
     echo "[e2e] failure; recent logs:" >&2
     "${COMPOSE[@]}" logs --no-color --tail=200 \
-      claude-mem-server claude-mem-worker valkey postgres >&2 || true
+      memsmith-server memsmith-worker valkey postgres >&2 || true
   fi
   "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 }
@@ -44,7 +44,7 @@ trap cleanup EXIT
 
 wait_for_container_readiness() {
   local deadline=$((SECONDS + 180))
-  until "${COMPOSE[@]}" exec -T claude-mem-server curl -fsS "$SERVER_HEALTH_URL" >/dev/null 2>&1; do
+  until "${COMPOSE[@]}" exec -T memsmith-server curl -fsS "$SERVER_HEALTH_URL" >/dev/null 2>&1; do
     if (( SECONDS > deadline )); then
       echo "[e2e] server did not become ready within 180s" >&2
       return 1
@@ -70,30 +70,30 @@ json_field() {
 create_key() {
   local name="$1"
   local scopes="$2"
-  "${COMPOSE[@]}" exec -T claude-mem-server \
+  "${COMPOSE[@]}" exec -T memsmith-server \
     bun "$SERVER_SCRIPT" server api-key create --name "$name" --scope "$scopes"
 }
 
 assert_no_worker_process() {
   echo "[e2e] verifying no legacy worker process is running"
   # `docker compose ps` should not list a service named "worker" (legacy).
-  # The new generation worker is named `claude-mem-worker`; that's allowed.
+  # The new generation worker is named `memsmith-worker`; that's allowed.
   local services
   services="$("${COMPOSE[@]}" ps --services)"
-  if echo "$services" | grep -E '(^|\s)worker($|\s)' | grep -v 'claude-mem-worker' >/dev/null; then
+  if echo "$services" | grep -E '(^|\s)worker($|\s)' | grep -v 'memsmith-worker' >/dev/null; then
     echo "[e2e] FAIL — unexpected legacy worker service in compose stack:" >&2
     echo "$services" >&2
     return 1
   fi
 
   # No process inside the server container should be running worker-service.cjs.
-  if "${COMPOSE[@]}" exec -T claude-mem-server pgrep -af 'worker-service\.cjs' >/dev/null 2>&1; then
-    echo "[e2e] FAIL — worker-service.cjs is running inside claude-mem-server" >&2
-    "${COMPOSE[@]}" exec -T claude-mem-server pgrep -af 'worker-service\.cjs' >&2 || true
+  if "${COMPOSE[@]}" exec -T memsmith-server pgrep -af 'worker-service\.cjs' >/dev/null 2>&1; then
+    echo "[e2e] FAIL — worker-service.cjs is running inside memsmith-server" >&2
+    "${COMPOSE[@]}" exec -T memsmith-server pgrep -af 'worker-service\.cjs' >&2 || true
     return 1
   fi
-  if "${COMPOSE[@]}" exec -T claude-mem-worker pgrep -af 'worker-service\.cjs' >/dev/null 2>&1; then
-    echo "[e2e] FAIL — worker-service.cjs is running inside claude-mem-worker" >&2
+  if "${COMPOSE[@]}" exec -T memsmith-worker pgrep -af 'worker-service\.cjs' >/dev/null 2>&1; then
+    echo "[e2e] FAIL — worker-service.cjs is running inside memsmith-worker" >&2
     return 1
   fi
   echo "[e2e] no legacy worker processes detected"
@@ -101,18 +101,18 @@ assert_no_worker_process() {
 
 assert_local_dev_rejected_in_docker() {
   echo "[e2e] verifying local-dev auth is rejected inside Docker"
-  # Run a throwaway server-beta container with CLAUDE_MEM_AUTH_MODE=local-dev.
+  # Run a throwaway server-beta container with MEMSMITH_AUTH_MODE=local-dev.
   # validateServerBetaEnv() should refuse to start and exit non-zero.
   local rc=0
   "${COMPOSE[@]}" run --rm \
     --no-deps \
-    -e CLAUDE_MEM_AUTH_MODE=local-dev \
-    -e CLAUDE_MEM_ALLOW_LOCAL_DEV_BYPASS=1 \
-    -e CLAUDE_MEM_CONTAINER_MODE=server \
-    claude-mem-server >/tmp/local-dev-stdout.$$ 2>/tmp/local-dev-stderr.$$ \
+    -e MEMSMITH_AUTH_MODE=local-dev \
+    -e MEMSMITH_ALLOW_LOCAL_DEV_BYPASS=1 \
+    -e MEMSMITH_CONTAINER_MODE=server \
+    memsmith-server >/tmp/local-dev-stdout.$$ 2>/tmp/local-dev-stderr.$$ \
     || rc=$?
   if [[ $rc -eq 0 ]]; then
-    echo "[e2e] FAIL — server-beta started with CLAUDE_MEM_AUTH_MODE=local-dev in Docker" >&2
+    echo "[e2e] FAIL — server-beta started with MEMSMITH_AUTH_MODE=local-dev in Docker" >&2
     cat /tmp/local-dev-stderr.$$ >&2 || true
     rm -f /tmp/local-dev-stdout.$$ /tmp/local-dev-stderr.$$
     return 1
@@ -131,7 +131,7 @@ echo "[e2e] building plugin bundles"
 npm run build
 
 echo "[e2e] starting Docker stack project=$PROJECT_NAME run=$RUN_ID"
-"${COMPOSE[@]}" up --build -d postgres valkey claude-mem-server claude-mem-worker
+"${COMPOSE[@]}" up --build -d postgres valkey memsmith-server memsmith-worker
 wait_for_container_readiness
 assert_no_worker_process
 
@@ -153,11 +153,11 @@ echo "[e2e] running phase1 functional paths in test container"
   server-e2e
 
 echo "[e2e] revoking read-only key inside server container"
-"${COMPOSE[@]}" exec -T claude-mem-server \
+"${COMPOSE[@]}" exec -T memsmith-server \
   bun "$SERVER_SCRIPT" server api-key revoke "$READ_ONLY_KEY_ID" >/dev/null
 
 echo "[e2e] restarting server container to verify persisted state and queue durability"
-"${COMPOSE[@]}" restart claude-mem-server claude-mem-worker
+"${COMPOSE[@]}" restart memsmith-server memsmith-worker
 wait_for_container_readiness
 assert_no_worker_process
 

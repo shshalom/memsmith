@@ -229,7 +229,7 @@ describe('classifyClaudeError', () => {
   });
 
   it('classifies "Invalid API key" message as auth_invalid', () => {
-    const err = classifyClaudeError(new Error('Invalid API key: configure ~/.claude-mem/.env'));
+    const err = classifyClaudeError(new Error('Invalid API key: configure ~/.memsmith/.env'));
     expect(err.kind).toBe('auth_invalid');
   });
 
@@ -253,7 +253,7 @@ describe('classifyClaudeError', () => {
   it('classifies too-old Claude CLI finder errors as setup_required', () => {
     const err = classifyClaudeError(
       new Error(
-        'Every Claude CLI found is too old for claude-mem (each rejects flags the memory agent passes on every spawn)'
+        'Every Claude CLI found is too old for memsmith (each rejects flags the memory agent passes on every spawn)'
       )
     );
     expect(err.kind).toBe('setup_required');

@@ -15,7 +15,7 @@ Each row uses one of three statuses:
                 route. The reason is documented inline. Clients that need
                 that surface must continue using the legacy worker runtime.
 
-The Server beta runtime is selected via `CLAUDE_MEM_RUNTIME=server-beta`. The
+The Server beta runtime is selected via `MEMSMITH_RUNTIME=server-beta`. The
 worker runtime remains the default for now.
 
 ## Session lifecycle (legacy `/api/sessions/*`)

@@ -5,11 +5,11 @@ import { randomUUID } from 'crypto';
 import { bootstrapServerPostgresSchema, createPostgresStorageRepositories } from '../../../src/storage/postgres/index.js';
 import { PostgresObservationRepository } from '../../../src/storage/postgres/observations.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 const q = (n: string) => `"${n.replaceAll('"', '""')}"`;
 
 describe('observation embedding_vec round-trip', () => {
-  if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
+  if (!testDatabaseUrl) { it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {}); return; }
 
   let pool: pg.Pool;
   let client: any;

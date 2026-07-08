@@ -221,7 +221,7 @@ function checkPackageCompleteness(failures) {
     return;
   }
 
-  const pkgRoot = path.join(tmpPkg, 'node_modules', 'claude-mem');
+  const pkgRoot = path.join(tmpPkg, 'node_modules', 'memsmith');
   if (!fs.existsSync(pkgRoot)) {
     failures.push(`installed package not found at ${pkgRoot}`);
     return;
@@ -231,7 +231,7 @@ function checkPackageCompleteness(failures) {
   );
 
   // Build the candidate list of published entrypoints to load. Prefer the `bin`
-  // (the real, runnable user entry — `npx claude-mem`), which exposes a safe
+  // (the real, runnable user entry — `npx memsmith`), which exposes a safe
   // `--version` flag that loads the whole CLI and exits 0. Then add any
   // `main`/`exports` targets THAT ACTUALLY EXIST in the tarball. The package
   // currently declares exports['.'] -> ./dist/index.js and exports['./sdk'] ->
@@ -247,7 +247,7 @@ function checkPackageCompleteness(failures) {
   const binPath =
     typeof binField === 'string'
       ? binField
-      : binField && binField['claude-mem'];
+      : binField && binField['memsmith'];
   if (binPath) {
     const abs = path.join(pkgRoot, binPath);
     if (fs.existsSync(abs)) entries.push({ label: `bin (${binPath})`, abs, kind: 'bin' });

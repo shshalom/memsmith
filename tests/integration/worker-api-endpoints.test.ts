@@ -118,7 +118,7 @@ describe('Worker API Endpoints Integration', () => {
           'uvx',
           'vector_search_unavailable',
           'uvx executable not found on effective PATH for vector search',
-          'Install uv and restart claude-mem',
+          'Install uv and restart memsmith',
         );
 
         server = new Server(mockOptions);
@@ -136,7 +136,7 @@ describe('Worker API Endpoints Integration', () => {
               dependency: 'uvx',
               kind: 'vector_search_unavailable',
               message: 'uvx executable not found on effective PATH for vector search',
-              remediation: 'Install uv and restart claude-mem',
+              remediation: 'Install uv and restart memsmith',
             },
           ],
         });

@@ -2,14 +2,14 @@
 // Discovery-gate helpers: decide whether a PreToolUse tool should trigger a
 // memory lookup, and derive a query string from its input. Pure + dependency-
 // free so they're trivially testable and safe to call on the hot PreToolUse
-// path. The set of gated tools is tunable via CLAUDE_MEM_GATE_TOOLS (a comma-
+// path. The set of gated tools is tunable via MEMSMITH_GATE_TOOLS (a comma-
 // separated list; the literal "none" disables all gating).
 
 const DEFAULT_GATE_TOOLS = 'Read,Grep,Glob,WebSearch';
 
 /**
  * Whether `toolName` should trigger the discovery gate. `override` is the raw
- * CLAUDE_MEM_GATE_TOOLS value: '' (the default) or 'none' → gate OFF; 'all' →
+ * MEMSMITH_GATE_TOOLS value: '' (the default) or 'none' → gate OFF; 'all' →
  * the default discovery-tool set; a comma-separated list → exactly those tools.
  * Injected rather than read from env directly for testability.
  */

@@ -2,7 +2,7 @@
 //
 // Phase 7 — Runtime selector for hook subcommands.
 //
-// Reads `CLAUDE_MEM_RUNTIME` from `~/.claude-mem/settings.json` (via
+// Reads `MEMSMITH_RUNTIME` from `~/.memsmith/settings.json` (via
 // `loadFromFileOnce`) and decides whether the hook should call the
 // server /v1 endpoints or fall through to the worker compat path.
 //
@@ -12,10 +12,10 @@
 //
 // Phase 1a (cmem-sdk rename): the canonical runtime value is `'server'`.
 // The legacy literal `'server-beta'` is still accepted for back-compat so
-// existing settings.json files and `CLAUDE_MEM_RUNTIME` values keep
-// working. Likewise, new settings keys `CLAUDE_MEM_SERVER_{URL,API_KEY,
+// existing settings.json files and `MEMSMITH_RUNTIME` values keep
+// working. Likewise, new settings keys `MEMSMITH_SERVER_{URL,API_KEY,
 // PROJECT_ID}` are read first and fall back to the legacy
-// `CLAUDE_MEM_SERVER_BETA_*` keys when unset.
+// `MEMSMITH_SERVER_BETA_*` keys when unset.
 
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
@@ -38,7 +38,7 @@ export type RuntimeContext = ServerRuntimeContext | WorkerRuntimeContext;
 
 export function selectRuntime(): SelectedRuntime {
   const settings = loadFromFileOnce();
-  const raw = (settings.CLAUDE_MEM_RUNTIME ?? 'worker').trim().toLowerCase();
+  const raw = (settings.MEMSMITH_RUNTIME ?? 'worker').trim().toLowerCase();
   // Accept both the canonical `'server'` (Phase 1a) and the legacy
   // `'server-beta'` literal for back-compat with installed settings.json.
   if (raw === 'server' || raw === 'server-beta') return 'server';
@@ -60,16 +60,16 @@ export function buildServerContext(): ServerRuntimeContext | null {
     return '';
   };
   const serverBaseUrl = pickFirstNonEmpty(
-    settings.CLAUDE_MEM_SERVER_URL,
-    settings.CLAUDE_MEM_SERVER_BETA_URL,
+    settings.MEMSMITH_SERVER_URL,
+    settings.MEMSMITH_SERVER_BETA_URL,
   );
   const apiKey = pickFirstNonEmpty(
-    settings.CLAUDE_MEM_SERVER_API_KEY,
-    settings.CLAUDE_MEM_SERVER_BETA_API_KEY,
+    settings.MEMSMITH_SERVER_API_KEY,
+    settings.MEMSMITH_SERVER_BETA_API_KEY,
   );
   const projectId = pickFirstNonEmpty(
-    settings.CLAUDE_MEM_SERVER_PROJECT_ID,
-    settings.CLAUDE_MEM_SERVER_BETA_PROJECT_ID,
+    settings.MEMSMITH_SERVER_PROJECT_ID,
+    settings.MEMSMITH_SERVER_BETA_PROJECT_ID,
   );
 
   if (!serverBaseUrl) {

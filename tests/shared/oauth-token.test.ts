@@ -22,7 +22,7 @@ import { buildIsolatedEnvWithFreshOAuth } from '../../src/shared/EnvManager.js';
 const ORIGINAL_EXEC_FILE = childProcess.execFile;
 const ORIGINAL_PLATFORM = process.platform;
 const ORIGINAL_ENV_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-const ORIGINAL_DATA_DIR = process.env.CLAUDE_MEM_DATA_DIR;
+const ORIGINAL_DATA_DIR = process.env.MEMSMITH_DATA_DIR;
 
 let dataDirSpy: ReturnType<typeof spyOn> | undefined;
 let tempDir: string;
@@ -56,7 +56,7 @@ function restorePlatform(): void {
 
 beforeEach(() => {
   // Redirect DATA_DIR to a temp directory for marker file tests.
-  tempDir = fs.mkdtempSync(join(fs.realpathSync(require('os').tmpdir()), 'claude-mem-oauth-test-'));
+  tempDir = fs.mkdtempSync(join(fs.realpathSync(require('os').tmpdir()), 'memsmith-oauth-test-'));
   dataDirSpy = spyOn(paths, 'dataDir').mockImplementation(() => tempDir);
 });
 
@@ -69,9 +69,9 @@ afterEach(() => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = ORIGINAL_ENV_TOKEN;
   }
   if (ORIGINAL_DATA_DIR === undefined) {
-    delete process.env.CLAUDE_MEM_DATA_DIR;
+    delete process.env.MEMSMITH_DATA_DIR;
   } else {
-    process.env.CLAUDE_MEM_DATA_DIR = ORIGINAL_DATA_DIR;
+    process.env.MEMSMITH_DATA_DIR = ORIGINAL_DATA_DIR;
   }
   // Clean up temp dir
   try {

@@ -14,18 +14,18 @@ function getDirname(): string {
 const _dirname = getDirname();
 
 export function resolveDataDir(): string {
-  if (process.env.CLAUDE_MEM_DATA_DIR) {
-    return process.env.CLAUDE_MEM_DATA_DIR;
+  if (process.env.MEMSMITH_DATA_DIR) {
+    return process.env.MEMSMITH_DATA_DIR;
   }
 
-  const defaultDataDir = join(homedir(), '.claude-mem');
+  const defaultDataDir = join(homedir(), '.memsmith');
   const settingsPath = join(defaultDataDir, 'settings.json');
   try {
     if (existsSync(settingsPath)) {
       const raw = JSON.parse(readFileSync(settingsPath, 'utf-8'));
       const settings = raw.env ?? raw; 
-      if (settings.CLAUDE_MEM_DATA_DIR) {
-        return settings.CLAUDE_MEM_DATA_DIR;
+      if (settings.MEMSMITH_DATA_DIR) {
+        return settings.MEMSMITH_DATA_DIR;
       }
     }
   } catch {
@@ -38,11 +38,11 @@ export function resolveDataDir(): string {
 export const DATA_DIR = resolveDataDir();
 export const CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
 
-export const MARKETPLACE_ROOT = join(CLAUDE_CONFIG_DIR, 'plugins', 'marketplaces', 'thedotmack');
+export const MARKETPLACE_ROOT = join(CLAUDE_CONFIG_DIR, 'plugins', 'marketplaces', 'shshalom');
 
 export const LOGS_DIR = join(DATA_DIR, 'logs');
 export const USER_SETTINGS_PATH = join(DATA_DIR, 'settings.json');
-export const DB_PATH = join(DATA_DIR, 'claude-mem.db');
+export const DB_PATH = join(DATA_DIR, 'memsmith.db');
 
 export const OBSERVER_SESSIONS_DIR = join(DATA_DIR, 'observer-sessions');
 
@@ -66,7 +66,7 @@ export const paths = {
   serverPort: () => join(DATA_DIR, '.server-beta.port'),
   serverRuntime: () => join(DATA_DIR, '.server-beta.runtime.json'),
   settings: () => join(DATA_DIR, 'settings.json'),
-  database: () => join(DATA_DIR, 'claude-mem.db'),
+  database: () => join(DATA_DIR, 'memsmith.db'),
   chroma: () => join(DATA_DIR, 'chroma'),
   combinedCerts: () => join(DATA_DIR, 'combined_certs.pem'),
   transcriptsConfig: () => join(DATA_DIR, 'transcript-watch.json'),

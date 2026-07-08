@@ -9,7 +9,7 @@ Claude-mem provides persistent memory across sessions through **4 MCP tools** th
 
 ## Overview
 
-Instead of fetching all historical data upfront (expensive), claude-mem uses a progressive disclosure approach:
+Instead of fetching all historical data upfront (expensive), memsmith uses a progressive disclosure approach:
 
 1. **Search** → Get a compact index with IDs (~50-100 tokens/result)
 2. **Timeline** → Get context around interesting results
@@ -438,11 +438,11 @@ If searches seem slow:
 
 **Architecture:** MCP tools are a thin wrapper over the Worker HTTP API (localhost:37777). The MCP server translates tool calls into HTTP requests to the worker service, which handles all business logic, database queries, and Chroma vector search.
 
-**MCP Server:** Located at `~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs`
+**MCP Server:** Located at `~/.claude/plugins/marketplaces/shshalom/plugin/scripts/mcp-server.cjs`
 
 **Worker Service:** Express API on port 37777, managed by Bun
 
-**Database:** SQLite FTS5 full-text search on `~/.claude-mem/claude-mem.db`
+**Database:** SQLite FTS5 full-text search on `~/.memsmith/memsmith.db`
 
 **Vector Search:** Chroma embeddings for semantic search (underlying implementation)
 

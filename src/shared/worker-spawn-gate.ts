@@ -37,10 +37,10 @@ import { logger } from '../utils/logger.js';
 const SPAWN_LOCK_STALE_MS = 60_000;
 
 /**
- * Resolved at call time (resolveDataDir consults CLAUDE_MEM_DATA_DIR / the
+ * Resolved at call time (resolveDataDir consults MEMSMITH_DATA_DIR / the
  * settings file on each call) rather than binding paths.ts's import-time
  * DATA_DIR const, so every launcher — and the test suite, which points
- * CLAUDE_MEM_DATA_DIR at a temp dir — agrees on the same lock path.
+ * MEMSMITH_DATA_DIR at a temp dir — agrees on the same lock path.
  */
 function getSpawnLockPath(): string {
   return join(resolveDataDir(), 'spawn.lock');

@@ -8,7 +8,7 @@ const VERSION_CHECK_SCRIPT = join(import.meta.dir, '..', 'plugin', 'scripts', 'v
 
 function runVersionCheck(root: string) {
   const env = { ...process.env, CLAUDE_PLUGIN_ROOT: root };
-  delete env.CLAUDE_MEM_CODEX_HOOK;
+  delete env.MEMSMITH_CODEX_HOOK;
 
   return spawnSync('node', [VERSION_CHECK_SCRIPT], {
     encoding: 'utf-8',
@@ -63,7 +63,7 @@ describe('plugin/scripts/version-check.js install marker compatibility', () => {
 
     expect(result.status).toBe(0);
     expect(result.stderr).toContain(
-      'claude-mem: upgraded to v12.4.4 - run: npx claude-mem@latest install',
+      'memsmith: upgraded to v12.4.4 - run: npx memsmith@latest install',
     );
   });
 });

@@ -25,11 +25,11 @@ ANTHROPIC_API_KEY=... bun bench/quality-eval/eval.ts
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `ANTHROPIC_API_KEY` | — | **Required** — Claude baseline + judge |
-| `CLAUDE_MEM_SERVER_MODEL` | `llama3.1:8b` | local model to evaluate |
-| `CLAUDE_MEM_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL |
-| `CLAUDE_MEM_QUALITY_ITERATIONS` | `1` | repeat the 10-event corpus N times for a bigger sample |
-| `CLAUDE_MEM_QUALITY_CLAUDE_MODEL` | provider default | Claude baseline model override |
-| `CLAUDE_MEM_QUALITY_JUDGE_MODEL` | `claude-opus-4-8` | judge model override |
+| `MEMSMITH_SERVER_MODEL` | `llama3.1:8b` | local model to evaluate |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL |
+| `MEMSMITH_QUALITY_ITERATIONS` | `1` | repeat the 10-event corpus N times for a bigger sample |
+| `MEMSMITH_QUALITY_CLAUDE_MODEL` | provider default | Claude baseline model override |
+| `MEMSMITH_QUALITY_JUDGE_MODEL` | `claude-opus-4-8` | judge model override |
 
 ## Output
 
@@ -52,7 +52,7 @@ for manual inspection.
   output; blind independent scoring mitigates but a residual self-preference is
   possible. The true gap may be modestly smaller than reported.
 - **Small sample** — 10 events × 1 by default. Directional, not statistical proof;
-  raise `CLAUDE_MEM_QUALITY_ITERATIONS` for more.
+  raise `MEMSMITH_QUALITY_ITERATIONS` for more.
 - Measures quality on **this corpus/prompt**, not all inputs. A larger local model
   (Qwen 2.5, Llama 3.3 70B) would likely close the gap.
 

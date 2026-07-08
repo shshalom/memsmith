@@ -6,18 +6,18 @@
 
 **Architecture:** `OllamaObservationProvider` mirrors `OpenRouterObservationProvider` (both POST an OpenAI-compatible `/v1/chat/completions`), keyless with default base URL `http://localhost:11434/v1`. The reformat guard lives in `ProviderObservationGenerator.generateAndPersist` — the one place that already calls `generate()` and owns the parse decision. `generate()` gains an optional `opts.reformatReason` that flows through the shared `buildServerGenerationPrompt` as a strict addendum, so all four providers inherit the guard.
 
-**Tech Stack:** TypeScript, bun test, server-beta generation path (`src/server/generation/`), Postgres integration tests gated on `CLAUDE_MEM_TEST_POSTGRES_URL`.
+**Tech Stack:** TypeScript, bun test, server-beta generation path (`src/server/generation/`), Postgres integration tests gated on `MEMSMITH_TEST_POSTGRES_URL`.
 
 ## Global Constraints
 
 - Reference spec: `docs/superpowers/specs/2026-07-05-ollama-provider-format-guard-design.md`.
 - Scope is the **server-beta** path only (`src/server/generation/`). Do NOT touch worker-mode/CLI/installer `ProviderId` unions (`npx-cli`, `worker-types`, `SettingsRoutes`, telemetry scrub).
 - Default Ollama model: `llama3.1:8b`. Default base URL: `http://localhost:11434/v1`. Ollama is **keyless** — an unset API key must NOT disable it (unlike the keyed providers).
-- Reformat guard default: `CLAUDE_MEM_REFORMAT_RETRIES=1`, clamped to `[0,3]`; `0` fully disables (exact pre-guard behavior). Guard applies **uniformly** to all providers.
+- Reformat guard default: `MEMSMITH_REFORMAT_RETRIES=1`, clamped to `[0,3]`; `0` fully disables (exact pre-guard behavior). Guard applies **uniformly** to all providers.
 - Terminal outcome must be **byte-identical to today** when output is still malformed after retries: `parse_error` → `markGenerationFailed(retryable:false)`, no BullMQ job-attempt change.
 - `<skip_summary />` and empty `rawText` parse as VALID — the guard must never retry them.
 - Provider *errors* (thrown `ServerClassifiedProviderError`) are NOT format failures — never swallow a throw into a reformat retry; let it propagate.
-- Bun test: `import { describe, it, expect } from 'bun:test'`. Run with `~/.bun/bin/bun test <path>`. Postgres tests need `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"`.
+- Bun test: `import { describe, it, expect } from 'bun:test'`. Run with `~/.bun/bin/bun test <path>`. Postgres tests need `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"`.
 - Run `npm run build` after source changes to `src/server/` and commit the regenerated `plugin/scripts/server-service.cjs` bundle (git-tracked artifact; stale bundle = fix doesn't ship).
 
 ---
@@ -188,7 +188,7 @@ describe('OllamaObservationProvider', () => {
     expect(headers.Authorization).toBe('Bearer k');
   });
 
-  it('honors CLAUDE_MEM_OLLAMA_URL-style baseUrl and CLAUDE_MEM_SERVER_MODEL-style model overrides', async () => {
+  it('honors MEMSMITH_OLLAMA_URL-style baseUrl and MEMSMITH_SERVER_MODEL-style model overrides', async () => {
     const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
     const provider = new OllamaObservationProvider({
       baseUrl: 'http://ollama.internal:11434/v1',
@@ -405,7 +405,7 @@ git commit -m "feat(server): OllamaObservationProvider (keyless, default llama3.
 - Test: `tests/server/generation/providers.test.ts` OR a new focused unit — see below.
 
 **Interfaces:**
-- Consumes: `OllamaObservationProvider` (Task 2); env `CLAUDE_MEM_SERVER_PROVIDER`, `CLAUDE_MEM_SERVER_MODEL`, `CLAUDE_MEM_OLLAMA_URL`, `CLAUDE_MEM_OLLAMA_API_KEY`.
+- Consumes: `OllamaObservationProvider` (Task 2); env `MEMSMITH_SERVER_PROVIDER`, `MEMSMITH_SERVER_MODEL`, `MEMSMITH_OLLAMA_URL`, `MEMSMITH_OLLAMA_API_KEY`.
 - Produces: `instantiateServerGenerationProvider('ollama')` returns an `OllamaObservationProvider` even with no API key set.
 
 Note: `instantiateServerGenerationProvider` may not be exported. First check: `grep -n "export function instantiateServerGenerationProvider\|export function buildServerGenerationProviderFromEnv" src/server/runtime/create-server-service.ts`. If neither is exported, export `instantiateServerGenerationProvider` (add `export`) so the test can call it directly; this is a safe, minimal widening of the module surface.
@@ -421,14 +421,14 @@ import { OllamaObservationProvider } from '../../../src/server/generation/provid
 describe('instantiateServerGenerationProvider — ollama', () => {
   const prev = { ...process.env };
   afterEach(() => {
-    process.env.CLAUDE_MEM_SERVER_MODEL = prev.CLAUDE_MEM_SERVER_MODEL;
-    process.env.CLAUDE_MEM_OLLAMA_URL = prev.CLAUDE_MEM_OLLAMA_URL;
-    process.env.CLAUDE_MEM_OLLAMA_API_KEY = prev.CLAUDE_MEM_OLLAMA_API_KEY;
+    process.env.MEMSMITH_SERVER_MODEL = prev.MEMSMITH_SERVER_MODEL;
+    process.env.MEMSMITH_OLLAMA_URL = prev.MEMSMITH_OLLAMA_URL;
+    process.env.MEMSMITH_OLLAMA_API_KEY = prev.MEMSMITH_OLLAMA_API_KEY;
   });
 
   it('instantiates Ollama without any API key (keyless)', () => {
-    delete process.env.CLAUDE_MEM_OLLAMA_API_KEY;
-    delete process.env.CLAUDE_MEM_SERVER_MODEL;
+    delete process.env.MEMSMITH_OLLAMA_API_KEY;
+    delete process.env.MEMSMITH_SERVER_MODEL;
     const provider = instantiateServerGenerationProvider('ollama');
     expect(provider).toBeInstanceOf(OllamaObservationProvider);
     expect(provider?.providerLabel).toBe('ollama');
@@ -450,12 +450,12 @@ Add the branch inside `instantiateServerGenerationProvider`, BEFORE the final `r
   if (provider === 'ollama') {
     // Keyless by default — do NOT gate on an API key. A key is only used when
     // Ollama is fronted by an auth proxy.
-    const apiKey = process.env.CLAUDE_MEM_OLLAMA_API_KEY ?? '';
+    const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      model: process.env.CLAUDE_MEM_SERVER_MODEL ?? 'llama3.1:8b',
+      model: process.env.MEMSMITH_SERVER_MODEL ?? 'llama3.1:8b',
     };
     if (apiKey) opts.apiKey = apiKey;
-    const baseUrl = process.env.CLAUDE_MEM_OLLAMA_URL;
+    const baseUrl = process.env.MEMSMITH_OLLAMA_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
     return new OllamaObservationProvider(opts);
   }
@@ -483,8 +483,8 @@ git commit -m "feat(server): register ollama provider (keyless, model/url env ov
 - Test: `tests/server/generation/provider-observation-generator.test.ts` (guard behavior via stub providers)
 
 **Interfaces:**
-- Consumes: `provider.generate(context, signal?, opts?)` (Task 1); `parseAgentXml` from `src/sdk/parser.js`; env `CLAUDE_MEM_REFORMAT_RETRIES`.
-- Produces: no new exported API; `generateAndPersist` now calls `generate()` 1..(1+N) times where N = clamped `CLAUDE_MEM_REFORMAT_RETRIES` (default 1), stopping as soon as `parseAgentXml(rawText).valid`.
+- Consumes: `provider.generate(context, signal?, opts?)` (Task 1); `parseAgentXml` from `src/sdk/parser.js`; env `MEMSMITH_REFORMAT_RETRIES`.
+- Produces: no new exported API; `generateAndPersist` now calls `generate()` 1..(1+N) times where N = clamped `MEMSMITH_REFORMAT_RETRIES` (default 1), stopping as soon as `parseAgentXml(rawText).valid`.
 
 - [ ] **Step 1: Write the failing test** — add to `tests/server/generation/provider-observation-generator.test.ts`. Extend the existing `StubProvider` OR add a `SequenceStubProvider` that returns different text per call. Add this provider class near the top and these tests inside the `describe` (they need Postgres — they sit alongside the file's existing DB-gated tests):
 
@@ -509,8 +509,8 @@ const GARBAGE = 'sure! here is your observation: it was a discovery about ok.';
 Tests:
 ```ts
 it('reformat guard: malformed then valid → persists, provider called twice', async () => {
-  const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
-  process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+  const prev = process.env.MEMSMITH_REFORMAT_RETRIES;
+  process.env.MEMSMITH_REFORMAT_RETRIES = '1';
   try {
     const provider = new SequenceStubProvider([GARBAGE, VALID_XML]);
     const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
@@ -521,13 +521,13 @@ it('reformat guard: malformed then valid → persists, provider called twice', a
     const reloaded = await storage.observationGenerationJobs.getByIdForScope({ id: jobId, projectId, teamId });
     expect(reloaded?.status).toBe('completed');
   } finally {
-    process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    process.env.MEMSMITH_REFORMAT_RETRIES = prev;
   }
 });
 
 it('reformat guard: still malformed after retries → parse_error, job failed (unchanged terminal outcome)', async () => {
-  const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
-  process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+  const prev = process.env.MEMSMITH_REFORMAT_RETRIES;
+  process.env.MEMSMITH_REFORMAT_RETRIES = '1';
   try {
     const provider = new SequenceStubProvider([GARBAGE, GARBAGE]);
     const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
@@ -536,26 +536,26 @@ it('reformat guard: still malformed after retries → parse_error, job failed (u
     const reloaded = await storage.observationGenerationJobs.getByIdForScope({ id: jobId, projectId, teamId });
     expect(reloaded?.status).toBe('failed');
   } finally {
-    process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    process.env.MEMSMITH_REFORMAT_RETRIES = prev;
   }
 });
 
 it('reformat guard disabled (retries=0): provider called once, fails on malformed', async () => {
-  const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
-  process.env.CLAUDE_MEM_REFORMAT_RETRIES = '0';
+  const prev = process.env.MEMSMITH_REFORMAT_RETRIES;
+  process.env.MEMSMITH_REFORMAT_RETRIES = '0';
   try {
     const provider = new SequenceStubProvider([GARBAGE]);
     const generator = new ProviderObservationGenerator({ pool: pool as unknown as pg.Pool, provider } as never);
     await expect(generator.process(makeJob())).rejects.toThrow(/parse error/);
     expect(provider.calls).toBe(1);
   } finally {
-    process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    process.env.MEMSMITH_REFORMAT_RETRIES = prev;
   }
 });
 
 it('reformat guard: a thrown provider error on the retry propagates (not swallowed as format failure)', async () => {
-  const prev = process.env.CLAUDE_MEM_REFORMAT_RETRIES;
-  process.env.CLAUDE_MEM_REFORMAT_RETRIES = '1';
+  const prev = process.env.MEMSMITH_REFORMAT_RETRIES;
+  process.env.MEMSMITH_REFORMAT_RETRIES = '1';
   try {
     const provider: ServerGenerationProvider = {
       providerLabel: 'claude',
@@ -569,7 +569,7 @@ it('reformat guard: a thrown provider error on the retry propagates (not swallow
     } as never;
     await expect(generator_process_with(provider)).rejects.toThrow(/boom on reformat/);
   } finally {
-    process.env.CLAUDE_MEM_REFORMAT_RETRIES = prev;
+    process.env.MEMSMITH_REFORMAT_RETRIES = prev;
   }
 });
 ```
@@ -577,7 +577,7 @@ it('reformat guard: a thrown provider error on the retry propagates (not swallow
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/generation/provider-observation-generator.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/generation/provider-observation-generator.test.ts`
 Expected: FAIL — provider currently called once; malformed-then-valid does not persist; `provider.calls` is 1 not 2.
 
 - [ ] **Step 3: Implement** — in `src/server/generation/ProviderObservationGenerator.ts`:
@@ -590,7 +590,7 @@ import { parseAgentXml } from '../../sdk/parser.js';
 Add two module-scope helpers (near the bottom of the file, beside the other private helpers/free functions):
 ```ts
 function reformatRetryLimit(): number {
-  const raw = Number(process.env.CLAUDE_MEM_REFORMAT_RETRIES ?? 1);
+  const raw = Number(process.env.MEMSMITH_REFORMAT_RETRIES ?? 1);
   if (!Number.isFinite(raw)) return 1;
   return Math.max(0, Math.min(3, Math.trunc(raw)));
 }
@@ -639,7 +639,7 @@ Everything after (the `persistInput` block onward) is unchanged and continues to
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/generation/provider-observation-generator.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/generation/provider-observation-generator.test.ts`
 Expected: PASS (guard tests + existing generator tests, incl. the malformed-XML terminal-fail test).
 
 - [ ] **Step 5: Commit**
@@ -654,20 +654,20 @@ git commit -m "feat(server): bounded reformat guard on malformed generation outp
 ### Task 5: Docs + build the bundle
 
 **Files:**
-- Modify: `docs/deploy/aws.md` (env-var table: add `CLAUDE_MEM_SERVER_PROVIDER=ollama`, `CLAUDE_MEM_OLLAMA_URL`, `CLAUDE_MEM_OLLAMA_API_KEY`, `CLAUDE_MEM_REFORMAT_RETRIES`)
+- Modify: `docs/deploy/aws.md` (env-var table: add `MEMSMITH_SERVER_PROVIDER=ollama`, `MEMSMITH_OLLAMA_URL`, `MEMSMITH_OLLAMA_API_KEY`, `MEMSMITH_REFORMAT_RETRIES`)
 - Modify: `plugin/scripts/server-service.cjs` (regenerated by build)
 
 **Interfaces:** none (docs + build artifact).
 
-- [ ] **Step 1: Add env-var rows** to the table in `docs/deploy/aws.md` (the table that already lists `CLAUDE_MEM_SERVER_PROVIDER`, `CLAUDE_MEM_FTS_WEIGHT`, etc.):
+- [ ] **Step 1: Add env-var rows** to the table in `docs/deploy/aws.md` (the table that already lists `MEMSMITH_SERVER_PROVIDER`, `MEMSMITH_FTS_WEIGHT`, etc.):
 
 ```markdown
-| `CLAUDE_MEM_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
-| `CLAUDE_MEM_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
-| `CLAUDE_MEM_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
-| `CLAUDE_MEM_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
+| `MEMSMITH_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
+| `MEMSMITH_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
+| `MEMSMITH_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
 ```
-(If a `CLAUDE_MEM_SERVER_PROVIDER` row already exists, update its description rather than duplicating the row.)
+(If a `MEMSMITH_SERVER_PROVIDER` row already exists, update its description rather than duplicating the row.)
 
 - [ ] **Step 2: Build the bundle**
 
@@ -699,7 +699,7 @@ Expected: baseline pass count, 0 new failures (2301 pass / 0 fail baseline, plus
 
 - [ ] **Step 2: Full suite with DB**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test`
 Expected: 0 failures (prior 2425 baseline + the new guard/provider tests).
 
 - [ ] **Step 3: Confirm clean tree + no artifact drift**

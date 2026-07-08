@@ -42,9 +42,9 @@ export const discoveryGateHandler: EventHandler = {
         toolName: input.toolName,
         toolInput: (input.toolInput as Record<string, unknown>) ?? {},
         projectName: context.primary,
-        gateTools: settings.CLAUDE_MEM_GATE_TOOLS ?? '',
-        serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
-        apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+        gateTools: settings.MEMSMITH_GATE_TOOLS ?? '',
+        serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
+        apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
       },
     );
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext } };

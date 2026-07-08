@@ -13,7 +13,7 @@ import {
 import { logger } from '../../src/utils/logger.js';
 
 const loggerSpies: ReturnType<typeof spyOn>[] = [];
-const TEST_DATABASE_URL = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const TEST_DATABASE_URL = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('ServerService', () => {
   let service: ServerService | null = null;
@@ -274,7 +274,7 @@ describe('ServerService', () => {
       }
     });
   } else {
-    it.skip('postgres integration tests skipped (set CLAUDE_MEM_TEST_POSTGRES_URL to enable)', () => {});
+    it.skip('postgres integration tests skipped (set MEMSMITH_TEST_POSTGRES_URL to enable)', () => {});
   }
 });
 

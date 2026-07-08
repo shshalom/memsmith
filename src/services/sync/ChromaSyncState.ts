@@ -14,7 +14,7 @@ export interface ProjectWatermarks {
 const ZERO: ProjectWatermarks = { observations: 0, summaries: 0, prompts: 0 };
 
 function statePath(): string {
-  const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+  const dataDir = SettingsDefaultsManager.get('MEMSMITH_DATA_DIR');
   return join(dataDir, 'chroma-sync-state.json');
 }
 
@@ -44,7 +44,7 @@ function load(): Record<string, ProjectWatermarks> {
 function persist(): void {
   if (!cache) return;
   const path = statePath();
-  const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+  const dataDir = SettingsDefaultsManager.get('MEMSMITH_DATA_DIR');
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(cache, null, 2), 'utf8');

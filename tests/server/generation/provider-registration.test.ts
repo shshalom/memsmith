@@ -6,14 +6,14 @@ import { OllamaObservationProvider } from '../../../src/server/generation/provid
 describe('instantiateServerGenerationProvider — ollama', () => {
   const prev = { ...process.env };
   afterEach(() => {
-    process.env.CLAUDE_MEM_SERVER_MODEL = prev.CLAUDE_MEM_SERVER_MODEL;
-    process.env.CLAUDE_MEM_OLLAMA_URL = prev.CLAUDE_MEM_OLLAMA_URL;
-    process.env.CLAUDE_MEM_OLLAMA_API_KEY = prev.CLAUDE_MEM_OLLAMA_API_KEY;
+    process.env.MEMSMITH_SERVER_MODEL = prev.MEMSMITH_SERVER_MODEL;
+    process.env.MEMSMITH_OLLAMA_URL = prev.MEMSMITH_OLLAMA_URL;
+    process.env.MEMSMITH_OLLAMA_API_KEY = prev.MEMSMITH_OLLAMA_API_KEY;
   });
 
   it('instantiates Ollama without any API key (keyless)', () => {
-    delete process.env.CLAUDE_MEM_OLLAMA_API_KEY;
-    delete process.env.CLAUDE_MEM_SERVER_MODEL;
+    delete process.env.MEMSMITH_OLLAMA_API_KEY;
+    delete process.env.MEMSMITH_SERVER_MODEL;
     const provider = instantiateServerGenerationProvider('ollama');
     expect(provider).toBeInstanceOf(OllamaObservationProvider);
     expect(provider?.providerLabel).toBe('ollama');

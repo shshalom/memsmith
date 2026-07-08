@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem",
+  "name": "memsmith",
   "version": "13.10.1",
   "description": "Memory compression system for Claude Code - persist context across sessions",
   "author": {
     "name": "Alex Newman"
   },
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "repository": "https://github.com/shshalom/memsmith",
   "license": "Apache-2.0",
   "keywords": [
     "claude",
@@ -20,5 +20,5 @@
     "typescript",
     "nodejs"
   ],
-  "homepage": "https://github.com/thedotmack/claude-mem#readme"
+  "homepage": "https://github.com/shshalom/memsmith#readme"
 }

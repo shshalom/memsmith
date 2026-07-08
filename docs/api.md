@@ -28,21 +28,21 @@ Available beta endpoints:
 - `DELETE /v1/projects/:projectId/memory`
 - `GET /v1/audit?projectId=<id>`
 
-When `CLAUDE_MEM_AUTH_MODE=api-key`, send `Authorization: Bearer <key>`. Read endpoints require `memories:read`; write endpoints require `memories:write`.
+When `MEMSMITH_AUTH_MODE=api-key`, send `Authorization: Bearer <key>`. Read endpoints require `memories:read`; write endpoints require `memories:write`.
 
 ## Rate limiting, quota, and usage metering
 
 These paid-readiness guards run after auth and are **opt-in via env** — unset (the
 default) means no rate limit, no quota, and no metering, so behavior is unchanged.
 
-- `CLAUDE_MEM_RATE_LIMIT_PER_MIN` — max requests per API key per minute. Over the
+- `MEMSMITH_RATE_LIMIT_PER_MIN` — max requests per API key per minute. Over the
   limit returns `429` with `Retry-After` (and `X-RateLimit-*` headers). Fail-open.
-- `CLAUDE_MEM_MONTHLY_REQUEST_CAP` — max requests per team per calendar month
+- `MEMSMITH_MONTHLY_REQUEST_CAP` — max requests per team per calendar month
   (UTC). At the cap, returns `402 quota_exceeded`. Fail-open.
-- `CLAUDE_MEM_MONTHLY_TOKEN_CAP` — max provider tokens per team per month. Gates
+- `MEMSMITH_MONTHLY_TOKEN_CAP` — max provider tokens per team per month. Gates
   **writes only** (ingestion drives generation = token spend); reads stay
   available so a team over budget can still recall. `402` at the cap. Fail-open.
-- `CLAUDE_MEM_USAGE_METERING=1` — record one `request` usage event per
+- `MEMSMITH_USAGE_METERING=1` — record one `request` usage event per
   authenticated call (fire-and-forget). Token/observation metering writes to the
   same `usage_events` table from the generation worker.
 
@@ -63,12 +63,12 @@ default) means no rate limit, no quota, and no metering, so behavior is unchange
   {
     "id": "...", "apiKey": "cm_...", "scopes": ["memories:read"], "expiresAt": null,
     "mcpUrl": "https://<host>/v1/mcp",
-    "connectCommand": "claude mcp add --transport http claude-mem https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
+    "connectCommand": "claude mcp add --transport http memsmith https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
   }
   ```
 
 - `GET /v1/connect` (read scope) returns the same command with a `<YOUR_API_KEY>`
-  placeholder (a GET never mints). `mcpUrl` is built from `CLAUDE_MEM_PUBLIC_URL`
+  placeholder (a GET never mints). `mcpUrl` is built from `MEMSMITH_PUBLIC_URL`
   (recommended behind a proxy) or the request host.
 
 > Cold-start note: minting the team's *first* key still needs a session-gated path
@@ -88,7 +88,7 @@ Without `wait=true`, the response includes the new event row and a best-
 effort `generationJob` field. With `wait=true`, the `generationJob` field is
 always populated (or `null` only when generation was explicitly disabled).
 The actual provider call happens in a separate BullMQ worker process
-(`claude-mem server worker start`); the HTTP path never blocks on a
+(`memsmith server worker start`); the HTTP path never blocks on a
 provider response.
 
 ## Remote MCP endpoint
@@ -102,7 +102,7 @@ if the key is project-scoped) bound every read.
 Connect:
 
 ```bash
-claude mcp add --transport http claude-mem <server-base>/v1/mcp \
+claude mcp add --transport http memsmith <server-base>/v1/mcp \
   --header "Authorization: Bearer cm_..."
 ```
 

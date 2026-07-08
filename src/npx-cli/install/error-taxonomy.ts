@@ -1,12 +1,12 @@
 /**
  * Installer error taxonomy — the single source of truth for classifying every
- * failure the universal installer (`npx claude-mem install`) can hit, and the
+ * failure the universal installer (`npx memsmith install`) can hit, and the
  * remediation we surface for each.
  *
  * Design constraints (see plans/04-installer-transparency.md):
  *  - Fail loud over silent. Unknown errors default to ABORT until classified.
  *  - Remediation strings interpolate the resolved data dir (multi-account safe),
- *    never a hard-coded ~/.claude-mem path.
+ *    never a hard-coded ~/.memsmith path.
  *  - There is NO `SILENT` severity.
  */
 
@@ -21,7 +21,7 @@ export enum ErrorSeverity {
 
 export interface RemediationContext {
   platform: NodeJS.Platform;
-  /** Resolved data dir (honors CLAUDE_MEM_DATA_DIR). */
+  /** Resolved data dir (honors MEMSMITH_DATA_DIR). */
   dataDir: string;
 }
 
@@ -48,13 +48,13 @@ function causeMessage(cause: unknown): string {
 
 const BUN_REMEDIATION = (ctx: RemediationContext): string =>
   ctx.platform === 'win32'
-    ? 'Install Bun manually then re-run `npx claude-mem install`. Windows: `winget install Oven-sh.Bun` (or `powershell -c "irm bun.sh/install.ps1 | iex"`).'
-    : 'Install Bun manually then re-run `npx claude-mem install`. macOS/Linux: `curl -fsSL https://bun.sh/install | bash` (or `brew install oven-sh/bun/bun`).';
+    ? 'Install Bun manually then re-run `npx memsmith install`. Windows: `winget install Oven-sh.Bun` (or `powershell -c "irm bun.sh/install.ps1 | iex"`).'
+    : 'Install Bun manually then re-run `npx memsmith install`. macOS/Linux: `curl -fsSL https://bun.sh/install | bash` (or `brew install oven-sh/bun/bun`).';
 
 const UV_REMEDIATION = (ctx: RemediationContext): string =>
   ctx.platform === 'win32'
-    ? 'Install uv manually then re-run `npx claude-mem install`. Windows: `winget install astral-sh.uv` (or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`).'
-    : 'Install uv manually then re-run `npx claude-mem install`. macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`).';
+    ? 'Install uv manually then re-run `npx memsmith install`. Windows: `winget install astral-sh.uv` (or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`).'
+    : 'Install uv manually then re-run `npx memsmith install`. macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`).';
 
 /**
  * The canonical category list. Ordered most-specific-first; `classifyError`
@@ -94,14 +94,14 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
     severity: ErrorSeverity.ABORT,
     match: (cause) => /\bERESOLVE\b/.test(causeMessage(cause)),
     remediation: () =>
-      'ERESOLVE peer-dependency conflict in marketplace deps that --legacy-peer-deps could not resolve. Open an issue at https://github.com/thedotmack/claude-mem/issues with the conflicting peer ranges shown above.',
+      'ERESOLVE peer-dependency conflict in marketplace deps that --legacy-peer-deps could not resolve. Open an issue at https://github.com/shshalom/memsmith/issues with the conflicting peer ranges shown above.',
   },
   {
     id: 'marketplace-dir-not-writable',
     severity: ErrorSeverity.ABORT,
     match: (cause) => /\b(EACCES|EPERM)\b/.test(causeMessage(cause)),
     remediation: (ctx) =>
-      `Cannot write to the claude-mem data/marketplace directory under ${ctx.dataDir}. Check filesystem permissions or set CLAUDE_MEM_DATA_DIR to a writable path, then re-run.`,
+      `Cannot write to the memsmith data/marketplace directory under ${ctx.dataDir}. Check filesystem permissions or set MEMSMITH_DATA_DIR to a writable path, then re-run.`,
   },
   {
     id: 'plugin-json-corrupt',
@@ -110,7 +110,7 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
       ctx.component === 'plugin-json' &&
       /Unexpected token|JSON|parse/i.test(causeMessage(cause)),
     remediation: () =>
-      'Existing plugin.json is corrupt. Run `rm -rf ~/.claude/plugins/marketplaces/thedotmack` and re-run `npx claude-mem install`.',
+      'Existing plugin.json is corrupt. Run `rm -rf ~/.claude/plugins/marketplaces/shshalom` and re-run `npx memsmith install`.',
   },
   {
     id: 'all-ides-failed',
@@ -124,7 +124,7 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
     severity: ErrorSeverity.FAIL_LOUD_PER_IDE,
     match: (_cause, ctx) => ctx.phase === 'ide-install',
     remediation: () =>
-      'Re-run `npx claude-mem install --ide=<name>` to retry just this IDE. The captured stderr is shown above.',
+      'Re-run `npx memsmith install --ide=<name>` to retry just this IDE. The captured stderr is shown above.',
   },
   {
     id: 'path-update-failed',
@@ -145,21 +145,21 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
     severity: ErrorSeverity.WARN_CONTINUE,
     match: (_cause, ctx) => ctx.component.endsWith('-version-probe'),
     remediation: () =>
-      'Could not verify the tool version after install — the installation is likely OK. Re-run `npx claude-mem install` if features misbehave.',
+      'Could not verify the tool version after install — the installation is likely OK. Re-run `npx memsmith install` if features misbehave.',
   },
   {
     id: 'child-process-timeout',
     severity: ErrorSeverity.ABORT,
     match: (cause) => /timed out|ETIMEDOUT|SIGTERM|did not finish/i.test(causeMessage(cause)),
     remediation: () =>
-      'An install command did not finish in time. Check network connectivity. On a slow host, raise the budget with CLAUDE_MEM_INSTALL_TIMEOUT_MS and re-run.',
+      'An install command did not finish in time. Check network connectivity. On a slow host, raise the budget with MEMSMITH_INSTALL_TIMEOUT_MS and re-run.',
   },
   {
     id: 'unknown-install-error',
     severity: ErrorSeverity.ABORT,
     match: () => true,
     remediation: (ctx) =>
-      `An unexpected installer error occurred. Capture ${ctx.dataDir}/last-install-error.json and open an issue at https://github.com/thedotmack/claude-mem/issues.`,
+      `An unexpected installer error occurred. Capture ${ctx.dataDir}/last-install-error.json and open an issue at https://github.com/shshalom/memsmith/issues.`,
   },
 ];
 

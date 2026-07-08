@@ -5,7 +5,7 @@ import { join } from 'path';
 import { runTranscriptCommand } from '../../src/services/transcripts/cli.js';
 import { parseWorkerServiceCommand } from '../../src/services/worker-service.js';
 
-describe('npx claude-mem transcript watch fallback (2450)', () => {
+describe('npx memsmith transcript watch fallback (2450)', () => {
   it('parseWorkerServiceCommand routes "transcript <sub>" argv to command=transcript + args=[sub, ...]', () => {
     const parsedWatch = parseWorkerServiceCommand(['transcript', 'watch']);
     expect(parsedWatch.command).toBe('transcript');
@@ -26,7 +26,7 @@ describe('npx claude-mem transcript watch fallback (2450)', () => {
   });
 
   it('runTranscriptCommand("init", …) writes a default config (dispatch target works end-to-end)', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'claude-mem-transcript-cli-'));
+    const tmpDir = mkdtempSync(join(tmpdir(), 'memsmith-transcript-cli-'));
     const configPath = join(tmpDir, 'transcript-watch.json');
     try {
       const exitCode = await runTranscriptCommand('init', ['--config', configPath]);

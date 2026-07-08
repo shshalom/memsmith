@@ -43,10 +43,10 @@ function makeSession(overrides: Record<string, unknown> = {}) {
 function mockGeminiConfig() {
   loadFromFileSpy.mockImplementation(() => ({
     ...SettingsDefaultsManager.getAllDefaults(),
-    CLAUDE_MEM_GEMINI_API_KEY: 'test-api-key',
-    CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-    CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'false',
-    CLAUDE_MEM_DATA_DIR: '/tmp/claude-mem-test',
+    MEMSMITH_GEMINI_API_KEY: 'test-api-key',
+    MEMSMITH_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+    MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: 'false',
+    MEMSMITH_DATA_DIR: '/tmp/memsmith-test',
   }));
 }
 
@@ -99,17 +99,17 @@ describe('GeminiProvider', () => {
 
     loadFromFileSpy = spyOn(SettingsDefaultsManager, 'loadFromFile').mockImplementation(() => ({
       ...SettingsDefaultsManager.getAllDefaults(),
-      CLAUDE_MEM_GEMINI_API_KEY: 'test-api-key',
-      CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-      CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: rateLimitingEnabled,
-      CLAUDE_MEM_DATA_DIR: '/tmp/claude-mem-test',
+      MEMSMITH_GEMINI_API_KEY: 'test-api-key',
+      MEMSMITH_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+      MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: rateLimitingEnabled,
+      MEMSMITH_DATA_DIR: '/tmp/memsmith-test',
     }));
 
     getSpy = spyOn(SettingsDefaultsManager, 'get').mockImplementation((key: string) => {
-      if (key === 'CLAUDE_MEM_GEMINI_API_KEY') return 'test-api-key';
-      if (key === 'CLAUDE_MEM_GEMINI_MODEL') return 'gemini-2.5-flash-lite';
-      if (key === 'CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED') return rateLimitingEnabled;
-      if (key === 'CLAUDE_MEM_DATA_DIR') return '/tmp/claude-mem-test';
+      if (key === 'MEMSMITH_GEMINI_API_KEY') return 'test-api-key';
+      if (key === 'MEMSMITH_GEMINI_MODEL') return 'gemini-2.5-flash-lite';
+      if (key === 'MEMSMITH_GEMINI_RATE_LIMITING_ENABLED') return rateLimitingEnabled;
+      if (key === 'MEMSMITH_DATA_DIR') return '/tmp/memsmith-test';
       return SettingsDefaultsManager.getAllDefaults()[key as keyof ReturnType<typeof SettingsDefaultsManager.getAllDefaults>] ?? '';
     });
 

@@ -1,12 +1,12 @@
 {
-  "id": "claude-mem",
-  "name": "Claude-Mem (Persistent Memory)",
-  "description": "OpenClaw plugin for Claude-Mem. Records observations from embedded runner sessions and streams them to messaging channels.",
+  "id": "memsmith",
+  "name": "MemSmith (Persistent Memory)",
+  "description": "OpenClaw plugin for MemSmith. Records observations from embedded runner sessions and streams them to messaging channels.",
   "kind": "memory",
   "version": "13.10.1",
   "license": "Apache-2.0",
-  "author": "thedotmack",
-  "homepage": "https://claude-mem.ai",
+  "author": "shshalom",
+  "homepage": "https://memsmith.ai",
   "skills": ["skills/make-plan", "skills/do"],
   "configSchema": {
     "type": "object",
@@ -26,12 +26,12 @@
       "workerPort": {
         "type": "number",
         "default": 37777,
-        "description": "Port for Claude-Mem worker service"
+        "description": "Port for MemSmith worker service"
       },
       "workerHost": {
         "type": "string",
         "default": "127.0.0.1",
-        "description": "Hostname for Claude-Mem worker service. Set to host.docker.internal when the gateway runs in Docker and the worker runs on the host."
+        "description": "Hostname for MemSmith worker service. Set to host.docker.internal when the gateway runs in Docker and the worker runs on the host."
       },
       "project": {
         "type": "string",

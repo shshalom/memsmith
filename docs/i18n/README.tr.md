@@ -2,11 +2,11 @@
 
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-dark-mode.webp">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp" alt="MemSmith" width="400">
     </picture>
   </a>
   <br>
@@ -57,7 +57,7 @@
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
   </a>
-  <a href="https://github.com/thedotmack/awesome-claude-code">
+  <a href="https://github.com/shshalom/awesome-claude-code">
     <img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Claude Code">
   </a>
 </p>
@@ -65,9 +65,9 @@
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg" alt="shshalom/memsmith | Trendshift" width="250" height="55"/>
     </picture>
   </a>
 </p>
@@ -75,9 +75,9 @@
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/cm-preview.gif" alt="MemSmith Preview" width="800">
     </picture>
   </a>
 </p>
@@ -93,7 +93,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem, araç kullanım gözlemlerini otomatik olarak yakalayarak, anlamsal özetler oluşturarak ve bunları gelecekteki oturumlarda kullanılabilir hale getirerek bağlamı oturumlar arası sorunsuzca korur. Bu, Claude'un oturumlar sona erse veya yeniden bağlansa bile projeler hakkındaki bilgi sürekliliğini korumasını sağlar.
+  MemSmith, araç kullanım gözlemlerini otomatik olarak yakalayarak, anlamsal özetler oluşturarak ve bunları gelecekteki oturumlarda kullanılabilir hale getirerek bağlamı oturumlar arası sorunsuzca korur. Bu, Claude'un oturumlar sona erse veya yeniden bağlansa bile projeler hakkındaki bilgi sürekliliğini korumasını sağlar.
 </p>
 
 ---
@@ -103,9 +103,9 @@
 Terminal üzerinden yeni bir Claude Code oturumu başlatın ve aşağıdaki komutları girin:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add shshalom/memsmith
 
-> /plugin install claude-mem
+> /plugin install memsmith
 ```
 
 Claude Code'u yeniden başlatın. Önceki oturumlardaki bağlam otomatik olarak yeni oturumlarda görünecektir.
@@ -127,35 +127,35 @@ Claude Code'u yeniden başlatın. Önceki oturumlardaki bağlam otomatik olarak 
 
 ## Dokümantasyon
 
-📚 **[Tam Dokümantasyonu Görüntüle](https://docs.claude-mem.ai/)** - Resmi web sitesinde göz atın
+📚 **[Tam Dokümantasyonu Görüntüle](https://docs.memsmith.ai/)** - Resmi web sitesinde göz atın
 
 ### Başlarken
 
-- **[Kurulum Kılavuzu](https://docs.claude-mem.ai/installation)** - Hızlı başlangıç ve gelişmiş kurulum
-- **[Kullanım Kılavuzu](https://docs.claude-mem.ai/usage/getting-started)** - Claude-Mem otomatik olarak nasıl çalışır
-- **[Arama Araçları](https://docs.claude-mem.ai/usage/search-tools)** - Doğal dil ile proje geçmişinizi sorgulayın
-- **[Beta Özellikleri](https://docs.claude-mem.ai/beta-features)** - Endless Mode gibi deneysel özellikleri deneyin
+- **[Kurulum Kılavuzu](https://docs.memsmith.ai/installation)** - Hızlı başlangıç ve gelişmiş kurulum
+- **[Kullanım Kılavuzu](https://docs.memsmith.ai/usage/getting-started)** - MemSmith otomatik olarak nasıl çalışır
+- **[Arama Araçları](https://docs.memsmith.ai/usage/search-tools)** - Doğal dil ile proje geçmişinizi sorgulayın
+- **[Beta Özellikleri](https://docs.memsmith.ai/beta-features)** - Endless Mode gibi deneysel özellikleri deneyin
 
 ### En İyi Uygulamalar
 
-- **[Bağlam Mühendisliği](https://docs.claude-mem.ai/context-engineering)** - AI ajan bağlam optimizasyon ilkeleri
-- **[Aşamalı Açıklama](https://docs.claude-mem.ai/progressive-disclosure)** - Claude-Mem'in bağlam hazırlama stratejisinin ardındaki felsefe
+- **[Bağlam Mühendisliği](https://docs.memsmith.ai/context-engineering)** - AI ajan bağlam optimizasyon ilkeleri
+- **[Aşamalı Açıklama](https://docs.memsmith.ai/progressive-disclosure)** - MemSmith'in bağlam hazırlama stratejisinin ardındaki felsefe
 
 ### Mimari
 
-- **[Genel Bakış](https://docs.claude-mem.ai/architecture/overview)** - Sistem bileşenleri ve veri akışı
-- **[Mimari Evrimi](https://docs.claude-mem.ai/architecture-evolution)** - v3'ten v5'e yolculuk
-- **[Hooks Mimarisi](https://docs.claude-mem.ai/hooks-architecture)** - Claude-Mem yaşam döngüsü hook'larını nasıl kullanır
-- **[Hooks Referansı](https://docs.claude-mem.ai/architecture/hooks)** - 7 hook betiği açıklandı
-- **[Worker Servisi](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API ve Bun yönetimi
-- **[Veritabanı](https://docs.claude-mem.ai/architecture/database)** - SQLite şeması ve FTS5 arama
-- **[Arama Mimarisi](https://docs.claude-mem.ai/architecture/search-architecture)** - Chroma vektör veritabanı ile hibrit arama
+- **[Genel Bakış](https://docs.memsmith.ai/architecture/overview)** - Sistem bileşenleri ve veri akışı
+- **[Mimari Evrimi](https://docs.memsmith.ai/architecture-evolution)** - v3'ten v5'e yolculuk
+- **[Hooks Mimarisi](https://docs.memsmith.ai/hooks-architecture)** - MemSmith yaşam döngüsü hook'larını nasıl kullanır
+- **[Hooks Referansı](https://docs.memsmith.ai/architecture/hooks)** - 7 hook betiği açıklandı
+- **[Worker Servisi](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API ve Bun yönetimi
+- **[Veritabanı](https://docs.memsmith.ai/architecture/database)** - SQLite şeması ve FTS5 arama
+- **[Arama Mimarisi](https://docs.memsmith.ai/architecture/search-architecture)** - Chroma vektör veritabanı ile hibrit arama
 
 ### Yapılandırma ve Geliştirme
 
-- **[Yapılandırma](https://docs.claude-mem.ai/configuration)** - Ortam değişkenleri ve ayarlar
-- **[Geliştirme](https://docs.claude-mem.ai/development)** - Derleme, test etme, katkıda bulunma
-- **[Sorun Giderme](https://docs.claude-mem.ai/troubleshooting)** - Yaygın sorunlar ve çözümler
+- **[Yapılandırma](https://docs.memsmith.ai/configuration)** - Ortam değişkenleri ve ayarlar
+- **[Geliştirme](https://docs.memsmith.ai/development)** - Derleme, test etme, katkıda bulunma
+- **[Sorun Giderme](https://docs.memsmith.ai/troubleshooting)** - Yaygın sorunlar ve çözümler
 
 ---
 
@@ -170,13 +170,13 @@ Claude Code'u yeniden başlatın. Önceki oturumlardaki bağlam otomatik olarak 
 5. **mem-search Becerisi** - Aşamalı açıklama ile doğal dil sorguları
 6. **Chroma Vektör Veritabanı** - Akıllı bağlam erişimi için hibrit anlamsal + anahtar kelime arama
 
-Detaylar için [Mimari Genel Bakış](https://docs.claude-mem.ai/architecture/overview) bölümüne bakın.
+Detaylar için [Mimari Genel Bakış](https://docs.memsmith.ai/architecture/overview) bölümüne bakın.
 
 ---
 
 ## mem-search Becerisi
 
-Claude-Mem, geçmiş çalışmalarınız hakkında sorduğunuzda otomatik olarak devreye giren mem-search becerisi aracılığıyla akıllı arama sağlar:
+MemSmith, geçmiş çalışmalarınız hakkında sorduğunuzda otomatik olarak devreye giren mem-search becerisi aracılığıyla akıllı arama sağlar:
 
 **Nasıl Çalışır:**
 - Sadece doğal bir şekilde sorun: *"Geçen oturumda ne yaptık?"* veya *"Bu hatayı daha önce düzelttik mi?"*
@@ -205,15 +205,15 @@ Claude-Mem, geçmiş çalışmalarınız hakkında sorduğunuzda otomatik olarak
 "Görüntüleyici arayüzünü eklediğimizde ne oluyordu?"
 ```
 
-Detaylı örnekler için [Arama Araçları Kılavuzu](https://docs.claude-mem.ai/usage/search-tools) bölümüne bakın.
+Detaylı örnekler için [Arama Araçları Kılavuzu](https://docs.memsmith.ai/usage/search-tools) bölümüne bakın.
 
 ---
 
 ## Beta Özellikleri
 
-Claude-Mem, **Endless Mode** (genişletilmiş oturumlar için biyomimetik bellek mimarisi) gibi deneysel özellikler içeren bir **beta kanalı** sunar. http://localhost:37777 → Settings adresindeki web görüntüleyici arayüzünden kararlı ve beta sürümleri arasında geçiş yapın.
+MemSmith, **Endless Mode** (genişletilmiş oturumlar için biyomimetik bellek mimarisi) gibi deneysel özellikler içeren bir **beta kanalı** sunar. http://localhost:37777 → Settings adresindeki web görüntüleyici arayüzünden kararlı ve beta sürümleri arasında geçiş yapın.
 
-Endless Mode hakkında detaylar ve nasıl deneyeceğiniz için **[Beta Özellikleri Dokümantasyonu](https://docs.claude-mem.ai/beta-features)** bölümüne bakın.
+Endless Mode hakkında detaylar ve nasıl deneyeceğiniz için **[Beta Özellikleri Dokümantasyonu](https://docs.memsmith.ai/beta-features)** bölümüne bakın.
 
 ---
 
@@ -229,15 +229,15 @@ Endless Mode hakkında detaylar ve nasıl deneyeceğiniz için **[Beta Özellikl
 
 ## Yapılandırma
 
-Ayarlar `~/.claude-mem/settings.json` dosyasında yönetilir (ilk çalıştırmada varsayılanlarla otomatik oluşturulur). AI modelini, worker portunu, veri dizinini, log seviyesini ve bağlam enjeksiyon ayarlarını yapılandırın.
+Ayarlar `~/.memsmith/settings.json` dosyasında yönetilir (ilk çalıştırmada varsayılanlarla otomatik oluşturulur). AI modelini, worker portunu, veri dizinini, log seviyesini ve bağlam enjeksiyon ayarlarını yapılandırın.
 
-Tüm mevcut ayarlar ve örnekler için **[Yapılandırma Kılavuzu](https://docs.claude-mem.ai/configuration)** bölümüne bakın.
+Tüm mevcut ayarlar ve örnekler için **[Yapılandırma Kılavuzu](https://docs.memsmith.ai/configuration)** bölümüne bakın.
 
 ---
 
 ## Geliştirme
 
-Derleme talimatları, test etme ve katkı iş akışı için **[Geliştirme Kılavuzu](https://docs.claude-mem.ai/development)** bölümüne bakın.
+Derleme talimatları, test etme ve katkı iş akışı için **[Geliştirme Kılavuzu](https://docs.memsmith.ai/development)** bölümüne bakın.
 
 ---
 
@@ -245,7 +245,7 @@ Derleme talimatları, test etme ve katkı iş akışı için **[Geliştirme Kıl
 
 Sorunlarla karşılaşırsanız, sorunu Claude'a açıklayın ve troubleshoot becerisi otomatik olarak teşhis edip düzeltmeleri sağlayacaktır.
 
-Yaygın sorunlar ve çözümler için **[Sorun Giderme Kılavuzu](https://docs.claude-mem.ai/troubleshooting)** bölümüne bakın.
+Yaygın sorunlar ve çözümler için **[Sorun Giderme Kılavuzu](https://docs.memsmith.ai/troubleshooting)** bölümüne bakın.
 
 ---
 
@@ -254,7 +254,7 @@ Yaygın sorunlar ve çözümler için **[Sorun Giderme Kılavuzu](https://docs.c
 Otomatik oluşturucu ile kapsamlı hata raporları oluşturun:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/thedotmack
+cd ~/.claude/plugins/marketplaces/shshalom
 npm run bug-report
 ```
 
@@ -268,7 +268,7 @@ Katkılar memnuniyetle karşılanır! Lütfen:
 4. Dokümantasyonu güncelleyin
 5. Pull Request gönderin
 
-Katkı iş akışı için [Geliştirme Kılavuzu](https://docs.claude-mem.ai/development) bölümüne bakın.
+Katkı iş akışı için [Geliştirme Kılavuzu](https://docs.memsmith.ai/development) bölümüne bakın.
 
 ---
 
@@ -276,7 +276,7 @@ Katkı iş akışı için [Geliştirme Kılavuzu](https://docs.claude-mem.ai/dev
 
 This project is licensed under the **Apache License 2.0** (Apache-2.0).
 
-Copyright (C) 2025 Alex Newman (@thedotmack). All rights reserved.
+Copyright (C) 2025 Alex Newman (@shshalom). All rights reserved.
 
 See the [LICENSE](LICENSE) file for full details.
 
@@ -290,9 +290,9 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Destek
 
 - **Dokümantasyon**: [docs/](docs/)
-- **Sorunlar**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
-- **Depo**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
-- **Yazar**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
+- **Sorunlar**: [GitHub Issues](https://github.com/shshalom/memsmith/issues)
+- **Depo**: [github.com/shshalom/memsmith](https://github.com/shshalom/memsmith)
+- **Yazar**: Alex Newman ([@shshalom](https://github.com/shshalom))
 
 ---
 

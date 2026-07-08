@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 
 /**
- * Read a claude-mem settings.json as a flat key/value record, unwrapping the
+ * Read a memsmith settings.json as a flat key/value record, unwrapping the
  * legacy `env`-nested shape. Returns null when the file is missing or not a
  * JSON object; throws on invalid JSON so callers choose their own recovery.
  */

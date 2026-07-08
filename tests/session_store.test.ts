@@ -57,7 +57,7 @@ describe('SessionStore', () => {
 
   it('should normalize oversized prompts before duplicate lookup', () => {
     const contentSessionId = 'oversized-duplicate-session-store';
-    const oversizedPrompt = `<claude-mem-context>ignored</claude-mem-context>${'A'.repeat(MAX_STORED_PROMPT_CHARS + 250)}`;
+    const oversizedPrompt = `<memsmith-context>ignored</memsmith-context>${'A'.repeat(MAX_STORED_PROMPT_CHARS + 250)}`;
     store.createSDKSession(contentSessionId, 'test-project', 'initial prompt');
     const promptId = store.saveUserPrompt(contentSessionId, 1, oversizedPrompt);
 

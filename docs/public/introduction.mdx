@@ -3,25 +3,25 @@ title: "Introduction"
 description: "Persistent memory compression system for Claude Code"
 ---
 
-# Claude-Mem
+# MemSmith
 
 **Persistent memory compression system for Claude Code**
 
-Claude-Mem seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
+MemSmith seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
 
 ## Quick Start
 
 Install with a single command:
 
 ```bash
-npx claude-mem install
+npx memsmith install
 ```
 
 Or install from the plugin marketplace inside Claude Code:
 
 ```bash
-/plugin marketplace add thedotmack/claude-mem
-/plugin install claude-mem
+/plugin marketplace add shshalom/memsmith
+/plugin install memsmith
 ```
 
 Restart Claude Code. Context from previous sessions will automatically appear in new sessions.
@@ -78,7 +78,7 @@ See [Architecture Overview](architecture/overview) for details.
 ## System Requirements
 
 - **Node.js**: 20.0.0 or higher
-- **Bun** ≥ 1.0 (auto-installed by `npx claude-mem install` if missing)
+- **Bun** ≥ 1.0 (auto-installed by `npx memsmith install` if missing)
 - **uv** (auto-installed if missing — provides Python for Chroma)
 - **Claude Code** (or another supported IDE: Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, OpenClaw)
 - **SQLite 3** — bundled via `bun:sqlite`
@@ -90,7 +90,7 @@ See [Architecture Overview](architecture/overview) for details.
     Quick start & advanced installation
   </Card>
   <Card title="Getting Started" icon="rocket" href="/usage/getting-started">
-    Learn how Claude-Mem works automatically
+    Learn how MemSmith works automatically
   </Card>
   <Card title="Folder Context" icon="folder-open" href="/usage/folder-context">
     Auto-generated folder CLAUDE.md files

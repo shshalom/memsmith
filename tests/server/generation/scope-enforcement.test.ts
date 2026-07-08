@@ -19,7 +19,7 @@ import type { ServerGenerationJobPayload, GenerateObservationsForEventJob } from
 import { ModeManager } from '../../../src/services/domain/ModeManager.js';
 import { createIsolatedSchema, dropSchema, poolForSchema } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 class StubProvider implements ServerGenerationProvider {
   readonly providerLabel = 'claude' as const;
@@ -36,7 +36,7 @@ class StubProvider implements ServerGenerationProvider {
 
 describe('Phase 11 — ProviderObservationGenerator scope enforcement', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

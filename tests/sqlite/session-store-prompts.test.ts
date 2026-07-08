@@ -44,12 +44,12 @@ describe('SessionStore prompts', () => {
 
     it('stores a tag-stripped, bounded prompt_text ending in an ellipsis', () => {
       const session = createSession('content-normalized');
-      const oversized = `<claude-mem-context>ignored</claude-mem-context>${'A'.repeat(MAX_STORED_PROMPT_CHARS + 250)}`;
+      const oversized = `<memsmith-context>ignored</memsmith-context>${'A'.repeat(MAX_STORED_PROMPT_CHARS + 250)}`;
 
       const id = store.saveUserPrompt(session, 1, oversized);
       const stored = store.db.prepare('SELECT prompt_text FROM user_prompts WHERE id = ?').get(id) as { prompt_text: string };
 
-      expect(stored.prompt_text.startsWith('<claude-mem-context>')).toBe(false);
+      expect(stored.prompt_text.startsWith('<memsmith-context>')).toBe(false);
       expect(stored.prompt_text.length).toBe(MAX_STORED_PROMPT_CHARS);
       expect(stored.prompt_text.endsWith('…')).toBe(true);
     });

@@ -56,7 +56,7 @@ export abstract class BaseRouteHandler {
   private static rawPlatformSourceFromRequest(req: Request): string | undefined {
     const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
     const header = req.get?.('x-platform-source')
-      ?? req.get?.('x-claude-mem-platform-source');
+      ?? req.get?.('x-memsmith-platform-source');
     return BaseRouteHandler.firstString(req.query.platformSource)
       ?? BaseRouteHandler.firstString(req.query.platform_source)
       ?? BaseRouteHandler.firstString(body.platformSource)

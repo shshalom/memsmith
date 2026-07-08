@@ -6,7 +6,7 @@
 // mounts DashboardRoutes exactly as ServerService does (Postgres pool +
 // api-key auth) and asserts the routes are reachable and auth-gated.
 //
-// Postgres-gated: skips cleanly when CLAUDE_MEM_TEST_POSTGRES_URL is unset.
+// Postgres-gated: skips cleanly when MEMSMITH_TEST_POSTGRES_URL is unset.
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import pg from 'pg';
 import { Server } from '../../../src/services/server/Server.js';
@@ -14,10 +14,10 @@ import { DashboardRoutes } from '../../../src/server/dashboard/routes.js';
 import { bootstrapServerPostgresSchema } from '../../../src/storage/postgres/index.js';
 import { logger } from '../../../src/utils/logger.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('dashboard runtime mount', () => {
-  if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
+  if (!testDatabaseUrl) { it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {}); return; }
 
   let pool: pg.Pool;
   let server: Server;

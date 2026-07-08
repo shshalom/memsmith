@@ -3,7 +3,7 @@
 export type RankedList = { id: string; rank: number }[];
 export type FusedResult = { id: string; score: number };
 
-const DEFAULT_K = Number(process.env.CLAUDE_MEM_RRF_K ?? 60);
+const DEFAULT_K = Number(process.env.MEMSMITH_RRF_K ?? 60);
 
 export function combineRanks(rankings: RankedList[], k: number = DEFAULT_K, weights?: number[]): FusedResult[] {
   const scores = new Map<string, number>();

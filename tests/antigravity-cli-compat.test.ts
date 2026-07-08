@@ -51,7 +51,7 @@ describe('AntigravityCliHooksInstaller - event mapping (B0-confirmed 7-event map
   });
 
   it('writes the rules/context placeholder to the plural, home-relative .agents/rules path', () => {
-    expect(src).toContain("path.join(homedir(), '.agents', 'rules', 'claude-mem-context.md')");
+    expect(src).toContain("path.join(homedir(), '.agents', 'rules', 'memsmith-context.md')");
   });
 });
 

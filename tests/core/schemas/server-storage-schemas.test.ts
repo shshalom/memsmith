@@ -11,7 +11,7 @@ describe('server storage Zod schemas', () => {
     const now = Date.now();
     const project = ProjectSchema.parse({
       id: 'project-1',
-      name: 'Claude Mem',
+      name: 'MemSmith',
       createdAtEpoch: now,
       updatedAtEpoch: now
     });

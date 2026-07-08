@@ -12,7 +12,7 @@ const CONFIG = {
   pluginPath: process.env.RAGTIME_PLUGIN_PATH ||
     path.join(process.cwd(), "plugin"),
 
-  workerPort: parseInt(process.env.CLAUDE_MEM_WORKER_PORT || "37777", 10),
+  workerPort: parseInt(process.env.MEMSMITH_WORKER_PORT || "37777", 10),
 
   transcriptMaxAgeHours: parseInt(process.env.RAGTIME_TRANSCRIPT_MAX_AGE || "24", 10),
 
@@ -23,7 +23,7 @@ const CONFIG = {
   sessionDelayMs: parseInt(process.env.RAGTIME_SESSION_DELAY || "2000", 10),
 };
 
-process.env.CLAUDE_MEM_MODE = "email-investigation";
+process.env.MEMSMITH_MODE = "email-investigation";
 
 function getFilesToProcess(): string[] {
   if (!fs.existsSync(CONFIG.corpusPath)) {

@@ -28,7 +28,7 @@ export function getSharedPostgresPool(options: { requireDatabaseUrl?: boolean } 
   }
   const config = parsePostgresConfig({ requireDatabaseUrl: options.requireDatabaseUrl ?? true });
   if (!config) {
-    throw new Error('Postgres requires CLAUDE_MEM_SERVER_DATABASE_URL');
+    throw new Error('Postgres requires MEMSMITH_SERVER_DATABASE_URL');
   }
   sharedPool = createPostgresPool(config);
   return sharedPool;

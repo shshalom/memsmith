@@ -44,7 +44,7 @@ function parseCliArgs(): CliArgs {
 
 function printHelp(): void {
   console.log(`
-bug-report - Generate bug reports for claude-mem
+bug-report - Generate bug reports for memsmith
 
 USAGE:
   npm run bug-report [options]
@@ -57,7 +57,7 @@ OPTIONS:
 
 DESCRIPTION:
   This script collects system diagnostics, prompts you for issue details,
-  and generates a formatted GitHub issue for claude-mem using the Claude Agent SDK.
+  and generates a formatted GitHub issue for memsmith using the Claude Agent SDK.
 
   The generated report will be saved to ~/bug-report-YYYY-MM-DD-HHMMSS.md
   and displayed in your terminal for easy copy-pasting to GitHub.
@@ -144,7 +144,7 @@ async function main() {
   console.log("✓ Configuration loaded\n");
 
   console.log("📋 System Summary:");
-  console.log(`   Claude-mem: v${diagnostics.versions.claudeMem}`);
+  console.log(`   MemSmith: v${diagnostics.versions.memSmith}`);
   console.log(`   Claude Code: ${diagnostics.versions.claudeCode}`);
   console.log(
     `   Platform: ${diagnostics.platform.osVersion} (${diagnostics.platform.arch})`
@@ -219,7 +219,7 @@ async function main() {
 
   const encodedTitle = encodeURIComponent(result.title);
   const encodedBody = encodeURIComponent(result.body);
-  const githubUrl = `https://github.com/thedotmack/claude-mem/issues/new?title=${encodedTitle}&body=${encodedBody}`;
+  const githubUrl = `https://github.com/shshalom/memsmith/issues/new?title=${encodedTitle}&body=${encodedBody}`;
 
   console.log("─".repeat(60));
   console.log("📋 BUG REPORT GENERATED");

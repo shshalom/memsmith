@@ -16,9 +16,9 @@ function stripProjectRoot(filePath: string): string {
     }
   }
 
-  const projectIndex = filePath.indexOf('claude-mem/');
+  const projectIndex = filePath.indexOf('memsmith/');
   if (projectIndex !== -1) {
-    return filePath.substring(projectIndex + 'claude-mem/'.length);
+    return filePath.substring(projectIndex + 'memsmith/'.length);
   }
 
   const parts = filePath.split('/');

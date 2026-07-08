@@ -6,7 +6,7 @@ import { bootstrapServerPostgresSchema } from '../../../src/storage/postgres/ind
 import { createIsolatedSchema, dropSchema, poolForSchema } from '../../sdk/pg-isolation.js';
 import { resolveSupersessionHead, resolveHeads, maxChainDepth } from '../../../src/server/retrieval/supersession.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 const TEAM = '11111111-1111-1111-1111-111111111111';
 const PROJ = '22222222-2222-2222-2222-222222222222';
@@ -22,7 +22,7 @@ async function insertObs(db: any, id: string, sup: string | null, createdIso: st
 
 describe('supersession chain walk', () => {
   if (!testDatabaseUrl) {
-    test.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL for Postgres integration', () => {});
+    test.skip('requires MEMSMITH_TEST_POSTGRES_URL for Postgres integration', () => {});
     return;
   }
 
@@ -120,11 +120,11 @@ describe('supersession chain walk', () => {
   });
 
   test('maxChainDepth honors env clamp', () => {
-    const prev = process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH;
-    process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = '500';
+    const prev = process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH;
+    process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = '500';
     expect(maxChainDepth()).toBe(256); // clamped
-    process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = '0';
+    process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = '0';
     expect(maxChainDepth()).toBe(1);   // clamped
-    if (prev === undefined) delete process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH; else process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = prev;
+    if (prev === undefined) delete process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH; else process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = prev;
   });
 });

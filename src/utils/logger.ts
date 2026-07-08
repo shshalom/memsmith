@@ -94,7 +94,7 @@ class Logger {
       }
 
       const date = new Date().toISOString().split('T')[0];
-      this.logFilePath = join(logsDir, `claude-mem-${date}.log`);
+      this.logFilePath = join(logsDir, `memsmith-${date}.log`);
     } catch (error: unknown) {
       console.error('[LOGGER] Failed to initialize log file:', error instanceof Error ? error.message : String(error));
       this.logFilePath = null;
@@ -108,7 +108,7 @@ class Logger {
         if (existsSync(settingsPath)) {
           const settingsData = readFileSync(settingsPath, 'utf-8');
           const settings = JSON.parse(settingsData);
-          const envLevel = (settings.CLAUDE_MEM_LOG_LEVEL || 'INFO').toUpperCase();
+          const envLevel = (settings.MEMSMITH_LOG_LEVEL || 'INFO').toUpperCase();
           this.level = LogLevel[envLevel as keyof typeof LogLevel] ?? LogLevel.INFO;
         } else {
           this.level = LogLevel.INFO;

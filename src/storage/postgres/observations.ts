@@ -272,17 +272,17 @@ export class PostgresObservationRepository {
     // Query expansion (opt-in): embed several de-framed variants of the query
     // and RRF-fuse their vector rankings, so an obliquely-phrased question that
     // buries the answer under one embedding can still surface it. Default off;
-    // enable via CLAUDE_MEM_QUERY_EXPANSION=1 or the expandQueries flag.
-    const useExpansion = input.expandQueries ?? process.env.CLAUDE_MEM_QUERY_EXPANSION === '1';
+    // enable via MEMSMITH_QUERY_EXPANSION=1 or the expandQueries flag.
+    const useExpansion = input.expandQueries ?? process.env.MEMSMITH_QUERY_EXPANSION === '1';
     // Per-arm RRF weights. On single-session / semantically-phrased questions
     // FTS often can't find the answer session (no lexical overlap), so equal
     // weighting lets FTS's irrelevant hits demote strong vector hits. Weighting
     // vector above FTS fixes that. Default FTS=0.3 was chosen empirically on the
     // full LongMemEval-S set: it lifts single-session-preference recall
     // 0.767 -> 0.800 and regresses no other question type (overall R@5
-    // 0.936 -> 0.938). Override via CLAUDE_MEM_FTS_WEIGHT / CLAUDE_MEM_VEC_WEIGHT.
-    const ftsWeight = input.ftsWeight ?? Number(process.env.CLAUDE_MEM_FTS_WEIGHT ?? 0.3);
-    const vecWeight = input.vecWeight ?? Number(process.env.CLAUDE_MEM_VEC_WEIGHT ?? 1);
+    // 0.936 -> 0.938). Override via MEMSMITH_FTS_WEIGHT / MEMSMITH_VEC_WEIGHT.
+    const ftsWeight = input.ftsWeight ?? Number(process.env.MEMSMITH_FTS_WEIGHT ?? 0.3);
+    const vecWeight = input.vecWeight ?? Number(process.env.MEMSMITH_VEC_WEIGHT ?? 1);
     const variants = useExpansion ? expandQuery(input.query) : [input.query];
     // The vector arm depends on the onnxruntime-backed embedder (embed()). If it
     // throws (embedder down, model load failure, OOM), degrade to FTS-only

@@ -71,11 +71,11 @@ All free models support:
 
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
-| `CLAUDE_MEM_PROVIDER` | `claude`, `gemini`, `openrouter` | `claude` | AI provider for observation extraction |
-| `CLAUDE_MEM_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
-| `CLAUDE_MEM_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
-| `CLAUDE_MEM_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
-| `CLAUDE_MEM_OPENROUTER_APP_NAME` | string | `claude-mem` | Optional: App name for analytics |
+| `MEMSMITH_PROVIDER` | `claude`, `gemini`, `openrouter` | `claude` | AI provider for observation extraction |
+| `MEMSMITH_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
+| `MEMSMITH_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
+| `MEMSMITH_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
+| `MEMSMITH_OPENROUTER_APP_NAME` | string | `memsmith` | Optional: App name for analytics |
 
 ### Using the Settings UI
 
@@ -89,13 +89,13 @@ Settings are applied immediately—no restart required.
 
 ### Manual Configuration
 
-Edit `~/.claude-mem/settings.json`:
+Edit `~/.memsmith/settings.json`:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
+  "MEMSMITH_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
 }
 ```
 
@@ -132,7 +132,7 @@ The settings file takes precedence over the environment variable.
 
 ## Context Window Management
 
-The full conversation history is sent to the model on each request. claude-mem does
+The full conversation history is sent to the model on each request. memsmith does
 **not** apply any client-side truncation or message-count cap — the provider and model
 own their own context window. If you need to bound context for a specific model, choose a
 model with an appropriate context length or manage limits at the OpenRouter/provider level.
@@ -170,13 +170,13 @@ You can switch between providers at any time:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter"
+  "MEMSMITH_PROVIDER": "openrouter"
 }
 ```
 
 ## Error Behavior
 
-If OpenRouter errors, claude-mem logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `CLAUDE_MEM_PROVIDER` in settings.
+If OpenRouter errors, memsmith logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `MEMSMITH_PROVIDER` in settings.
 
 **Throwing conditions:**
 - Rate limiting (HTTP 429)
@@ -214,7 +214,7 @@ This enables:
 ### "OpenRouter API key not configured"
 
 Either:
-- Set `CLAUDE_MEM_OPENROUTER_API_KEY` in `~/.claude-mem/settings.json`, or
+- Set `MEMSMITH_OPENROUTER_API_KEY` in `~/.memsmith/settings.json`, or
 - Set the `OPENROUTER_API_KEY` environment variable
 
 ### Rate Limiting
@@ -254,8 +254,8 @@ OpenRouter uses an OpenAI-compatible REST API:
 **Headers**:
 ```
 Authorization: Bearer {apiKey}
-HTTP-Referer: https://github.com/thedotmack/claude-mem
-X-Title: claude-mem
+HTTP-Referer: https://github.com/shshalom/memsmith
+X-Title: memsmith
 Content-Type: application/json
 ```
 

@@ -6,11 +6,11 @@ import { bootstrapServerPostgresSchema, createPostgresStorageRepositories } from
 import { PostgresObservationRepository } from '../../../src/storage/postgres/observations.js';
 import { embed } from '../../../src/server/generation/embedder.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 const q = (n: string) => `"${n.replaceAll('"', '""')}"`;
 
 describe('hybridSearch', () => {
-  if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
+  if (!testDatabaseUrl) { it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {}); return; }
 
   let pool: pg.Pool;
   let client: any;

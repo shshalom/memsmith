@@ -52,7 +52,7 @@ describe('ActiveServerQueueManager', () => {
   });
 
   it('refuses construction when engine is not bullmq', () => {
-    expect(() => new ActiveServerQueueManager(sqliteConfig)).toThrow(/CLAUDE_MEM_QUEUE_ENGINE=bullmq/);
+    expect(() => new ActiveServerQueueManager(sqliteConfig)).toThrow(/MEMSMITH_QUEUE_ENGINE=bullmq/);
   });
 
   it('reports active health with both lanes when constructed against bullmq', () => {

@@ -1,14 +1,14 @@
-# Onboarding a Teammate to the Shared claude-mem Brain
+# Onboarding a Teammate to the Shared memsmith Brain
 
-This runbook walks through giving a new teammate their own scoped API key, pointing their claude-mem client at the shared server, and verifying that observations captured by one agent are recalled by another.
+This runbook walks through giving a new teammate their own scoped API key, pointing their memsmith client at the shared server, and verifying that observations captured by one agent are recalled by another.
 
 ---
 
 ## Prerequisites
 
-- The shared claude-mem server is running and reachable (e.g. `https://mem.example.com`).
+- The shared memsmith server is running and reachable (e.g. `https://mem.example.com`).
 - You have a write-scoped key (`memories:write` scope) for the admin or team lead — this is the `writeAuth` key used to mint new keys.
-- The teammate has claude-mem installed locally (`npm install -g claude-mem` or the Claude Code plugin installed).
+- The teammate has memsmith installed locally (`npm install -g memsmith` or the Claude Code plugin installed).
 
 ---
 
@@ -60,9 +60,9 @@ curl -s -X POST https://mem.example.com/v1/keys \
 
 ---
 
-## Step 2: Configure the Teammate's claude-mem Client
+## Step 2: Configure the Teammate's memsmith Client
 
-The teammate needs to point their local claude-mem client at the shared server rather than the default local SQLite worker.
+The teammate needs to point their local memsmith client at the shared server rather than the default local SQLite worker.
 
 ### Option A — Fetch the MCP config block automatically
 
@@ -77,13 +77,13 @@ This returns a JSON snippet ready to paste into `~/Library/Application Support/C
 
 ### Option B — Set environment variables directly
 
-Add the following to the teammate's shell profile (`.zshrc`, `.bashrc`, or a `.env` loaded by their claude-mem config):
+Add the following to the teammate's shell profile (`.zshrc`, `.bashrc`, or a `.env` loaded by their memsmith config):
 
 ```bash
-export CLAUDE_MEM_SERVER_URL="https://mem.example.com"
-export CLAUDE_MEM_API_KEY="cmem_TEAMMATE_KEY"
-export CLAUDE_MEM_TEAM_ID="team-acme"
-export CLAUDE_MEM_PROJECT_ID="proj-platform"
+export MEMSMITH_SERVER_URL="https://mem.example.com"
+export MEMSMITH_API_KEY="cmem_TEAMMATE_KEY"
+export MEMSMITH_TEAM_ID="team-acme"
+export MEMSMITH_PROJECT_ID="proj-platform"
 ```
 
 Restart Claude Code (or reload the MCP server) after setting these.
@@ -181,7 +181,7 @@ curl -s "https://mem.example.com/v1/observations/obs_01J2EXAMPLE" \
   -H "Authorization: Bearer $BOB_KEY"
 
 # Check worker logs for embedding errors (Fargate CloudWatch)
-aws logs tail /ecs/claude-mem-worker --since 5m --follow
+aws logs tail /ecs/memsmith-worker --since 5m --follow
 ```
 
 ---

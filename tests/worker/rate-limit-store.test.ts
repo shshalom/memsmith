@@ -72,7 +72,7 @@ describe('RateLimitStore', () => {
 
 describe('isApiKeyAuth', () => {
   it('matches verbose getAuthMethodDescription() output', () => {
-    expect(isApiKeyAuth('API key (from ~/.claude-mem/.env)')).toBe(true);
+    expect(isApiKeyAuth('API key (from ~/.memsmith/.env)')).toBe(true);
     expect(isApiKeyAuth('Claude Code OAuth token (read from system keychain at spawn)')).toBe(false);
   });
 
@@ -97,7 +97,7 @@ describe('shouldAbortForQuota — api_key auth', () => {
 
   it('never aborts even at seven_day_opus 0.99', () => {
     store.set({ rateLimitType: 'seven_day_opus', utilization: 0.99 });
-    const decision = shouldAbortForQuota('API key (from ~/.claude-mem/.env)', store, FIXED_NOW);
+    const decision = shouldAbortForQuota('API key (from ~/.memsmith/.env)', store, FIXED_NOW);
     expect(decision.abort).toBe(false);
   });
 

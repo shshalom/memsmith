@@ -47,9 +47,9 @@ describe('#2292 — fail-loud diagnostic is no longer swallowed', () => {
       // A swallowed write (what the old no-op did to library noise) stays buffered.
       process.stderr.write('library noise that should NOT surface on success\n');
       // The fail-loud path:
-      emitBlockingError('claude-mem worker unreachable for 3 consecutive hooks.', { skipExit: true });
+      emitBlockingError('memsmith worker unreachable for 3 consecutive hooks.', { skipExit: true });
       const surfaced = real.chunks.join('');
-      expect(surfaced).toContain('claude-mem worker unreachable for 3 consecutive hooks.');
+      expect(surfaced).toContain('memsmith worker unreachable for 3 consecutive hooks.');
       // and the preceding buffered noise is flushed too (operator gets full context).
       expect(surfaced).toContain('library noise');
     } finally {
@@ -62,7 +62,7 @@ describe('#2292 — fail-loud diagnostic is no longer swallowed', () => {
     const src = readFileSync(join(REPO_ROOT, 'src', 'shared', 'worker-utils.ts'), 'utf-8');
     // The fail-loud branch must NOT call process.stderr.write / process.exit directly.
     expect(src).toContain('emitBlockingError(');
-    expect(src).not.toMatch(/process\.stderr\.write\(\s*\n\s*`claude-mem worker unreachable/);
+    expect(src).not.toMatch(/process\.stderr\.write\(\s*\n\s*`memsmith worker unreachable/);
   });
 });
 

@@ -142,11 +142,11 @@ const LAST_FULL_DAY = '2026-06-10';
 let tempDir: string;
 const savedEnv: Record<string, string | undefined> = {};
 const ENV_KEYS = [
-  'CLAUDE_MEM_DATA_DIR',
-  'CLAUDE_MEM_TELEMETRY',
-  'CLAUDE_MEM_TELEMETRY_DEBUG',
-  'CLAUDE_MEM_TELEMETRY_KEY',
-  'CLAUDE_MEM_TELEMETRY_HOST',
+  'MEMSMITH_DATA_DIR',
+  'MEMSMITH_TELEMETRY',
+  'MEMSMITH_TELEMETRY_DEBUG',
+  'MEMSMITH_TELEMETRY_KEY',
+  'MEMSMITH_TELEMETRY_HOST',
   'DO_NOT_TRACK',
 ];
 
@@ -156,13 +156,13 @@ beforeAll(() => {
 
 beforeEach(() => {
   // Fresh data dir per test so marker/telemetry.json state never leaks
-  // between tests — and never touches the real ~/.claude-mem.
-  tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-backfill-'));
-  process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-  process.env.CLAUDE_MEM_TELEMETRY = '1';
-  delete process.env.CLAUDE_MEM_TELEMETRY_DEBUG;
-  delete process.env.CLAUDE_MEM_TELEMETRY_KEY;
-  delete process.env.CLAUDE_MEM_TELEMETRY_HOST;
+  // between tests — and never touches the real ~/.memsmith.
+  tempDir = mkdtempSync(join(tmpdir(), 'memsmith-backfill-'));
+  process.env.MEMSMITH_DATA_DIR = tempDir;
+  process.env.MEMSMITH_TELEMETRY = '1';
+  delete process.env.MEMSMITH_TELEMETRY_DEBUG;
+  delete process.env.MEMSMITH_TELEMETRY_KEY;
+  delete process.env.MEMSMITH_TELEMETRY_HOST;
   delete process.env.DO_NOT_TRACK;
   postHogConstructorCalls.length = 0;
   postHogCaptureCalls.length = 0;
@@ -436,7 +436,7 @@ describe('runHistoricalBackfill gates', () => {
   }
 
   it('(j) consent off: no client, no captures, no marker', async () => {
-    process.env.CLAUDE_MEM_TELEMETRY = '0';
+    process.env.MEMSMITH_TELEMETRY = '0';
     await runHistoricalBackfill(seedHistoricalDb());
     expect(postHogConstructorCalls.length).toBe(0);
     expect(postHogCaptureCalls.length).toBe(0);
@@ -490,7 +490,7 @@ describe('runHistoricalBackfill gates', () => {
   });
 
   it('(j) debug mode: stderr dry-run, no send, no marker', async () => {
-    process.env.CLAUDE_MEM_TELEMETRY_DEBUG = '1';
+    process.env.MEMSMITH_TELEMETRY_DEBUG = '1';
     const db = seedHistoricalDb();
     const lines = await withStderrCapture(async () => {
       await runHistoricalBackfill(db);
@@ -502,7 +502,7 @@ describe('runHistoricalBackfill gates', () => {
   });
 
   it('(j) debug mode on an EMPTY DB: still no marker (debug never latches)', async () => {
-    process.env.CLAUDE_MEM_TELEMETRY_DEBUG = '1';
+    process.env.MEMSMITH_TELEMETRY_DEBUG = '1';
     const db = makeDb();
     const lines = await withStderrCapture(async () => {
       await runHistoricalBackfill(db);

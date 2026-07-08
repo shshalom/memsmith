@@ -12,7 +12,7 @@ export type SupersedeScope = { teamId: string; projectId?: string };
 
 const DEFAULT_MAX_DEPTH = 16;
 export function maxChainDepth(): number {
-  const raw = Number(process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH ?? DEFAULT_MAX_DEPTH);
+  const raw = Number(process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH ?? DEFAULT_MAX_DEPTH);
   if (!Number.isFinite(raw)) return DEFAULT_MAX_DEPTH;
   return Math.max(1, Math.min(256, Math.trunc(raw)));
 }

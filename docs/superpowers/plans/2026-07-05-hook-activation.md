@@ -2,19 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Activate claude-mem's built-but-dormant determinism logic by wiring it into the real hook surface — safe-by-default so nothing changes for users who don't opt in.
+**Goal:** Activate memsmith's built-but-dormant determinism logic by wiring it into the real hook surface — safe-by-default so nothing changes for users who don't opt in.
 
 **Architecture:** Reuse the team-inject bridge pattern (worker-mode hook → server `/v1/search` with a scoped key) for all memory reads. Add a `discovery-gate` handler (PreToolUse for Grep/Glob/WebSearch), re-discovery logging in the existing `observation` handler (PostToolUse), and a `subagent-start` handler (SubagentStart, project-level fallback since the payload lacks the task prompt). Every handler no-ops unless its flag is on AND the bridge is configured AND memory is found.
 
-**Tech Stack:** TypeScript (Node 20+), claude-mem hook handlers (`src/cli/handlers/`), `plugin/hooks/hooks.json`, bun test.
+**Tech Stack:** TypeScript (Node 20+), memsmith hook handlers (`src/cli/handlers/`), `plugin/hooks/hooks.json`, bun test.
 
 ## Global Constraints
 
-- **Safe-by-default (central rule):** every activated hook returns today's result (or empty `additionalContext`) unless a feature flag is explicitly set AND the server bridge (`CLAUDE_MEM_TEAM_SERVER_URL` + `CLAUDE_MEM_TEAM_API_KEY`) is configured AND memory is found. The hook may fire; it must do nothing observable by default.
+- **Safe-by-default (central rule):** every activated hook returns today's result (or empty `additionalContext`) unless a feature flag is explicitly set AND the server bridge (`MEMSMITH_TEAM_SERVER_URL` + `MEMSMITH_TEAM_API_KEY`) is configured AND memory is found. The hook may fire; it must do nothing observable by default.
 - **Never break the tool/session/subagent:** every memory path is wrapped in try/catch returning the safe default (mirror `fetchTeamMemory`).
 - **`additionalContext` cap: 10,000 chars** (Claude Code PreToolUse limit) — the injection builder output must be capped.
 - **Base repo, TypeScript only.** `// SPDX-License-Identifier: Apache-2.0` on new files.
-- **bun test** (`import from 'bun:test'`), tests in `tests/`, per-schema isolation where DB is needed; env `CLAUDE_MEM_TEST_POSTGRES_URL`.
+- **bun test** (`import from 'bun:test'`), tests in `tests/`, per-schema isolation where DB is needed; env `MEMSMITH_TEST_POSTGRES_URL`.
 - **Reuse existing building blocks** — `shouldGateTool`/`buildPreToolQuery` (`pre-tool-query.ts`), `buildInjectionBlock` (`inject.ts`), `fetchTeamMemory` (`team-inject-client.ts`), `detectRediscovery` (`rediscovery.ts`). Do not reimplement.
 
 ---
@@ -86,7 +86,7 @@ git commit -m "feat(retrieval): cap injection block at maxChars (default 10000)"
 - Test: `tests/cli/handlers/discovery-gate.test.ts`
 
 **Interfaces:**
-- Consumes: `shouldGateTool`/`buildPreToolQuery` (`pre-tool-query.ts`), `fetchTeamMemory` (`team-inject-client.ts`), `buildInjectionBlock` (`inject.ts`), settings (`CLAUDE_MEM_GATE_TOOLS`, `CLAUDE_MEM_TEAM_SERVER_URL`, `CLAUDE_MEM_TEAM_API_KEY`), `NormalizedHookInput`/`HookResult`.
+- Consumes: `shouldGateTool`/`buildPreToolQuery` (`pre-tool-query.ts`), `fetchTeamMemory` (`team-inject-client.ts`), `buildInjectionBlock` (`inject.ts`), settings (`MEMSMITH_GATE_TOOLS`, `MEMSMITH_TEAM_SERVER_URL`, `MEMSMITH_TEAM_API_KEY`), `NormalizedHookInput`/`HookResult`.
 - Produces: `discoveryGateHandler: EventHandler`; a pure helper `buildDiscoveryContext(deps, { toolName, toolInput, projectName, gateTools, serverUrl, apiKey }): Promise<string>` returning the injection block (or '') — the handler wraps it and returns `hookSpecificOutput.additionalContext`.
 
 - [ ] **Step 1: Write the failing test**
@@ -181,9 +181,9 @@ export const discoveryGateHandler: EventHandler = {
         toolName: input.toolName,
         toolInput: (input.toolInput as Record<string, unknown>) ?? {},
         projectName: context.primary,
-        gateTools: settings.CLAUDE_MEM_GATE_TOOLS ?? '',
-        serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
-        apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+        gateTools: settings.MEMSMITH_GATE_TOOLS ?? '',
+        serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
+        apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
       },
     );
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext } };
@@ -276,7 +276,7 @@ git commit -m "feat(hooks): activate discovery-gate on PreToolUse Grep/Glob/WebS
 - Test: `tests/cli/handlers/rediscovery-log.test.ts`
 
 **Interfaces:**
-- Consumes: `detectRediscovery` (`rediscovery.ts`), `buildPreToolQuery`/`shouldGateTool` (`pre-tool-query.ts`), `fetchTeamMemory`, settings (`CLAUDE_MEM_REDISCOVERY_LOG`, bridge vars).
+- Consumes: `detectRediscovery` (`rediscovery.ts`), `buildPreToolQuery`/`shouldGateTool` (`pre-tool-query.ts`), `fetchTeamMemory`, settings (`MEMSMITH_REDISCOVERY_LOG`, bridge vars).
 - Produces: a pure helper `shouldLogRediscovery(deps, { toolName, toolInput, projectName, enabled, gateTools, serverUrl, apiKey }): Promise<{ rediscovered: boolean; matchedIds: string[] }>`; the observation handler calls it after its existing path and `logger.info`s on a hit. Never blocks, never changes the response.
 
 - [ ] **Step 1: Write the failing test**
@@ -360,14 +360,14 @@ try {
   const r = await shouldLogRediscovery(
     { fetchTeamMemory: realFetchTeamMemory },
     { toolName: toolName ?? '', toolInput: (toolInput as Record<string, unknown>) ?? {}, projectName: context.primary,
-      enabled: settings.CLAUDE_MEM_REDISCOVERY_LOG === 'true',
-      gateTools: settings.CLAUDE_MEM_GATE_TOOLS ?? '', serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '', apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '' },
+      enabled: settings.MEMSMITH_REDISCOVERY_LOG === 'true',
+      gateTools: settings.MEMSMITH_GATE_TOOLS ?? '', serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '', apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '' },
   );
   if (r.rediscovered) logger.info('HOOK', 'rediscovery: memory already held an answer for this discovery query', { toolName, matchedIds: r.matchedIds });
 } catch { /* never break observation */ }
 ```
 
-Add `CLAUDE_MEM_REDISCOVERY_LOG: string;` to `SettingsDefaultsManager` interface + defaults (`'false'`). Import `loadFromFileOnce`/`getProjectContext` in observation.ts if not present.
+Add `MEMSMITH_REDISCOVERY_LOG: string;` to `SettingsDefaultsManager` interface + defaults (`'false'`). Import `loadFromFileOnce`/`getProjectContext` in observation.ts if not present.
 
 - [ ] **Step 4: Run test to verify it passes**
 

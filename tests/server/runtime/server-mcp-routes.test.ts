@@ -5,7 +5,7 @@
 // expect, and verifies the ServerClient (which the MCP tools use) hits
 // those endpoints end-to-end.
 //
-// Postgres-gated: requires CLAUDE_MEM_TEST_POSTGRES_URL.
+// Postgres-gated: requires MEMSMITH_TEST_POSTGRES_URL.
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import pg from 'pg';
@@ -23,11 +23,11 @@ import { ServerClient } from '../../../src/services/hooks/server-client.js';
 import { logger } from '../../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/context, /v1/jobs/:id)', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 
@@ -195,16 +195,16 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
     expect(result.context.split('\n\n').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('/v1/search and /v1/context default to hybrid ranking; CLAUDE_MEM_SEARCH_HYBRID=0 forces FTS', async () => {
+  it('/v1/search and /v1/context default to hybrid ranking; MEMSMITH_SEARCH_HYBRID=0 forces FTS', async () => {
     const c = buildClient();
     await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual' });
 
-    const prevFlag = process.env.CLAUDE_MEM_SEARCH_HYBRID;
+    const prevFlag = process.env.MEMSMITH_SEARCH_HYBRID;
     const hybridSpy = spyOn(PostgresObservationRepository.prototype, 'hybridSearch');
     const ftsSpy = spyOn(PostgresObservationRepository.prototype, 'search');
     try {
       // Default (flag unset): both read endpoints route through hybridSearch.
-      delete process.env.CLAUDE_MEM_SEARCH_HYBRID;
+      delete process.env.MEMSMITH_SEARCH_HYBRID;
       hybridSpy.mockClear();
       await c.searchObservations({ projectId, query: 'authentication', limit: 10 });
       expect(hybridSpy).toHaveBeenCalledTimes(1);
@@ -212,9 +212,9 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
       await c.contextObservations({ projectId, query: 'authentication', limit: 5 });
       expect(hybridSpy).toHaveBeenCalledTimes(1);
 
-      // Escape hatch: CLAUDE_MEM_SEARCH_HYBRID=0 forces plain FTS (repo.search),
+      // Escape hatch: MEMSMITH_SEARCH_HYBRID=0 forces plain FTS (repo.search),
       // and hybridSearch is not invoked — on BOTH read endpoints.
-      process.env.CLAUDE_MEM_SEARCH_HYBRID = '0';
+      process.env.MEMSMITH_SEARCH_HYBRID = '0';
       hybridSpy.mockClear();
       ftsSpy.mockClear();
       await c.searchObservations({ projectId, query: 'authentication', limit: 10 });
@@ -228,8 +228,8 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
     } finally {
       hybridSpy.mockRestore();
       ftsSpy.mockRestore();
-      if (prevFlag === undefined) delete process.env.CLAUDE_MEM_SEARCH_HYBRID;
-      else process.env.CLAUDE_MEM_SEARCH_HYBRID = prevFlag;
+      if (prevFlag === undefined) delete process.env.MEMSMITH_SEARCH_HYBRID;
+      else process.env.MEMSMITH_SEARCH_HYBRID = prevFlag;
     }
   });
 

@@ -57,6 +57,6 @@ export async function costPanel(db: PostgresQueryable, s: Scope) {
   const { rows } = await db.query(
     `SELECT COALESCE(SUM((metadata->>'discovery_tokens')::bigint),0) AS discovery_tokens FROM observations WHERE ${w.sql}`, w.args);
   const discoveryTokens = Number(rows[0].discovery_tokens);
-  const RATE = Number(process.env.CLAUDE_MEM_INPUT_RATE_PER_MTOK ?? 5);
+  const RATE = Number(process.env.MEMSMITH_INPUT_RATE_PER_MTOK ?? 5);
   return { discoveryTokens, distilledTokens: null, estUsd: (discoveryTokens / 1_000_000) * RATE };
 }

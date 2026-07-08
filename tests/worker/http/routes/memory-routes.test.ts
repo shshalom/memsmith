@@ -80,7 +80,7 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
       getChromaSync: () => null,
     };
 
-    routes = new MemoryRoutes(mockDbManager as any, 'claude-mem');
+    routes = new MemoryRoutes(mockDbManager as any, 'memsmith');
   });
 
   afterEach(() => {
@@ -103,7 +103,7 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
     const handler = buildHandler();
     const metadata = {
       obsidian_note: 'Atom — Test',
-      claude_mem_version: '12.4.4',
+      memsmith_version: '12.4.4',
       custom_key: 'value',
     };
     const { req, res } = createMockReqRes({ text: 'hello', metadata });
@@ -153,8 +153,8 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
     const { req, res } = createMockReqRes({ text: 'hello' });
     handler(req as Request, res as Response);
 
-    expect(mockGetOrCreateManualSession).toHaveBeenCalledWith('claude-mem');
-    expect(storeObservationCalls[0][1]).toBe('claude-mem');
+    expect(mockGetOrCreateManualSession).toHaveBeenCalledWith('memsmith');
+    expect(storeObservationCalls[0][1]).toBe('memsmith');
   });
 
   it('rejects unknown top-level fields with HTTP 400 (no silent drop)', () => {

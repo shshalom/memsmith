@@ -6,26 +6,26 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 RUN npm install -g typescript@5
 
-WORKDIR /tmp/claude-mem-plugin
+WORKDIR /tmp/memsmith-plugin
 
 COPY package.json tsconfig.json openclaw.plugin.json ./
 COPY src/ ./src/
 
 RUN NODE_ENV=development npm install && npx tsc
 
-RUN mkdir -p /tmp/claude-mem-installable/dist && \
-    cp dist/index.js /tmp/claude-mem-installable/dist/ && \
-    cp dist/index.d.ts /tmp/claude-mem-installable/dist/ 2>/dev/null || true && \
-    cp openclaw.plugin.json /tmp/claude-mem-installable/ && \
+RUN mkdir -p /tmp/memsmith-installable/dist && \
+    cp dist/index.js /tmp/memsmith-installable/dist/ && \
+    cp dist/index.d.ts /tmp/memsmith-installable/dist/ 2>/dev/null || true && \
+    cp openclaw.plugin.json /tmp/memsmith-installable/ && \
     node -e " \
       const pkg = { \
-        name: 'claude-mem', \
+        name: 'memsmith', \
         version: '1.0.0', \
         type: 'module', \
         main: 'dist/index.js', \
         openclaw: { extensions: ['./dist/index.js'] } \
       }; \
-      require('fs').writeFileSync('/tmp/claude-mem-installable/package.json', JSON.stringify(pkg, null, 2)); \
+      require('fs').writeFileSync('/tmp/memsmith-installable/package.json', JSON.stringify(pkg, null, 2)); \
     "
 
 WORKDIR /app
@@ -33,14 +33,14 @@ USER node
 
 RUN mkdir -p /home/node/.openclaw
 
-RUN node openclaw.mjs plugins install /tmp/claude-mem-installable
+RUN node openclaw.mjs plugins install /tmp/memsmith-installable
 
-RUN node openclaw.mjs plugins enable claude-mem
+RUN node openclaw.mjs plugins enable memsmith
 
 COPY --chown=node:node e2e-verify.sh /app/e2e-verify.sh
 USER root
 RUN chmod +x /app/e2e-verify.sh && \
-    cp /tmp/claude-mem-plugin/dist/mock-worker.js /app/mock-worker.js
+    cp /tmp/memsmith-plugin/dist/mock-worker.js /app/mock-worker.js
 USER node
 
 CMD ["/bin/bash", "/app/e2e-verify.sh"]

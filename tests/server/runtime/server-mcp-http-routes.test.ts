@@ -9,7 +9,7 @@
 // genuine MCP HTTP client carrying an `Authorization: Bearer cm_...` header —
 // the exact path a user's Claude Code takes.
 //
-// Postgres-gated, like server-mcp-routes.test.ts: requires CLAUDE_MEM_TEST_POSTGRES_URL.
+// Postgres-gated, like server-mcp-routes.test.ts: requires MEMSMITH_TEST_POSTGRES_URL.
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import pg from 'pg';
@@ -29,11 +29,11 @@ import { PostgresObservationRepository } from '../../../src/storage/postgres/obs
 import { logger } from '../../../src/utils/logger.js';
 import { quoteIdentifier, newApiKey } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('POST /v1/mcp — remote authenticated MCP recall (streamable HTTP)', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {});
     return;
   }
 

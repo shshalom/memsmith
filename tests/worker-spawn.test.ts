@@ -7,8 +7,8 @@ import path from 'path';
 const TEST_PORT = 37877;
 // Phase 6 (worker-restart plan): a unique temp dir, NOT a fixed path in the
 // user's home directory — concurrent runs can't collide and nothing lands
-// near the real ~/.claude-mem.
-const TEST_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'claude-mem-worker-spawn-'));
+// near the real ~/.memsmith.
+const TEST_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'memsmith-worker-spawn-'));
 const TEST_PID_FILE = path.join(TEST_DATA_DIR, 'worker.pid');
 const WORKER_SCRIPT = path.join(__dirname, '../plugin/scripts/worker-service.cjs');
 
@@ -54,14 +54,14 @@ describe('Worker Self-Spawn CLI', () => {
 
   describe('status command', () => {
     // The spawned CLI must be pointed at the isolated temp dir explicitly so
-    // it never reads (or stale-cleans) the real ~/.claude-mem/worker.pid.
+    // it never reads (or stale-cleans) the real ~/.memsmith/worker.pid.
     it('should report worker status in expected format', async () => {
-      const output = runWorkerCommand('status', { CLAUDE_MEM_DATA_DIR: TEST_DATA_DIR });
+      const output = runWorkerCommand('status', { MEMSMITH_DATA_DIR: TEST_DATA_DIR });
       expect(output.includes('running')).toBe(true);
     });
 
     it('should include PID and port when running', async () => {
-      const output = runWorkerCommand('status', { CLAUDE_MEM_DATA_DIR: TEST_DATA_DIR });
+      const output = runWorkerCommand('status', { MEMSMITH_DATA_DIR: TEST_DATA_DIR });
       if (output.includes('Worker running')) {
         expect(output).toMatch(/PID: \d+/);
         expect(output).toMatch(/Port: \d+/);
@@ -166,7 +166,7 @@ describe('Windows-specific behavior', () => {
       writable: true,
       configurable: true
     });
-    delete process.env.CLAUDE_MEM_MANAGED;
+    delete process.env.MEMSMITH_MANAGED;
   });
 
   it('should detect Windows managed worker mode correctly', () => {
@@ -175,10 +175,10 @@ describe('Windows-specific behavior', () => {
       writable: true,
       configurable: true
     });
-    process.env.CLAUDE_MEM_MANAGED = 'true';
+    process.env.MEMSMITH_MANAGED = 'true';
 
     const isWindows = process.platform === 'win32';
-    const isManaged = process.env.CLAUDE_MEM_MANAGED === 'true';
+    const isManaged = process.env.MEMSMITH_MANAGED === 'true';
 
     expect(isWindows).toBe(true);
     expect(isManaged).toBe(true);

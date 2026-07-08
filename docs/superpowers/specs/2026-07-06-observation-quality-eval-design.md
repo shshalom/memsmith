@@ -107,11 +107,11 @@ its per-dimension scores + the judge's rationale, for manual inspection.
 ## Config (env)
 
 - `ANTHROPIC_API_KEY` — required (Claude baseline + the judge).
-- `CLAUDE_MEM_SERVER_MODEL` — llama model override (default `llama3.1:8b`).
-- `CLAUDE_MEM_OLLAMA_URL` — ollama base (default `http://localhost:11434/v1`).
-- `CLAUDE_MEM_QUALITY_ITERATIONS` — repeat the corpus N times for a bigger
+- `MEMSMITH_SERVER_MODEL` — llama model override (default `llama3.1:8b`).
+- `MEMSMITH_OLLAMA_URL` — ollama base (default `http://localhost:11434/v1`).
+- `MEMSMITH_QUALITY_ITERATIONS` — repeat the corpus N times for a bigger
   sample (default 1). Judge/gen calls scale linearly.
-- `CLAUDE_MEM_QUALITY_JUDGE_MODEL` — judge model override (default `claude-opus-4-8`).
+- `MEMSMITH_QUALITY_JUDGE_MODEL` — judge model override (default `claude-opus-4-8`).
 
 ## Error handling
 
@@ -133,7 +133,7 @@ suite. Sanity checks the implementer runs:
 ## Honest scope / caveats (must appear in the report)
 
 - **Small sample** (10 events × 1 = 10 obs/model by default). Directional, not a
-  statistical proof. Bump with `CLAUDE_MEM_QUALITY_ITERATIONS` for more.
+  statistical proof. Bump with `MEMSMITH_QUALITY_ITERATIONS` for more.
 - **Claude-family judge** → residual self-preference bias; report says so.
 - Measures quality on THIS corpus/prompt, not all inputs.
 - Judge scores are model opinion, not ground truth — treat as a signal.

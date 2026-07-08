@@ -32,7 +32,7 @@ import {
  *  - one `install_inferred` person event at noon UTC of the inferred
  *    install day.
  *
- * Idempotency: a completion marker (~/.claude-mem/backfill.json) is the
+ * Idempotency: a completion marker (~/.memsmith/backfill.json) is the
  * primary gate; deterministic per-event UUIDs minimize damage in the
  * crash-retry window (PostHog dedupe is best-effort, merge-time).
  */
@@ -46,7 +46,7 @@ import {
 const BACKFILL_LAG_MS = 60 * 3_600_000;
 
 /**
- * Predates claude-mem's first release. Rows whose normalized epoch falls
+ * Predates memsmith's first release. Rows whose normalized epoch falls
  * below this are corrupt (e.g. backdated artifacts) and are ignored
  * everywhere — rollups AND the first-activity MIN.
  */
@@ -555,7 +555,7 @@ export function buildBackfillEvents(
  *  1. completion marker exists       -> return
  *  2. no telemetry consent           -> return (no marker — later opt-in still backfills)
  *  3. build events
- *  4. CLAUDE_MEM_TELEMETRY_DEBUG=1   -> stderr dry-run, NO send, NO marker
+ *  4. MEMSMITH_TELEMETRY_DEBUG=1   -> stderr dry-run, NO send, NO marker
  *  5. zero events                    -> write marker, return
  *  6. dedicated historicalMigration client, single-batch sizing
  *  7. on('error') latch + capture all + await shutdown() (the ONLY delivery barrier)
@@ -586,7 +586,7 @@ async function executeHistoricalBackfill(db: Database): Promise<void> {
   const installId = getOrCreateInstallId();
   const events = buildBackfillEvents(db, installId, nowMs);
 
-  if (process.env.CLAUDE_MEM_TELEMETRY_DEBUG === '1') {
+  if (process.env.MEMSMITH_TELEMETRY_DEBUG === '1') {
     // Dry-run: print the exact payload to stderr (debug mode is a human in
     // the foreground — same convention as captureEvent), send nothing,
     // write no marker. Intentionally re-runs on every debug worker start.

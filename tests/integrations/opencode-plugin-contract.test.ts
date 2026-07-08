@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
-  ClaudeMemPlugin,
+  MemSmithPlugin,
   parseSearchResponse,
   REGISTERED_OPENCODE_HOOKS,
   REAL_OPENCODE_EVENT_TYPES,
@@ -51,7 +51,7 @@ const pluginCtx = {
 
 describe("OpenCode plugin event contract", () => {
   it("only registers hooks that are part of OpenCode's real contract", async () => {
-    const plugin = await ClaudeMemPlugin(pluginCtx);
+    const plugin = await MemSmithPlugin(pluginCtx);
     const hookKeys = Object.keys(plugin);
 
     for (const key of hookKeys) {
@@ -74,7 +74,7 @@ describe("OpenCode plugin event contract", () => {
   });
 
   it("does not register the phantom bus event names as hooks", async () => {
-    const plugin = await ClaudeMemPlugin(pluginCtx);
+    const plugin = await MemSmithPlugin(pluginCtx);
     const hookKeys = Object.keys(plugin);
     for (const phantom of PHANTOM_BUS_EVENT_NAMES) {
       expect(hookKeys).not.toContain(phantom);
@@ -103,7 +103,7 @@ describe("OpenCode plugin event contract", () => {
     }) as typeof fetch;
 
     try {
-      const plugin = await ClaudeMemPlugin(pluginCtx);
+      const plugin = await MemSmithPlugin(pluginCtx);
       const toolAfter = plugin["tool.execute.after"];
       await toolAfter(
         { tool: "read", sessionID: "ses_1", callID: "c1" },

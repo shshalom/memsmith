@@ -19,11 +19,11 @@
 //   ANTHROPIC_API_KEY=... bun bench/quality-eval/eval.ts
 //
 // Options (env):
-//   CLAUDE_MEM_SERVER_MODEL          llama model (default llama3.1:8b)
-//   CLAUDE_MEM_OLLAMA_URL            ollama base (default http://localhost:11434/v1)
-//   CLAUDE_MEM_QUALITY_ITERATIONS    repeat the corpus N times (default 1)
-//   CLAUDE_MEM_QUALITY_CLAUDE_MODEL  Claude baseline model (default DEFAULT_SERVER_CLAUDE_MODEL)
-//   CLAUDE_MEM_QUALITY_JUDGE_MODEL   judge model (default claude-opus-4-8)
+//   MEMSMITH_SERVER_MODEL          llama model (default llama3.1:8b)
+//   MEMSMITH_OLLAMA_URL            ollama base (default http://localhost:11434/v1)
+//   MEMSMITH_QUALITY_ITERATIONS    repeat the corpus N times (default 1)
+//   MEMSMITH_QUALITY_CLAUDE_MODEL  Claude baseline model (default DEFAULT_SERVER_CLAUDE_MODEL)
+//   MEMSMITH_QUALITY_JUDGE_MODEL   judge model (default claude-opus-4-8)
 
 import { writeFileSync } from 'fs';
 import { ModeManager } from '../../src/services/domain/ModeManager.js';
@@ -35,7 +35,7 @@ import { EVENT_PAYLOADS, makeContext } from './corpus.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-const JUDGE_MODEL = process.env.CLAUDE_MEM_QUALITY_JUDGE_MODEL ?? 'claude-opus-4-8';
+const JUDGE_MODEL = process.env.MEMSMITH_QUALITY_JUDGE_MODEL ?? 'claude-opus-4-8';
 
 const DIMENSIONS = ['faithfulness', 'specificity', 'typeCorrectness', 'usefulness', 'structure'] as const;
 type Dimension = (typeof DIMENSIONS)[number];
@@ -204,13 +204,13 @@ async function main(): Promise<void> {
   const apiKey = requireEnv('ANTHROPIC_API_KEY');
   ModeManager.getInstance().loadMode('code');
 
-  const llamaModel = process.env.CLAUDE_MEM_SERVER_MODEL ?? 'llama3.1:8b';
-  const claudeModel = process.env.CLAUDE_MEM_QUALITY_CLAUDE_MODEL;
-  const iterations = Math.max(1, Math.trunc(Number(process.env.CLAUDE_MEM_QUALITY_ITERATIONS ?? 1)) || 1);
+  const llamaModel = process.env.MEMSMITH_SERVER_MODEL ?? 'llama3.1:8b';
+  const claudeModel = process.env.MEMSMITH_QUALITY_CLAUDE_MODEL;
+  const iterations = Math.max(1, Math.trunc(Number(process.env.MEMSMITH_QUALITY_ITERATIONS ?? 1)) || 1);
 
   const llama = new OllamaObservationProvider({
     model: llamaModel,
-    ...(process.env.CLAUDE_MEM_OLLAMA_URL ? { baseUrl: process.env.CLAUDE_MEM_OLLAMA_URL } : {}),
+    ...(process.env.MEMSMITH_OLLAMA_URL ? { baseUrl: process.env.MEMSMITH_OLLAMA_URL } : {}),
   });
   const claude = new ClaudeObservationProvider({ apiKey, ...(claudeModel ? { model: claudeModel } : {}) });
 

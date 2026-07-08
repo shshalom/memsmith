@@ -5,7 +5,7 @@ import { SettingsDefaultsManager } from "../../shared/SettingsDefaultsManager.js
  * OpenCode plugin event contract.
  *
  * A plugin is an async function that receives a context object and returns an
- * object whose keys are OpenCode's real hook names. The hooks claude-mem binds
+ * object whose keys are OpenCode's real hook names. The hooks memsmith binds
  * to are (authoritative source: plans/08-opencode-integration.md "Fix sequence"
  * step 1, cross-checked against OpenCode's documented plugin API):
  *
@@ -15,7 +15,7 @@ import { SettingsDefaultsManager } from "../../shared/SettingsDefaultsManager.js
  *   - `experimental.session.compacting`               — fires when a session compacts
  *
  * The generic `event` hook delivers bus events whose discriminant is
- * `event.type`. The only bus event types claude-mem reacts to are
+ * `event.type`. The only bus event types memsmith reacts to are
  * `session.deleted` (forget the session mapping) and `session.idle` (best-effort
  * summarize). Session creation/observation capture is driven by the dedicated
  * `tool.execute.after` / `chat.message` hooks above, not by bus events — that is
@@ -91,9 +91,9 @@ interface BusEvent {
 }
 
 function resolveWorkerPort(): string {
-  // Canonical resolution: CLAUDE_MEM_WORKER_PORT env override, else the
+  // Canonical resolution: MEMSMITH_WORKER_PORT env override, else the
   // UID-derived default — identical to the rest of the codebase (#2406).
-  return SettingsDefaultsManager.get("CLAUDE_MEM_WORKER_PORT");
+  return SettingsDefaultsManager.get("MEMSMITH_WORKER_PORT");
 }
 
 const WORKER_BASE_URL = `http://127.0.0.1:${resolveWorkerPort()}`;
@@ -112,7 +112,7 @@ function workerPostFireAndForget(
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("ECONNREFUSED")) {
-      console.warn(`[claude-mem] Worker POST ${path} failed: ${message}`);
+      console.warn(`[memsmith] Worker POST ${path} failed: ${message}`);
     }
   });
 }
@@ -121,14 +121,14 @@ async function workerGetText(path: string): Promise<string | null> {
   try {
     const response = await fetch(`${WORKER_BASE_URL}${path}`, { headers: JSON_HEADERS });
     if (!response.ok) {
-      console.warn(`[claude-mem] Worker GET ${path} returned ${response.status}`);
+      console.warn(`[memsmith] Worker GET ${path} returned ${response.status}`);
       return null;
     }
     return await response.text();
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("ECONNREFUSED")) {
-      console.warn(`[claude-mem] Worker GET ${path} failed: ${message}`);
+      console.warn(`[memsmith] Worker GET ${path} failed: ${message}`);
     }
     return null;
   }
@@ -182,10 +182,10 @@ function truncate(text: string): string {
     : text;
 }
 
-export const ClaudeMemPlugin = async (ctx: OpenCodePluginContext) => {
+export const MemSmithPlugin = async (ctx: OpenCodePluginContext) => {
   const projectName = ctx.project?.name || "opencode";
 
-  console.log(`[claude-mem] OpenCode plugin loading (project: ${projectName})`);
+  console.log(`[memsmith] OpenCode plugin loading (project: ${projectName})`);
 
   return {
     // Capture every tool execution as an observation. This is the primary
@@ -270,9 +270,9 @@ export const ClaudeMemPlugin = async (ctx: OpenCodePluginContext) => {
     },
 
     tool: {
-      claude_mem_search: {
+      memsmith_search: {
         description:
-          "Search claude-mem memory database for past observations, sessions, and context",
+          "Search memsmith memory database for past observations, sessions, and context",
         args: {
           query: z.string().describe("Search query for memory observations"),
         },
@@ -287,7 +287,7 @@ export const ClaudeMemPlugin = async (ctx: OpenCodePluginContext) => {
           );
 
           if (!text) {
-            return "claude-mem worker is not running. Start it with: npx claude-mem start";
+            return "memsmith worker is not running. Start it with: npx memsmith start";
           }
 
           return parseSearchResponse(text, query);
@@ -309,7 +309,7 @@ export function parseSearchResponse(text: string, query: string): string {
     data = JSON.parse(text);
   } catch (error: unknown) {
     console.warn(
-      "[claude-mem] Failed to parse search results:",
+      "[memsmith] Failed to parse search results:",
       error instanceof Error ? error.message : String(error),
     );
     return "Failed to parse search results.";
@@ -333,4 +333,4 @@ export function parseSearchResponse(text: string, query: string): string {
   return rendered;
 }
 
-export default ClaudeMemPlugin;
+export default MemSmithPlugin;

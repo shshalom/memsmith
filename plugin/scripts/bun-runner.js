@@ -73,7 +73,7 @@ function isPluginDisabledInClaudeSettings() {
     return Boolean(
       settings &&
       settings.enabledPlugins &&
-      settings.enabledPlugins['claude-mem@thedotmack'] === false
+      settings.enabledPlugins['memsmith@shshalom'] === false
     );
   } catch {
     return false;
@@ -164,7 +164,7 @@ if (child.stdin) {
       // Issue #2188: empty/missing stdin previously masked by `|| '{}'` fallback,
       // which silently hid WSL bash failures (e.g. hooks invoked under a broken
       // shell that never piped a payload). Surface the failure mode instead.
-      const dataDir = process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), '.claude-mem');
+      const dataDir = process.env.MEMSMITH_DATA_DIR || join(homedir(), '.memsmith');
       const payloadType = stdinData === null
         ? 'null (no data event or stream error)'
         : stdinData === undefined

@@ -9,7 +9,7 @@
 // than give the worker a Postgres connection (larger blast radius), the hook
 // calls the server's already-authed /v1/search endpoint with a scoped
 // memories:read key. This keeps worker mode untouched and the trust boundary
-// explicit. Opt-in: requires the flag CLAUDE_MEM_TEAM_INJECT plus a configured
+// explicit. Opt-in: requires the flag MEMSMITH_TEAM_INJECT plus a configured
 // server URL and key — any missing piece disables the bridge.
 
 export interface TeamMemoryRow {

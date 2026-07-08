@@ -96,7 +96,7 @@ describe('runOneTimeV12_4_3Cleanup', () => {
   });
 
   it('purges observer-sessions and stuck pending_messages, writes marker, wipes chroma', () => {
-    const dbPath = path.join(tmpDataDir, 'claude-mem.db');
+    const dbPath = path.join(tmpDataDir, 'memsmith.db');
     seedDatabase(dbPath, { observerSessions: 3, stuckCount: 12 });
 
     mkdirSync(path.join(tmpDataDir, 'chroma'), { recursive: true });
@@ -135,7 +135,7 @@ describe('runOneTimeV12_4_3Cleanup', () => {
   });
 
   it('preserves pending_messages when stuck count is below the threshold of 10', () => {
-    const dbPath = path.join(tmpDataDir, 'claude-mem.db');
+    const dbPath = path.join(tmpDataDir, 'memsmith.db');
     seedDatabase(dbPath, { observerSessions: 0, stuckCount: 9 });
 
     runOneTimeV12_4_3Cleanup(tmpDataDir);
@@ -151,7 +151,7 @@ describe('runOneTimeV12_4_3Cleanup', () => {
   });
 
   it('is idempotent: a second invocation does no work and does not create a second backup', () => {
-    const dbPath = path.join(tmpDataDir, 'claude-mem.db');
+    const dbPath = path.join(tmpDataDir, 'memsmith.db');
     seedDatabase(dbPath, { observerSessions: 1, stuckCount: 10 });
 
     runOneTimeV12_4_3Cleanup(tmpDataDir);
@@ -170,7 +170,7 @@ describe('runOneTimeV12_4_3Cleanup', () => {
     // free = bavail * bsize = 0 and skip with a misleading "Insufficient disk"
     // error. After the patch, the gate should be bypassed with a WARN and the
     // cleanup should run to completion.
-    const dbPath = path.join(tmpDataDir, 'claude-mem.db');
+    const dbPath = path.join(tmpDataDir, 'memsmith.db');
     seedDatabase(dbPath, { observerSessions: 2, stuckCount: 10 });
 
     const statfsSpy = spyOn(fs, 'statfsSync').mockImplementation(() => ({
@@ -211,17 +211,17 @@ describe('runOneTimeV12_4_3Cleanup', () => {
     );
   });
 
-  it('honors CLAUDE_MEM_SKIP_CLEANUP_V12_4_3=1 by exiting without writing the marker', () => {
-    const dbPath = path.join(tmpDataDir, 'claude-mem.db');
+  it('honors MEMSMITH_SKIP_CLEANUP_V12_4_3=1 by exiting without writing the marker', () => {
+    const dbPath = path.join(tmpDataDir, 'memsmith.db');
     seedDatabase(dbPath, { observerSessions: 1, stuckCount: 10 });
 
-    const original = process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3;
-    process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3 = '1';
+    const original = process.env.MEMSMITH_SKIP_CLEANUP_V12_4_3;
+    process.env.MEMSMITH_SKIP_CLEANUP_V12_4_3 = '1';
     try {
       runOneTimeV12_4_3Cleanup(tmpDataDir);
     } finally {
-      if (original === undefined) delete process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3;
-      else process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3 = original;
+      if (original === undefined) delete process.env.MEMSMITH_SKIP_CLEANUP_V12_4_3;
+      else process.env.MEMSMITH_SKIP_CLEANUP_V12_4_3 = original;
     }
 
     expect(existsSync(path.join(tmpDataDir, '.cleanup-v12.4.3-applied'))).toBe(false);

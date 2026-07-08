@@ -31,8 +31,8 @@ RAGTIME_FILE_LIMIT=5 bun ragtime/ragtime.ts
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `RAGTIME_CORPUS_PATH` | `./datasets/epstein-mode` | Path to folder containing .md email files |
-| `RAGTIME_PLUGIN_PATH` | `./plugin` | Path to claude-mem plugin |
-| `CLAUDE_MEM_WORKER_PORT` | `37777` | Worker service port |
+| `RAGTIME_PLUGIN_PATH` | `./plugin` | Path to memsmith plugin |
+| `MEMSMITH_WORKER_PORT` | `37777` | Worker service port |
 | `RAGTIME_TRANSCRIPT_MAX_AGE` | `24` | Max age of transcripts to keep (hours) |
 | `RAGTIME_PROJECT_NAME` | `ragtime-investigation` | Project name for grouping |
 | `RAGTIME_FILE_LIMIT` | `0` | Limit files to process (0 = all) |
@@ -54,7 +54,7 @@ Each markdown file should contain a single email or document to analyze.
 
 ## How It Works
 
-1. **Startup**: Sets `CLAUDE_MEM_MODE=email-investigation` and cleans up old transcripts
+1. **Startup**: Sets `MEMSMITH_MODE=email-investigation` and cleans up old transcripts
 2. **Processing**: For each file:
    - Starts a NEW Claude session (no continuation)
    - Claude reads the file and analyzes entities, relationships, timeline events
@@ -76,7 +76,7 @@ See [LICENSE](./LICENSE) for full terms.
 
 ### License alignment
 
-The main claude-mem repository is licensed under Apache-2.0, and ragtime now uses the same license for this migration.
+The main memsmith repository is licensed under Apache-2.0, and ragtime now uses the same license for this migration.
 
 ---
 

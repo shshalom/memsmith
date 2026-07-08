@@ -474,7 +474,7 @@ describe('Hook Lifecycle - stderr Suppression (#1181)', () => {
     const handler = getEventHandler('unknown-event-type');
     await handler.execute({ sessionId: 'test', cwd: '/tmp' });
 
-    const dispatcherStderr = stderrOutput.filter(s => s.includes('[claude-mem] Unknown event'));
+    const dispatcherStderr = stderrOutput.filter(s => s.includes('[memsmith] Unknown event'));
     expect(dispatcherStderr).toHaveLength(0);
   });
 });
@@ -511,6 +511,6 @@ describe('hookCommand - stderr discipline (plan 01 / #2292)', () => {
     expect(hookCommandSource).toContain("emitModelContext");
     expect(hookCommandSource).toContain("emitBlockingError");
     expect(hookCommandSource).toContain("exitGraceful");
-    expect(hookCommandSource).not.toContain("console.error(`[claude-mem]");
+    expect(hookCommandSource).not.toContain("console.error(`[memsmith]");
   });
 });

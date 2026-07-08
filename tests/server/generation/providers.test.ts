@@ -462,7 +462,7 @@ describe('OllamaObservationProvider', () => {
     expect(headers.Authorization).toBe('Bearer k');
   });
 
-  it('honors CLAUDE_MEM_OLLAMA_URL-style baseUrl and CLAUDE_MEM_SERVER_MODEL-style model overrides', async () => {
+  it('honors MEMSMITH_OLLAMA_URL-style baseUrl and MEMSMITH_SERVER_MODEL-style model overrides', async () => {
     const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
     const provider = new OllamaObservationProvider({
       baseUrl: 'http://ollama.internal:11434/v1',

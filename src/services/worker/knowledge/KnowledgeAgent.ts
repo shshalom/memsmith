@@ -175,7 +175,7 @@ export class KnowledgeAgent {
   private getModelId(): string {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
     // Resolve $TIER:<fast|smart|simple|summary> aliases at request time (#2289).
-    return resolveTierAlias(settings.CLAUDE_MEM_MODEL, settings);
+    return resolveTierAlias(settings.MEMSMITH_MODEL, settings);
   }
 
 }

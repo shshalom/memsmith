@@ -6,11 +6,11 @@ import { bootstrapServerPostgresSchema, createPostgresStorageRepositories } from
 import { PostgresObservationRepository } from '../../../src/storage/postgres/observations.js';
 import { lifecycleBoard, decisionLog, blockedOnWhom, costPanel } from '../../../src/server/dashboard/queries.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 const q = (n: string) => `"${n.replaceAll('"', '""')}"`;
 
 describe('dashboard queries', () => {
-  if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
+  if (!testDatabaseUrl) { it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {}); return; }
 
   let pool: pg.Pool;
   let client: any;

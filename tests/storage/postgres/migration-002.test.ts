@@ -4,11 +4,11 @@ import pg from 'pg';
 import { randomUUID } from 'crypto';
 import { bootstrapServerPostgresSchema, createPostgresStorageRepositories } from '../../../src/storage/postgres/index.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 const q = (n: string) => `"${n.replaceAll('"', '""')}"`;
 
 describe('migration 002: typed + lifecycle columns', () => {
-  if (!testDatabaseUrl) { it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL', () => {}); return; }
+  if (!testDatabaseUrl) { it.skip('requires MEMSMITH_TEST_POSTGRES_URL', () => {}); return; }
   let pool: pg.Pool; let client: any; let schemaName: string;
   beforeEach(async () => {
     pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 4 });

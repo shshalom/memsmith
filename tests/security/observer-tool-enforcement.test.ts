@@ -107,7 +107,7 @@ describe('Observer/KnowledgeAgent SDK tool enforcement (hardened-options)', () =
       const result = await callCanUseTool(
         { ...BASE_INPUT, sessionDbId: 42, contentSessionId: 'cs-1', project: 'demo' },
         'Write',
-        { file_path: '/tmp/CLAUDE_MEM_PWNED.txt', content: 'pwned' }
+        { file_path: '/tmp/MEMSMITH_PWNED.txt', content: 'pwned' }
       );
       expect(result.behavior).toBe('deny');
 

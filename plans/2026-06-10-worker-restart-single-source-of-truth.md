@@ -18,7 +18,7 @@
 | `ensureWorkerRunning()` | `src/shared/worker-utils.ts:293-381` | `(): Promise<boolean>` — hook lazy-spawn + PR #2768 version-recycle |
 | `resolveWorkerScriptPath()` | `src/shared/worker-utils.ts:206-215` | candidates: `MARKETPLACE_ROOT/plugin/scripts/worker-service.cjs`, then `cwd()/plugin/scripts/worker-service.cjs` |
 | `resolveBunRuntime()` | `src/shared/worker-utils.ts:217-235` | hook-side resolver; MISSING `~/.bun/bin` fallbacks |
-| `waitForWorkerPort` / `waitForWorkerReadiness` | `src/shared/worker-utils.ts:237-273` | polls `GET /api/readiness`; budget env `CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS` |
+| `waitForWorkerPort` / `waitForWorkerReadiness` | `src/shared/worker-utils.ts:237-273` | polls `GET /api/readiness`; budget env `MEMSMITH_HOOK_READINESS_TIMEOUT_MS` |
 | `ensureWorkerStarted(port, workerScriptPath)` | `src/services/worker-spawner.ts:70-153` | returns `'ready' \| 'warming' \| 'dead'`; NO version guard |
 | `spawnDaemon(scriptPath, port, extraEnv?)` | `src/services/infrastructure/ProcessManager.ts:408-472` | returns PID or `undefined`; setsid on Unix, PowerShell on Windows |
 | `resolveWorkerRuntimePath(options?)` | `src/services/infrastructure/ProcessManager.ts:63-125` | full bun resolver chain (BUN, BUN_PATH, `~/.bun/bin`, brew paths, `which`) |
@@ -29,8 +29,8 @@
 | `performGracefulShutdown(config)` | `src/services/infrastructure/GracefulShutdown.ts:30-58` | sequential closes, NO global deadline |
 | `flushResponseThen(res, payload, action)` | `src/services/server/flushResponseThen.ts:3-16` | responds, runs action on 'finish', ALWAYS `process.exit(0)` |
 | `writeJsonFileAtomic()` | `src/npx-cli/utils/paths.ts:124-205` | the ONLY atomic-write helper in the repo |
-| `MARKETPLACE_ROOT` | `src/shared/paths.ts:43` | `~/.claude/plugins/marketplaces/thedotmack` |
-| `resolveDataDir()` / `DATA_DIR` | `src/shared/paths.ts:18-40` | env `CLAUDE_MEM_DATA_DIR` wins (line 19-20); module-level const — computed at import time |
+| `MARKETPLACE_ROOT` | `src/shared/paths.ts:43` | `~/.claude/plugins/marketplaces/shshalom` |
+| `resolveDataDir()` / `DATA_DIR` | `src/shared/paths.ts:18-40` | env `MEMSMITH_DATA_DIR` wins (line 19-20); module-level const — computed at import time |
 | Worker port default | `src/shared/SettingsDefaultsManager.ts:91` | `37700 + (uid % 100)` — NEVER hardcode 37777 |
 | `/api/health` response | `src/services/server/Server.ts:212-233` | `{status, version, workerPath, uptime, pid, initialized, mcpReady, ...}` — has everything verification needs |
 | `/api/readiness` response | `Server.ts:235-247` | `{status: 'ready'\|'initializing', mcpReady}` |
@@ -61,8 +61,8 @@
    - Delete `detectInstalledVersion()` (lines ~79-114) and its call site — it exists only to feed the mirror.
    - Delete the HTTP restart trigger block (lines ~196-216: the `http.request` POST to `/api/admin/restart` and its success/error prints). The sync script's job ends at "files synced + `bun install` in the marketplace copy".
 2. In root `package.json` line ~67, simplify:
-   - From: `"build-and-sync": "npm run build && npm run sync-marketplace && sleep 1 && (cd ~/.claude/plugins/marketplaces/thedotmack && npm run worker:restart)"`
-   - To: `"build-and-sync": "npm run build && npm run sync-marketplace && (cd ~/.claude/plugins/marketplaces/thedotmack && npm run worker:restart)"`
+   - From: `"build-and-sync": "npm run build && npm run sync-marketplace && sleep 1 && (cd ~/.claude/plugins/marketplaces/shshalom && npm run worker:restart)"`
+   - To: `"build-and-sync": "npm run build && npm run sync-marketplace && (cd ~/.claude/plugins/marketplaces/shshalom && npm run worker:restart)"`
    - (drop the `sleep 1` — it existed to let the now-deleted HTTP kill land before the CLI restart)
 3. Do NOT touch the existing one-time legacy-cache cleanup elsewhere in sync-marketplace.cjs (if present) — only the three blocks named above.
 
@@ -72,9 +72,9 @@
 ### Verification checklist
 - `grep -n "INSTALLED_CACHE_PATH\|detectInstalledVersion\|admin/restart" scripts/sync-marketplace.cjs` → no matches.
 - `grep -n "sleep 1" package.json` → no match in build-and-sync.
-- `npm run build-and-sync` → completes; worker restarts (via CLI path only); `curl -s http://127.0.0.1:$PORT/api/health` shows the just-built version. (Resolve `$PORT` as `37700 + uid%100` or from `~/.claude-mem/settings.json`.)
+- `npm run build-and-sync` → completes; worker restarts (via CLI path only); `curl -s http://127.0.0.1:$PORT/api/health` shows the just-built version. (Resolve `$PORT` as `37700 + uid%100` or from `~/.memsmith/settings.json`.)
 - `npm test` → green.
-- Stale-cache regression check: `ls ~/.claude/plugins/cache/thedotmack/claude-mem/*/package.json | xargs grep -h '"version"'` — record current values; after the NEXT release, re-check that no cache dir's content changed (the mirror used to mutate them).
+- Stale-cache regression check: `ls ~/.claude/plugins/cache/shshalom/memsmith/*/package.json | xargs grep -h '"version"'` — record current values; after the NEXT release, re-check that no cache dir's content changed (the mirror used to mutate them).
 
 ### Anti-pattern guards
 - Do not "fix" the mirror by targeting `workerPath` instead — the feature is being removed, not repaired.
@@ -136,7 +136,7 @@ All in `src/services/worker-service.ts`:
 - `tests/shared/worker-utils-version-recycle.test.ts` still green (still POSTs restart on mismatch — the change is what happens AFTER the POST).
 - New test: shutdown re-entrancy — call `shutdown()` twice, assert `performGracefulShutdown` runs once (mock it via `mock.module`).
 - New test: recycle-no-corpse-spawn — fetch mock where `/api/admin/restart` 200s and `/api/health` returns the NEW version on poll N: assert NO spawn attempt; where health never recovers: assert lazy-spawn fallback fires.
-- Manual end-to-end: with a worker running, `curl -X POST http://127.0.0.1:$PORT/api/admin/restart`; within ~15s `/api/health` shows a NEW pid and the marketplace version, with no hook involvement. Check `~/.claude-mem/logs/claude-mem-$(date +%F).log` for exactly one shutdown and one daemon start (no duplicate-refusal lines).
+- Manual end-to-end: with a worker running, `curl -X POST http://127.0.0.1:$PORT/api/admin/restart`; within ~15s `/api/health` shows a NEW pid and the marketplace version, with no hook involvement. Check `~/.memsmith/logs/memsmith-$(date +%F).log` for exactly one shutdown and one daemon start (no duplicate-refusal lines).
 - `npm test` → green.
 
 ### Anti-pattern guards
@@ -166,7 +166,7 @@ All in `src/services/worker-service.ts`:
 - `resolveWorkerRuntimePath` chain: `ProcessManager.ts:63-125`.
 
 ### Verification checklist
-- New test `tests/shared/worker-spawn-gate.test.ts` (temp dir via `CLAUDE_MEM_DATA_DIR` + dynamic import — see Phase 6 trap): second acquire fails while held; stale lock (backdate mtime via `utimesSync`) is broken and re-acquired; release is owner-only.
+- New test `tests/shared/worker-spawn-gate.test.ts` (temp dir via `MEMSMITH_DATA_DIR` + dynamic import — see Phase 6 trap): second acquire fails while held; stale lock (backdate mtime via `utimesSync`) is broken and re-acquired; release is owner-only.
 - `grep -rn "resolveBunRuntime" src/` → no definition in worker-utils (only the ProcessManager import).
 - `grep -n "spawnHidden\|spawnDaemon" src/shared/worker-utils.ts src/services/worker-spawner.ts` → every spawn site is inside the lock.
 - Race test (manual): run 5 concurrent `node "$_P/scripts/bun-runner.js" .../worker-service.cjs start` invocations with no worker running; logs must show exactly ONE `Starting worker daemon` and zero `refusing to start duplicate` storms.
@@ -198,7 +198,7 @@ All in `src/services/worker-service.ts`:
 ### Verification checklist
 - Update `tests/infrastructure/process-manager.test.ts` expectations where deletion semantics changed (owner-guard) — coordinate with Phase 6 which relocates this file's data dir.
 - New test: old-worker-cleanup-spares-successor — write PID file as `{pid: 99999...}` (not own pid), run the shutdown cascade deletion step, assert file survives.
-- Manual: start worker, `rm ~/.claude-mem/worker.pid`, run `worker-service.cjs status` → must still print "Worker is running" with pid/version from health.
+- Manual: start worker, `rm ~/.memsmith/worker.pid`, run `worker-service.cjs status` → must still print "Worker is running" with pid/version from health.
 - Full ping-pong scenario from Phase 3's manual check still converges.
 - `npm test` → green.
 
@@ -209,17 +209,17 @@ All in `src/services/worker-service.ts`:
 
 ---
 
-## Phase 6: Test hygiene — no test ever touches the real ~/.claude-mem again
+## Phase 6: Test hygiene — no test ever touches the real ~/.memsmith again
 
-**Why:** `tests/infrastructure/process-manager.test.ts` writes corrupt JSON and sentinel PIDs into the REAL `~/.claude-mem/worker.pid` (snapshot-restore shrinks but doesn't close the race window, and a killed test run leaves corruption behind). It also pollutes the shared log, which contaminated this very diagnosis.
+**Why:** `tests/infrastructure/process-manager.test.ts` writes corrupt JSON and sentinel PIDs into the REAL `~/.memsmith/worker.pid` (snapshot-restore shrinks but doesn't close the race window, and a killed test run leaves corruption behind). It also pollutes the shared log, which contaminated this very diagnosis.
 
 ### What to implement
 1. `tests/infrastructure/process-manager.test.ts`:
-   - Replace the hardcoded `DATA_DIR = path.join(homedir(), '.claude-mem')` (lines 24-25) with: create `mkdtempSync(join(tmpdir(), 'claude-mem-pm-test-'))`, set `process.env.CLAUDE_MEM_DATA_DIR` to it.
+   - Replace the hardcoded `DATA_DIR = path.join(homedir(), '.memsmith')` (lines 24-25) with: create `mkdtempSync(join(tmpdir(), 'memsmith-pm-test-'))`, set `process.env.MEMSMITH_DATA_DIR` to it.
    - **TRAP:** `DATA_DIR` in `src/shared/paths.ts:40` is a module-level const computed at import time, and ESM hoists static imports — setting the env var in `beforeEach` is too late. Copy the fresh-import pattern from `tests/shared/worker-utils-version-recycle.test.ts:30-32` (query-param cache-bust dynamic import) OR set the env var at the very top of the file before any `await import(...)` of ProcessManager modules (convert the static imports of code-under-test to dynamic).
    - Delete the snapshot-restore of the real PID file (lines 28-43) — unnecessary once isolated; `rmSync(tempDir, {recursive: true, force: true})` in `afterAll` (copy Pattern A: `tests/write-json-file-atomic.test.ts:34-40`).
 2. Sweep for other offenders: `grep -rn "homedir()" tests/ | grep -v node_modules` — any test resolving the real data dir gets the same treatment.
-3. Add a tripwire to `tests/preload.ts` (it already exists for the PostHog mock): if `CLAUDE_MEM_DATA_DIR` is unset, set it to a per-run `mkdtempSync` dir so NO test can fall through to `~/.claude-mem`. (Env restoration discipline: copy `tests/env-isolation.test.ts:31-90`.)
+3. Add a tripwire to `tests/preload.ts` (it already exists for the PostHog mock): if `MEMSMITH_DATA_DIR` is unset, set it to a per-run `mkdtempSync` dir so NO test can fall through to `~/.memsmith`. (Env restoration discipline: copy `tests/env-isolation.test.ts:31-90`.)
 
 ### Documentation references
 - Offending lines verbatim: process-manager.test.ts:24-25, 28-43, 109, 499-503 (test-hygiene report §1).
@@ -228,7 +228,7 @@ All in `src/services/worker-service.ts`:
 
 ### Verification checklist
 - `bun test tests/infrastructure/` green.
-- While the suite runs: `ls -la ~/.claude-mem/worker.pid; shasum ~/.claude-mem/worker.pid` before/after → byte-identical (or consistently absent).
+- While the suite runs: `ls -la ~/.memsmith/worker.pid; shasum ~/.memsmith/worker.pid` before/after → byte-identical (or consistently absent).
 - `grep -rn "homedir()" tests/` → no hit resolves a data-dir path for writes.
 - Full `npm test` green.
 
@@ -246,8 +246,8 @@ All in `src/services/worker-service.ts`:
    - `grep -n "admin/restart" scripts/sync-marketplace.cjs`
    - `grep -n "37777" src/ scripts/ -r` (hardcoded port)
    - `grep -rn "resolveBunRuntime" src/shared/worker-utils.ts`
-   - `grep -rn "homedir(), '.claude-mem'" tests/`
-3. **Triple-restart soak:** run `npm run build-and-sync` three times consecutively; every run must end `Worker restart verified`; `/api/health` pid changes each time, version stays the built version; `grep -c "refusing to start duplicate\|Failed to start server" ~/.claude-mem/logs/claude-mem-$(date +%F).log` shows no new occurrences during the soak.
-4. **Stale-launcher convergence test (the original bug):** manually spawn a worker from an OLD cache dir (`node ~/.claude/plugins/cache/thedotmack/claude-mem/<old>/scripts/bun-runner.js .../worker-service.cjs start`), then trigger any hook (or `ensureWorkerRunning` via a session). Expect in the log: exactly ONE `Worker version mismatch — recycling stale worker`, then the self-replacing restart, then a healthy marketplace-version worker — NO ping-pong (no second recycle within 5 minutes).
-5. **Observation check:** confirm claude-mem itself recorded observations during the soak (the worker was restarting underneath the recorder — the pipeline must survive its own surgery): query the 10 most recent rows in `~/.claude-mem/claude-mem.db` `observations` and confirm fresh timestamps.
+   - `grep -rn "homedir(), '.memsmith'" tests/`
+3. **Triple-restart soak:** run `npm run build-and-sync` three times consecutively; every run must end `Worker restart verified`; `/api/health` pid changes each time, version stays the built version; `grep -c "refusing to start duplicate\|Failed to start server" ~/.memsmith/logs/memsmith-$(date +%F).log` shows no new occurrences during the soak.
+4. **Stale-launcher convergence test (the original bug):** manually spawn a worker from an OLD cache dir (`node ~/.claude/plugins/cache/shshalom/memsmith/<old>/scripts/bun-runner.js .../worker-service.cjs start`), then trigger any hook (or `ensureWorkerRunning` via a session). Expect in the log: exactly ONE `Worker version mismatch — recycling stale worker`, then the self-replacing restart, then a healthy marketplace-version worker — NO ping-pong (no second recycle within 5 minutes).
+5. **Observation check:** confirm memsmith itself recorded observations during the soak (the worker was restarting underneath the recorder — the pipeline must survive its own surgery): query the 10 most recent rows in `~/.memsmith/memsmith.db` `observations` and confirm fresh timestamps.
 6. **Docs:** update `docs/public/troubleshooting.mdx` if it documents the old restart semantics; CHANGELOG is auto-generated — do not edit.

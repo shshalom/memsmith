@@ -2,10 +2,10 @@
 
 ## Why
 
-Google officially confirmed (May 19, 2026, https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) that free/individual-tier Gemini CLI access was cut off June 18, 2026 in favor of **Antigravity CLI**, a standalone headless-capable binary (`https://github.com/google-antigravity/antigravity-cli`) that reuses Gemini CLI's `~/.gemini/` config tree and "keeps the most critical features of Gemini CLI: Agent Skills, Hooks, Subagents, and Extensions." This plan removes claude-mem's Gemini CLI *host* integration and replaces it with an Antigravity CLI integration at feature parity.
+Google officially confirmed (May 19, 2026, https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) that free/individual-tier Gemini CLI access was cut off June 18, 2026 in favor of **Antigravity CLI**, a standalone headless-capable binary (`https://github.com/google-antigravity/antigravity-cli`) that reuses Gemini CLI's `~/.gemini/` config tree and "keeps the most critical features of Gemini CLI: Agent Skills, Hooks, Subagents, and Extensions." This plan removes memsmith's Gemini CLI *host* integration and replaces it with an Antigravity CLI integration at feature parity.
 
 **Scope lock (confirmed with user):**
-- Remove ONLY the Gemini CLI host integration (adapter, installer, hooks, IDE-detection entry, docs). **Do NOT touch** the separate, unrelated Gemini LLM/observation *provider* (`CLAUDE_MEM_GEMINI_API_KEY`, `GeminiProvider.ts`, `GeminiObservationProvider.ts`, `SettingsDefaultsManager.ts` Gemini keys, `ContextSettingsModal.tsx` Gemini form, `docs/public/usage/gemini-provider.mdx`, `docs/public/cursor/gemini-setup.mdx`, `openclaw/install.sh --provider gemini`). That's a different Google product (Gemini API) that isn't being deprecated.
+- Remove ONLY the Gemini CLI host integration (adapter, installer, hooks, IDE-detection entry, docs). **Do NOT touch** the separate, unrelated Gemini LLM/observation *provider* (`MEMSMITH_GEMINI_API_KEY`, `GeminiProvider.ts`, `GeminiObservationProvider.ts`, `SettingsDefaultsManager.ts` Gemini keys, `ContextSettingsModal.tsx` Gemini form, `docs/public/usage/gemini-provider.mdx`, `docs/public/cursor/gemini-setup.mdx`, `openclaw/install.sh --provider gemini`). That's a different Google product (Gemini API) that isn't being deprecated.
 - Antigravity CLI hook wiring will be built on the working hypothesis that it's schema-compatible with Gemini CLI's hook system (same vendor claim: "same underlying agent harness"), modeled directly on `GeminiCliHooksInstaller.ts`. **A hands-on manual verification against a real Antigravity CLI install is a hard merge gate** (Phase C) — the schema is not independently documented by Google (their docs pages are an unscrapable Angular SPA) and must not be shipped on assumption alone.
 - **Update:** Phase B0 has since been completed against a real, already-installed Antigravity CLI on the dev machine (not a hypothesis anymore — see "B0 findings" below). Phase C's hands-on gate is downgraded from "install and configure from scratch" to "confirm the shipped installer's output matches what's already proven-working on disk," since live hooks/MCP/context files already exist on this machine from manual/prior use.
 
@@ -42,7 +42,7 @@ Google officially confirmed (May 19, 2026, https://developers.googleblog.com/an-
 - `src/npx-cli/commands/install.ts` — remove the `case 'gemini-cli':` branch (~lines 323-335) that dynamically imports `installGeminiCliHooks()`.
 - `src/npx-cli/commands/uninstall.ts` — remove the `{ label: 'Gemini CLI hooks', ... }` entry (~lines 358-360).
 - `src/services/worker-service.ts` — remove `import { handleGeminiCliCommand } from './integrations/GeminiCliHooksInstaller.js';` (lines 73-75), remove `case 'gemini-cli': { ... }` dispatch (lines 1233-1237), update the `console.error('Platforms: ...')` help text (line 1250) to drop `gemini-cli`.
-- `src/cli/handlers/context.ts` — remove the `platform === 'gemini-cli' || platform === 'gemini'` display branch (line 137). **Verify first** this branch is about hook-invoked platform display, not `CLAUDE_MEM_PROVIDER`/LLM-provider selection — do not touch anything reading `CLAUDE_MEM_PROVIDER`.
+- `src/cli/handlers/context.ts` — remove the `platform === 'gemini-cli' || platform === 'gemini'` display branch (line 137). **Verify first** this branch is about hook-invoked platform display, not `MEMSMITH_PROVIDER`/LLM-provider selection — do not touch anything reading `MEMSMITH_PROVIDER`.
 - `src/npx-cli/index.ts` — remove `gemini-cli` from help text (line 56).
 - `src/services/integrations/install-paths.ts` — update the comment on line 5 that lists Gemini among installers.
 
@@ -54,14 +54,14 @@ Google officially confirmed (May 19, 2026, https://developers.googleblog.com/an-
 - `docs/public/docs.json` — remove the `"group": "Gemini CLI Integration"` nav entry (lines 62-65).
 - `docs/public/installation.mdx` — remove "Gemini CLI" from the supported-IDE list (lines 20, 22, 47).
 - `docs/public/introduction.mdx` — remove "Gemini CLI" from the supported-IDE list (line 83).
-- `README.md` — remove the `npx claude-mem install --ide gemini-cli` line (139-142), the "Restart Claude Code or Gemini CLI" mention (line 158), and the setup-doc link (line 194).
+- `README.md` — remove the `npx memsmith install --ide gemini-cli` line (139-142), the "Restart Claude Code or Gemini CLI" mention (line 158), and the setup-doc link (line 194).
 
 ### A5. Verify Gemini transcript-parser is truly dead for this concern
 - `src/shared/transcript-parser.ts` — `isGeminiTranscriptFormat()`/`extractLastMessageFromGeminiTranscript()` parse Gemini CLI's transcript file format. Before deleting, grep for callers; if the summarization pipeline still needs it for some other reason, leave it — otherwise delete. **Do not delete blind.**
 
 ### A6. Verification checklist for Phase A
 - `grep -ril "gemini-cli\|GeminiCliHooksInstaller\|geminiCliAdapter" src/ tests/ docs/public/ README.md` returns zero hits (except CHANGELOG.md history, which stays).
-- `grep -ril "CLAUDE_MEM_GEMINI\|GeminiProvider\|GeminiObservationProvider" src/` still returns all the original Part-B hits — confirms the LLM provider was untouched.
+- `grep -ril "MEMSMITH_GEMINI\|GeminiProvider\|GeminiObservationProvider" src/` still returns all the original Part-B hits — confirms the LLM provider was untouched.
 - `npm run build-and-sync` succeeds.
 - Full test suite passes with the deleted test files removed (not skipped).
 
@@ -71,20 +71,20 @@ Google officially confirmed (May 19, 2026, https://developers.googleblog.com/an-
 
 ### B0. Verification spike — COMPLETE (findings below, confirmed 2026-07-03 against a live install)
 
-The dev machine already has both Antigravity IDE and standalone Antigravity CLI installed and in active use, including a **pre-existing, live, working claude-mem Gemini CLI hook installation** sharing the same config tree — this turned B0 from a hypothesis exercise into direct filesystem/binary inspection. No network installs were performed; no live `agy` session/model call was triggered (avoids spending the user's API quota / mutating their plugin state unasked).
+The dev machine already has both Antigravity IDE and standalone Antigravity CLI installed and in active use, including a **pre-existing, live, working memsmith Gemini CLI hook installation** sharing the same config tree — this turned B0 from a hypothesis exercise into direct filesystem/binary inspection. No network installs were performed; no live `agy` session/model call was triggered (avoids spending the user's API quota / mutating their plugin state unasked).
 
 **Confirmed facts:**
 
 1. **Binary name**: `agy` (`~/.local/bin/agy`, v1.0.16) is the real standalone headless Antigravity CLI. `antigravity` (`~/.antigravity/antigravity/bin/antigravity`, v1.107.0) is a **different binary** — the desktop IDE's internal executable, not the CLI. Detection must check `isCommandInPath('agy')`, not `antigravity`.
-2. **Hook config location — CONFIRMED**: `~/.gemini/settings.json`, the exact same file Gemini CLI used. Proof: claude-mem's pre-existing `gemini-cli` hooks (installed by the current, soon-to-be-removed `GeminiCliHooksInstaller.ts`) are sitting live in this file on a machine that has `agy` installed and in daily use — same file, same JSON schema (`hooks.<Event>[].hooks[].{name,type,command,timeout}`). This proves Antigravity CLI reads the shared Gemini settings file rather than a separate one. No separate `~/.gemini/antigravity-cli/settings.json` hook block exists — that file only holds unrelated CLI preferences (`colorScheme`, `model`, `trustedWorkspaces`, `enableTelemetry`), not hooks.
+2. **Hook config location — CONFIRMED**: `~/.gemini/settings.json`, the exact same file Gemini CLI used. Proof: memsmith's pre-existing `gemini-cli` hooks (installed by the current, soon-to-be-removed `GeminiCliHooksInstaller.ts`) are sitting live in this file on a machine that has `agy` installed and in daily use — same file, same JSON schema (`hooks.<Event>[].hooks[].{name,type,command,timeout}`). This proves Antigravity CLI reads the shared Gemini settings file rather than a separate one. No separate `~/.gemini/antigravity-cli/settings.json` hook block exists — that file only holds unrelated CLI preferences (`colorScheme`, `model`, `trustedWorkspaces`, `enableTelemetry`), not hooks.
 3. **Hook event names — CONFIRMED superset**: the live installed config has **8** events, not the 7 in current `GeminiCliHooksInstaller.ts` source: `SessionStart`, `BeforeAgent`, `AfterAgent`, `BeforeTool`, `AfterTool`, `Notification`, `PreCompress`, **and `SessionEnd` → `session-complete`** (present on disk but absent from the current source's `GEMINI_EVENT_TO_INTERNAL_EVENT` map — pre-existing doc/code drift from an older installer version). Use all 8 for the new Antigravity map since the on-disk config proves all 8 are valid, live event names.
    - `agy --help` has no dedicated `hooks` subcommand — hooks are pure config-file-driven (declare in settings.json, no CLI registration step), matching Gemini CLI's own model exactly.
 4. **MCP config path — TWO real files exist, genuinely ambiguous, needs a dual-write**:
-   - `~/.gemini/antigravity/mcp_config.json` (old path, already has claude-mem registered from the existing MCP-only installer, real content, in use).
+   - `~/.gemini/antigravity/mcp_config.json` (old path, already has memsmith registered from the existing MCP-only installer, real content, in use).
    - `~/.gemini/config/mcp_config.json` (exists but **empty**, directory created recently alongside the CLI's own app-data dir) — matches third-party docs' claimed newer/unified path, but nothing has written real content there yet on this machine.
    - **Decision: write to both paths.** Both are cheap idempotent JSON merges (reuse `writeMcpJsonConfig` from `McpIntegrations.ts` verbatim for each path) — safe insurance until it's confirmed via a live tool-call test which one `agy` actually reads. Do not pick just one on a guess.
-5. **Rules/context file path — CONFIRMED, existing code was already right**: `~/.agents/rules/` (**plural** "agents") is real and populated (`~/.agents/rules/claude-mem-context.md` already exists from the current `ANTIGRAVITY_CONFIG` MCP installer). The earlier research citing singular `.agent/rules/` was wrong for this install — no `.agent/` (singular) directory exists anywhere. Keep the existing codebase's path assumption in `McpIntegrations.ts:129` as-is.
-6. **GEMINI.md — CONFIRMED live**: `~/.gemini/GEMINI.md` is real, in active use (has native Antigravity "Gemini Added Memories" auto-entries plus claude-mem's own `<claude-mem-context>` tag block already injected and rendering correctly). No change needed to the context-injection target.
+5. **Rules/context file path — CONFIRMED, existing code was already right**: `~/.agents/rules/` (**plural** "agents") is real and populated (`~/.agents/rules/memsmith-context.md` already exists from the current `ANTIGRAVITY_CONFIG` MCP installer). The earlier research citing singular `.agent/rules/` was wrong for this install — no `.agent/` (singular) directory exists anywhere. Keep the existing codebase's path assumption in `McpIntegrations.ts:129` as-is.
+6. **GEMINI.md — CONFIRMED live**: `~/.gemini/GEMINI.md` is real, in active use (has native Antigravity "Gemini Added Memories" auto-entries plus memsmith's own `<memsmith-context>` tag block already injected and rendering correctly). No change needed to the context-injection target.
 7. **New architectural finding (not required for parity, follow-up candidate):** `agy plugin {list,import,install,uninstall,enable,disable,validate,link}` is a first-class plugin-marketplace subcommand system, structurally similar to Codex CLI's `codex plugin marketplace` — notably `agy plugin import gemini|claude` suggests native cross-tool plugin migration. `agy plugin list` currently reports "No imported plugins" on this machine (unexercised). This could be a cleaner, more idiomatic integration path than hand-editing `settings.json` (bundling hooks+MCP+skills registration the way Codex's `.codex-plugin/plugin.json` does) but its manifest schema isn't discoverable without actually running `agy plugin import`/`install` against a real manifest, which would mutate the user's live local plugin state — **out of scope for this plan**; ship the proven settings.json + dual mcp_config.json approach now, note the plugin-marketplace path as a future enhancement in the new doc page.
 
 No further B0 work needed — proceed to B1 with confirmed values, not hypotheses.
@@ -134,11 +134,11 @@ Copy `gemini-cli.ts` (79 lines) as the starting point:
 - New `docs/public/antigravity-cli/setup.mdx` modeled on the deleted `docs/public/gemini-cli/setup.mdx` — document the real (B0-verified) config paths, hook events, and explicitly note which events are hypothesis-based vs. confirmed if any remain unverified at ship time.
 - `docs/public/docs.json` — add nav group for `antigravity-cli/setup`.
 - `docs/public/installation.mdx`, `docs/public/introduction.mdx` — add/update "Antigravity CLI" in the supported-IDE list (upgrade existing "Antigravity" mention if present, from MCP-only framing to full hooks+MCP).
-- `README.md` — add `npx claude-mem install --ide antigravity` example and setup-doc link, replacing the removed Gemini CLI lines.
+- `README.md` — add `npx memsmith install --ide antigravity` example and setup-doc link, replacing the removed Gemini CLI lines.
 
 ### B7. Verification checklist for Phase B
 - `grep -ril "antigravity" src/ tests/ docs/public/` shows the new installer, adapter, tests, and docs all present and consistent (no leftover `antigravity-cli` vs `antigravity` id mismatches across files).
-- `npm run build-and-sync` succeeds; `claude-mem install --ide antigravity` runs clean in a scratch directory (no real Antigravity CLI required for this dry-run — just confirm the installer writes valid JSON/MD without throwing).
+- `npm run build-and-sync` succeeds; `memsmith install --ide antigravity` runs clean in a scratch directory (no real Antigravity CLI required for this dry-run — just confirm the installer writes valid JSON/MD without throwing).
 
 ---
 
@@ -148,10 +148,10 @@ Copy `gemini-cli.ts` (79 lines) as the starting point:
 2. Run full test suite (`npm test` or project equivalent) — must pass, not just build.
 3. `npm run build-and-sync`, confirm the worker restarts cleanly.
 4. **Hard gate (per user's chosen risk approach — cannot be skipped or waved through by CI alone):** hands-on manual verification against the real, already-installed Antigravity CLI on this machine (`agy` v1.0.16, live `~/.gemini/` tree) —
-   - Run the new `claude-mem install --ide antigravity` for real on this machine and confirm it produces a superset/no-op-safe merge against the pre-existing live hooks (must not duplicate or corrupt the existing `claude-mem`-named hook entries already in `~/.gemini/settings.json`).
-   - Start a real `agy` session (interactive or `agy -p "..."` print mode), perform a tool call, confirm claude-mem's hook fires (check worker logs / DB for a newly captured observation timestamped after the test run).
+   - Run the new `memsmith install --ide antigravity` for real on this machine and confirm it produces a superset/no-op-safe merge against the pre-existing live hooks (must not duplicate or corrupt the existing `memsmith`-named hook entries already in `~/.gemini/settings.json`).
+   - Start a real `agy` session (interactive or `agy -p "..."` print mode), perform a tool call, confirm memsmith's hook fires (check worker logs / DB for a newly captured observation timestamped after the test run).
    - Confirm `GEMINI.md` context injection still renders correctly (it already does today under the old Gemini CLI installer — confirm the new Antigravity-branded installer doesn't regress it).
-   - Confirm MCP registration: check whether `agy` actually reads `~/.gemini/antigravity/mcp_config.json`, `~/.gemini/config/mcp_config.json`, or both, by testing claude-mem's MCP tools are reachable from a live `agy` session — this resolves the one dual-write ambiguity left open from B0.
+   - Confirm MCP registration: check whether `agy` actually reads `~/.gemini/antigravity/mcp_config.json`, `~/.gemini/config/mcp_config.json`, or both, by testing memsmith's MCP tools are reachable from a live `agy` session — this resolves the one dual-write ambiguity left open from B0.
    - If ANY of these fail, do not merge — fix the schema/path assumption and re-verify. This is the one place in the plan where "tests pass" is explicitly insufficient proof.
 5. No changelog edits — per `CLAUDE.md`, it's auto-generated.
 

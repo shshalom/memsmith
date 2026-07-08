@@ -29,18 +29,18 @@ import { telemetryBuffer } from '../../src/services/telemetry/buffer';
 let tempDir: string;
 const savedEnv: Record<string, string | undefined> = {};
 const ENV_KEYS = [
-  'CLAUDE_MEM_DATA_DIR',
-  'CLAUDE_MEM_TELEMETRY',
-  'CLAUDE_MEM_TELEMETRY_DEBUG',
+  'MEMSMITH_DATA_DIR',
+  'MEMSMITH_TELEMETRY',
+  'MEMSMITH_TELEMETRY_DEBUG',
   'DO_NOT_TRACK',
 ];
 
 beforeAll(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
-  tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-shutdown-test-'));
-  process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-  process.env.CLAUDE_MEM_TELEMETRY = '1';
-  delete process.env.CLAUDE_MEM_TELEMETRY_DEBUG;
+  tempDir = mkdtempSync(join(tmpdir(), 'memsmith-shutdown-test-'));
+  process.env.MEMSMITH_DATA_DIR = tempDir;
+  process.env.MEMSMITH_TELEMETRY = '1';
+  delete process.env.MEMSMITH_TELEMETRY_DEBUG;
   delete process.env.DO_NOT_TRACK;
   __resetTelemetryForTests();
 });

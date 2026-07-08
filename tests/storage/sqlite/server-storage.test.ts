@@ -49,8 +49,8 @@ describe('server-owned sqlite storage boundary', () => {
       const auth = new AuthRepository(db);
 
       const project = projects.create({
-        name: 'Claude Mem',
-        rootPath: '/tmp/claude-mem',
+        name: 'MemSmith',
+        rootPath: '/tmp/memsmith',
         metadata: { source: 'test' }
       });
       const session = sessions.create({

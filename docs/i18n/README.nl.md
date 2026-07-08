@@ -2,11 +2,11 @@
 
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-dark-mode.webp">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp" alt="MemSmith" width="400">
     </picture>
   </a>
   <br>
@@ -57,7 +57,7 @@
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
   </a>
-  <a href="https://github.com/thedotmack/awesome-claude-code">
+  <a href="https://github.com/shshalom/awesome-claude-code">
     <img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Claude Code">
   </a>
 </p>
@@ -65,9 +65,9 @@
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg" alt="shshalom/memsmith | Trendshift" width="250" height="55"/>
     </picture>
   </a>
 </p>
@@ -75,9 +75,9 @@
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
+  <a href="https://github.com/shshalom/memsmith">
     <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
+      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/cm-preview.gif" alt="MemSmith Preview" width="800">
     </picture>
   </a>
 </p>
@@ -93,7 +93,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem behoudt naadloos context tussen sessies door automatisch waarnemingen van toolgebruik vast te leggen, semantische samenvattingen te genereren en deze beschikbaar te maken voor toekomstige sessies. Dit stelt Claude in staat om continuïteit van kennis over projecten te behouden, zelfs nadat sessies eindigen of opnieuw verbinden.
+  MemSmith behoudt naadloos context tussen sessies door automatisch waarnemingen van toolgebruik vast te leggen, semantische samenvattingen te genereren en deze beschikbaar te maken voor toekomstige sessies. Dit stelt Claude in staat om continuïteit van kennis over projecten te behouden, zelfs nadat sessies eindigen of opnieuw verbinden.
 </p>
 
 ---
@@ -103,9 +103,9 @@
 Start een nieuwe Claude Code sessie in de terminal en voer de volgende commando's in:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add shshalom/memsmith
 
-> /plugin install claude-mem
+> /plugin install memsmith
 ```
 
 Herstart Claude Code. Context van eerdere sessies verschijnt automatisch in nieuwe sessies.
@@ -127,35 +127,35 @@ Herstart Claude Code. Context van eerdere sessies verschijnt automatisch in nieu
 
 ## Documentatie
 
-📚 **[Bekijk Volledige Documentatie](https://docs.claude-mem.ai/)** - Bladeren op de officiële website
+📚 **[Bekijk Volledige Documentatie](https://docs.memsmith.ai/)** - Bladeren op de officiële website
 
 ### Aan de Slag
 
-- **[Installatiegids](https://docs.claude-mem.ai/installation)** - Snel starten & geavanceerde installatie
-- **[Gebruikersgids](https://docs.claude-mem.ai/usage/getting-started)** - Hoe Claude-Mem automatisch werkt
-- **[Zoektools](https://docs.claude-mem.ai/usage/search-tools)** - Bevraag je projectgeschiedenis met natuurlijke taal
-- **[Bètafuncties](https://docs.claude-mem.ai/beta-features)** - Probeer experimentele functies zoals Endless Mode
+- **[Installatiegids](https://docs.memsmith.ai/installation)** - Snel starten & geavanceerde installatie
+- **[Gebruikersgids](https://docs.memsmith.ai/usage/getting-started)** - Hoe MemSmith automatisch werkt
+- **[Zoektools](https://docs.memsmith.ai/usage/search-tools)** - Bevraag je projectgeschiedenis met natuurlijke taal
+- **[Bètafuncties](https://docs.memsmith.ai/beta-features)** - Probeer experimentele functies zoals Endless Mode
 
 ### Beste Praktijken
 
-- **[Context Engineering](https://docs.claude-mem.ai/context-engineering)** - AI agent context optimalisatieprincipes
-- **[Progressieve Onthulling](https://docs.claude-mem.ai/progressive-disclosure)** - Filosofie achter Claude-Mem's context priming strategie
+- **[Context Engineering](https://docs.memsmith.ai/context-engineering)** - AI agent context optimalisatieprincipes
+- **[Progressieve Onthulling](https://docs.memsmith.ai/progressive-disclosure)** - Filosofie achter MemSmith's context priming strategie
 
 ### Architectuur
 
-- **[Overzicht](https://docs.claude-mem.ai/architecture/overview)** - Systeemcomponenten & gegevensstroom
-- **[Architectuurevolutie](https://docs.claude-mem.ai/architecture-evolution)** - De reis van v3 naar v5
-- **[Hooks Architectuur](https://docs.claude-mem.ai/hooks-architecture)** - Hoe Claude-Mem lifecycle hooks gebruikt
-- **[Hooks Referentie](https://docs.claude-mem.ai/architecture/hooks)** - 7 hook scripts uitgelegd
-- **[Worker Service](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API & Bun beheer
-- **[Database](https://docs.claude-mem.ai/architecture/database)** - SQLite schema & FTS5 zoeken
-- **[Zoekarchitectuur](https://docs.claude-mem.ai/architecture/search-architecture)** - Hybride zoeken met Chroma vector database
+- **[Overzicht](https://docs.memsmith.ai/architecture/overview)** - Systeemcomponenten & gegevensstroom
+- **[Architectuurevolutie](https://docs.memsmith.ai/architecture-evolution)** - De reis van v3 naar v5
+- **[Hooks Architectuur](https://docs.memsmith.ai/hooks-architecture)** - Hoe MemSmith lifecycle hooks gebruikt
+- **[Hooks Referentie](https://docs.memsmith.ai/architecture/hooks)** - 7 hook scripts uitgelegd
+- **[Worker Service](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API & Bun beheer
+- **[Database](https://docs.memsmith.ai/architecture/database)** - SQLite schema & FTS5 zoeken
+- **[Zoekarchitectuur](https://docs.memsmith.ai/architecture/search-architecture)** - Hybride zoeken met Chroma vector database
 
 ### Configuratie & Ontwikkeling
 
-- **[Configuratie](https://docs.claude-mem.ai/configuration)** - Omgevingsvariabelen & instellingen
-- **[Ontwikkeling](https://docs.claude-mem.ai/development)** - Bouwen, testen, bijdragen
-- **[Probleemoplossing](https://docs.claude-mem.ai/troubleshooting)** - Veelvoorkomende problemen & oplossingen
+- **[Configuratie](https://docs.memsmith.ai/configuration)** - Omgevingsvariabelen & instellingen
+- **[Ontwikkeling](https://docs.memsmith.ai/development)** - Bouwen, testen, bijdragen
+- **[Probleemoplossing](https://docs.memsmith.ai/troubleshooting)** - Veelvoorkomende problemen & oplossingen
 
 ---
 
@@ -170,13 +170,13 @@ Herstart Claude Code. Context van eerdere sessies verschijnt automatisch in nieu
 5. **mem-search Vaardigheid** - Natuurlijke taal queries met progressieve onthulling
 6. **Chroma Vector Database** - Hybride semantisch + zoekwoord zoeken voor intelligente context ophaling
 
-Zie [Architectuuroverzicht](https://docs.claude-mem.ai/architecture/overview) voor details.
+Zie [Architectuuroverzicht](https://docs.memsmith.ai/architecture/overview) voor details.
 
 ---
 
 ## mem-search Vaardigheid
 
-Claude-Mem biedt intelligent zoeken via de mem-search vaardigheid die automatisch wordt aangeroepen wanneer je vraagt over eerder werk:
+MemSmith biedt intelligent zoeken via de mem-search vaardigheid die automatisch wordt aangeroepen wanneer je vraagt over eerder werk:
 
 **Hoe Het Werkt:**
 - Vraag gewoon natuurlijk: *"Wat hebben we vorige sessie gedaan?"* of *"Hebben we deze bug eerder opgelost?"*
@@ -205,15 +205,15 @@ Claude-Mem biedt intelligent zoeken via de mem-search vaardigheid die automatisc
 "Wat gebeurde er toen we de viewer UI toevoegden?"
 ```
 
-Zie [Zoektools Gids](https://docs.claude-mem.ai/usage/search-tools) voor gedetailleerde voorbeelden.
+Zie [Zoektools Gids](https://docs.memsmith.ai/usage/search-tools) voor gedetailleerde voorbeelden.
 
 ---
 
 ## Bètafuncties
 
-Claude-Mem biedt een **bètakanaal** met experimentele functies zoals **Endless Mode** (biomimetische geheugenarchitectuur voor uitgebreide sessies). Schakel tussen stabiele en bètaversies vanuit de web viewer UI op http://localhost:37777 → Settings.
+MemSmith biedt een **bètakanaal** met experimentele functies zoals **Endless Mode** (biomimetische geheugenarchitectuur voor uitgebreide sessies). Schakel tussen stabiele en bètaversies vanuit de web viewer UI op http://localhost:37777 → Settings.
 
-Zie **[Bètafuncties Documentatie](https://docs.claude-mem.ai/beta-features)** voor details over Endless Mode en hoe je het kunt proberen.
+Zie **[Bètafuncties Documentatie](https://docs.memsmith.ai/beta-features)** voor details over Endless Mode en hoe je het kunt proberen.
 
 ---
 
@@ -229,15 +229,15 @@ Zie **[Bètafuncties Documentatie](https://docs.claude-mem.ai/beta-features)** v
 
 ## Configuratie
 
-Instellingen worden beheerd in `~/.claude-mem/settings.json` (automatisch aangemaakt met standaardinstellingen bij eerste run). Configureer AI model, worker poort, data directory, logniveau en context injectie-instellingen.
+Instellingen worden beheerd in `~/.memsmith/settings.json` (automatisch aangemaakt met standaardinstellingen bij eerste run). Configureer AI model, worker poort, data directory, logniveau en context injectie-instellingen.
 
-Zie de **[Configuratiegids](https://docs.claude-mem.ai/configuration)** voor alle beschikbare instellingen en voorbeelden.
+Zie de **[Configuratiegids](https://docs.memsmith.ai/configuration)** voor alle beschikbare instellingen en voorbeelden.
 
 ---
 
 ## Ontwikkeling
 
-Zie de **[Ontwikkelingsgids](https://docs.claude-mem.ai/development)** voor bouwinstructies, testen en bijdrageworkflow.
+Zie de **[Ontwikkelingsgids](https://docs.memsmith.ai/development)** voor bouwinstructies, testen en bijdrageworkflow.
 
 ---
 
@@ -245,7 +245,7 @@ Zie de **[Ontwikkelingsgids](https://docs.claude-mem.ai/development)** voor bouw
 
 Als je problemen ervaart, beschrijf het probleem aan Claude en de troubleshoot vaardigheid zal automatisch diagnosticeren en oplossingen bieden.
 
-Zie de **[Probleemoplossingsgids](https://docs.claude-mem.ai/troubleshooting)** voor veelvoorkomende problemen en oplossingen.
+Zie de **[Probleemoplossingsgids](https://docs.memsmith.ai/troubleshooting)** voor veelvoorkomende problemen en oplossingen.
 
 ---
 
@@ -254,7 +254,7 @@ Zie de **[Probleemoplossingsgids](https://docs.claude-mem.ai/troubleshooting)** 
 Maak uitgebreide bugrapporten met de geautomatiseerde generator:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/thedotmack
+cd ~/.claude/plugins/marketplaces/shshalom
 npm run bug-report
 ```
 
@@ -268,7 +268,7 @@ Bijdragen zijn welkom! Gelieve:
 4. Update documentatie
 5. Dien een Pull Request in
 
-Zie [Ontwikkelingsgids](https://docs.claude-mem.ai/development) voor bijdrageworkflow.
+Zie [Ontwikkelingsgids](https://docs.memsmith.ai/development) voor bijdrageworkflow.
 
 ---
 
@@ -276,7 +276,7 @@ Zie [Ontwikkelingsgids](https://docs.claude-mem.ai/development) voor bijdragewor
 
 This project is licensed under the **Apache License 2.0** (Apache-2.0).
 
-Copyright (C) 2025 Alex Newman (@thedotmack). All rights reserved.
+Copyright (C) 2025 Alex Newman (@shshalom). All rights reserved.
 
 See the [LICENSE](LICENSE) file for full details.
 
@@ -290,9 +290,9 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Ondersteuning
 
 - **Documentatie**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
-- **Repository**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
-- **Auteur**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
+- **Issues**: [GitHub Issues](https://github.com/shshalom/memsmith/issues)
+- **Repository**: [github.com/shshalom/memsmith](https://github.com/shshalom/memsmith)
+- **Auteur**: Alex Newman ([@shshalom](https://github.com/shshalom))
 
 ---
 

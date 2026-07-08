@@ -74,35 +74,35 @@ export class SettingsRoutes extends BaseRouteHandler {
     }
 
     const settingKeys = [
-      'CLAUDE_MEM_MODEL',
-      'CLAUDE_MEM_CONTEXT_OBSERVATIONS',
-      'CLAUDE_MEM_WORKER_PORT',
-      'CLAUDE_MEM_WORKER_HOST',
-      'CLAUDE_MEM_PROVIDER',
-      'CLAUDE_MEM_CLAUDE_AUTH_METHOD',
-      'CLAUDE_MEM_GEMINI_API_KEY',
-      'CLAUDE_MEM_GEMINI_MODEL',
-      'CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED',
-      'CLAUDE_MEM_OPENROUTER_API_KEY',
-      'CLAUDE_MEM_OPENROUTER_MODEL',
-      'CLAUDE_MEM_OPENROUTER_SITE_URL',
-      'CLAUDE_MEM_OPENROUTER_APP_NAME',
-      'CLAUDE_MEM_DATA_DIR',
-      'CLAUDE_MEM_LOG_LEVEL',
-      'CLAUDE_MEM_PYTHON_VERSION',
+      'MEMSMITH_MODEL',
+      'MEMSMITH_CONTEXT_OBSERVATIONS',
+      'MEMSMITH_WORKER_PORT',
+      'MEMSMITH_WORKER_HOST',
+      'MEMSMITH_PROVIDER',
+      'MEMSMITH_CLAUDE_AUTH_METHOD',
+      'MEMSMITH_GEMINI_API_KEY',
+      'MEMSMITH_GEMINI_MODEL',
+      'MEMSMITH_GEMINI_RATE_LIMITING_ENABLED',
+      'MEMSMITH_OPENROUTER_API_KEY',
+      'MEMSMITH_OPENROUTER_MODEL',
+      'MEMSMITH_OPENROUTER_SITE_URL',
+      'MEMSMITH_OPENROUTER_APP_NAME',
+      'MEMSMITH_DATA_DIR',
+      'MEMSMITH_LOG_LEVEL',
+      'MEMSMITH_PYTHON_VERSION',
       'CLAUDE_CODE_PATH',
-      'CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS',
-      'CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS',
-      'CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT',
-      'CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT',
-      'CLAUDE_MEM_CONTEXT_OBSERVATION_TYPES',
-      'CLAUDE_MEM_CONTEXT_OBSERVATION_CONCEPTS',
-      'CLAUDE_MEM_CONTEXT_FULL_COUNT',
-      'CLAUDE_MEM_CONTEXT_FULL_FIELD',
-      'CLAUDE_MEM_CONTEXT_SESSION_COUNT',
-      'CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY',
-      'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
-      'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
+      'MEMSMITH_CONTEXT_SHOW_READ_TOKENS',
+      'MEMSMITH_CONTEXT_SHOW_WORK_TOKENS',
+      'MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT',
+      'MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT',
+      'MEMSMITH_CONTEXT_OBSERVATION_TYPES',
+      'MEMSMITH_CONTEXT_OBSERVATION_CONCEPTS',
+      'MEMSMITH_CONTEXT_FULL_COUNT',
+      'MEMSMITH_CONTEXT_FULL_FIELD',
+      'MEMSMITH_CONTEXT_SESSION_COUNT',
+      'MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY',
+      'MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE',
+      'MEMSMITH_FOLDER_CLAUDEMD_ENABLED',
     ];
 
     for (const key of settingKeys) {
@@ -132,70 +132,70 @@ export class SettingsRoutes extends BaseRouteHandler {
   });
 
   private validateSettings(settings: any): { valid: boolean; error?: string } {
-    if (settings.CLAUDE_MEM_PROVIDER) {
+    if (settings.MEMSMITH_PROVIDER) {
     const validProviders = ['claude', 'gemini', 'openrouter'];
-    if (!validProviders.includes(settings.CLAUDE_MEM_PROVIDER)) {
-      return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", or "openrouter"' };
+    if (!validProviders.includes(settings.MEMSMITH_PROVIDER)) {
+      return { valid: false, error: 'MEMSMITH_PROVIDER must be "claude", "gemini", or "openrouter"' };
       }
     }
 
-    if (settings.CLAUDE_MEM_CLAUDE_AUTH_METHOD) {
+    if (settings.MEMSMITH_CLAUDE_AUTH_METHOD) {
       const validClaudeAuthMethods = ['subscription', 'api-key', 'gateway', 'cli'];
-      if (!validClaudeAuthMethods.includes(settings.CLAUDE_MEM_CLAUDE_AUTH_METHOD)) {
-        return { valid: false, error: 'CLAUDE_MEM_CLAUDE_AUTH_METHOD must be "subscription", "api-key", "gateway", or "cli"' };
+      if (!validClaudeAuthMethods.includes(settings.MEMSMITH_CLAUDE_AUTH_METHOD)) {
+        return { valid: false, error: 'MEMSMITH_CLAUDE_AUTH_METHOD must be "subscription", "api-key", "gateway", or "cli"' };
       }
     }
 
-    if (settings.CLAUDE_MEM_GEMINI_MODEL) {
+    if (settings.MEMSMITH_GEMINI_MODEL) {
       const validGeminiModels = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash-preview'];
-      if (!validGeminiModels.includes(settings.CLAUDE_MEM_GEMINI_MODEL)) {
-        return { valid: false, error: 'CLAUDE_MEM_GEMINI_MODEL must be one of: gemini-2.5-flash-lite, gemini-2.5-flash, gemini-3-flash-preview' };
+      if (!validGeminiModels.includes(settings.MEMSMITH_GEMINI_MODEL)) {
+        return { valid: false, error: 'MEMSMITH_GEMINI_MODEL must be one of: gemini-2.5-flash-lite, gemini-2.5-flash, gemini-3-flash-preview' };
       }
     }
 
-    if (settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS) {
-      const obsCount = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10);
+    if (settings.MEMSMITH_CONTEXT_OBSERVATIONS) {
+      const obsCount = parseInt(settings.MEMSMITH_CONTEXT_OBSERVATIONS, 10);
       if (isNaN(obsCount) || obsCount < 1 || obsCount > 200) {
-        return { valid: false, error: 'CLAUDE_MEM_CONTEXT_OBSERVATIONS must be between 1 and 200' };
+        return { valid: false, error: 'MEMSMITH_CONTEXT_OBSERVATIONS must be between 1 and 200' };
       }
     }
 
-    if (settings.CLAUDE_MEM_WORKER_PORT) {
-      const port = parseInt(settings.CLAUDE_MEM_WORKER_PORT, 10);
+    if (settings.MEMSMITH_WORKER_PORT) {
+      const port = parseInt(settings.MEMSMITH_WORKER_PORT, 10);
       if (isNaN(port) || port < 1024 || port > 65535) {
-        return { valid: false, error: 'CLAUDE_MEM_WORKER_PORT must be between 1024 and 65535' };
+        return { valid: false, error: 'MEMSMITH_WORKER_PORT must be between 1024 and 65535' };
       }
     }
 
-    if (settings.CLAUDE_MEM_WORKER_HOST) {
-      const host = settings.CLAUDE_MEM_WORKER_HOST;
+    if (settings.MEMSMITH_WORKER_HOST) {
+      const host = settings.MEMSMITH_WORKER_HOST;
       const validHostPattern = /^(127\.0\.0\.1|0\.0\.0\.0|localhost|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/;
       if (!validHostPattern.test(host)) {
-        return { valid: false, error: 'CLAUDE_MEM_WORKER_HOST must be a valid IP address (e.g., 127.0.0.1, 0.0.0.0)' };
+        return { valid: false, error: 'MEMSMITH_WORKER_HOST must be a valid IP address (e.g., 127.0.0.1, 0.0.0.0)' };
       }
     }
 
-    if (settings.CLAUDE_MEM_LOG_LEVEL) {
+    if (settings.MEMSMITH_LOG_LEVEL) {
       const validLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'SILENT'];
-      if (!validLevels.includes(settings.CLAUDE_MEM_LOG_LEVEL.toUpperCase())) {
-        return { valid: false, error: 'CLAUDE_MEM_LOG_LEVEL must be one of: DEBUG, INFO, WARN, ERROR, SILENT' };
+      if (!validLevels.includes(settings.MEMSMITH_LOG_LEVEL.toUpperCase())) {
+        return { valid: false, error: 'MEMSMITH_LOG_LEVEL must be one of: DEBUG, INFO, WARN, ERROR, SILENT' };
       }
     }
 
-    if (settings.CLAUDE_MEM_PYTHON_VERSION) {
+    if (settings.MEMSMITH_PYTHON_VERSION) {
       const pythonVersionRegex = /^3\.\d{1,2}$/;
-      if (!pythonVersionRegex.test(settings.CLAUDE_MEM_PYTHON_VERSION)) {
-        return { valid: false, error: 'CLAUDE_MEM_PYTHON_VERSION must be in format "3.X" or "3.XX" (e.g., "3.13")' };
+      if (!pythonVersionRegex.test(settings.MEMSMITH_PYTHON_VERSION)) {
+        return { valid: false, error: 'MEMSMITH_PYTHON_VERSION must be in format "3.X" or "3.XX" (e.g., "3.13")' };
       }
     }
 
     const booleanSettings = [
-      'CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS',
-      'CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS',
-      'CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT',
-      'CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT',
-      'CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY',
-      'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
+      'MEMSMITH_CONTEXT_SHOW_READ_TOKENS',
+      'MEMSMITH_CONTEXT_SHOW_WORK_TOKENS',
+      'MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT',
+      'MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT',
+      'MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY',
+      'MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE',
     ];
 
     for (const key of booleanSettings) {
@@ -204,32 +204,32 @@ export class SettingsRoutes extends BaseRouteHandler {
       }
     }
 
-    if (settings.CLAUDE_MEM_CONTEXT_FULL_COUNT) {
-      const count = parseInt(settings.CLAUDE_MEM_CONTEXT_FULL_COUNT, 10);
+    if (settings.MEMSMITH_CONTEXT_FULL_COUNT) {
+      const count = parseInt(settings.MEMSMITH_CONTEXT_FULL_COUNT, 10);
       if (isNaN(count) || count < 0 || count > 20) {
-        return { valid: false, error: 'CLAUDE_MEM_CONTEXT_FULL_COUNT must be between 0 and 20' };
+        return { valid: false, error: 'MEMSMITH_CONTEXT_FULL_COUNT must be between 0 and 20' };
       }
     }
 
-    if (settings.CLAUDE_MEM_CONTEXT_SESSION_COUNT) {
-      const count = parseInt(settings.CLAUDE_MEM_CONTEXT_SESSION_COUNT, 10);
+    if (settings.MEMSMITH_CONTEXT_SESSION_COUNT) {
+      const count = parseInt(settings.MEMSMITH_CONTEXT_SESSION_COUNT, 10);
       if (isNaN(count) || count < 1 || count > 50) {
-        return { valid: false, error: 'CLAUDE_MEM_CONTEXT_SESSION_COUNT must be between 1 and 50' };
+        return { valid: false, error: 'MEMSMITH_CONTEXT_SESSION_COUNT must be between 1 and 50' };
       }
     }
 
-    if (settings.CLAUDE_MEM_CONTEXT_FULL_FIELD) {
-      if (!['narrative', 'facts'].includes(settings.CLAUDE_MEM_CONTEXT_FULL_FIELD)) {
-        return { valid: false, error: 'CLAUDE_MEM_CONTEXT_FULL_FIELD must be "narrative" or "facts"' };
+    if (settings.MEMSMITH_CONTEXT_FULL_FIELD) {
+      if (!['narrative', 'facts'].includes(settings.MEMSMITH_CONTEXT_FULL_FIELD)) {
+        return { valid: false, error: 'MEMSMITH_CONTEXT_FULL_FIELD must be "narrative" or "facts"' };
       }
     }
 
-    if (settings.CLAUDE_MEM_OPENROUTER_SITE_URL) {
+    if (settings.MEMSMITH_OPENROUTER_SITE_URL) {
       try {
-        new URL(settings.CLAUDE_MEM_OPENROUTER_SITE_URL);
+        new URL(settings.MEMSMITH_OPENROUTER_SITE_URL);
       } catch (error) {
-        logger.debug('SETTINGS', 'Invalid URL format', { url: settings.CLAUDE_MEM_OPENROUTER_SITE_URL, error: error instanceof Error ? error.message : String(error) });
-        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_SITE_URL must be a valid URL' };
+        logger.debug('SETTINGS', 'Invalid URL format', { url: settings.MEMSMITH_OPENROUTER_SITE_URL, error: error instanceof Error ? error.message : String(error) });
+        return { valid: false, error: 'MEMSMITH_OPENROUTER_SITE_URL must be a valid URL' };
       }
     }
 

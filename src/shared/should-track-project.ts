@@ -13,13 +13,13 @@ function isWithin(child: string, parent: string): boolean {
 }
 
 export function shouldTrackProject(cwd: string): boolean {
-  if (process.env.CLAUDE_MEM_INTERNAL === '1') return false;
+  if (process.env.MEMSMITH_INTERNAL === '1') return false;
   if (!cwd) return true;
   if (isWithin(cwd, OBSERVER_SESSIONS_DIR)) {
     return false;
   }
   const settings = loadFromFileOnce();
-  return !isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS);
+  return !isProjectExcluded(cwd, settings.MEMSMITH_EXCLUDED_PROJECTS);
 }
 
 export function shouldEmitProjectRow(project: string | null | undefined): boolean {

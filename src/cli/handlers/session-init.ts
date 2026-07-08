@@ -50,11 +50,11 @@ const defaultDependencies = {
 
 function teamServerConfigured(settings: SettingsDefaults): boolean {
   // Honor the SAME master opt-in as SessionStart (context.ts): team injection
-  // requires CLAUDE_MEM_TEAM_INJECT=true AND a configured server URL + key. This
+  // requires MEMSMITH_TEAM_INJECT=true AND a configured server URL + key. This
   // keeps per-prompt injection consistent with SessionStart — an operator who
-  // left CLAUDE_MEM_TEAM_INJECT off gets no server-path injection on either hook.
-  return settings.CLAUDE_MEM_TEAM_INJECT === 'true'
-    && !!(settings.CLAUDE_MEM_TEAM_SERVER_URL?.trim() && settings.CLAUDE_MEM_TEAM_API_KEY?.trim());
+  // left MEMSMITH_TEAM_INJECT off gets no server-path injection on either hook.
+  return settings.MEMSMITH_TEAM_INJECT === 'true'
+    && !!(settings.MEMSMITH_TEAM_SERVER_URL?.trim() && settings.MEMSMITH_TEAM_API_KEY?.trim());
 }
 
 let dependencies = defaultDependencies;
@@ -93,7 +93,7 @@ export const sessionInitHandler: EventHandler = {
     const platformSource = normalizePlatformSource(input.platform);
     const settings = dependencies.loadFromFileOnce();
     const semanticInject =
-      String(settings.CLAUDE_MEM_SEMANTIC_INJECT).toLowerCase() === 'true';
+      String(settings.MEMSMITH_SEMANTIC_INJECT).toLowerCase() === 'true';
 
     const runtime = dependencies.resolveRuntimeContext();
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
@@ -170,8 +170,8 @@ export const sessionInitHandler: EventHandler = {
       if (teamServerConfigured(settings)) {
         try {
           const rows = await dependencies.fetchTeamMemory({
-            serverUrl: settings.CLAUDE_MEM_TEAM_SERVER_URL ?? '',
-            apiKey: settings.CLAUDE_MEM_TEAM_API_KEY ?? '',
+            serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
+            apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
             projectId: project,
             teamId: '',            // resolved server-side from the scoped key
             query: prompt,         // the signal improvement: query with the prompt
@@ -191,7 +191,7 @@ export const sessionInitHandler: EventHandler = {
       // Worker semantic path — unchanged; runs when no team server, or the server
       // path produced nothing.
       if (!additionalContext) {
-        const limit = settings.CLAUDE_MEM_SEMANTIC_INJECT_LIMIT || '5';
+        const limit = settings.MEMSMITH_SEMANTIC_INJECT_LIMIT || '5';
         const semanticResult = await dependencies.executeWithWorkerFallback<SemanticContextResponse>(
           '/api/context/semantic', 'POST', { q: prompt, project, limit, platformSource },
         );

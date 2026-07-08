@@ -25,8 +25,8 @@ describe('worker dependency preflight', () => {
 
     const snapshot = runWorkerDependencyPreflight({
       settings: {
-        CLAUDE_MEM_PROVIDER: 'gemini',
-        CLAUDE_MEM_CHROMA_ENABLED: 'true',
+        MEMSMITH_PROVIDER: 'gemini',
+        MEMSMITH_CHROMA_ENABLED: 'true',
       },
       classifyClaudeError: classifier,
       findClaudeExecutable: () => {
@@ -54,8 +54,8 @@ describe('worker dependency preflight', () => {
 
     runWorkerDependencyPreflight({
       settings: {
-        CLAUDE_MEM_PROVIDER: 'openrouter',
-        CLAUDE_MEM_CHROMA_ENABLED: 'false',
+        MEMSMITH_PROVIDER: 'openrouter',
+        MEMSMITH_CHROMA_ENABLED: 'false',
       },
       classifyClaudeError: classifier,
       findClaudeExecutable: () => {
@@ -74,8 +74,8 @@ describe('worker dependency preflight', () => {
   it('records Claude CLI setup_required when Claude is selected and discovery fails', () => {
     runWorkerDependencyPreflight({
       settings: {
-        CLAUDE_MEM_PROVIDER: 'claude',
-        CLAUDE_MEM_CHROMA_ENABLED: 'false',
+        MEMSMITH_PROVIDER: 'claude',
+        MEMSMITH_CHROMA_ENABLED: 'false',
       },
       classifyClaudeError: classifier,
       findClaudeExecutable: () => {

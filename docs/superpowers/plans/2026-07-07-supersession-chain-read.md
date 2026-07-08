@@ -12,9 +12,9 @@
 
 - No schema migration — uses existing `supersedes TEXT REFERENCES observations(id) ON DELETE SET NULL` (schema.ts:375).
 - Every supersession query MUST be team/project-scoped; a chain can never cross a tenant boundary.
-- `MAX_CHAIN_DEPTH` default 16, overridable via `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` (clamp 1–256).
+- `MAX_CHAIN_DEPTH` default 16, overridable via `MEMSMITH_SUPERSEDE_MAX_DEPTH` (clamp 1–256).
 - Retrieval MUST NOT 500 because of supersession: any resolution error returns the un-resolved ranked results unchanged.
-- Tests are Postgres-gated (test container on port **55432**, never 5432); one schema per test via `poolForSchema`. Skip cleanly when `CLAUDE_MEM_TEST_POSTGRES_URL` is unset.
+- Tests are Postgres-gated (test container on port **55432**, never 5432); one schema per test via `poolForSchema`. Skip cleanly when `MEMSMITH_TEST_POSTGRES_URL` is unset.
 - After any src change that lands in a bundle, `npm run build` and commit regenerated `.cjs` (this feature touches only server runtime code, which is bundled into `server-service.cjs`).
 - `supersededBy` is a response-only field, never stored.
 
@@ -31,7 +31,7 @@
 `import { createIsolatedSchema, dropSchema, poolForSchema, quoteIdentifier } from '../../sdk/pg-isolation.js';`.
 Schema bootstrap uses `bootstrapServerPostgresSchema` from
 `src/storage/postgres/index.js`. Guard every DB test with
-`if (!process.env.CLAUDE_MEM_TEST_POSTGRES_URL) { it.skip(...); return; }` exactly as
+`if (!process.env.MEMSMITH_TEST_POSTGRES_URL) { it.skip(...); return; }` exactly as
 `tests/server/dashboard/queries.test.ts` does. Match that file's setup verbatim for
 pool creation and schema bootstrap; do not invent a `helpers/pg-pool.js`.
 
@@ -45,7 +45,7 @@ pool creation and schema bootstrap; do not invent a `helpers/pg-pool.js`.
 
 - [ ] **Step 1: Write the failing test (linear chain, already-head, fork, cycle, depth cap, scope)**
 
-Create `tests/server/retrieval/supersession.test.ts`. Follow the existing Postgres test harness pattern (see `tests/storage/postgres/*.test.ts` for `poolForSchema`, schema bootstrap, and the `CLAUDE_MEM_TEST_POSTGRES_URL` skip guard). Insert observations directly with `pool.query` using the real `observations` columns (`id, project_id, team_id, kind, content, obs_type, lifecycle_state, supersedes, created_at`).
+Create `tests/server/retrieval/supersession.test.ts`. Follow the existing Postgres test harness pattern (see `tests/storage/postgres/*.test.ts` for `poolForSchema`, schema bootstrap, and the `MEMSMITH_TEST_POSTGRES_URL` skip guard). Insert observations directly with `pool.query` using the real `observations` columns (`id, project_id, team_id, kind, content, obs_type, lifecycle_state, supersedes, created_at`).
 
 ```ts
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -118,19 +118,19 @@ describe('supersession chain walk', () => {
   });
 
   test('maxChainDepth honors env clamp', () => {
-    const prev = process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH;
-    process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = '500';
+    const prev = process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH;
+    process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = '500';
     expect(maxChainDepth()).toBe(256); // clamped
-    process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = '0';
+    process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = '0';
     expect(maxChainDepth()).toBe(1);   // clamped
-    if (prev === undefined) delete process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH; else process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH = prev;
+    if (prev === undefined) delete process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH; else process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH = prev;
   });
 });
 ```
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/retrieval/supersession.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/retrieval/supersession.test.ts`
 Expected: FAIL — `Cannot find module '.../supersession.js'`.
 
 - [ ] **Step 3: Implement the module**
@@ -151,7 +151,7 @@ export type SupersedeScope = { teamId: string; projectId?: string };
 
 const DEFAULT_MAX_DEPTH = 16;
 export function maxChainDepth(): number {
-  const raw = Number(process.env.CLAUDE_MEM_SUPERSEDE_MAX_DEPTH ?? DEFAULT_MAX_DEPTH);
+  const raw = Number(process.env.MEMSMITH_SUPERSEDE_MAX_DEPTH ?? DEFAULT_MAX_DEPTH);
   if (!Number.isFinite(raw)) return DEFAULT_MAX_DEPTH;
   return Math.max(1, Math.min(256, Math.trunc(raw)));
 }
@@ -222,7 +222,7 @@ export async function resolveHeads(
 
 - [ ] **Step 4: Run the test, verify it passes**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/retrieval/supersession.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/retrieval/supersession.test.ts`
 Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
@@ -243,7 +243,7 @@ git commit -m "feat(server): supersession chain-walk primitive + batch resolver"
 **Test-harness note (verified):** v1 route tests live directly under `tests/server/`
 (e.g. `tests/server/v1-routes.test.ts`, `tests/server/runtime/server-mcp-routes.test.ts`)
 — there is NO `tests/server/routes/v1/` directory. Copy the app boot + Bearer-key
-seeding from `tests/server/v1-routes.test.ts`. Use the same `CLAUDE_MEM_TEST_POSTGRES_URL`
+seeding from `tests/server/v1-routes.test.ts`. Use the same `MEMSMITH_TEST_POSTGRES_URL`
 skip guard.
 
 **Interfaces:**
@@ -263,7 +263,7 @@ Write two tests (`/v1/context` collapses`, `/v1/search annotates`) plus a dedupe
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
 Expected: FAIL — context returns the superseded row; search has no `supersededBy`.
 
 - [ ] **Step 3: Add `supersededBy` to the observation type + serializer**
@@ -327,7 +327,7 @@ Add `fetchObservationsByIds(ids, scope)` (scoped `SELECT * FROM observations WHE
 
 - [ ] **Step 5: Run the test, verify it passes**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/v1-supersession-recall.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Rebuild bundle + commit**
@@ -356,7 +356,7 @@ Create `tests/server/dashboard/decision-log-chain.test.ts`. Seed 3 chained decis
 
 - [ ] **Step 2: Run, verify it fails**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/dashboard/decision-log-chain.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/dashboard/decision-log-chain.test.ts`
 Expected: FAIL — current `decisionLog` returns a flat array.
 
 - [ ] **Step 3: Implement chain grouping**
@@ -387,7 +387,7 @@ export async function decisionLog(db: PostgresQueryable, s: Scope) {
 
 - [ ] **Step 4: Run, verify it passes**
 
-Run: `export CLAUDE_MEM_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/dashboard/decision-log-chain.test.ts`
+Run: `export MEMSMITH_TEST_POSTGRES_URL="postgres://postgres:postgres@localhost:55432/tam_test"; ~/.bun/bin/bun test tests/server/dashboard/decision-log-chain.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Update the dashboard UI renderer + rebuild + commit**
@@ -410,9 +410,9 @@ git commit -m "feat(dashboard): decision-log renders supersession chains (head +
 
 **Interfaces:** none (docs only).
 
-- [ ] **Step 1: Document `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH`**
+- [ ] **Step 1: Document `MEMSMITH_SUPERSEDE_MAX_DEPTH`**
 
-Add a row to the env-var table in `docs/deploy/aws.md`: `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH | 16 | Max supersession-chain walk depth (clamp 1–256); guards malformed cycles.`
+Add a row to the env-var table in `docs/deploy/aws.md`: `MEMSMITH_SUPERSEDE_MAX_DEPTH | 16 | Max supersession-chain walk depth (clamp 1–256); guards malformed cycles.`
 
 - [ ] **Step 2: Update PROJECT-STATE.md**
 
@@ -432,7 +432,7 @@ git commit -m "docs: supersession-chain read env var + capability status"
 **1. Spec coverage:**
 - Collapse-on-context → Task 2 ✅ · Annotate-on-search → Task 2 ✅ · Dashboard lineage → Task 3 ✅
 - Core primitive + batch + cycle/depth/scope guards → Task 1 ✅
-- `CLAUDE_MEM_SUPERSEDE_MAX_DEPTH` → Task 1 (impl) + Task 4 (docs) ✅
+- `MEMSMITH_SUPERSEDE_MAX_DEPTH` → Task 1 (impl) + Task 4 (docs) ✅
 - Degrade-on-error (no 500) → Task 2 try/catch ✅
 - All 11 spec test cases mapped: chain/head/fork/cycle/depth/scope/batch → Task 1 (7); context-collapse/search-annotate/dedupe → Task 2; decisionLog grouping → Task 3; degrade-on-error → Task 2. ✅
 - No schema change, response-only `supersededBy`, scoped queries → Global Constraints ✅

@@ -2,7 +2,7 @@
 // standup — a markdown-based group chat for multiple AI coding agents.
 //
 // Each agent embodies its git branch name and talks to the others by appending
-// turns to a single shared markdown file (default ~/.claude-mem/STANDUP.md).
+// turns to a single shared markdown file (default ~/.memsmith/STANDUP.md).
 // The file has YAML front matter holding the shared GOAL and PROMPT the group
 // must converge on; the body is the chat log. Agents `watch` the file to listen,
 // `post` to speak, `agree` to register consensus, and `summation` to close it.
@@ -14,7 +14,7 @@
 // failure mode that silently reverts work when multiple agents share a target.
 //
 // Config / resolution order:
-//   --file <path>   | STANDUP_FILE  | ~/.claude-mem/STANDUP.md
+//   --file <path>   | STANDUP_FILE  | ~/.memsmith/STANDUP.md
 //   --agent <name>  | STANDUP_AGENT | current git branch | "agent"
 //
 // Commands:
@@ -69,7 +69,7 @@ function defaultFile() {
   return (
     opts.file ||
     process.env.STANDUP_FILE ||
-    join(homedir(), ".claude-mem", "STANDUP.md")
+    join(homedir(), ".memsmith", "STANDUP.md")
   );
 }
 
@@ -638,7 +638,7 @@ usage: standup <command> [--flags]
   summation --text "..."                close the room (status: agreed)
 
 agent name defaults to your git branch; override with --agent or STANDUP_AGENT.
-file defaults to ~/.claude-mem/STANDUP.md; override with --file or STANDUP_FILE.`;
+file defaults to ~/.memsmith/STANDUP.md; override with --file or STANDUP_FILE.`;
 
 const table = {
   open: cmdOpen,

@@ -66,7 +66,7 @@ describe('DataRoutes import platform scoping', () => {
         sessions: [
           {
             content_session_id: contentSessionId,
-            memory_session_id: 'claude-memory',
+            memory_session_id: 'memsmithory',
             project: 'claude-project',
             platform_source: 'claude',
             user_prompt: 'claude prompt',

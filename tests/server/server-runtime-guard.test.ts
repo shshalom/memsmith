@@ -11,8 +11,8 @@ describe('assertServerRuntimeForCli — wrong-runtime guard (#2572)', () => {
   it('passes for canonical server runtime with a database URL', () => {
     expect(() =>
       assertServerRuntimeForCli('keys', {
-        CLAUDE_MEM_RUNTIME: 'server',
-        CLAUDE_MEM_SERVER_DATABASE_URL: 'postgres://localhost/db',
+        MEMSMITH_RUNTIME: 'server',
+        MEMSMITH_SERVER_DATABASE_URL: 'postgres://localhost/db',
       }),
     ).not.toThrow();
   });
@@ -20,8 +20,8 @@ describe('assertServerRuntimeForCli — wrong-runtime guard (#2572)', () => {
   it('passes for legacy server-beta runtime literal (Phase 1d back-compat)', () => {
     expect(() =>
       assertServerRuntimeForCli('keys', {
-        CLAUDE_MEM_RUNTIME: 'server-beta',
-        CLAUDE_MEM_SERVER_DATABASE_URL: 'postgres://localhost/db',
+        MEMSMITH_RUNTIME: 'server-beta',
+        MEMSMITH_SERVER_DATABASE_URL: 'postgres://localhost/db',
       }),
     ).not.toThrow();
   });
@@ -29,7 +29,7 @@ describe('assertServerRuntimeForCli — wrong-runtime guard (#2572)', () => {
   it('passes when runtime is unset but a database URL is present (bare server image)', () => {
     expect(() =>
       assertServerRuntimeForCli('jobs', {
-        CLAUDE_MEM_SERVER_DATABASE_URL: 'postgres://localhost/db',
+        MEMSMITH_SERVER_DATABASE_URL: 'postgres://localhost/db',
       }),
     ).not.toThrow();
   });
@@ -37,16 +37,16 @@ describe('assertServerRuntimeForCli — wrong-runtime guard (#2572)', () => {
   it('fails CLEARLY when run in a worker-only runtime context', () => {
     expect(() =>
       assertServerRuntimeForCli('keys', {
-        CLAUDE_MEM_RUNTIME: 'worker',
-        CLAUDE_MEM_SERVER_DATABASE_URL: 'postgres://localhost/db',
+        MEMSMITH_RUNTIME: 'worker',
+        MEMSMITH_SERVER_DATABASE_URL: 'postgres://localhost/db',
       }),
-    ).toThrow(/server runtime command.*CLAUDE_MEM_RUNTIME=worker/s);
+    ).toThrow(/server runtime command.*MEMSMITH_RUNTIME=worker/s);
   });
 
   it('fails CLEARLY (actionable) when no database URL is configured', () => {
     expect(() =>
-      assertServerRuntimeForCli('jobs', { CLAUDE_MEM_RUNTIME: 'server' }),
-    ).toThrow(/CLAUDE_MEM_SERVER_DATABASE_URL is required/);
+      assertServerRuntimeForCli('jobs', { MEMSMITH_RUNTIME: 'server' }),
+    ).toThrow(/MEMSMITH_SERVER_DATABASE_URL is required/);
   });
 });
 

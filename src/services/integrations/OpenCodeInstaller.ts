@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { CONTEXT_TAG_OPEN, CONTEXT_TAG_CLOSE, injectContextIntoMarkdownFile } from '../../utils/context-injection.js';
 import { getWorkerPort } from '../../shared/worker-utils.js';
 
-const OPENCODE_PLUGIN_CONFIG_PATH = './plugins/claude-mem.js';
+const OPENCODE_PLUGIN_CONFIG_PATH = './plugins/memsmith.js';
 
 type OpenCodeConfig = {
   $schema?: string;
@@ -35,7 +35,7 @@ export function getOpenCodeAgentsMdPath(): string {
 }
 
 export function getInstalledPluginPath(): string {
-  return path.join(getOpenCodePluginsDirectory(), 'claude-mem.js');
+  return path.join(getOpenCodePluginsDirectory(), 'memsmith.js');
 }
 
 function getOpenCodePluginEntries(config: OpenCodeConfig): unknown[] {
@@ -116,7 +116,7 @@ export function findBuiltPluginPath(): string | null {
   const possiblePaths = [
     path.join(
       process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'),
-      'plugins', 'marketplaces', 'thedotmack',
+      'plugins', 'marketplaces', 'shshalom',
       'dist', 'opencode-plugin', 'index.js',
     ),
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'dist', 'opencode-plugin', 'index.js'),
@@ -168,7 +168,7 @@ export function injectContextIntoAgentsMd(contextContent: string): number {
   const agentsMdPath = getOpenCodeAgentsMdPath();
 
   try {
-    injectContextIntoMarkdownFile(agentsMdPath, contextContent, '# Claude-Mem Memory Context');
+    injectContextIntoMarkdownFile(agentsMdPath, contextContent, '# MemSmith Memory Context');
     logger.info('OPENCODE', 'Context injected into AGENTS.md', { path: agentsMdPath });
     return 0;
   } catch (error) {
@@ -195,7 +195,7 @@ async function fetchRealContextFromWorker(): Promise<string | null> {
 function writeOrRemoveCleanedAgentsMd(agentsMdPath: string, trimmedContent: string): void {
   if (
     trimmedContent.length === 0 ||
-    trimmedContent === '# Claude-Mem Memory Context'
+    trimmedContent === '# MemSmith Memory Context'
   ) {
     unlinkSync(agentsMdPath);
     console.log(`  Removed empty AGENTS.md`);
@@ -260,7 +260,7 @@ export function uninstallOpenCodePlugin(): number {
 }
 
 export function checkOpenCodeStatus(): number {
-  console.log('\nClaude-Mem OpenCode Integration Status\n');
+  console.log('\nMemSmith OpenCode Integration Status\n');
 
   const configDirectory = getOpenCodeConfigDirectory();
   const pluginPath = getInstalledPluginPath();
@@ -279,7 +279,7 @@ export function checkOpenCodeStatus(): number {
     const content = readFileSync(agentsMdPath, 'utf-8');
     const hasContextTags = content.includes(CONTEXT_TAG_OPEN);
     console.log(`  Exists: yes`);
-    console.log(`  Has claude-mem context: ${hasContextTags ? 'yes' : 'no'}`);
+    console.log(`  Has memsmith context: ${hasContextTags ? 'yes' : 'no'}`);
   } else {
     console.log(`  Exists: no`);
   }
@@ -289,7 +289,7 @@ export function checkOpenCodeStatus(): number {
 }
 
 export async function installOpenCodeIntegration(): Promise<number> {
-  console.log('\nInstalling Claude-Mem for OpenCode...\n');
+  console.log('\nInstalling MemSmith for OpenCode...\n');
 
   const pluginResult = installOpenCodePlugin();
   if (pluginResult !== 0) {
@@ -300,7 +300,7 @@ export async function installOpenCodeIntegration(): Promise<number> {
 
 *No context yet. Complete your first session and context will appear here.*
 
-Use claude-mem search tools for manual memory queries.`;
+Use memsmith search tools for manual memory queries.`;
 
   let contextToInject = placeholderContext;
   let contextSource = 'placeholder';
@@ -336,7 +336,7 @@ Plugin installed to: ${getInstalledPluginPath()}
 Context file: ${getOpenCodeAgentsMdPath()}
 
 Next steps:
-  1. Start claude-mem worker: npx claude-mem start
+  1. Start memsmith worker: npx memsmith start
   2. Restart OpenCode to load the plugin
   3. Memory capture is automatic from then on
 `);

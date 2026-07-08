@@ -31,31 +31,31 @@ bun bench/reformat-guard/stress.ts
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `CLAUDE_MEM_STRESS_PROVIDER` | `ollama` | `ollama` \| `openrouter` \| `claude` \| `gemini` |
-| `CLAUDE_MEM_SERVER_MODEL` | provider default (`llama3.1:8b` for ollama) | model id override |
-| `CLAUDE_MEM_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL |
-| `CLAUDE_MEM_STRESS_ITERATIONS` | `1` | repeat the 10-event corpus N times |
-| `CLAUDE_MEM_STRESS_MAX_REFORMAT` | `1` | guard bound to test (clamped 0–3) |
+| `MEMSMITH_STRESS_PROVIDER` | `ollama` | `ollama` \| `openrouter` \| `claude` \| `gemini` |
+| `MEMSMITH_SERVER_MODEL` | provider default (`llama3.1:8b` for ollama) | model id override |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL |
+| `MEMSMITH_STRESS_ITERATIONS` | `1` | repeat the 10-event corpus N times |
+| `MEMSMITH_STRESS_MAX_REFORMAT` | `1` | guard bound to test (clamped 0–3) |
 | `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | — | for the cloud providers |
 
 Examples:
 
 ```bash
 # Bigger sample, default guard:
-CLAUDE_MEM_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
+MEMSMITH_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
 
 # Compare guard OFF vs ON on the same model — run twice and diff the report:
-CLAUDE_MEM_STRESS_MAX_REFORMAT=0 CLAUDE_MEM_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
-CLAUDE_MEM_STRESS_MAX_REFORMAT=1 CLAUDE_MEM_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
+MEMSMITH_STRESS_MAX_REFORMAT=0 MEMSMITH_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
+MEMSMITH_STRESS_MAX_REFORMAT=1 MEMSMITH_STRESS_ITERATIONS=5 bun bench/reformat-guard/stress.ts
 
 # Try a stronger local model:
-CLAUDE_MEM_SERVER_MODEL=qwen2.5:14b bun bench/reformat-guard/stress.ts
+MEMSMITH_SERVER_MODEL=qwen2.5:14b bun bench/reformat-guard/stress.ts
 ```
 
 ## Reading the output
 
 - **First-shot valid** — the fraction that parsed on the first `generate()`. This
-  is what you'd ship with `CLAUDE_MEM_REFORMAT_RETRIES=0` (guard off).
+  is what you'd ship with `MEMSMITH_REFORMAT_RETRIES=0` (guard off).
 - **Rescued by reformat guard** — invalid first, then a strict re-prompt parsed.
 - **Final valid** — valid after the full guard loop (what ships with the guard on).
 - **Still invalid after guard** — failed even after retries → these become

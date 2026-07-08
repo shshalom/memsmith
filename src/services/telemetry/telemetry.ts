@@ -78,7 +78,7 @@ function getClient(): PostHog {
       flushInterval: 10000,
       // posthog-node assumes server deployments and stamps $geoip_disable: true
       // on every event by default, which suppresses ingest-side geolocation.
-      // claude-mem's worker runs on the user's own machine, so the ingestion
+      // memsmith's worker runs on the user's own machine, so the ingestion
       // request already originates from their IP — letting PostHog derive
       // coarse location (country/region/city) at ingest. The raw IP is still
       // never attached to events and is discarded on ingest (project setting);
@@ -369,7 +369,7 @@ function errorBeforeSend(event: EventMessage | null): EventMessage | null {
  * synchronous, never throws, never blocks. Ordering mirrors captureEvent:
  *
  *   1. Consent gate (same hasConsent() as analytics) AND the error kill-switch
- *      (CLAUDE_MEM_TELEMETRY_ERRORS) — either off ⇒ nothing happens.
+ *      (MEMSMITH_TELEMETRY_ERRORS) — either off ⇒ nothing happens.
  *   2. Shutdown latch — late errors are dropped, not queued into a dead client.
  *   3. Redact the error (error-scrub: allow-then-redact, NOT the property
  *      whitelist — that would drop free-form text).
@@ -450,7 +450,7 @@ function captureExceptionInner(
     [RATE_LIMITED_SENTINEL]: true,
   };
 
-  if (process.env.CLAUDE_MEM_TELEMETRY_DEBUG === '1') {
+  if (process.env.MEMSMITH_TELEMETRY_DEBUG === '1') {
     process.stderr.write(
       '[telemetry] ' + JSON.stringify({ event: '$exception', additionalProperties }) + '\n'
     );
@@ -474,7 +474,7 @@ function captureExceptionInner(
  *   1. Consent gate (DO_NOT_TRACK > env > telemetry.json > default ON) —
  *      without consent NOTHING happens, including debug printing.
  *   2. Whitelist scrub — only allowed primitive properties survive.
- *   3. Debug mode (CLAUDE_MEM_TELEMETRY_DEBUG=1) — print payload to stderr,
+ *   3. Debug mode (MEMSMITH_TELEMETRY_DEBUG=1) — print payload to stderr,
  *      send nothing.
  *   4. posthog.capture() — SDK queues in memory and batches in background.
  *
@@ -528,7 +528,7 @@ function captureEventInner(
     properties.$process_person_profile = false;
   }
 
-  if (process.env.CLAUDE_MEM_TELEMETRY_DEBUG === '1') {
+  if (process.env.MEMSMITH_TELEMETRY_DEBUG === '1') {
     // Direct stderr write (not console.*): debug mode is a human running the
     // worker in the foreground; repo logger standards forbid console.* in
     // background services (tests/logger-usage-standards.test.ts).

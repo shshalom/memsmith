@@ -1,4 +1,4 @@
-# claude-mem Production Guide
+# memsmith Production Guide
 
 Practical guide based on 23 days of production usage with 3,400+ observations across two physical servers and 8 projects.
 
@@ -6,10 +6,10 @@ Practical guide based on 23 days of production usage with 3,400+ observations ac
 
 | Setting | Default | Recommended | Why |
 |---------|---------|-------------|-----|
-| CLAUDE_MEM_MAX_CONCURRENT_AGENTS | 2 | 3 | Better throughput without overload |
-| CLAUDE_MEM_SEMANTIC_INJECT | true | true | Relevant context >> recent context |
-| CLAUDE_MEM_SEMANTIC_INJECT_LIMIT | 5 | 5 | Sweet spot for token cost vs coverage |
-| CLAUDE_MEM_TIER_ROUTING_ENABLED | true | true | ~52% cost savings, no quality loss |
+| MEMSMITH_MAX_CONCURRENT_AGENTS | 2 | 3 | Better throughput without overload |
+| MEMSMITH_SEMANTIC_INJECT | true | true | Relevant context >> recent context |
+| MEMSMITH_SEMANTIC_INJECT_LIMIT | 5 | 5 | Sweet spot for token cost vs coverage |
+| MEMSMITH_TIER_ROUTING_ENABLED | true | true | ~52% cost savings, no quality loss |
 
 ## Health Monitoring
 
@@ -31,7 +31,7 @@ Practical guide based on 23 days of production usage with 3,400+ observations ac
 curl -s http://127.0.0.1:37777/api/health | python3 -m json.tool
 
 # Check database stats
-sqlite3 ~/.claude-mem/claude-mem.db "
+sqlite3 ~/.memsmith/memsmith.db "
   SELECT 'observations' as metric, COUNT(*) as value FROM observations
   UNION ALL SELECT 'summaries', COUNT(*) FROM session_summaries
   UNION ALL SELECT 'pending', COUNT(*) FROM pending_messages WHERE status='pending'
@@ -41,13 +41,13 @@ sqlite3 ~/.claude-mem/claude-mem.db "
 
 ## Multi-Machine Setup
 
-If running claude-mem on multiple machines, use `claude-mem-sync` to keep observations in sync:
+If running memsmith on multiple machines, use `memsmith-sync` to keep observations in sync:
 
 ```bash
-claude-mem-sync push <remote-host>    # local -> remote
-claude-mem-sync pull <remote-host>    # remote -> local
-claude-mem-sync sync <remote-host>    # bidirectional
-claude-mem-sync status <remote-host>  # compare counts
+memsmith-sync push <remote-host>    # local -> remote
+memsmith-sync pull <remote-host>    # remote -> local
+memsmith-sync sync <remote-host>    # bidirectional
+memsmith-sync status <remote-host>  # compare counts
 ```
 
 Deduplication is by `(created_at, title)` — safe to run repeatedly.
@@ -99,13 +99,13 @@ Based on active daily development usage:
 
 ```bash
 # Count errors by day
-grep '\[ERROR\]' ~/.claude-mem/logs/claude-mem-*.log | \
+grep '\[ERROR\]' ~/.memsmith/logs/memsmith-*.log | \
   sed 's/\[20[0-9][0-9]-[0-9][0-9]-/\n&/g' | \
   grep -oP '^\[20\d{2}-\d{2}-\d{2}' | sort | uniq -c
 
 # Find circuit-breaker trips
-grep 'circuit\|Circuit\|ABANDONED\|abandoned' ~/.claude-mem/logs/claude-mem-*.log
+grep 'circuit\|Circuit\|ABANDONED\|abandoned' ~/.memsmith/logs/memsmith-*.log
 
 # Check pending message health
-grep 'CLAIMED\|CONFIRMED\|FAILED\|ABANDONED' ~/.claude-mem/logs/claude-mem-$(date +%Y-%m-%d).log | tail -20
+grep 'CLAIMED\|CONFIRMED\|FAILED\|ABANDONED' ~/.memsmith/logs/memsmith-$(date +%Y-%m-%d).log | tail -20
 ```

@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 
 export interface SystemDiagnostics {
   versions: {
-    claudeMem: string;
+    memSmith: string;
     claudeCode: string;
     node: string;
     bun: string;
@@ -165,7 +165,7 @@ async function getDatabaseInfo(
   dataDir: string
 ): Promise<{ exists: boolean; size?: number }> {
   try {
-    const dbPath = path.join(dataDir, "claude-mem.db");
+    const dbPath = path.join(dataDir, "memsmith.db");
     const stats = await fs.stat(dbPath);
     return { exists: true, size: stats.size };
   } catch (error) {
@@ -177,7 +177,7 @@ async function getTableCounts(
   dataDir: string
 ): Promise<{ observations: number; sessions: number; summaries: number } | undefined> {
   try {
-    const dbPath = path.join(dataDir, "claude-mem.db");
+    const dbPath = path.join(dataDir, "memsmith.db");
     await fs.stat(dbPath);
 
     const query =
@@ -205,18 +205,18 @@ export async function collectDiagnostics(
   options: { includeLogs?: boolean } = {}
 ): Promise<SystemDiagnostics> {
   const homeDir = os.homedir();
-  const dataDir = path.join(homeDir, ".claude-mem");
+  const dataDir = path.join(homeDir, ".memsmith");
   const pluginPath = path.join(
     homeDir,
     ".claude",
     "plugins",
     "marketplaces",
-    "thedotmack"
+    "shshalom"
   );
   const cwd = process.cwd();
-  const isDevMode = cwd.includes("claude-mem") && !cwd.includes(".claude");
+  const isDevMode = cwd.includes("memsmith") && !cwd.includes(".claude");
 
-  const [claudeMem, claudeCode, bun, osVersion] = await Promise.all([
+  const [memSmith, claudeCode, bun, osVersion] = await Promise.all([
     getClaudememVersion(),
     getClaudeCodeVersion(),
     getBunVersion(),
@@ -224,7 +224,7 @@ export async function collectDiagnostics(
   ]);
 
   const versions = {
-    claudeMem,
+    memSmith,
     claudeCode,
     node: process.version,
     bun,
@@ -285,7 +285,7 @@ export async function collectDiagnostics(
     getTableCounts(dataDir),
   ]);
   const database = {
-    path: sanitizePath(path.join(dataDir, "claude-mem.db")),
+    path: sanitizePath(path.join(dataDir, "memsmith.db")),
     exists: dbInfo.exists,
     size: dbInfo.size,
     counts: tableCounts,
@@ -313,7 +313,7 @@ export function formatDiagnostics(diagnostics: SystemDiagnostics): string {
   let output = "";
 
   output += "## Environment\n\n";
-  output += `- **Claude-mem**: ${diagnostics.versions.claudeMem}\n`;
+  output += `- **MemSmith**: ${diagnostics.versions.memSmith}\n`;
   output += `- **Claude Code**: ${diagnostics.versions.claudeCode}\n`;
   output += `- **Node.js**: ${diagnostics.versions.node}\n`;
   output += `- **Bun**: ${diagnostics.versions.bun}\n`;
@@ -362,11 +362,11 @@ export function formatDiagnostics(diagnostics: SystemDiagnostics): string {
   if (diagnostics.config.settings) {
     output += "- **Key Settings**:\n";
     const keySettings = [
-      "CLAUDE_MEM_MODEL",
-      "CLAUDE_MEM_WORKER_PORT",
-      "CLAUDE_MEM_WORKER_HOST",
-      "CLAUDE_MEM_LOG_LEVEL",
-      "CLAUDE_MEM_CONTEXT_OBSERVATIONS",
+      "MEMSMITH_MODEL",
+      "MEMSMITH_WORKER_PORT",
+      "MEMSMITH_WORKER_HOST",
+      "MEMSMITH_LOG_LEVEL",
+      "MEMSMITH_CONTEXT_OBSERVATIONS",
     ];
     for (const key of keySettings) {
       if (diagnostics.config.settings[key]) {

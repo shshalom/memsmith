@@ -7,7 +7,7 @@
 **Out of scope:**
 - Codex marketplace cache version-mismatch (covered by `plans/2026-05-06-codex-plugin-version-mismatch.md`).
 - Any rework of `bun-runner.js`'s stdin handling (issue #2188 territory — separate concern).
-- Pro-feature endpoints or worker port resolution (uses `CLAUDE_MEM_WORKER_PORT`, not `CLAUDE_PLUGIN_ROOT`; orthogonal).
+- Pro-feature endpoints or worker port resolution (uses `MEMSMITH_WORKER_PORT`, not `CLAUDE_PLUGIN_ROOT`; orthogonal).
 
 ---
 
@@ -30,8 +30,8 @@ These facts came from direct file reads (grep + Read) of the working tree on 202
 | 9 | `src/services/integrations/GeminiCliHooksInstaller.ts` | 46–60 (`buildHookCommand`) | NONE — bakes absolute `bunPath` and `workerServicePath`. | Pure absolute-path bake. |
 | 10 | `src/services/integrations/WindsurfHooksInstaller.ts` | (uses `findBunPath`, `findWorkerServicePath` from CursorHooksInstaller) | NONE — bakes absolute paths. | Pure absolute-path bake. |
 | 11 | `src/services/integrations/McpIntegrations.ts` | 16–21 (`buildMcpServerEntry`), 175–192 (Goose YAML builders) | NONE — bakes `process.execPath` (Node) + absolute `mcpServerPath`. | Pure absolute-path bake. Targets: copilot-cli, antigravity, goose, roo-code, warp. |
-| 12 | `src/services/integrations/OpenCodeInstaller.ts` | 29–46 (`findBuiltPluginPath`) | NONE — copies `dist/opencode-plugin/index.js` to `~/.config/opencode/plugins/claude-mem.js`. | OpenCode runs JS in its own sandbox; no shell. |
-| 13 | `src/integrations/opencode-plugin/index.ts` | 74–80 (`resolveWorkerPort`) | Uses `CLAUDE_MEM_WORKER_PORT` env (orthogonal to plugin-root scope). | No plugin-root templating. |
+| 12 | `src/services/integrations/OpenCodeInstaller.ts` | 29–46 (`findBuiltPluginPath`) | NONE — copies `dist/opencode-plugin/index.js` to `~/.config/opencode/plugins/memsmith.js`. | OpenCode runs JS in its own sandbox; no shell. |
+| 13 | `src/integrations/opencode-plugin/index.ts` | 74–80 (`resolveWorkerPort`) | Uses `MEMSMITH_WORKER_PORT` env (orthogonal to plugin-root scope). | No plugin-root templating. |
 | 14 | `openclaw/install.sh` (1653 lines) | grep returns 0 hits for `CLAUDE_PLUGIN_ROOT` or `PLUGIN_ROOT`. Uses `${HOME}`, `${COLOR_*}`, etc. | N/A — OpenClaw configures via `configSchema` (`workerPort`, `workerHost`); no plugin-root templating. | Out of scope but documented for completeness. |
 | 15 | `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `plugin/.claude-plugin/plugin.json`, `plugin/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | manifest fields | NONE — relative paths only (`./plugin`, `./.mcp.json`, `./hooks/codex-hooks.json`). | Resolved by host marketplace machinery. |
 | 16 | `docs/public/hooks-architecture.mdx` lines 100, 176, 223, 283, 337, 604, 754 | code examples | DOCS — currently teach users raw `${CLAUDE_PLUGIN_ROOT}/scripts/...` syntax. | These examples drive third-party copy-paste; must align with canonical rule chosen in Phase 1. |
@@ -55,9 +55,9 @@ These facts came from direct file reads (grep + Read) of the working tree on 202
 
 `tests/infrastructure/plugin-distribution.test.ts`:
 - Lines 110–114: every hook command must contain `CLAUDE_PLUGIN_ROOT`.
-- Lines 116–122: every hook command must contain `$_C/plugins/marketplaces/thedotmack/plugin` fallback (issue #1215).
+- Lines 116–122: every hook command must contain `$_C/plugins/marketplaces/shshalom/plugin` fallback (issue #1215).
 - Lines 124–132: cache path must be tried BEFORE marketplace fallback (issue #1533).
-- Lines 84–99: MCP launcher includes `.codex/plugins/cache/claude-mem-local/claude-mem` and `plugins/cache/thedotmack/claude-mem` fallbacks; root and bundled launchers stay synced.
+- Lines 84–99: MCP launcher includes `.codex/plugins/cache/memsmith-local/memsmith` and `plugins/cache/shshalom/memsmith` fallbacks; root and bundled launchers stay synced.
 - Lines 135–177: full shell-prelude assertions for `.mcp.json`, codex hooks, and claude hooks (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, `_E="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"`, `while IFS= read -r _R`, `[ -f "$_Q/scripts/..." ]`, `command -v cygpath`, etc.).
 
 `tests/plugin-version-check.test.ts:10`: exercises `CLAUDE_PLUGIN_ROOT: root` env injection at version-check time.
@@ -110,7 +110,7 @@ Before Phase 1 finalizes the canonical rule, deploy a Documentation Discovery su
 
 ### 1.1 The three options (recap)
 
-(a) **Always pre-resolve to absolute path at install time.** Every hook/MCP entry contains a hard-coded `/Users/<user>/.claude/plugins/cache/.../scripts/X.cjs`. Pro: zero spawn-contract surface. Con: every claude-mem version bump invalidates baked paths in IDE configs the host doesn't own (Cursor, Gemini, Windsurf, MCP-only IDEs, OpenClaw).
+(a) **Always pre-resolve to absolute path at install time.** Every hook/MCP entry contains a hard-coded `/Users/<user>/.claude/plugins/cache/.../scripts/X.cjs`. Pro: zero spawn-contract surface. Con: every memsmith version bump invalidates baked paths in IDE configs the host doesn't own (Cursor, Gemini, Windsurf, MCP-only IDEs, OpenClaw).
 
 (b) **Always rely on POSIX-shell defensive expansion.** Hook/MCP entries contain `_E="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; _P=$(... fallback chain ...)`. Pro: zero re-install needed across upgrades. Con: requires POSIX shell available to the host (Windows native cmd.exe doesn't qualify; cygpath workaround already addresses Git-Bash/MSYS).
 
@@ -121,7 +121,7 @@ Before Phase 1 finalizes the canonical rule, deploy a Documentation Discovery su
 Adopt a **two-rule split** indexed by who owns the config file:
 
 - **Rule A (host-managed shell-template):** sites where the host (Claude Code, Codex CLI) owns the config file (`hooks.json`, `codex-hooks.json`, `.mcp.json`, `plugin/.mcp.json`) and may rotate the cache directory on plugin upgrade. Use the POSIX-shell defensive expansion (option b).
-- **Rule B (installer-managed bake):** sites where claude-mem's installer owns the config file (Cursor, Gemini, Windsurf, MCP-only IDEs). Use the absolute-path bake (option a). On `claude-mem` version bump, the installer re-bakes paths idempotently.
+- **Rule B (installer-managed bake):** sites where memsmith's installer owns the config file (Cursor, Gemini, Windsurf, MCP-only IDEs). Use the absolute-path bake (option a). On `memsmith` version bump, the installer re-bakes paths idempotently.
 - **Rule C (runtime resolution):** `plugin/scripts/version-check.js` and `plugin/scripts/bun-runner.js` accept BOTH `CLAUDE_PLUGIN_ROOT` env AND the script's own `dirname(import.meta.url)/..`, in that order. This is already the case (lines 7–17 of version-check.js, line 11 of bun-runner.js); document it.
 
 Rule C is non-negotiable: it's the safety net behind both Rule A and Rule B. The shell template (Rule A) ultimately invokes `node "$_P/scripts/bun-runner.js" "$_P/scripts/worker-service.cjs" hook ...` — `bun-runner.js` then re-resolves `RESOLVED_PLUGIN_ROOT` from its own dirname and is the last line of defense if `$_P` itself was wrong.
@@ -133,7 +133,7 @@ Append to `CLAUDE.md` under a new `## Spawn-Contract Resolution` section (betwee
 ```md
 ## Spawn-Contract Resolution
 
-claude-mem integrations resolve `${CLAUDE_PLUGIN_ROOT}` (and equivalents) using one of three rules. Pick the rule by who owns the config file.
+memsmith integrations resolve `${CLAUDE_PLUGIN_ROOT}` (and equivalents) using one of three rules. Pick the rule by who owns the config file.
 
 ### Rule A — Host-managed shell-template (Claude Code, Codex CLI)
 
@@ -143,7 +143,7 @@ The host (Claude Code or Codex) owns the file's runtime location and rotates the
 
     _C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
     _E="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
-    _P=$({ [ -n "$_E" ] && printf '%s\n' "$_E"; ls -dt "$_C/plugins/cache/thedotmack/claude-mem"/[0-9]*/ 2>/dev/null; printf '%s\n' "$_C/plugins/marketplaces/thedotmack/plugin"; } | while …; done)
+    _P=$({ [ -n "$_E" ] && printf '%s\n' "$_E"; ls -dt "$_C/plugins/cache/shshalom/memsmith"/[0-9]*/ 2>/dev/null; printf '%s\n' "$_C/plugins/marketplaces/shshalom/plugin"; } | while …; done)
 
 The prelude is generated by `src/build/hook-shell-template.ts` (Phase 2). Hand-editing these strings is forbidden; tests in `tests/infrastructure/plugin-distribution.test.ts` enforce shape.
 
@@ -151,7 +151,7 @@ The prelude is generated by `src/build/hook-shell-template.ts` (Phase 2). Hand-e
 
 Sites: any per-IDE config file written by `src/services/integrations/*Installer.ts`.
 
-The claude-mem installer owns the file. Bake absolute paths via the helpers in `src/services/integrations/install-paths.ts` (Phase 3). On `claude-mem` upgrade, the installer must re-bake paths idempotently — see the migration logic in Phase 6.
+The memsmith installer owns the file. Bake absolute paths via the helpers in `src/services/integrations/install-paths.ts` (Phase 3). On `memsmith` upgrade, the installer must re-bake paths idempotently — see the migration logic in Phase 6.
 
 ### Rule C — Runtime resolution (`bun-runner.js`, `version-check.js`)
 
@@ -191,7 +191,7 @@ export interface ShellTemplateOptions {
   trailingCommand: string[];
   // Which host this is for. Selects the PATH-resolution prelude.
   host: 'claude-code' | 'codex-cli' | 'mcp';
-  // Extra env exports prepended to the prelude (e.g. CLAUDE_MEM_CODEX_HOOK=1 for codex version-check).
+  // Extra env exports prepended to the prelude (e.g. MEMSMITH_CODEX_HOOK=1 for codex version-check).
   extraEnv?: Record<string, string>;
   // Optional trailing JSON output (e.g. SessionStart hook emits '{"continue":true,"suppressOutput":true}').
   trailingJson?: object;
@@ -220,9 +220,9 @@ The function builds a single-line shell string composed of:
    ```sh
    _P=$({
      [ -n "$_E" ] && printf '%s\n' "$_E";
-     # MCP only: also try $PWD/plugin and $PWD and $HOME/.codex/plugins/cache/claude-mem-local/claude-mem/[0-9]*/
-     ls -dt "$_C/plugins/cache/thedotmack/claude-mem"/[0-9]*/ 2>/dev/null;
-     printf '%s\n' "$_C/plugins/marketplaces/thedotmack/plugin";
+     # MCP only: also try $PWD/plugin and $PWD and $HOME/.codex/plugins/cache/memsmith-local/memsmith/[0-9]*/
+     ls -dt "$_C/plugins/cache/shshalom/memsmith"/[0-9]*/ 2>/dev/null;
+     printf '%s\n' "$_C/plugins/marketplaces/shshalom/plugin";
    } | while IFS= read -r _R; do
      _R="${_R%/}";
      [ -d "$_R/plugin/scripts" ] && _Q="$_R/plugin" || _Q="$_R";
@@ -241,7 +241,7 @@ The function builds a single-line shell string composed of:
    ```
    Note: existing `.mcp.json:8` does NOT include cygpath — confirm via test diff that we preserve that.
 
-6. **Extra env exports** (e.g. `CLAUDE_MEM_CODEX_HOOK=1` for codex version-check, see `plugin/hooks/codex-hooks.json:10`).
+6. **Extra env exports** (e.g. `MEMSMITH_CODEX_HOOK=1` for codex version-check, see `plugin/hooks/codex-hooks.json:10`).
 
 7. **Trailing command** (already shell-quoted by caller: `node "$_P/scripts/bun-runner.js" "$_P/scripts/worker-service.cjs" hook claude-code session-init`).
 
@@ -254,9 +254,9 @@ The function builds a single-line shell string composed of:
 | `buildShellCommand({ host: 'claude-code-setup', requireFile: 'version-check.js', trailingCommand: ['node', '"$_P/scripts/version-check.js"'], notFoundMessage: 'claude-mem: version-check.js not found' })` | `plugin/hooks/hooks.json:11` | line 11 |
 | `buildShellCommand({ host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs', trailingCommand: ['node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/worker-service.cjs"', 'start'], trailingJson: { continue: true, suppressOutput: true }, notFoundMessage: 'claude-mem: plugin scripts not found' })` | `plugin/hooks/hooks.json:24` | line 24 |
 | (analogous for hooks.json:30, 42, 55, 68, 80) | each line in hooks.json | per line |
-| `buildShellCommand({ host: 'codex-cli', requireFile: 'version-check.js', extraEnv: { CLAUDE_MEM_CODEX_HOOK: '1' }, trailingCommand: ['node', '"$_P/scripts/version-check.js"'], notFoundMessage: 'claude-mem: version-check.js not found' })` | `plugin/hooks/codex-hooks.json:10` | line 10 |
+| `buildShellCommand({ host: 'codex-cli', requireFile: 'version-check.js', extraEnv: { MEMSMITH_CODEX_HOOK: '1' }, trailingCommand: ['node', '"$_P/scripts/version-check.js"'], notFoundMessage: 'memsmith: version-check.js not found' })` | `plugin/hooks/codex-hooks.json:10` | line 10 |
 | (analogous for codex-hooks.json:15, 20, 32, 44, 56, 67) | each line | per line |
-| `buildShellCommand({ host: 'mcp', requireFile: 'mcp-server.cjs', trailingCommand: ['exec', 'node', '"$_P/scripts/mcp-server.cjs"'], notFoundMessage: 'claude-mem: mcp server not found', mcpExtraCandidates: ['$PWD/plugin', '$PWD', '$HOME/.codex/plugins/cache/claude-mem-local/claude-mem/[0-9]*/'] })` | `.mcp.json:8` and `plugin/.mcp.json:8` | line 8 |
+| `buildShellCommand({ host: 'mcp', requireFile: 'mcp-server.cjs', trailingCommand: ['exec', 'node', '"$_P/scripts/mcp-server.cjs"'], notFoundMessage: 'memsmith: mcp server not found', mcpExtraCandidates: ['$PWD/plugin', '$PWD', '$HOME/.codex/plugins/cache/memsmith-local/memsmith/[0-9]*/'] })` | `.mcp.json:8` and `plugin/.mcp.json:8` | line 8 |
 
 ### 2.2 Wire into `scripts/build-hooks.js`
 
@@ -342,7 +342,7 @@ These two integrations don't bake shell paths (their plugins run as JS), so they
 
 **Anti-pattern guards:**
 - ❌ Do not change the public API of the existing `findMcpServerPath`/`findWorkerServicePath`/`findBunPath` exports during this phase — keep them as thin wrappers. Schedule removal for the release cycle after migration completes.
-- ❌ Do not introduce new env vars (e.g. `CLAUDE_MEM_BUN_PATH`). The existing `findBunPath()` at `CursorHooksInstaller.ts:112–130` already handles platform variation; preserve that logic.
+- ❌ Do not introduce new env vars (e.g. `MEMSMITH_BUN_PATH`). The existing `findBunPath()` at `CursorHooksInstaller.ts:112–130` already handles platform variation; preserve that logic.
 
 ---
 
@@ -380,11 +380,11 @@ The docs (`docs/public/hooks-architecture.mdx:100,176,223,283,337,604,754`, plus
 { "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/your-hook.js" }
 ```
 
-This is the canonical Claude Code documented form per upstream. **Keep the docs aligned with upstream** — do NOT replace these examples with the defensive shell prelude (which is claude-mem-internal complexity, not user-facing API).
+This is the canonical Claude Code documented form per upstream. **Keep the docs aligned with upstream** — do NOT replace these examples with the defensive shell prelude (which is memsmith-internal complexity, not user-facing API).
 
-Add a single subsection to `docs/public/hooks-architecture.mdx` titled "Why claude-mem's own hooks look different" that:
+Add a single subsection to `docs/public/hooks-architecture.mdx` titled "Why memsmith's own hooks look different" that:
 1. States the upstream contract: `${CLAUDE_PLUGIN_ROOT}` is set by the host.
-2. Explains that claude-mem ships a defensive fallback because some host versions / cache rotations don't inject it.
+2. Explains that memsmith ships a defensive fallback because some host versions / cache rotations don't inject it.
 3. Links to this plan and `plans/2026-05-06-codex-plugin-version-mismatch.md`.
 
 **Verification checklist:**
@@ -424,7 +424,7 @@ it('hooks.json Setup hook command equals buildShellCommand output', () => {
     host: 'claude-code-setup',
     requireFile: 'version-check.js',
     trailingCommand: ['node', '"$_P/scripts/version-check.js"'],
-    notFoundMessage: 'claude-mem: version-check.js not found',
+    notFoundMessage: 'memsmith: version-check.js not found',
   });
   const actual = readJson('plugin/hooks/hooks.json').hooks.Setup[0].hooks[0].command;
   expect(actual).toBe(generated);
@@ -465,26 +465,26 @@ Add a `lint:docs` script that fails CI if `docs/public/**/*.mdx` mentions `${CLA
 
 ## Phase 6 — Migration / deprecation plan
 
-**What to implement:** Handle existing installs in the wild that have absolute paths baked in from previous claude-mem versions. Plan the upgrade semantics for each integration.
+**What to implement:** Handle existing installs in the wild that have absolute paths baked in from previous memsmith versions. Plan the upgrade semantics for each integration.
 
 ### 6.1 Per-IDE migration matrix
 
-| Integration | Current bake state | Migration on `npx claude-mem install` |
+| Integration | Current bake state | Migration on `npx memsmith install` |
 |---|---|---|
 | Claude Code (Rule A) | host-managed; Claude Code rotates cache on `claude plugin update`. | No installer action needed. Setup hook (version-check.js) prints upgrade hint. Already implemented via `plans/2026-04-29-installer-streamline.md`. |
 | Codex CLI (Rule A) | host-managed BUT Codex 0.128 may keep stale cache (see `plans/2026-05-06-codex-plugin-version-mismatch.md`). | Already covered by that plan; this plan adds no new migration. |
-| Cursor (Rule B) | absolute paths in `~/.cursor/hooks.json` and `~/.cursor/mcp.json`. | `installCursorHooks` is idempotent (writes `hooks.json` whole); re-running `npx claude-mem install` re-bakes paths. |
-| Gemini (Rule B) | absolute paths in `~/.gemini/settings.json`. | `mergeHooksIntoSettings` already overwrites the `claude-mem`-named hook entries (see `GeminiCliHooksInstaller.ts:97–123`) — re-running re-bakes. |
+| Cursor (Rule B) | absolute paths in `~/.cursor/hooks.json` and `~/.cursor/mcp.json`. | `installCursorHooks` is idempotent (writes `hooks.json` whole); re-running `npx memsmith install` re-bakes paths. |
+| Gemini (Rule B) | absolute paths in `~/.gemini/settings.json`. | `mergeHooksIntoSettings` already overwrites the `memsmith`-named hook entries (see `GeminiCliHooksInstaller.ts:97–123`) — re-running re-bakes. |
 | Windsurf (Rule B) | absolute paths in `~/.codeium/windsurf/hooks.json`. | Idempotent rewrite — same pattern. |
-| Copilot/Antigravity/Goose/Roo/Warp (Rule B) | absolute paths in each `mcp.json`. | `installMcpIntegration` overwrites `claude-mem` entry only (see `McpIntegrations.ts:31–39`). |
-| OpenCode | absolute path of bundle copy. | `installOpenCodePlugin` overwrites the bundle file — `npm run build` then `npx claude-mem install` is the canonical upgrade path. |
+| Copilot/Antigravity/Goose/Roo/Warp (Rule B) | absolute paths in each `mcp.json`. | `installMcpIntegration` overwrites `memsmith` entry only (see `McpIntegrations.ts:31–39`). |
+| OpenCode | absolute path of bundle copy. | `installOpenCodePlugin` overwrites the bundle file — `npm run build` then `npx memsmith install` is the canonical upgrade path. |
 | OpenClaw | configSchema-managed; no path baking. | No migration. |
 
 ### 6.2 Detection of stale installs
 
-Add a new check in `npx claude-mem install` (in `src/npx-cli/commands/install.ts` setupIDEs flow): for each Rule B integration that's already installed, detect if the baked `mcpServerPath` / `workerServicePath` / `bunPath` still resolves on disk. If not, re-bake silently. Emit a single line: `Cursor: re-baked stale paths from <oldVersion> to <newVersion>`.
+Add a new check in `npx memsmith install` (in `src/npx-cli/commands/install.ts` setupIDEs flow): for each Rule B integration that's already installed, detect if the baked `mcpServerPath` / `workerServicePath` / `bunPath` still resolves on disk. If not, re-bake silently. Emit a single line: `Cursor: re-baked stale paths from <oldVersion> to <newVersion>`.
 
-This addresses the case where a user installs claude-mem v12.7.0, then v12.8.0, and the v12.7.0 cache is still referenced in `~/.cursor/hooks.json` while the actual v12.7.0 bundle has been pruned by Claude Code's plugin garbage collector.
+This addresses the case where a user installs memsmith v12.7.0, then v12.8.0, and the v12.7.0 cache is still referenced in `~/.cursor/hooks.json` while the actual v12.7.0 bundle has been pruned by Claude Code's plugin garbage collector.
 
 ### 6.3 No version-pinned grace period needed
 
@@ -492,18 +492,18 @@ All Rule B integrations are bake-and-overwrite by design — running the install
 
 ### 6.4 Documentation note for Codex self-hosted marketplaces
 
-Cross-reference `plans/2026-05-06-codex-plugin-version-mismatch.md`: self-hosted Codex marketplaces need to re-add the marketplace post-claude-mem-upgrade because Codex 0.128 doesn't auto-upgrade enabled plugin caches. Add this note to:
+Cross-reference `plans/2026-05-06-codex-plugin-version-mismatch.md`: self-hosted Codex marketplaces need to re-add the marketplace post-memsmith-upgrade because Codex 0.128 doesn't auto-upgrade enabled plugin caches. Add this note to:
 - `docs/public/configuration.mdx` (Codex section if any)
 - The "Spawn-Contract Resolution" section in `CLAUDE.md` (Phase 1) under a "Known limitations" subsection
 
 **Verification checklist:**
-- [ ] Re-running `npx claude-mem install` on a system with v(N-1) baked paths refreshes them to v(N) without user intervention.
+- [ ] Re-running `npx memsmith install` on a system with v(N-1) baked paths refreshes them to v(N) without user intervention.
 - [ ] The "stale paths re-baked" log line appears once per Rule B integration that needed it, never on a fresh install.
 - [ ] Codex self-hosted marketplace doc note is present.
 
 **Anti-pattern guards:**
-- ❌ Do not silently delete pre-existing user customizations in `~/.cursor/hooks.json` or `~/.gemini/settings.json`. Only overwrite the `claude-mem`-namespaced entries; preserve everything else (the existing installers already do this — verify it).
-- ❌ Do not introduce a separate "migrate" CLI command. Keep migration implicit in `npx claude-mem install`.
+- ❌ Do not silently delete pre-existing user customizations in `~/.cursor/hooks.json` or `~/.gemini/settings.json`. Only overwrite the `memsmith`-namespaced entries; preserve everything else (the existing installers already do this — verify it).
+- ❌ Do not introduce a separate "migrate" CLI command. Keep migration implicit in `npx memsmith install`.
 
 ---
 
@@ -525,7 +525,7 @@ Cross-reference `plans/2026-05-06-codex-plugin-version-mismatch.md`: self-hosted
   - copilot-cli, antigravity, goose, roo-code, warp: MCP only (no hooks; verify MCP server starts).
 - **2 MCP server entries:** `.mcp.json` (root) and `plugin/.mcp.json` (bundled).
 - **3 platforms:** macOS, Linux, Windows-WSL, Windows-cygpath/Git-Bash. (4 actually, but the matrix size doesn't matter — what matters is which dimensions vary the spawn contract.)
-- **3 resolution sources** (Rule A only): (a) host injects `CLAUDE_PLUGIN_ROOT`; (b) host doesn't inject, cache fallback hits; (c) host doesn't inject, cache fallback misses (must fail with the canonical "claude-mem: ... not found" stderr).
+- **3 resolution sources** (Rule A only): (a) host injects `CLAUDE_PLUGIN_ROOT`; (b) host doesn't inject, cache fallback hits; (c) host doesn't inject, cache fallback misses (must fail with the canonical "memsmith: ... not found" stderr).
 
 ### 7.2 Concrete test cases (Rule A)
 
@@ -545,7 +545,7 @@ describe('Spawn-contract resolution — Rule A shell evaluation', () => {
       });
 
       it(`[${file}] resolves _P from cache when CLAUDE_PLUGIN_ROOT is unset`, () => {
-        // Set up tmp $HOME/.claude/plugins/cache/thedotmack/claude-mem/12.0.0/plugin/scripts/<requireFile>
+        // Set up tmp $HOME/.claude/plugins/cache/shshalom/memsmith/12.0.0/plugin/scripts/<requireFile>
         // Run command without CLAUDE_PLUGIN_ROOT; assert _P resolves to the cache path.
       });
 
@@ -553,7 +553,7 @@ describe('Spawn-contract resolution — Rule A shell evaluation', () => {
         // Empty $HOME, no CLAUDE_PLUGIN_ROOT.
         const result = spawnSync('bash', ['-c', command], { env: { HOME: emptyTmpDir } });
         expect(result.status).not.toBe(0);
-        expect(result.stderr.toString()).toMatch(/claude-mem: .* not found/);
+        expect(result.stderr.toString()).toMatch(/memsmith: .* not found/);
       });
     }
   }
@@ -574,13 +574,13 @@ Add per-installer integration tests that:
 
 ### 7.4 Documented manual verification on real IDEs
 
-For each of the 12 IDEs, run `npx claude-mem install`, then start a session and verify:
-- Claude Code: SessionStart hook fires; check via `~/.claude-mem/logs/`.
+For each of the 12 IDEs, run `npx memsmith install`, then start a session and verify:
+- Claude Code: SessionStart hook fires; check via `~/.memsmith/logs/`.
 - Codex CLI: SessionStart hook fires; check via `~/.codex/logs/`.
-- Cursor: `claude-mem` MCP server appears in MCP panel; one tool call succeeds.
-- Gemini: `claude-mem` SessionStart hook runs; check via `~/.gemini/`.
-- Windsurf: `claude-mem` hook runs.
-- OpenCode: `claude-mem.js` plugin loads.
+- Cursor: `memsmith` MCP server appears in MCP panel; one tool call succeeds.
+- Gemini: `memsmith` SessionStart hook runs; check via `~/.gemini/`.
+- Windsurf: `memsmith` hook runs.
+- OpenCode: `memsmith.js` plugin loads.
 - OpenClaw: gateway-attached plugin loads.
 - Copilot CLI / Antigravity / Goose / Roo / Warp: each MCP server registers and one tool call succeeds.
 
@@ -593,7 +593,7 @@ Document the manual results in the PR description.
 - [ ] Manual verification table is filled in for the PR.
 
 **Anti-pattern guards:**
-- ❌ Do not skip the "fails cleanly when no candidate exists" test. The "claude-mem: ... not found" error is what users see when their install is broken; it's a contract.
+- ❌ Do not skip the "fails cleanly when no candidate exists" test. The "memsmith: ... not found" error is what users see when their install is broken; it's a contract.
 - ❌ Do not run Rule A shell tests with `set -u` or `set -e` — the canonical prelude relies on unset-with-default semantics; strict mode would change behavior.
 
 ---
@@ -609,16 +609,16 @@ Document the manual results in the PR description.
 
 ### 8.2 Post-merge
 
-1. Bump claude-mem version (the version-bump skill handles this).
-2. Run `claude-mem version-bump` flow; the marketplace publishes the new bundle.
-3. Watch for issues in the first 48 hours: monitor for any "claude-mem: <X> not found" reports in user issues — those signal Rule A fallback failures, which the test matrix should have caught.
+1. Bump memsmith version (the version-bump skill handles this).
+2. Run `memsmith version-bump` flow; the marketplace publishes the new bundle.
+3. Watch for issues in the first 48 hours: monitor for any "memsmith: <X> not found" reports in user issues — those signal Rule A fallback failures, which the test matrix should have caught.
 
 ### 8.3 Documentation deliverables (final)
 
 After merge, confirm:
 
 - `CLAUDE.md` has the `## Spawn-Contract Resolution` section (Phase 1.3).
-- `docs/public/hooks-architecture.mdx` has the "Why claude-mem's own hooks look different" subsection (Phase 4.2).
+- `docs/public/hooks-architecture.mdx` has the "Why memsmith's own hooks look different" subsection (Phase 4.2).
 - `plans/02-spawn-contract-templating.md` (this file) is referenced from `plans/2026-05-06-codex-plugin-version-mismatch.md` as the canonical resolution document.
 
 **Verification checklist:**

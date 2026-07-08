@@ -1,5 +1,5 @@
 /**
- * `npx claude-mem doctor` — a minimal diagnostic that probes every layer an
+ * `npx memsmith doctor` — a minimal diagnostic that probes every layer an
  * operator would otherwise check by hand (#2548). Read-only: it never mutates
  * state. Exits 0 when all REQUIRED checks pass, 1 otherwise, so it is CI/script
  * friendly.
@@ -75,7 +75,7 @@ export async function runDoctorCommand(): Promise<void> {
   checks.push({
     name: 'Plugin installed',
     status: installed ? 'ok' : 'fail',
-    detail: installed ? marketplaceDirectory() : 'run `npx claude-mem install`',
+    detail: installed ? marketplaceDirectory() : 'run `npx memsmith install`',
     required: true,
   });
 
@@ -85,14 +85,14 @@ export async function runDoctorCommand(): Promise<void> {
   checks.push({
     name: 'Marketplace deps',
     status: installed ? (depsPresent ? 'ok' : 'fail') : 'warn',
-    detail: depsPresent ? 'node_modules present' : 'missing — run `npx claude-mem repair`',
+    detail: depsPresent ? 'node_modules present' : 'missing — run `npx memsmith repair`',
     required: installed,
   });
 
   // 5. Worker health.
-  const workerPort = SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT');
+  const workerPort = SettingsDefaultsManager.get('MEMSMITH_WORKER_PORT');
   let workerStatus: CheckStatus = 'fail';
-  let workerDetail = `no response on port ${workerPort} — start with \`npx claude-mem start\``;
+  let workerDetail = `no response on port ${workerPort} — start with \`npx memsmith start\``;
   try {
     const worker = await probeWorkerHealth(workerPort);
     workerStatus = worker.status;
@@ -130,7 +130,7 @@ export async function runDoctorCommand(): Promise<void> {
   const icon = (s: CheckStatus): string =>
     s === 'ok' ? styleText('green', '✓') : s === 'warn' ? styleText('yellow', '!') : styleText('red', '✗');
 
-  console.log(styleText('bold', '\nclaude-mem doctor\n'));
+  console.log(styleText('bold', '\nmemsmith doctor\n'));
   for (const c of checks) {
     console.log(`  ${icon(c.status)} ${c.name.padEnd(22)} ${styleText('dim', c.detail)}`);
   }

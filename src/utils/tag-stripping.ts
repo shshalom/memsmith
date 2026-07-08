@@ -3,7 +3,7 @@ import { logger } from './logger.js';
 
 const TAG_NAMES = [
   'private',
-  'claude-mem-context',
+  'memsmith-context',
   'system_instruction',
   'system-instruction',
   'persisted-output',

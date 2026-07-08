@@ -3,14 +3,14 @@
 import { parseArgs as parseNodeArgs, styleText } from 'node:util';
 import { logger } from '../../utils/logger.js';
 
-// Phase 12 — `claude-mem server jobs <subcommand>` operator console for the
+// Phase 12 — `memsmith server jobs <subcommand>` operator console for the
 // Postgres-backed observation generation queue. These commands talk DIRECTLY
 // to Postgres (and BullMQ when configured), bypassing the HTTP API. They MUST
 // run from a host that can reach the same database the server runtime
-// uses — set CLAUDE_MEM_SERVER_DATABASE_URL in the shell.
+// uses — set MEMSMITH_SERVER_DATABASE_URL in the shell.
 //
 // Anti-pattern guards:
-//   - Operating without --team/--project requires CLAUDE_MEM_SERVER_ADMIN=1
+//   - Operating without --team/--project requires MEMSMITH_SERVER_ADMIN=1
 //     in the env (admin scope). This makes the elevation explicit.
 //   - retry/cancel write to audit_log so every operator action is logged.
 //   - retry is idempotent: a row already in queued status is a no-op.
@@ -49,8 +49,8 @@ export async function runServerJobsCommand(argv: string[]): Promise<void> {
     printJobsUsage();
     process.exit(1);
   }
-  if (!process.env.CLAUDE_MEM_SERVER_DATABASE_URL) {
-    console.error(styleText('red', 'CLAUDE_MEM_SERVER_DATABASE_URL is required for server jobs commands.'));
+  if (!process.env.MEMSMITH_SERVER_DATABASE_URL) {
+    console.error(styleText('red', 'MEMSMITH_SERVER_DATABASE_URL is required for server jobs commands.'));
     console.error('Configure Postgres first, then re-run.');
     process.exit(1);
   }
@@ -76,13 +76,13 @@ export async function runServerJobsCommand(argv: string[]): Promise<void> {
 }
 
 function printJobsUsage(): void {
-  console.error(`Usage: ${styleText('bold', 'npx claude-mem server jobs <subcommand>')}`);
+  console.error(`Usage: ${styleText('bold', 'npx memsmith server jobs <subcommand>')}`);
   console.error('Subcommands:');
   console.error('  status                    Show queue lane counts (Postgres + BullMQ)');
   console.error('  failed [--limit N]        List failed generation jobs (default 20)');
   console.error('  retry <id>                Re-enqueue a failed/cancelled generation job');
   console.error('  cancel <id>               Cancel a queued/processing generation job');
-  console.error('Filters: --team <id>  --project <id>  (omit both with CLAUDE_MEM_SERVER_ADMIN=1)');
+  console.error('Filters: --team <id>  --project <id>  (omit both with MEMSMITH_SERVER_ADMIN=1)');
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -104,11 +104,11 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
-// `--team`/`--project` may both be absent only when CLAUDE_MEM_SERVER_ADMIN=1
+// `--team`/`--project` may both be absent only when MEMSMITH_SERVER_ADMIN=1
 // is set in the env. Without admin we refuse and ask the operator to scope.
 function requireScope(args: ParsedArgs): { team: string | null; project: string | null } {
-  if (!args.team && !args.project && process.env.CLAUDE_MEM_SERVER_ADMIN !== '1') {
-    console.error(styleText('red', 'Refusing to run unscoped: pass --team <id> and/or --project <id>, or set CLAUDE_MEM_SERVER_ADMIN=1.'));
+  if (!args.team && !args.project && process.env.MEMSMITH_SERVER_ADMIN !== '1') {
+    console.error(styleText('red', 'Refusing to run unscoped: pass --team <id> and/or --project <id>, or set MEMSMITH_SERVER_ADMIN=1.'));
     process.exit(1);
   }
   return { team: args.team, project: args.project };
@@ -508,7 +508,7 @@ async function collectBullmqCounts(): Promise<Record<string, { waiting: number; 
   const { Queue } = await import('bullmq');
   const config = getRedisQueueConfig();
   if (config.engine !== 'bullmq') {
-    throw new Error('CLAUDE_MEM_QUEUE_ENGINE is not "bullmq"');
+    throw new Error('MEMSMITH_QUEUE_ENGINE is not "bullmq"');
   }
   const { SERVER_JOB_QUEUE_NAMES } = await import('../../server/jobs/types.js');
   const out: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; stalled: number }> = {};

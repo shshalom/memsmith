@@ -562,7 +562,7 @@ export class ProviderObservationGenerator {
 }
 
 function reformatRetryLimit(): number {
-  const raw = Number(process.env.CLAUDE_MEM_REFORMAT_RETRIES ?? 1);
+  const raw = Number(process.env.MEMSMITH_REFORMAT_RETRIES ?? 1);
   if (!Number.isFinite(raw)) return 1;
   return Math.max(0, Math.min(3, Math.trunc(raw)));
 }

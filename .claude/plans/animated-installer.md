@@ -1,8 +1,8 @@
-# Comprehensive Claude-Mem Installer with @clack/prompts
+# Comprehensive MemSmith Installer with @clack/prompts
 
 ## Overview
 
-Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` (v1.0.1). Distributable via `npx claude-mem-installer` and `curl -fsSL https://install.cmem.ai | bash`. Replaces the need for users to manually clone, build, configure settings, and start the worker.
+Build a beautiful, animated CLI installer for memsmith using `@clack/prompts` (v1.0.1). Distributable via `npx memsmith-installer` and `curl -fsSL https://install.cmem.ai | bash`. Replaces the need for users to manually clone, build, configure settings, and start the worker.
 
 **Worktree**: `feat/animated-installer` at `.claude/worktrees/animated-installer`
 
@@ -79,7 +79,7 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
    │   └── utils/
    │       ├── system.ts         # OS detection, command runner
    │       ├── dependencies.ts   # bun/uv/git install helpers
-   │       └── settings-writer.ts # Write ~/.claude-mem/settings.json
+   │       └── settings-writer.ts # Write ~/.memsmith/settings.json
    ├── build.mjs                 # esbuild config
    ├── package.json              # bin, type: module, deps
    └── tsconfig.json
@@ -88,10 +88,10 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
 2. **Create `package.json`**:
    ```json
    {
-     "name": "claude-mem-installer",
+     "name": "memsmith-installer",
      "version": "1.0.0",
      "type": "module",
-     "bin": { "claude-mem-installer": "./dist/index.js" },
+     "bin": { "memsmith-installer": "./dist/index.js" },
      "files": ["dist"],
      "scripts": {
        "build": "node build.mjs",
@@ -134,15 +134,15 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
 ### Tasks
 
 1. **`src/index.ts`** — Entry point:
-   - TTY guard: if `!process.stdin.isTTY`, print error directing user to `npx claude-mem-installer`, exit 1
+   - TTY guard: if `!process.stdin.isTTY`, print error directing user to `npx memsmith-installer`, exit 1
    - Import and call `runInstaller()` from steps
    - Top-level catch → `p.cancel()` + exit 1
 
 2. **`src/steps/welcome.ts`** — Welcome step:
-   - `p.intro()` with styled title using picocolors: `" claude-mem installer "`
+   - `p.intro()` with styled title using picocolors: `" memsmith installer "`
    - Display version info via `p.log.info()`
-   - Check if already installed (detect `~/.claude-mem/settings.json` and `~/.claude/plugins/marketplaces/thedotmack/`)
-   - If upgrade detected, `p.confirm()`: "claude-mem is already installed. Upgrade?"
+   - Check if already installed (detect `~/.memsmith/settings.json` and `~/.claude/plugins/marketplaces/shshalom/`)
+   - If upgrade detected, `p.confirm()`: "memsmith is already installed. Upgrade?"
    - `p.select()` for install mode: Fresh Install vs Upgrade vs Configure Only
 
 3. **`src/utils/system.ts`** — System utilities:
@@ -237,7 +237,7 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
    - `p.confirm()`: "Use default settings?" (recommended) — if yes, skip detailed config
    - If customizing, use `p.group()` for:
      - **Worker port**: `p.text()` with default 37777, validate 1024-65535
-     - **Data directory**: `p.text()` with default `~/.claude-mem`
+     - **Data directory**: `p.text()` with default `~/.memsmith`
      - **Context observations**: `p.text()` with default 50, validate 1-200
      - **Log level**: `p.select()` — DEBUG, INFO (default), WARN, ERROR
      - **Python version**: `p.text()` with default 3.13
@@ -249,8 +249,8 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
 2. **`src/utils/settings-writer.ts`** — Write settings:
    - Build flat key-value settings object matching SettingsDefaultsManager schema
    - Merge with existing settings if upgrading (preserve user customizations)
-   - Write to `~/.claude-mem/settings.json`
-   - Create `~/.claude-mem/` directory if it doesn't exist
+   - Write to `~/.memsmith/settings.json`
+   - Create `~/.memsmith/` directory if it doesn't exist
 
 ### Verification
 - [ ] Default settings mode skips all detailed prompts
@@ -268,10 +268,10 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
 
 1. **`src/steps/install.ts`** — Installation runner:
    - Use `p.tasks()` for visual progress:
-     - **"Cloning claude-mem repository"**: `git clone --depth 1 https://github.com/thedotmack/claude-mem.git` to temp dir
+     - **"Cloning memsmith repository"**: `git clone --depth 1 https://github.com/shshalom/memsmith.git` to temp dir
      - **"Installing dependencies"**: `npm install` in cloned repo
      - **"Building plugin"**: `npm run build` in cloned repo
-     - **"Registering plugin"**: Copy plugin files to `~/.claude/plugins/marketplaces/thedotmack/`
+     - **"Registering plugin"**: Copy plugin files to `~/.claude/plugins/marketplaces/shshalom/`
        - Create marketplace.json, plugin.json structure
        - Register in `~/.claude/plugins/known_marketplaces.json`
        - Add to `~/.claude/plugins/installed_plugins.json`
@@ -285,7 +285,7 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
 2. **`src/steps/worker.ts`** — Worker startup:
    - Use `p.spinner()` for worker startup:
      - Start worker: `bun plugin/scripts/worker-service.cjs` (from marketplace dir)
-     - Write PID file to `~/.claude-mem/worker.pid`
+     - Write PID file to `~/.memsmith/worker.pid`
    - Two-stage health check (copy pattern from OpenClaw installer):
      - Stage 1: Poll `/api/health` — spinner message: "Starting worker service..."
      - Stage 2: Poll `/api/readiness` — spinner message: "Initializing database..."
@@ -294,7 +294,7 @@ Build a beautiful, animated CLI installer for claude-mem using `@clack/prompts` 
      - On failure: `spinner.error("Worker failed to start")`, show log path
 
 ### Verification
-- [ ] Plugin files exist at `~/.claude/plugins/marketplaces/thedotmack/`
+- [ ] Plugin files exist at `~/.claude/plugins/marketplaces/shshalom/`
 - [ ] known_marketplaces.json updated
 - [ ] installed_plugins.json updated
 - [ ] settings.json has enabledPlugins entry

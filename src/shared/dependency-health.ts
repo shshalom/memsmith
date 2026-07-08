@@ -15,11 +15,11 @@ export interface DependencyStatus {
 export const CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS = 30_000;
 
 export const CLAUDE_CLI_SETUP_REMEDIATION =
-  'Install or update Claude Code CLI, then restart claude-mem. Try `claude update`, ' +
-  '`npm install -g @anthropic-ai/claude-code@latest`, or set CLAUDE_CODE_PATH in ~/.claude-mem/settings.json.';
+  'Install or update Claude Code CLI, then restart memsmith. Try `claude update`, ' +
+  '`npm install -g @anthropic-ai/claude-code@latest`, or set CLAUDE_CODE_PATH in ~/.memsmith/settings.json.';
 
 export const UVX_VECTOR_SEARCH_REMEDIATION =
-  'Install uv/uvx and make uvx visible to the worker PATH, then restart claude-mem. ' +
+  'Install uv/uvx and make uvx visible to the worker PATH, then restart memsmith. ' +
   'Try `curl -LsSf https://astral.sh/uv/install.sh | sh` or `brew install uv`.';
 
 const statuses = new Map<DependencyName, DependencyStatus>();

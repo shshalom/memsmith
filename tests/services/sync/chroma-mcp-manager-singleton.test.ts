@@ -17,7 +17,7 @@ const realSupervisorSnapshot = { ...realSupervisor };
 const realEnvSanitizerSnapshot = { ...realEnvSanitizer };
 const realChildProcess = require('node:child_process');
 const realProcessPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
-const originalPrewarmTimeout = process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS;
+const originalPrewarmTimeout = process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS;
 
 // Singleton enforcement regression coverage for issue #2313.
 //
@@ -256,9 +256,9 @@ afterAll(() => {
   ChromaMcpManager.setUvxAvailabilityProbeForTesting(null);
   process.kill = realProcessKill;
   if (originalPrewarmTimeout === undefined) {
-    delete process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS;
+    delete process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS;
   } else {
-    process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS = originalPrewarmTimeout;
+    process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS = originalPrewarmTimeout;
   }
   if (realProcessPlatform) {
     Object.defineProperty(process, 'platform', realProcessPlatform);
@@ -292,9 +292,9 @@ function resetState(): void {
   ChromaMcpManager.setUvxAvailabilityProbeForTesting(() => true);
   resetDependencyStatusesForTesting();
   if (originalPrewarmTimeout === undefined) {
-    delete process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS;
+    delete process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS;
   } else {
-    process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS = originalPrewarmTimeout;
+    process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS = originalPrewarmTimeout;
   }
   if (realProcessPlatform) {
     Object.defineProperty(process, 'platform', realProcessPlatform);
@@ -418,7 +418,7 @@ describe('ChromaMcpManager singleton enforcement (#2313)', () => {
   });
 
   it('stop() during a hanging prewarm does not record uvx unavailable or apply reconnect backoff', async () => {
-    process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS = '25';
+    process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS = '25';
     prewarmSpawnBehavior = 'timeout';
     prewarmKillEmitsClose = false;
     const mgr = ChromaMcpManager.getInstance();
@@ -520,7 +520,7 @@ describe('ChromaMcpManager singleton enforcement (#2313)', () => {
   });
 
   it('uses the configured prewarm timeout before constructing transport and kills the prewarm tree', async () => {
-    process.env.CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS = '5';
+    process.env.MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS = '5';
     prewarmSpawnBehavior = 'timeout';
     prewarmStdout = 'prewarm stdout before hang';
     prewarmStderr = 'prewarm stderr before hang';

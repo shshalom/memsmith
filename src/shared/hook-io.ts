@@ -57,7 +57,7 @@ let bufferInstalled = false;
  * Replace process.stderr.write with a buffered writer. Direct
  * process.stderr.write calls (including unsolicited third-party library noise)
  * are captured into a buffer; emitDiagnostic / emitBlockingError write through
- * the bypass channel (realStderrWrite). The buffer is flushed when claude-mem
+ * the bypass channel (realStderrWrite). The buffer is flushed when memsmith
  * chooses to surface, and dropped on graceful success.
  */
 export function installHookStderrBuffer(): HookStderrBuffer {

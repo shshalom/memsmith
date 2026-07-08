@@ -140,14 +140,14 @@ describe('setup-runtime install marker', () => {
       const text = platformBunRemediation();
       expect(text.length).toBeGreaterThan(0);
       expect(text).toContain('Bun');
-      expect(text).toContain('claude-mem install');
+      expect(text).toContain('memsmith install');
     });
 
     it('uv remediation is non-empty and references uv install', () => {
       const text = platformUvRemediation();
       expect(text.length).toBeGreaterThan(0);
       expect(text.toLowerCase()).toContain('uv');
-      expect(text).toContain('claude-mem install');
+      expect(text).toContain('memsmith install');
     });
   });
 });

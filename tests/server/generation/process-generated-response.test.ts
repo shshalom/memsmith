@@ -15,11 +15,11 @@ import {
 import { ModeManager } from '../../../src/services/domain/ModeManager.js';
 import { createIsolatedSchema, dropSchema, poolForSchema, quoteIdentifier } from '../../sdk/pg-isolation.js';
 
-const testDatabaseUrl = process.env.CLAUDE_MEM_TEST_POSTGRES_URL;
+const testDatabaseUrl = process.env.MEMSMITH_TEST_POSTGRES_URL;
 
 describe('processGeneratedResponse + markGenerationFailed', () => {
   if (!testDatabaseUrl) {
-    it.skip('requires CLAUDE_MEM_TEST_POSTGRES_URL for Postgres integration', () => {});
+    it.skip('requires MEMSMITH_TEST_POSTGRES_URL for Postgres integration', () => {});
     return;
   }
 
@@ -156,8 +156,8 @@ describe('processGeneratedResponse + markGenerationFailed', () => {
   });
 
   it('records token + observation usage when metering is enabled', async () => {
-    const prev = process.env.CLAUDE_MEM_USAGE_METERING;
-    process.env.CLAUDE_MEM_USAGE_METERING = '1';
+    const prev = process.env.MEMSMITH_USAGE_METERING;
+    process.env.MEMSMITH_USAGE_METERING = '1';
     try {
       const xml = `
         <observation>
@@ -187,14 +187,14 @@ describe('processGeneratedResponse + markGenerationFailed', () => {
       expect(byKind.tokens).toBe(1234);
       expect(byKind.observation).toBe(1);
     } finally {
-      if (prev === undefined) delete process.env.CLAUDE_MEM_USAGE_METERING;
-      else process.env.CLAUDE_MEM_USAGE_METERING = prev;
+      if (prev === undefined) delete process.env.MEMSMITH_USAGE_METERING;
+      else process.env.MEMSMITH_USAGE_METERING = prev;
     }
   });
 
   it('does NOT record usage when metering is disabled', async () => {
-    const prev = process.env.CLAUDE_MEM_USAGE_METERING;
-    delete process.env.CLAUDE_MEM_USAGE_METERING;
+    const prev = process.env.MEMSMITH_USAGE_METERING;
+    delete process.env.MEMSMITH_USAGE_METERING;
     try {
       const xml = `<observation><type>discovery</type><title>x</title><facts><fact>f</fact></facts></observation>`;
       await storage.observationGenerationJobs.transitionStatus({ id: jobId, projectId, teamId, status: 'processing' });
@@ -206,7 +206,7 @@ describe('processGeneratedResponse + markGenerationFailed', () => {
       const n = await pool.query(`SELECT count(*)::int AS n FROM usage_events WHERE team_id = $1`, [teamId]);
       expect(n.rows[0]?.n).toBe(0);
     } finally {
-      if (prev !== undefined) process.env.CLAUDE_MEM_USAGE_METERING = prev;
+      if (prev !== undefined) process.env.MEMSMITH_USAGE_METERING = prev;
     }
   });
 

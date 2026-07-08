@@ -9,30 +9,30 @@ import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
 const realWorkerUtilsSnapshot = { ...realWorkerUtils };
-const originalInternalEnv = process.env.CLAUDE_MEM_INTERNAL;
+const originalInternalEnv = process.env.MEMSMITH_INTERNAL;
 
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'CLAUDE_MEM_DATA_DIR') return join(homedir(), '.claude-mem');
+      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
       return '';
     },
     getInt: () => 0,
     loadFromFile: () => ({
-      CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-      CLAUDE_MEM_RUNTIME: 'worker',
-      CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-      CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+      MEMSMITH_EXCLUDED_PROJECTS: '',
+      MEMSMITH_RUNTIME: 'worker',
+      MEMSMITH_SEMANTIC_INJECT: 'true',
+      MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
     }),
   },
 }));
 
 mock.module('../../../src/shared/hook-settings.js', () => ({
   loadFromFileOnce: () => ({
-    CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-    CLAUDE_MEM_RUNTIME: 'worker',
-    CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-    CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
+    MEMSMITH_EXCLUDED_PROJECTS: '',
+    MEMSMITH_RUNTIME: 'worker',
+    MEMSMITH_SEMANTIC_INJECT: 'true',
+    MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
   }),
 }));
 
@@ -54,7 +54,7 @@ import { logger } from '../../../src/utils/logger.js';
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
 beforeEach(() => {
-  delete process.env.CLAUDE_MEM_INTERNAL;
+  delete process.env.MEMSMITH_INTERNAL;
   loggerSpies.forEach(spy => spy.mockRestore());
   loggerSpies = [
     spyOn(logger, 'info').mockImplementation(() => {}),
@@ -67,9 +67,9 @@ beforeEach(() => {
 
 afterAll(() => {
   if (originalInternalEnv === undefined) {
-    delete process.env.CLAUDE_MEM_INTERNAL;
+    delete process.env.MEMSMITH_INTERNAL;
   } else {
-    process.env.CLAUDE_MEM_INTERNAL = originalInternalEnv;
+    process.env.MEMSMITH_INTERNAL = originalInternalEnv;
   }
   loggerSpies.forEach(spy => spy.mockRestore());
   mock.module('../../../src/shared/SettingsDefaultsManager.js', () => realSettingsSnapshot);
@@ -80,7 +80,7 @@ afterAll(() => {
 describe('sessionInitHandler per-prompt hybrid injection', () => {
   it('1: server-configured -> fetchTeamMemory called with query===prompt; worker NOT called for semantic', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'How do I implement the hybrid RRF injection pipeline?';
     const script = `
       const fetchTeamMemoryCalls = [];
@@ -89,13 +89,13 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          CLAUDE_MEM_TEAM_INJECT: 'true',
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          MEMSMITH_TEAM_INJECT: 'true',
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -144,7 +144,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
 
   it('2: server NOT configured -> fetchTeamMemory NOT called; worker semantic path used (regression guard)', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'What is the current state of the per-prompt injection feature?';
     const script = `
       let fetchTeamMemoryCalled = false;
@@ -152,11 +152,11 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          // No CLAUDE_MEM_TEAM_SERVER_URL or CLAUDE_MEM_TEAM_API_KEY
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          // No MEMSMITH_TEAM_SERVER_URL or MEMSMITH_TEAM_API_KEY
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -205,20 +205,20 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
 
   it('3: server configured but fetchTeamMemory returns [] -> falls through to worker path', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'Server returns empty rows so we should fall through to worker semantic.';
     const script = `
       const workerCallLog = [];
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          CLAUDE_MEM_TEAM_INJECT: 'true',
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          MEMSMITH_TEAM_INJECT: 'true',
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -261,20 +261,20 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
 
   it('4: server-mode query is the prompt text (explicit assert on query arg)', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'Explicit query assertion: this exact text must be passed as query.';
     const script = `
       let capturedQuery = null;
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          CLAUDE_MEM_TEAM_INJECT: 'true',
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          MEMSMITH_TEAM_INJECT: 'true',
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -318,7 +318,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
 
   it('5: injectability gate: a <20-char prompt injects nothing on either path', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'Short prompt';  // 12 chars — below the 20-char gate
     const script = `
       let fetchTeamMemoryCalled = false;
@@ -326,12 +326,12 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -378,20 +378,20 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
 
   it('6: server branch throws -> caught; handler returns valid { continue: true } result', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'This prompt triggers the server branch which will throw an error.';
     const script = `
       const workerCallLog = [];
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          CLAUDE_MEM_TEAM_INJECT: 'true',
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          MEMSMITH_TEAM_INJECT: 'true',
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -437,9 +437,9 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it('7: server URL+key set but CLAUDE_MEM_TEAM_INJECT not true → server path skipped, worker path used (master-switch guard)', async () => {
+  it('7: server URL+key set but MEMSMITH_TEAM_INJECT not true → server path skipped, worker path used (master-switch guard)', async () => {
     const env = { ...process.env };
-    delete env.CLAUDE_MEM_INTERNAL;
+    delete env.MEMSMITH_INTERNAL;
     const prompt = 'This prompt has URL and key set but the master TEAM_INJECT switch is off.';
     const script = `
       let fetchTeamMemoryCalled = false;
@@ -447,13 +447,13 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
       const { sessionInitHandler, setSessionInitDependenciesForTesting } = await import('./src/cli/handlers/session-init.ts');
       setSessionInitDependenciesForTesting({
         loadFromFileOnce: () => ({
-          CLAUDE_MEM_EXCLUDED_PROJECTS: '',
-          CLAUDE_MEM_RUNTIME: 'worker',
-          CLAUDE_MEM_SEMANTIC_INJECT: 'true',
-          CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',
-          // CLAUDE_MEM_TEAM_INJECT is intentionally absent (master switch off)
-          CLAUDE_MEM_TEAM_SERVER_URL: 'http://team.test',
-          CLAUDE_MEM_TEAM_API_KEY: 'test-key',
+          MEMSMITH_EXCLUDED_PROJECTS: '',
+          MEMSMITH_RUNTIME: 'worker',
+          MEMSMITH_SEMANTIC_INJECT: 'true',
+          MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',
+          // MEMSMITH_TEAM_INJECT is intentionally absent (master switch off)
+          MEMSMITH_TEAM_SERVER_URL: 'http://team.test',
+          MEMSMITH_TEAM_API_KEY: 'test-key',
         }),
         resolveRuntimeContext: () => ({ runtime: 'worker' }),
         shouldTrackProject: () => true,
@@ -462,7 +462,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
           return [];
         },
         buildInjectionBlock: async () => {
-          throw new Error('buildInjectionBlock should not be called when CLAUDE_MEM_TEAM_INJECT is not true');
+          throw new Error('buildInjectionBlock should not be called when MEMSMITH_TEAM_INJECT is not true');
         },
         executeWithWorkerFallback: async (apiPath, method, body) => {
           workerCallLog.push({ path: apiPath, method, body });
@@ -479,7 +479,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
         prompt: ${JSON.stringify(prompt)},
       });
       if (!result.continue) throw new Error('result.continue must be true: ' + JSON.stringify(result));
-      if (fetchTeamMemoryCalled) throw new Error('fetchTeamMemory should NOT have been called when CLAUDE_MEM_TEAM_INJECT is absent');
+      if (fetchTeamMemoryCalled) throw new Error('fetchTeamMemory should NOT have been called when MEMSMITH_TEAM_INJECT is absent');
       const semanticWorkerCalls = workerCallLog.filter(c => c.path === '/api/context/semantic');
       if (semanticWorkerCalls.length !== 1) throw new Error('worker semantic should have been called once, got: ' + semanticWorkerCalls.length);
       if (result.hookSpecificOutput?.additionalContext !== 'worker semantic context') {

@@ -101,11 +101,11 @@ describe('Install Non-TTY Support', () => {
 
     it('documents the explicit --disable-auto-memory install flag in help output', () => {
       expect(readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'index.ts'), 'utf-8'))
-        .toContain('npx claude-mem install --disable-auto-memory');
+        .toContain('npx memsmith install --disable-auto-memory');
     });
 
     it('uses console.log for intro in non-interactive mode', () => {
-      expect(installSource).toContain("console.log('claude-mem install')");
+      expect(installSource).toContain("console.log('memsmith install')");
     });
 
     it('uses console.log for note/summary in non-interactive mode', () => {
@@ -166,13 +166,13 @@ describe('Install Non-TTY Support', () => {
       expect(registerRegion).toContain("['plugin', 'marketplace', 'add', marketplaceRoot]");
     });
 
-    it('enables Codex hooks and claude-mem plugin config during install', () => {
+    it('enables Codex hooks and memsmith plugin config during install', () => {
       const installRegion = codexInstallerSource.slice(
         codexInstallerSource.indexOf('export async function installCodexCli'),
         codexInstallerSource.indexOf('export function uninstallCodexCli'),
       );
       expect(codexInstallerSource).toContain("setTomlFeatureEnabled(next, 'hooks', true)");
-      expect(codexInstallerSource).toContain("const CODEX_PLUGIN_ID = `claude-mem@${MARKETPLACE_NAME}`");
+      expect(codexInstallerSource).toContain("const CODEX_PLUGIN_ID = `memsmith@${MARKETPLACE_NAME}`");
       expect(installRegion).toContain('enableCodexPluginConfig()');
       expect(installRegion).not.toContain('plugin_hooks');
     });
@@ -281,7 +281,7 @@ describe('Install Non-TTY Support', () => {
       expect(installSource).toContain("value: 'server'");
       expect(installSource).toContain('Server (beta)');
       expect(installSource).toContain("initialValue: 'worker'");
-      expect(installSource).toContain('CLAUDE_MEM_RUNTIME');
+      expect(installSource).toContain('MEMSMITH_RUNTIME');
     });
   });
 
@@ -296,7 +296,7 @@ describe('Install Non-TTY Support', () => {
 
     it('addresses privacy: everything stays local', () => {
       expect(installSource).toContain('Everything stays in ');
-      expect(installSource).toContain("styleText('cyan', '~/.claude-mem')");
+      expect(installSource).toContain("styleText('cyan', '~/.memsmith')");
     });
 
     it('keeps /learn-codebase as the optional front-load path', () => {

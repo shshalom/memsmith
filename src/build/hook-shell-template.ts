@@ -18,7 +18,7 @@
  *   1. ${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}   (host-injected env)
  *   2. (mcp only) $PWD/plugin, $PWD               (repo/dev checkout)
  *   3. cache directories (newest first via `ls -dt`)
- *   4. $_C/plugins/marketplaces/thedotmack/plugin (marketplace install)
+ *   4. $_C/plugins/marketplaces/shshalom/plugin (marketplace install)
  */
 
 export type ShellTemplateHost = 'claude-code' | 'claude-code-setup' | 'codex-cli' | 'mcp';
@@ -38,7 +38,7 @@ export interface ShellTemplateOptions {
    * so mcp callers may omit it.
    */
   trailingCommand?: string[];
-  /** Extra env exports prepended to the trailing command (e.g. CLAUDE_MEM_CODEX_HOOK=1). */
+  /** Extra env exports prepended to the trailing command (e.g. MEMSMITH_CODEX_HOOK=1). */
   extraEnv?: Record<string, string>;
   /** Optional trailing JSON echoed after the command (e.g. SessionStart continue marker). */
   trailingJson?: object;
@@ -119,11 +119,11 @@ function candidateBlock(options: ShellTemplateOptions): string {
   }
 
   const extraCacheRoots = isMcp && options.mcpExtraCacheRoots ? options.mcpExtraCacheRoots : [];
-  const allGlobs = [...extraCacheRoots, '$_C/plugins/cache/thedotmack/claude-mem']
+  const allGlobs = [...extraCacheRoots, '$_C/plugins/cache/shshalom/memsmith']
     .map((root) => `"${root}"/[0-9]*/`)
     .join(' ');
   lines.push(`ls -dt ${allGlobs} 2>/dev/null;`);
-  lines.push(`printf '%s\\n' "$_C/plugins/marketplaces/thedotmack/plugin";`);
+  lines.push(`printf '%s\\n' "$_C/plugins/marketplaces/shshalom/plugin";`);
 
   // The MCP loop trims a trailing slash inline; the hook loop trims via _R="${_R%/}".
   const trimAssignment = isMcp ? '' : ' _R="${_R%/}";';
@@ -179,9 +179,9 @@ function buildMcpNodeLauncher(options: ShellTemplateOptions): string {
   const candidates = (options.mcpExtraCandidates ?? []).map(shTokenToNode);
   const cacheRoots = [
     ...(options.mcpExtraCacheRoots ?? []),
-    '$_C/plugins/cache/thedotmack/claude-mem',
+    '$_C/plugins/cache/shshalom/memsmith',
   ].map(shTokenToNode);
-  const marketplace = shTokenToNode('$_C/plugins/marketplaces/thedotmack/plugin');
+  const marketplace = shTokenToNode('$_C/plugins/marketplaces/shshalom/plugin');
   const require = JSON.stringify(options.requireFile);
   const notFound = JSON.stringify(`${options.notFoundMessage}\n`);
 

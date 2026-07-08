@@ -41,7 +41,7 @@ export async function captureCliEvent(
       properties.$process_person_profile = false;
     }
 
-    if (process.env.CLAUDE_MEM_TELEMETRY_DEBUG === '1') {
+    if (process.env.MEMSMITH_TELEMETRY_DEBUG === '1') {
       process.stderr.write('[telemetry] ' + JSON.stringify({ event, properties }) + '\n');
       return;
     }
