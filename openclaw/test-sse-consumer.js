@@ -1,5 +1,5 @@
 
-import claudeMemPlugin from "./dist/index.js";
+import memSmithPlugin from "./dist/index.js";
 
 let registeredService = null;
 const registeredCommands = new Map();
@@ -43,7 +43,7 @@ const mockApi = {
   },
 };
 
-claudeMemPlugin(mockApi);
+memSmithPlugin(mockApi);
 
 let failures = 0;
 
