@@ -95,11 +95,16 @@ export function registerDashboardRoutes(
   }));
 }
 
-// Extract { teamId, projectId? } from query params; return null when teamId is absent.
+// Extract { teamId, projectId? } from query params, falling back to
+// req.authContext when query params are absent. An explicit query param always
+// wins (override). Returns null only if both query and authContext lack teamId.
 function buildScope(req: Parameters<RequestHandler>[0]): { teamId: string; projectId?: string } | null {
-  const teamId = typeof req.query.teamId === 'string' ? req.query.teamId.trim() : '';
+  const queryTeamId = typeof req.query.teamId === 'string' ? req.query.teamId.trim() : '';
+  const queryProjectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : '';
+  // Explicit query param takes precedence; fall back to authContext.
+  const teamId = queryTeamId || req.authContext?.teamId || '';
   if (!teamId) return null;
-  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : undefined;
+  const projectId = queryProjectId || req.authContext?.projectId || undefined;
   return projectId ? { teamId, projectId } : { teamId };
 }
 

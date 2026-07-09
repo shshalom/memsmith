@@ -911,7 +911,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // single source of truth for the read path is the REST core.
     app.post('/v1/search', readAuth, this.handleCreate(
       z.object({
-        projectId: z.string().min(1),
+        projectId: z.string().min(1).optional(),
         query: z.string().min(1),
         limit: z.number().int().positive().max(100).optional(),
         platformSource: z.string().min(1).nullable().optional(),
@@ -919,14 +919,22 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
-        if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Resolve effective projectId: body takes precedence over authContext.
+        // In api-key mode authContext.projectId is set from the key; in local-dev
+        // mode authContext.projectId is null, so callers must pass it explicitly.
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         // Hybrid (FTS+vector via RRF) is the default ranking; force plain FTS
         // with MEMSMITH_SEARCH_HYBRID=0. See resolveSearchResults.
         let results;
         try {
           results = await this.resolveSearchResults({
-            projectId: body.projectId,
+            projectId,
             teamId,
             query: body.query,
             limit: body.limit ?? 20,
@@ -939,7 +947,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           this.handleDbError(err, res, 'observation.search');
           return;
         }
-        await this.auditWrite(req, 'observation.read', null, body.projectId, {
+        await this.auditWrite(req, 'observation.read', null, projectId, {
           mode: 'search',
           query: body.query,
           limit: body.limit ?? 20,
@@ -960,7 +968,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // ranking and context-packing rule.
     app.post('/v1/context', readAuth, this.handleCreate(
       z.object({
-        projectId: z.string().min(1),
+        projectId: z.string().min(1).optional(),
         query: z.string().min(1),
         limit: z.number().int().positive().max(50).optional(),
         platformSource: z.string().min(1).nullable().optional(),
@@ -968,12 +976,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
-        if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Resolve effective projectId: body takes precedence over authContext.
+        // In api-key mode authContext.projectId is set from the key; in local-dev
+        // mode authContext.projectId is null, so callers must pass it explicitly.
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         let results;
         try {
           results = await this.resolveSearchResults({
-            projectId: body.projectId,
+            projectId,
             teamId,
             query: body.query,
             limit: body.limit ?? 10,
@@ -990,7 +1006,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           .map(observation => observation.content)
           .filter(text => typeof text === 'string' && text.length > 0)
           .join('\n\n');
-        await this.auditWrite(req, 'observation.read', null, body.projectId, {
+        await this.auditWrite(req, 'observation.read', null, projectId, {
           mode: 'context',
           query: body.query,
           limit: body.limit ?? 10,
