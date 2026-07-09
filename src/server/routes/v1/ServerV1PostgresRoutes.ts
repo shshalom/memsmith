@@ -1362,7 +1362,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // and on observations having embedding_vec populated). Same inputs, same
   // response shape either way; hybrid degrades to FTS results when the vector
   // arm is empty, so there is no hard dependency for correctness, only ranking.
-  private searchHybridEnabled(): boolean {
+  private async searchHybridEnabledFor(teamId: string): Promise<boolean> {
+    if (this.options.settingsResolver) return this.options.settingsResolver.searchHybridEnabled(teamId);
     return process.env.MEMSMITH_SEARCH_HYBRID !== '0';
   }
 
@@ -1375,9 +1376,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     mode: 'search' | 'context';
   }): Promise<PostgresObservation[]> {
     const repo = new PostgresObservationRepository(this.options.pool);
-    const ranked = this.searchHybridEnabled()
-      ? await repo.hybridSearch(input)
-      : await repo.search(input);
+    const hybrid = await this.searchHybridEnabledFor(input.teamId);
+    let searchInput: typeof input & { ftsWeight?: number; vecWeight?: number; rrfK?: number } = input;
+    if (this.options.settingsResolver) {
+      const w = await this.options.settingsResolver.weights(input.teamId);
+      const rrfK = await this.options.settingsResolver.rrfK(input.teamId);
+      searchInput = { ...input, ftsWeight: w.fts, vecWeight: w.vec, rrfK };
+    }
+    const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(input);
     try {
       return await this.applySupersession(ranked, input.mode, { teamId: input.teamId, projectId: input.projectId });
     } catch (err) {
@@ -1392,7 +1398,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     scope: { teamId: string; projectId?: string },
   ): Promise<PostgresObservation[]> {
     if (ranked.length === 0) return ranked;
-    const heads = await resolveHeads(this.options.pool, ranked.map(r => r.id), scope);
+    const maxDepth = this.options.settingsResolver
+      ? await this.options.settingsResolver.supersedeMaxDepth(scope.teamId)
+      : undefined;
+    const heads = await resolveHeads(this.options.pool, ranked.map(r => r.id), scope, maxDepth);
     const byId = new Map(ranked.map(r => [r.id, r]));
     const needHead = new Set<string>();
     for (const r of ranked) {
