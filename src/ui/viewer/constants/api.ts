@@ -5,3 +5,9 @@ export const API_ENDPOINTS = {
   SETTINGS: '/api/settings',
   STREAM: '/stream',
 } as const;
+
+export const V1_ENDPOINTS = {
+  SEARCH: '/v1/search', CONTEXT: '/v1/context', OBSERVATION: '/v1/observations', STREAM: '/v1/stream',
+  DASH_BOARD: '/dashboard/board', DASH_DECISIONS: '/dashboard/decisions',
+  DASH_BLOCKED: '/dashboard/blocked', DASH_COST: '/dashboard/cost',
+} as const;
