@@ -26,7 +26,15 @@ interface RawBoard {
 interface RawCost {
   discoveryTokens?: number;
   distilledTokens?: number | null;
+  /** Legacy field — kept for back-compat with old costPanel shape */
   estUsd?: number;
+  /** New field from the reworked costPanel (savings story) */
+  estUsdSaved?: number;
+  savedTokens?: number;
+  preTokens?: number;
+  pctSmaller?: number;
+  activeProvider?: string;
+  localGeneration?: boolean;
 }
 
 /** Raw decision chain entry: { head: RawRow, history: RawRow[] } */
@@ -51,7 +59,7 @@ export function toKpis(board: unknown, cost: unknown): Kpis {
     open:     Array.isArray(b.open)     ? b.open.length     : 0,
     blocked:  Array.isArray(b.blocked)  ? b.blocked.length  : 0,
     resolved: Array.isArray(b.resolved) ? b.resolved.length : 0,
-    usd:      typeof c.estUsd === 'number' ? c.estUsd : 0,
+    usd:      typeof c.estUsdSaved === 'number' ? c.estUsdSaved : (typeof c.estUsd === 'number' ? c.estUsd : 0),
   };
 }
 

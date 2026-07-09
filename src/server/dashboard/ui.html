@@ -284,10 +284,13 @@
     try {
       const cost = await fetchJSON(apiUrl('/dashboard/cost'));
       setStatus('cost-status', '');
+      const usd = cost.estUsdSaved ?? cost.estUsd ?? 0;
       const cards = [
         { label: 'Discovery Tokens', value: Number(cost.discoveryTokens ?? 0).toLocaleString(), unit: 'tokens' },
-        { label: 'Est. Cost', value: `$${(cost.estUsd ?? 0).toFixed(4)}`, unit: 'USD (est.)' },
-        { label: 'Distilled Tokens', value: cost.distilledTokens != null ? Number(cost.distilledTokens).toLocaleString() : '—', unit: 'tokens' },
+        { label: 'Saved Tokens', value: Number(cost.savedTokens ?? 0).toLocaleString(), unit: 'tokens' },
+        { label: 'Compression', value: cost.preTokens > 0 ? `${(cost.pctSmaller * 100).toFixed(1)}%` : '—', unit: 'smaller' },
+        { label: 'Est. USD Saved', value: `$${Number(usd).toFixed(4)}`, unit: 'USD (est.)' },
+        { label: 'Provider', value: cost.activeProvider ?? '—', unit: cost.localGeneration ? 'local' : '' },
       ];
       for (const c of cards) {
         const el = document.createElement('div');
