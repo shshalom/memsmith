@@ -2391,6 +2391,816 @@
         transform: translateX(16px);
       }
     }
+
+    /* ============================================================
+       UNIFIED SHELL — app-shell + app-main
+       ============================================================ */
+
+    /* Override body overflow so the shell can control scrolling */
+    body {
+      overflow: hidden;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      background: var(--color-bg-primary);
+    }
+
+    .app-main {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background: var(--color-bg-primary);
+      position: relative;
+    }
+
+    /* ============================================================
+       SIDEBAR — left navigation rail
+       ============================================================ */
+
+    /* New sidebar-specific gold token — used for brand, active nav,
+       active chip. Defined in all four theme contexts so vars resolve. */
+    :root,
+    [data-theme="light"] {
+      --color-sidebar-bg: #1a1916;
+      --color-sidebar-gold: #d4a72c;
+      --color-sidebar-gold-dim: rgba(212, 167, 44, 0.12);
+      --color-sidebar-gold-border: rgba(212, 167, 44, 0.35);
+      --color-sidebar-text: #b8b0a4;
+      --color-sidebar-text-muted: #6a6460;
+      --color-sidebar-border: #2e2c28;
+      --color-sidebar-item-hover: rgba(255, 255, 255, 0.04);
+      --color-sidebar-active-border: #d4a72c;
+    }
+
+    [data-theme="dark"] {
+      --color-sidebar-bg: #141311;
+      --color-sidebar-gold: #c9a02a;
+      --color-sidebar-gold-dim: rgba(201, 160, 42, 0.13);
+      --color-sidebar-gold-border: rgba(201, 160, 42, 0.32);
+      --color-sidebar-text: #a09890;
+      --color-sidebar-text-muted: #5a5450;
+      --color-sidebar-border: #252320;
+      --color-sidebar-item-hover: rgba(255, 255, 255, 0.03);
+      --color-sidebar-active-border: #c9a02a;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme]) {
+        --color-sidebar-bg: #1a1916;
+        --color-sidebar-gold: #d4a72c;
+        --color-sidebar-gold-dim: rgba(212, 167, 44, 0.12);
+        --color-sidebar-gold-border: rgba(212, 167, 44, 0.35);
+        --color-sidebar-text: #b8b0a4;
+        --color-sidebar-text-muted: #6a6460;
+        --color-sidebar-border: #2e2c28;
+        --color-sidebar-item-hover: rgba(255, 255, 255, 0.04);
+        --color-sidebar-active-border: #d4a72c;
+      }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        --color-sidebar-bg: #141311;
+        --color-sidebar-gold: #c9a02a;
+        --color-sidebar-gold-dim: rgba(201, 160, 42, 0.13);
+        --color-sidebar-gold-border: rgba(201, 160, 42, 0.32);
+        --color-sidebar-text: #a09890;
+        --color-sidebar-text-muted: #5a5450;
+        --color-sidebar-border: #252320;
+        --color-sidebar-item-hover: rgba(255, 255, 255, 0.03);
+        --color-sidebar-active-border: #c9a02a;
+      }
+    }
+
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      height: 100vh;
+      background: var(--color-sidebar-bg);
+      border-right: 1px solid var(--color-sidebar-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      z-index: 10;
+    }
+
+    /* Brand wordmark */
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 20px 16px 16px;
+      border-bottom: 1px solid var(--color-sidebar-border);
+      flex-shrink: 0;
+    }
+
+    .sidebar-brand-icon {
+      font-size: 18px;
+      color: var(--color-sidebar-gold);
+      line-height: 1;
+      flex-shrink: 0;
+      filter: drop-shadow(0 0 6px rgba(212, 167, 44, 0.4));
+    }
+
+    .sidebar-brand-name {
+      font-family: 'Monaspace Radon', monospace;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+      color: var(--color-sidebar-gold);
+      line-height: 1;
+    }
+
+    /* Navigation list */
+    .sidebar-nav {
+      list-style: none;
+      padding: 10px 8px;
+      margin: 0;
+      flex-shrink: 0;
+    }
+
+    .sidebar-nav li {
+      margin: 2px 0;
+    }
+
+    .sidebar-nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-sidebar-text);
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      border-left: 2px solid transparent;
+      position: relative;
+    }
+
+    .sidebar-nav-item:hover {
+      background: var(--color-sidebar-item-hover);
+      color: #dcd6cc;
+    }
+
+    .sidebar-nav-item--active {
+      background: var(--color-sidebar-gold-dim);
+      border-left-color: var(--color-sidebar-active-border);
+      color: var(--color-sidebar-gold);
+      font-weight: 600;
+    }
+
+    .sidebar-nav-item--active:hover {
+      background: var(--color-sidebar-gold-dim);
+      color: var(--color-sidebar-gold);
+    }
+
+    /* Status area (logomark + queue bubble + icon buttons) */
+    .sidebar-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--color-sidebar-border);
+      flex-shrink: 0;
+    }
+
+    .sidebar-status-indicator {
+      display: flex;
+      align-items: center;
+    }
+
+    .sidebar-status-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+
+    /* Logomark small variant used in sidebar */
+    .logomark--small {
+      height: 24px;
+      width: auto;
+    }
+
+    /* Icon buttons (help, settings) */
+    .sidebar-icon-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--color-sidebar-text-muted);
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .sidebar-icon-btn:hover {
+      background: var(--color-sidebar-item-hover);
+      border-color: var(--color-sidebar-border);
+      color: var(--color-sidebar-text);
+    }
+
+    /* Footer: project select + theme toggle */
+    .sidebar-footer {
+      padding: 10px 10px 14px;
+      border-top: 1px solid var(--color-sidebar-border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    /* Push footer to bottom of sidebar */
+    .sidebar-nav ~ .sidebar-footer,
+    .sidebar-status ~ .sidebar-footer {
+      margin-top: auto;
+    }
+
+    /* Use flex-column + push footer to bottom */
+    .sidebar > .sidebar-footer {
+      margin-top: auto;
+    }
+
+    .sidebar-project-select {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--color-sidebar-border);
+      border-radius: 6px;
+      color: var(--color-sidebar-text);
+      font-size: 12px;
+      padding: 6px 28px 6px 10px;
+      height: 32px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='10' height='10' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%236a6460' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .sidebar-project-select:hover {
+      border-color: var(--color-sidebar-gold-border);
+    }
+
+    .sidebar-project-select:focus {
+      outline: none;
+      border-color: var(--color-sidebar-gold);
+      box-shadow: 0 0 0 2px var(--color-sidebar-gold-dim);
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .sidebar-nav-item,
+      .sidebar-icon-btn,
+      .sidebar-project-select {
+        transition: none;
+      }
+    }
+
+    /* ============================================================
+       OBSERVATIONS VIEW
+       ============================================================ */
+
+    .observations-view {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .obs-filters {
+      padding: 16px 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--color-border-primary);
+      padding-bottom: 12px;
+      background: var(--color-bg-primary);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    .obs-search-row {
+      display: flex;
+      align-items: center;
+    }
+
+    .obs-search-input {
+      width: 100%;
+      background: var(--color-bg-input);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 14px;
+      color: var(--color-text-primary);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      height: 40px;
+    }
+
+    .obs-search-input::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    .obs-search-input:hover {
+      border-color: var(--color-border-hover);
+    }
+
+    .obs-search-input:focus {
+      outline: none;
+      border-color: var(--color-border-focus);
+      box-shadow: var(--shadow-focus);
+    }
+
+    /* Filter chip rows */
+    .obs-chips-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    /* Base chip — pill shape, subtle border, no fill */
+    .obs-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      background: transparent;
+      border: 1px solid var(--color-border-primary);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+      line-height: 1.4;
+      text-transform: lowercase;
+    }
+
+    .obs-chip:hover {
+      background: var(--color-bg-card-hover);
+      border-color: var(--color-border-hover);
+      color: var(--color-text-primary);
+      transform: translateY(-1px);
+    }
+
+    /* Active chip — filled with gold */
+    .obs-chip--active {
+      background: var(--color-border-summary);
+      border-color: var(--color-border-summary);
+      color: #1a1410;
+      font-weight: 600;
+    }
+
+    .obs-chip--active:hover {
+      background: var(--color-border-summary-hover);
+      border-color: var(--color-border-summary-hover);
+      color: #1a1410;
+      transform: translateY(-1px);
+    }
+
+    /* Dark theme gold chip — lighter text on the gold fill */
+    [data-theme="dark"] .obs-chip--active {
+      color: #1a1410;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) .obs-chip--active {
+        color: #1a1410;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .obs-chip {
+        transition: none;
+      }
+    }
+
+    /* Feed area inside observations view scrolls naturally with app-main */
+    .observations-view .feed {
+      flex: 1;
+      height: auto;
+    }
+
+    /* ============================================================
+       DASHBOARD VIEW
+       ============================================================ */
+
+    .dashboard-view {
+      padding: 24px 28px 48px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* ── KPI Strip ────────────────────────────────────────────── */
+
+    .dash-kpi-strip {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .dash-kpi-card {
+      flex: 1 1 120px;
+      min-width: 100px;
+      background: var(--color-bg-stat);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 10px;
+      padding: 16px 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .dash-kpi-card:hover {
+      border-color: var(--color-border-hover);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Blocked KPI — red tint accent */
+    .dash-kpi-card--blocked {
+      border-color: rgba(209, 36, 47, 0.25);
+    }
+
+    .dash-kpi-card--blocked .dash-kpi-value {
+      color: var(--color-accent-error);
+    }
+
+    /* Cost KPI — gold tint accent */
+    .dash-kpi-card--cost {
+      border-color: var(--color-border-summary);
+    }
+
+    .dash-kpi-card--cost .dash-kpi-value {
+      color: var(--color-text-summary);
+    }
+
+    .dash-kpi-value {
+      font-family: 'Monaspace Radon', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--color-text-title);
+      letter-spacing: -0.03em;
+    }
+
+    .dash-kpi-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Section wrapper ──────────────────────────────────────── */
+
+    .dash-section {
+      margin-bottom: 32px;
+    }
+
+    /* Seam variant — visually separated "team-identity" placeholder panel */
+    .dash-section--seam {
+      border: 1px dashed var(--color-border-primary);
+      border-radius: 10px;
+      padding: 18px 20px;
+      opacity: 0.75;
+    }
+
+    .dash-section-title {
+      font-family: 'Monaspace Radon', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--color-text-summary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    /* ── Kanban board ─────────────────────────────────────────── */
+
+    .dash-kanban {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .dash-kanban-col {
+      flex: 1 1 140px;
+      min-width: 130px;
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dash-kanban-col-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .dash-kanban-state {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--color-text-secondary);
+    }
+
+    .dash-kanban-count {
+      font-family: 'Monaspace Radon', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--color-text-summary);
+      background: var(--color-bg-stat);
+      border-radius: 999px;
+      padding: 1px 7px;
+    }
+
+    /* Per-state column accent border */
+    .dash-kanban-col--open { border-top: 2px solid var(--color-accent-primary); }
+    .dash-kanban-col--active { border-top: 2px solid var(--color-accent-success); }
+    .dash-kanban-col--blocked { border-top: 2px solid var(--color-accent-error); }
+    .dash-kanban-col--deferred { border-top: 2px solid var(--color-text-muted); }
+    .dash-kanban-col--resolved { border-top: 2px solid var(--color-text-secondary); }
+    .dash-kanban-col--superseded { border-top: 2px solid var(--color-border-primary); }
+
+    .dash-kanban-items {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .dash-kanban-item {
+      font-size: 12px;
+      color: var(--color-text-primary);
+      background: var(--color-bg-secondary);
+      border-radius: 5px;
+      padding: 5px 8px;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: default;
+      transition: background 0.12s ease;
+    }
+
+    .dash-kanban-item:hover {
+      background: var(--color-bg-card-hover);
+    }
+
+    .dash-kanban-empty {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      text-align: center;
+      padding: 10px 0;
+      font-style: italic;
+    }
+
+    /* ── Decision Log ─────────────────────────────────────────── */
+
+    .dash-decisions {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .dash-decision-chain {
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-primary);
+      border-left: 3px solid var(--color-border-summary);
+      border-radius: 8px;
+      padding: 14px 16px;
+      transition: border-color 0.15s ease;
+    }
+
+    .dash-decision-chain:hover {
+      border-color: var(--color-border-hover);
+      border-left-color: var(--color-border-summary-hover);
+    }
+
+    .dash-decision-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .dash-decision-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-text-title);
+      line-height: 1.4;
+      flex: 1 1 auto;
+    }
+
+    .dash-decision-why {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      font-size: 13px;
+      color: var(--color-text-summary);
+      background: var(--color-bg-summary);
+      border-radius: 5px;
+      padding: 7px 10px;
+      line-height: 1.5;
+      border-left: 2px solid var(--color-border-summary);
+    }
+
+    .dash-decision-toggle {
+      background: transparent;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+      flex-shrink: 0;
+    }
+
+    .dash-decision-toggle:hover {
+      background: var(--color-bg-card-hover);
+      color: var(--color-text-secondary);
+    }
+
+    .dash-decision-history {
+      list-style: none;
+      padding: 0;
+      margin: 10px 0 0;
+      border-top: 1px dashed var(--color-border-primary);
+      padding-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .dash-decision-history-item {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      padding: 3px 0;
+      padding-left: 14px;
+      position: relative;
+    }
+
+    .dash-decision-history-item::before {
+      content: '↳';
+      position: absolute;
+      left: 0;
+      color: var(--color-border-summary);
+    }
+
+    /* ── Cost panel ───────────────────────────────────────────── */
+
+    .dash-cost-dl {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 16px;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+    }
+
+    .dash-cost-dl dt {
+      color: var(--color-text-muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .dash-cost-dl dd {
+      font-family: 'Monaspace Radon', monospace;
+      color: var(--color-text-primary);
+      margin: 0;
+    }
+
+    /* ── Blocked-on-whom panel ────────────────────────────────── */
+
+    .dash-blocker-group {
+      margin-bottom: 16px;
+    }
+
+    .dash-blocker-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .dash-blocker-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-accent-error);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .dash-blocker-items {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .dash-blocker-item {
+      font-size: 13px;
+      color: var(--color-text-primary);
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 5px;
+      padding: 6px 10px;
+    }
+
+    /* ── Loading / error / empty states ──────────────────────── */
+
+    .dash-loading,
+    .dash-error,
+    .dash-empty {
+      padding: 32px 20px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--color-text-muted);
+    }
+
+    .dash-error {
+      color: var(--color-accent-error);
+    }
+
+    /* ── Responsive adjustments ───────────────────────────────── */
+
+    @media (max-width: 768px) {
+      .sidebar {
+        width: 180px;
+      }
+
+      .dashboard-view {
+        padding: 16px 16px 32px;
+      }
+
+      .dash-kpi-strip {
+        gap: 10px;
+      }
+
+      .dash-kpi-value {
+        font-size: 22px;
+      }
+
+      .dash-kanban {
+        gap: 8px;
+      }
+    }
+
+    /* Collapse sidebar to icon-only strip on very small screens;
+       or hide it entirely — keep it simple for now */
+    @media (max-width: 500px) {
+      .sidebar {
+        width: 48px;
+      }
+
+      .sidebar-brand-name,
+      .sidebar-nav-item,
+      .sidebar-project-select,
+      .sidebar-status-actions {
+        display: none;
+      }
+
+      .sidebar-brand {
+        justify-content: center;
+        padding: 16px 8px;
+      }
+
+      .sidebar-brand-icon {
+        font-size: 20px;
+      }
+    }
   </style>
 </head>
 
