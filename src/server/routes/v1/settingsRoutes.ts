@@ -4,6 +4,15 @@ import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { SETTING_KEYS, getSettingKey, validateSettingValue } from '../../settings/settingKeys.js';
 
+/** Matches the signature of ServerV1PostgresRoutes.auditWrite for injection. */
+export type AuditFn = (
+  req: Request,
+  action: string,
+  targetId: string | null,
+  projectId: string | null,
+  details?: Record<string, unknown>,
+) => Promise<void>;
+
 const CLOUD = new Set(['claude', 'anthropic', 'gemini', 'openrouter']);
 const LOCAL = new Set(['ollama']);
 
@@ -32,6 +41,9 @@ export interface SettingsRouteDeps {
   store: SettingsStore;
   // Returns true if allowed; else writes a 403 and returns false.
   requireScopes: (req: Request, res: Response, needed: string) => boolean;
+  // Optional audit writer injected by the production wiring layer.
+  // Called only on a successful write; never called on 400/confirmation paths.
+  auditFn?: AuditFn;
 }
 
 export function registerSettingsRoutes(app: Application, deps: SettingsRouteDeps): void {
@@ -72,9 +84,12 @@ export function registerSettingsRoutes(app: Application, deps: SettingsRouteDeps
       }
     }
 
-    // 4. Write + invalidate + return resolved.
+    // 4. Write + invalidate + audit + return resolved.
     await deps.store.putTeamOverrides(teamId, clean);
     deps.resolver.invalidate(teamId);
+    if (deps.auditFn) {
+      await deps.auditFn(req, 'settings.update', null, null, { keys: Object.keys(clean) });
+    }
     res.status(200).json(await resolvedPayload(deps.resolver, teamId));
   });
 }

@@ -6,14 +6,14 @@ import type { AddressInfo } from 'net';
 import { bootstrapServerPostgresSchema } from '../../src/storage/postgres/schema.js';
 import { SettingsStore } from '../../src/server/settings/SettingsStore.js';
 import { SettingsResolver } from '../../src/server/settings/SettingsResolver.js';
-import { registerSettingsRoutes } from '../../src/server/routes/v1/settingsRoutes.js';
+import { registerSettingsRoutes, type SettingsRouteDeps } from '../../src/server/routes/v1/settingsRoutes.js';
 
 const CONN = process.env.TEST_PG_URL ?? 'postgres://postgres:postgres@localhost:55432/memsmith';
 const pool = new Pool({ connectionString: CONN });
 const TEAM = 'team-v1-settings';
 
 // Minimal app that injects an authContext + admin scope, then mounts the routes.
-function appWith(scope: string[]) {
+function appWith(scope: string[], extraDeps?: Partial<SettingsRouteDeps>) {
   const store = new SettingsStore(pool);
   const resolver = new SettingsResolver(store, { ttlMs: 0 });
   const app = express();
@@ -26,6 +26,7 @@ function appWith(scope: string[]) {
       if (req.authContext.scopes.includes('*') || req.authContext.scopes.includes(needed)) return true;
       res.status(403).json({ error: 'Forbidden' }); return false;
     },
+    ...extraDeps,
   });
   return app;
 }
@@ -140,6 +141,70 @@ describe('/v1/settings', () => {
     } finally {
       delete process.env.MEMSMITH_ANTHROPIC_API_KEY;
       await close();
+    }
+  });
+
+  it('calls auditFn exactly once on successful PATCH', async () => {
+    const calls: { action: string; keys: string[] }[] = [];
+    const auditFn = async (_req: any, action: string, _targetId: string | null, _projectId: string | null, details?: Record<string, unknown>) => {
+      calls.push({ action, keys: (details?.keys as string[]) ?? [] });
+    };
+
+    const app = appWith(['settings:admin'], { auditFn });
+    const server = await new Promise<{ call: (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>; close: () => Promise<void> }>((resolve, reject) => {
+      const s = app.listen(0, '127.0.0.1', () => {
+        const { port } = s.address() as AddressInfo;
+        const base = `http://127.0.0.1:${port}`;
+        const call = async (method: string, path: string, body?: unknown) => {
+          const init: RequestInit = { method: method.toUpperCase(), headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined };
+          const res = await fetch(`${base}${path}`, init);
+          let json: any; try { json = await res.json(); } catch { json = null; }
+          return { status: res.status, body: json };
+        };
+        const close = () => new Promise<void>((res, rej) => s.close((err) => err ? rej(err) : res()));
+        resolve({ call, close });
+      });
+      s.on('error', reject);
+    });
+
+    try {
+      const res = await server.call('PATCH', '/v1/settings', { patch: { tiering: false } });
+      expect(res.status).toBe(200);
+      expect(calls.length).toBe(1);
+      expect(calls[0]!.action).toBe('settings.update');
+      expect(calls[0]!.keys).toContain('tiering');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does NOT call auditFn on validation failure', async () => {
+    const calls: unknown[] = [];
+    const auditFn = async () => { calls.push(true); };
+
+    const app = appWith(['settings:admin'], { auditFn });
+    const server = await new Promise<{ call: (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>; close: () => Promise<void> }>((resolve, reject) => {
+      const s = app.listen(0, '127.0.0.1', () => {
+        const { port } = s.address() as AddressInfo;
+        const base = `http://127.0.0.1:${port}`;
+        const call = async (method: string, path: string, body?: unknown) => {
+          const init: RequestInit = { method: method.toUpperCase(), headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined };
+          const res = await fetch(`${base}${path}`, init);
+          let json: any; try { json = await res.json(); } catch { json = null; }
+          return { status: res.status, body: json };
+        };
+        const close = () => new Promise<void>((res, rej) => s.close((err) => err ? rej(err) : res()));
+        resolve({ call, close });
+      });
+      s.on('error', reject);
+    });
+
+    try {
+      const res = await server.call('PATCH', '/v1/settings', { patch: { ftsWeight: 999 } });
+      expect(res.status).toBe(400);
+      expect(calls.length).toBe(0);
+    } finally {
+      await server.close();
     }
   });
 });

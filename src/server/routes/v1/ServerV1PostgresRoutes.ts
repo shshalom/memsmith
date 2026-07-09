@@ -1219,6 +1219,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           res.status(403).json({ error: 'Forbidden', message: 'insufficient scope' });
           return false;
         },
+        auditFn: this.auditWrite.bind(this),
       });
     }
   }
@@ -2065,6 +2066,7 @@ function resolveAuditResourceType(action: string): string {
     'generation_job.retried_by_operator': 'observation_generation_job',
     'generation_job.cancelled_by_operator': 'observation_generation_job',
     'generation_job.stalled': 'observation_generation_job',
+    'settings.update': 'team_settings',
   };
   if (map[action]) return map[action]!;
   return action.split('.')[0] ?? 'unknown';
