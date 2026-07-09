@@ -225,6 +225,7 @@ export class ServerService {
       db: this.graph.postgres.pool,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
       localDevTeamId: this.graph.localDevTeamId,
+      settingsResolver,
     }));
 
     server.finalizeRoutes();
