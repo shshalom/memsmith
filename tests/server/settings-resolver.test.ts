@@ -56,4 +56,19 @@ describe('SettingsResolver precedence', () => {
     await r.resolve('t', 'tiering');
     expect(reads).toBe(2);
   });
+
+  it('re-reads the store once the ttl elapses (natural expiry)', async () => {
+    let reads = 0;
+    const store = { getTeamOverrides: async () => { reads++; return {}; }, putTeamOverrides: async () => {} } as any;
+    let t = 1000;
+    const r = new SettingsResolver(store, { ttlMs: 2000, now: () => t });
+    await r.resolve('t', 'tiering');
+    expect(reads).toBe(1);
+    t = 1500; // within ttl -> still cached
+    await r.resolve('t', 'tiering');
+    expect(reads).toBe(1);
+    t = 3001; // past t(1000) + ttl(2000) -> expired
+    await r.resolve('t', 'tiering');
+    expect(reads).toBe(2);
+  });
 });

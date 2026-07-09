@@ -80,6 +80,9 @@ export function validateSettingValue(
 }
 
 export function coerceEnvValue(k: SettingKey, raw: string): unknown {
+  // An empty env value means "unset" — return undefined so the caller falls
+  // through to the code default rather than coercing '' to a truthy boolean.
+  if (raw === '') return undefined;
   if (k.type === 'boolean') return raw !== '0' && raw.toLowerCase() !== 'off' && raw.toLowerCase() !== 'false';
   if (k.type === 'number') return Number(raw);
   if (k.type === 'enum') return raw.trim().toLowerCase();
