@@ -32,11 +32,11 @@ async function successorOf(db: PostgresQueryable, id: string, scope: SupersedeSc
 }
 
 export async function resolveSupersessionHead(
-  db: PostgresQueryable, startId: string, scope: SupersedeScope,
+  db: PostgresQueryable, startId: string, scope: SupersedeScope, maxDepth?: number,
 ): Promise<string> {
   let current = startId;
   const visited = new Set<string>([startId]);
-  const cap = maxChainDepth();
+  const cap = maxDepth !== undefined ? maxDepth : maxChainDepth();
   for (let depth = 0; depth < cap; depth++) {
     const next = await successorOf(db, current, scope);
     if (next === null) break;
@@ -52,7 +52,7 @@ export async function resolveSupersessionHead(
 
 // Batch: resolve many ids, memoizing so shared tails are walked once.
 export async function resolveHeads(
-  db: PostgresQueryable, ids: string[], scope: SupersedeScope,
+  db: PostgresQueryable, ids: string[], scope: SupersedeScope, maxDepth?: number,
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const memo = new Map<string, string>(); // id seen mid-walk -> its head
@@ -63,7 +63,7 @@ export async function resolveHeads(
     const path: string[] = [id];
     let current = id;
     const visited = new Set<string>([id]);
-    const cap = maxChainDepth();
+    const cap = maxDepth !== undefined ? maxDepth : maxChainDepth();
     let hitMemo: string | null = null;
     for (let depth = 0; depth < cap; depth++) {
       if (memo.has(current)) { hitMemo = memo.get(current)!; break; }

@@ -3,7 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import type { PostgresQueryable } from './utils.js';
 
-export const SERVER_POSTGRES_SCHEMA_VERSION = 3;
+export const SERVER_POSTGRES_SCHEMA_VERSION = 4;
 
 // Phase 1b (cmem-sdk rename): the TS constant is renamed but the table-name
 // strings remain on `server_beta_*` since they are persisted DDL identifiers.
@@ -22,7 +22,8 @@ export const SERVER_POSTGRES_TABLES = [
   'observation_sources',
   'observation_generation_job_events',
   'usage_events',
-  'rate_limit_counters'
+  'rate_limit_counters',
+  'server_settings'
 ] as const;
 
 export async function bootstrapServerPostgresSchema(client: PostgresQueryable): Promise<void> {
@@ -86,6 +87,22 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
       ON CONFLICT (version) DO NOTHING
     `,
     [3, 'team-agent-memory: pgvector embedding_vec + hnsw index']
+  );
+  // Migration 004: per-team server settings overrides (team-scoped control panel).
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS server_settings (
+       team_id text PRIMARY KEY,
+       overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
+       updated_at timestamptz NOT NULL DEFAULT now()
+     )`
+  );
+  await client.query(
+    `
+      INSERT INTO server_beta_schema_migrations (version, description)
+      VALUES ($1, $2)
+      ON CONFLICT (version) DO NOTHING
+    `,
+    [4, 'team-agent-memory: per-team server_settings overrides']
   );
 }
 

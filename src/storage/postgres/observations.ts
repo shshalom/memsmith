@@ -264,7 +264,7 @@ export class PostgresObservationRepository {
   async hybridSearch(input: {
     projectId: string; teamId: string; query: string; limit?: number;
     obsType?: string | null; lifecycleState?: string | null;
-    ftsWeight?: number; vecWeight?: number;
+    ftsWeight?: number; vecWeight?: number; rrfK?: number;
     expandQueries?: boolean; platformSource?: string | null;
   }): Promise<PostgresObservation[]> {
     const limit = input.limit ?? 5;
@@ -295,7 +295,7 @@ export class PostgresObservationRepository {
       this.multiVectorSearch(input.projectId, input.teamId, variants, pool).catch(() => [] as PostgresObservation[]),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
-    const fused = combineRanks([toRanked(fts), toRanked(vec)], undefined, [ftsWeight, vecWeight]);
+    const fused = combineRanks([toRanked(fts), toRanked(vec)], input.rrfK, [ftsWeight, vecWeight]);
     const byId = new Map<string, PostgresObservation>();
     for (const o of [...fts, ...vec]) byId.set(o.id, o);
     return fused

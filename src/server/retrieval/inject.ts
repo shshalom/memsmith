@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 import { positionForInjection } from './positioning.js';
 import { tierToBudget, type TierInput } from './tiering.js';
+import type { SettingsResolver } from '../settings/SettingsResolver.js';
+import { buildCompressionEvent } from './compressionMetering.js';
+import type { PostgresUsageRepository } from '../../storage/postgres/usage.js';
 
 export interface InjectDeps {
   hybridSearch(input: { projectId: string; teamId: string; query: string; limit?: number }): Promise<Array<{ content: string; metadata: Record<string, unknown> }>>;
 }
 
-function tieringEnabled(): boolean {
+function tieringEnabledEnv(): boolean {
   const v = process.env.MEMSMITH_TIERING;
   return v !== '0' && v !== 'off';
 }
 
 export async function buildInjectionBlock(
   deps: InjectDeps,
-  input: { projectId: string; teamId: string; query: string; maxItems?: number; maxChars?: number }
+  input: { projectId: string; teamId: string; query: string; maxItems?: number; maxChars?: number; resolver?: SettingsResolver; usage?: PostgresUsageRepository }
 ): Promise<string> {
   const maxItems = input.maxItems ?? 5;
   const maxChars = input.maxChars ?? 10000;
@@ -26,9 +29,22 @@ export async function buildInjectionBlock(
   // final .slice(0, maxChars) below is the hard cap that guarantees the limit.
   const bodyBudget = Math.max(0, maxChars - header.length);
 
-  if (tieringEnabled()) {
+  const tiering = input.resolver ? await input.resolver.tieringEnabled(input.teamId) : tieringEnabledEnv();
+  if (tiering) {
     try {
       const rendered = tierToBudget(visible, { maxChars: bodyBudget, maxItems });
+      if (input.usage && process.env.MEMSMITH_USAGE_METERING === '1') {
+        try {
+          for (let i = 0; i < rendered.length; i++) {
+            const preChars = (visible[i]?.content ?? '').length;
+            const postChars = rendered[i].length;
+            if (preChars > postChars) {
+              const ev = buildCompressionEvent(input.teamId, input.projectId ?? null, preChars, postChars, 'tiered');
+              await input.usage.record(ev);
+            }
+          }
+        } catch { /* metering must never break injection */ }
+      }
       const body = positionForInjection(rendered, maxItems);
       if (body) return (header + body).slice(0, maxChars);
       // fall through to legacy on empty body

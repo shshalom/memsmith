@@ -52,11 +52,25 @@ export async function blockedOnWhom(db: PostgresQueryable, s: Scope) {
   }
   return byBlocker;
 }
-export async function costPanel(db: PostgresQueryable, s: Scope) {
+export async function costPanel(db: PostgresQueryable, s: Scope, resolver?: {
+  inputRatePerMtok(teamId: string): Promise<number>;
+  provider(teamId: string): Promise<string>;
+}) {
   const w = scopeWhere(s);
-  const { rows } = await db.query(
+  const comp = await db.query(
+    `SELECT COALESCE(SUM(quantity),0) AS saved,
+            COALESCE(SUM((metadata->>'preTokens')::bigint),0) AS pre
+       FROM usage_events
+      WHERE ${w.sql} AND kind = 'compression'`, w.args);
+  const savedTokens = Number(comp.rows[0].saved);
+  const preTokens = Number(comp.rows[0].pre);
+  const pctSmaller = preTokens > 0 ? savedTokens / preTokens : 0;
+  const rate = resolver ? await resolver.inputRatePerMtok(s.teamId) : Number(process.env.MEMSMITH_INPUT_RATE_PER_MTOK ?? 5);
+  const estUsdSaved = (savedTokens / 1_000_000) * rate;
+  const activeProvider = resolver ? await resolver.provider(s.teamId) : (process.env.MEMSMITH_SERVER_PROVIDER ?? 'ollama').toLowerCase();
+  const localGeneration = activeProvider === 'ollama';
+  // discovery_tokens retained for back-compat with the existing dashboard strip.
+  const disc = await db.query(
     `SELECT COALESCE(SUM((metadata->>'discovery_tokens')::bigint),0) AS discovery_tokens FROM observations WHERE ${w.sql}`, w.args);
-  const discoveryTokens = Number(rows[0].discovery_tokens);
-  const RATE = Number(process.env.MEMSMITH_INPUT_RATE_PER_MTOK ?? 5);
-  return { discoveryTokens, distilledTokens: null, estUsd: (discoveryTokens / 1_000_000) * RATE };
+  return { savedTokens, preTokens, pctSmaller, estUsdSaved, activeProvider, localGeneration, discoveryTokens: Number(disc.rows[0].discovery_tokens) };
 }

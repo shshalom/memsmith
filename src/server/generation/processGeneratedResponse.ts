@@ -23,12 +23,14 @@ import {
 import { stripTags } from '../../utils/tag-stripping.js';
 import { ObservationStream } from '../routes/v1/ObservationStream.js';
 
-const QUALITY_FLOOR = Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
+function qualityFloorEnv(): number {
+  return Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
+}
 
 // Pure, testable core. Returns kept observations with `quality` stamped on.
 export function applyQualityGate<T extends {
   obsType?: string; facts?: string[]; narrative?: string; title?: string; concepts?: string[];
-}>(parsed: T[], floor: number = QUALITY_FLOOR): (T & { quality: number })[] {
+}>(parsed: T[], floor: number = qualityFloorEnv()): (T & { quality: number })[] {
   const kept: (T & { quality: number })[] = [];
   for (const p of parsed) {
     const quality = scoreObservation(p);
@@ -77,6 +79,9 @@ export interface ProcessGeneratedResponseInput {
   sourceAdapter?: string | null;
   // Provider tokens this job spent (from the generate() result), for cost metering.
   tokensUsed?: number;
+  // Task 13 — optional resolver so team overrides for qualityFloor are honored.
+  // When absent the env-default qualityFloorEnv() is used as before.
+  resolver?: { qualityFloor(teamId: string): Promise<number> };
 }
 
 export async function processGeneratedResponse(
@@ -106,7 +111,8 @@ export async function processGeneratedResponse(
     title: o.title ?? undefined,
     concepts: o.concepts,
   }));
-  const kept = applyQualityGate(scoreable);
+  const floor = input.resolver ? await input.resolver.qualityFloor(input.job.teamId) : undefined;
+  const kept = floor !== undefined ? applyQualityGate(scoreable, floor) : applyQualityGate(scoreable);
   const droppedCount = scoreable.length - kept.length;
   if (droppedCount > 0) {
     logger.info('SYSTEM', 'quality gate dropped low-signal observations', {

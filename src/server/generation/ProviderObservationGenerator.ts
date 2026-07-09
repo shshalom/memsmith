@@ -23,6 +23,8 @@ import {
 } from './processGeneratedResponse.js';
 import { PostgresServerSessionsRepository } from '../../storage/postgres/server-sessions.js';
 import { parseAgentXml } from '../../sdk/parser.js';
+import type { GenerationProviderHolder } from './GenerationProviderHolder.js';
+import type { SettingsResolver } from '../settings/SettingsResolver.js';
 
 // Phase 11 — sentinel exception class so the worker can distinguish
 // scope-violation/revoked-key failures from generic processor errors and
@@ -57,6 +59,14 @@ export interface ProviderObservationGeneratorOptions {
   pool: PostgresPool;
   provider: ServerGenerationProvider;
   workerId?: string;
+  // Task 9: optional holder for live provider hot-swap. When present, each job
+  // resolves its provider via the holder at job-start; in-flight jobs complete
+  // on the provider they resolved while the next job picks up any switch.
+  // Falls back to `provider` when the holder returns null or is absent.
+  providerHolder?: GenerationProviderHolder;
+  // Task 13: optional resolver so team overrides for reformatRetries and
+  // qualityFloor are honored. Falls back to env when absent.
+  settingsResolver?: SettingsResolver;
 }
 
 export class ProviderObservationGenerator {
@@ -189,8 +199,15 @@ export class ProviderObservationGenerator {
       },
     });
 
+    // Task 9: resolve the provider for THIS job via the holder (live hot-swap).
+    // In-flight jobs keep the provider they resolved here; the next job
+    // re-resolves, picking up any Ollama<->Claude switch without restart.
+    const provider = this.options.providerHolder
+      ? (await this.options.providerHolder.current(payload.team_id)) ?? this.options.provider
+      : this.options.provider;
+
     try {
-      return await this.generateAndPersist(job, payload, fresh, correlationId, payloadRequestId);
+      return await this.generateAndPersist(job, payload, fresh, correlationId, payloadRequestId, provider);
     } catch (error) {
       const classified = error instanceof ServerClassifiedProviderError ? error : null;
       const retryable = classified
@@ -211,12 +228,16 @@ export class ProviderObservationGenerator {
   // Steps 3+4 of the job pipeline: call the provider with the reloaded
   // context, then persist + link + advance the outbox. Failures propagate to
   // process()'s catch, which routes them through markGenerationFailed.
+  // Task 9: `provider` is the per-job resolved provider (from the holder or
+  // the fixed fallback); it is passed in rather than read from `this.options`
+  // so in-flight jobs are isolated from subsequent hot-swaps.
   private async generateAndPersist(
     job: Job<ServerGenerationJobPayload>,
     payload: ServerGenerationJobPayload,
     fresh: PostgresObservationGenerationJob,
     correlationId: string,
     payloadRequestId: string | null,
+    provider: ServerGenerationProvider,
   ): Promise<{ jobId: string; status: 'completed'; observationCount: number }> {
     const events = await this.loadEvents(fresh, payload);
     const project = await this.loadProject(fresh);
@@ -232,7 +253,7 @@ export class ProviderObservationGenerator {
       },
     };
 
-    let result = await this.options.provider.generate(genContext);
+    let result = await provider.generate(genContext);
     // Best-effort format guard: if the model's output can't be parsed, re-prompt
     // it strictly up to reformatRetryLimit() times. parseAgentXml here is only
     // used to DECIDE whether to retry; the final result still flows through the
@@ -242,11 +263,13 @@ export class ProviderObservationGenerator {
     // response parses as invalid → it IS re-prompted once (the model returned
     // nothing; ask it for the XML or an explicit skip). A thrown provider error
     // inside a retry propagates (it is not a format failure).
-    const maxReformat = reformatRetryLimit();
+    const maxReformat = this.options.settingsResolver
+      ? await this.options.settingsResolver.reformatRetries(payload.team_id)
+      : reformatRetryLimit();
     for (let attempt = 0; attempt < maxReformat; attempt++) {
       if (parseAgentXml(result.rawText).valid) break;
       const reformatReason = describeParseFailure(result.rawText);
-      result = await this.options.provider.generate(genContext, undefined, { reformatReason });
+      result = await provider.generate(genContext, undefined, { reformatReason });
     }
 
     const persistInput = {
@@ -263,6 +286,8 @@ export class ProviderObservationGenerator {
       actorId: payload.actor_id,
       sourceAdapter: payload.source_adapter,
       ...(this.options.workerId !== undefined ? { workerId: this.options.workerId } : {}),
+      // Task 13: thread the resolver so qualityFloor is honored per team.
+      ...(this.options.settingsResolver !== undefined ? { resolver: this.options.settingsResolver } : {}),
     };
     const outcome: ProcessGeneratedResponseOutcome = fresh.sourceType === 'session_summary'
       ? await processSessionSummaryResponse(persistInput)

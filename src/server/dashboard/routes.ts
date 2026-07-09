@@ -51,6 +51,7 @@ export function registerDashboardRoutes(
   app: Application,
   db: PostgresQueryable,
   mw: RequestHandler[] = [],
+  resolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> },
 ): void {
   // GET /dashboard — serve the self-contained team dashboard UI.
   app.get('/dashboard', (_req, res) => {
@@ -90,7 +91,7 @@ export function registerDashboardRoutes(
   app.get('/dashboard/cost', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const cost = await costPanel(db, scope);
+    const cost = await costPanel(db, scope, resolver);
     res.status(200).json(cost);
   }));
 }
@@ -116,6 +117,7 @@ export interface DashboardRoutesOptions {
   // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
   // request is loopback — the middleware guards enforce all three conditions.
   localDevTeamId?: string | null;
+  settingsResolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> };
 }
 
 /**
@@ -133,6 +135,6 @@ export class DashboardRoutes implements RouteHandler {
       localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:read'],
     });
-    registerDashboardRoutes(app, this.options.db, [readAuth]);
+    registerDashboardRoutes(app, this.options.db, [readAuth], this.options.settingsResolver);
   }
 }

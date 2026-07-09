@@ -5,6 +5,7 @@ import { LogsDrawer } from './components/LogsModal';
 import { WelcomeCard, getStoredWelcomeDismissed, setStoredWelcomeDismissed } from './components/WelcomeCard';
 import { ObservationsView } from './views/ObservationsView';
 import { DashboardView } from './views/DashboardView';
+import SettingsView from './views/SettingsView';
 import { useSSE } from './hooks/useSSE';
 import { useSettings } from './hooks/useSettings';
 import { useTheme } from './hooks/useTheme';
@@ -57,6 +58,7 @@ export function App() {
       <div className="app-main">
         {activeView === 'observations' && <ObservationsView />}
         {activeView === 'dashboard' && <DashboardView />}
+        {activeView === 'settings' && <SettingsView />}
 
         {!welcomeDismissed && (
           <WelcomeCard onDismiss={() => setWelcomeDismissed(true)} />

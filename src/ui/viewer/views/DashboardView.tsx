@@ -123,7 +123,8 @@ function DecisionLog({ chains }: { chains: DecisionChain[] }) {
 }
 
 function CostPanel({ cost }: { cost: unknown }) {
-  const c = (cost ?? {}) as { discoveryTokens?: number; distilledTokens?: number | null; estUsd?: number };
+  const c = (cost ?? {}) as { discoveryTokens?: number; distilledTokens?: number | null; estUsd?: number; estUsdSaved?: number; savedTokens?: number; preTokens?: number; pctSmaller?: number; activeProvider?: string; localGeneration?: boolean };
+  const usd = typeof c.estUsdSaved === 'number' ? c.estUsdSaved : (typeof c.estUsd === 'number' ? c.estUsd : null);
   return (
     <section className="dash-section">
       <h2 className="dash-section-title">Cost</h2>
@@ -136,8 +137,26 @@ function CostPanel({ cost }: { cost: unknown }) {
             <dd>{c.distilledTokens.toLocaleString()}</dd>
           </>
         )}
-        <dt>Est. USD</dt>
-        <dd>${typeof c.estUsd === 'number' ? c.estUsd.toFixed(4) : '0.0000'}</dd>
+        {typeof c.savedTokens === 'number' && (
+          <>
+            <dt>Saved tokens</dt>
+            <dd>{c.savedTokens.toLocaleString()}</dd>
+          </>
+        )}
+        {typeof c.pctSmaller === 'number' && typeof c.preTokens === 'number' && c.preTokens > 0 && (
+          <>
+            <dt>Compression</dt>
+            <dd>{(c.pctSmaller * 100).toFixed(1)}%</dd>
+          </>
+        )}
+        <dt>Est. USD saved</dt>
+        <dd>${usd != null ? usd.toFixed(4) : '0.0000'}</dd>
+        {c.activeProvider !== undefined && (
+          <>
+            <dt>Provider</dt>
+            <dd>{c.activeProvider}{c.localGeneration ? ' (local)' : ''}</dd>
+          </>
+        )}
       </dl>
     </section>
   );

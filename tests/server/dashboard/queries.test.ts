@@ -59,9 +59,9 @@ describe('dashboard queries', () => {
     expect(grouped.Dana.some((o: any) => o.content === 'wire auth')).toBe(true);
   });
 
-  it('costPanel returns discoveryTokens + estUsd', async () => {
+  it('costPanel returns discoveryTokens + estUsdSaved', async () => {
     const panel = await costPanel(client, { teamId });
     expect(panel).toHaveProperty('discoveryTokens');
-    expect(panel).toHaveProperty('estUsd');
+    expect(panel).toHaveProperty('estUsdSaved');
   });
 });

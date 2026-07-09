@@ -3201,6 +3201,384 @@
         font-size: 20px;
       }
     }
+
+    /* ── Settings view — Claude aesthetic ────────────────────────
+       Warm cream/ivory ground, coral/rust accent (#cc785c),
+       humanist sans, soft rounded cards (radius 11px),
+       generous padding, subtle 1px warm borders (#e3e0d6).
+       Coral for active states/toggles.
+       Savings strip: soft green (#eef3ec bg, #3f7d3f text).
+    ──────────────────────────────────────────────────────────── */
+
+    /* Theme variables for settings in Claude aesthetic */
+    :root,
+    [data-theme="light"] {
+      --settings-bg: #f0eee6;
+      --settings-card-bg: #faf9f5;
+      --settings-border: #e3e0d6;
+      --settings-coral: #cc785c;
+      --settings-coral-light: rgba(204, 120, 92, 0.12);
+      --settings-coral-text: #aa5a3e;
+      --settings-text-primary: #2b2520;
+      --settings-text-secondary: #5a5248;
+      --settings-text-muted: #8f8a7e;
+      --settings-savings-bg: #eef3ec;
+      --settings-savings-text: #3f7d3f;
+      --settings-toggle-off: #d6d2c8;
+      --settings-toggle-on: #cc785c;
+      --settings-input-bg: #ffffff;
+      --settings-error-bg: #fdf0ed;
+      --settings-error-text: #b03e1e;
+      --settings-confirm-bg: #fdf7ed;
+      --settings-confirm-border: #e8c87a;
+      --settings-confirm-text: #7a5a18;
+    }
+
+    [data-theme="dark"] {
+      --settings-bg: #1a1916;
+      --settings-card-bg: #252320;
+      --settings-border: #3a3834;
+      --settings-coral: #cc785c;
+      --settings-coral-light: rgba(204, 120, 92, 0.15);
+      --settings-coral-text: #e8957a;
+      --settings-text-primary: #dcd6cc;
+      --settings-text-secondary: #b8b0a4;
+      --settings-text-muted: #7a7266;
+      --settings-savings-bg: #1a2a1a;
+      --settings-savings-text: #5fad5f;
+      --settings-toggle-off: #3a3834;
+      --settings-toggle-on: #cc785c;
+      --settings-input-bg: #1f1d1a;
+      --settings-error-bg: #2d1a16;
+      --settings-error-text: #e8957a;
+      --settings-confirm-bg: #2a2416;
+      --settings-confirm-border: #7a6040;
+      --settings-confirm-text: #d4a858;
+    }
+
+    .settings-view {
+      flex: 1;
+      overflow-y: auto;
+      height: 100vh;
+      padding: 28px 24px 40px;
+      background: var(--settings-bg);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .settings-loading {
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--settings-text-muted);
+      font-size: 14px;
+    }
+
+    /* Header */
+    .settings-header {
+      margin-bottom: 4px;
+    }
+
+    .settings-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--settings-text-primary);
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+
+    .settings-subtitle {
+      font-size: 13px;
+      color: var(--settings-text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Savings strip */
+    .savings-strip {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 16px;
+      background: var(--settings-savings-bg);
+      border: 1px solid rgba(63, 125, 63, 0.2);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .savings-strip-label {
+      color: var(--settings-text-secondary);
+      font-weight: 500;
+    }
+
+    .savings-strip-value {
+      font-weight: 600;
+      color: var(--settings-savings-text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Confirmation banner */
+    .settings-confirm-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 16px;
+      background: var(--settings-confirm-bg);
+      border: 1px solid var(--settings-confirm-border);
+      border-radius: 8px;
+    }
+
+    .settings-confirm-message {
+      font-size: 13px;
+      color: var(--settings-confirm-text);
+      flex: 1;
+    }
+
+    .settings-confirm-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .settings-confirm-btn {
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 14px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .settings-confirm-btn--cancel {
+      background: transparent;
+      color: var(--settings-text-secondary);
+      border-color: var(--settings-border);
+    }
+
+    .settings-confirm-btn--cancel:hover {
+      background: var(--settings-card-bg);
+    }
+
+    .settings-confirm-btn--ok {
+      background: var(--settings-coral);
+      color: #ffffff;
+      border-color: var(--settings-coral);
+    }
+
+    .settings-confirm-btn--ok:hover {
+      background: #b8613e;
+    }
+
+    /* Provider error */
+    .settings-provider-error {
+      padding: 10px 14px;
+      background: var(--settings-error-bg);
+      color: var(--settings-error-text);
+      border: 1px solid rgba(176, 62, 30, 0.2);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    /* Card */
+    .settings-card {
+      background: var(--settings-card-bg);
+      border: 1px solid var(--settings-border);
+      border-radius: 11px;
+      padding: 20px 20px 6px;
+    }
+
+    .settings-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--settings-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
+    }
+
+    /* Rows */
+    .settings-rows {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--settings-border);
+    }
+
+    .settings-row:last-child {
+      border-bottom: none;
+      padding-bottom: 4px;
+    }
+
+    .settings-row-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .settings-row-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--settings-text-primary);
+    }
+
+    .settings-row-desc {
+      font-size: 12px;
+      color: var(--settings-text-muted);
+      line-height: 1.4;
+    }
+
+    .settings-row-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .settings-row-control {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Provenance tag */
+    .settings-provenance {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: var(--settings-coral-light);
+      color: var(--settings-coral-text);
+      border: 1px solid rgba(204, 120, 92, 0.22);
+    }
+
+    /* Boot note */
+    .settings-boot-note {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 500;
+      background: rgba(90, 82, 72, 0.1);
+      color: var(--settings-text-secondary);
+      border: 1px solid var(--settings-border);
+    }
+
+    /* Enum button-group */
+    .settings-enum-group {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .settings-enum-btn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--settings-card-bg);
+      color: var(--settings-text-secondary);
+      border: 1px solid var(--settings-border);
+      transition: all 0.15s ease;
+    }
+
+    .settings-enum-btn:hover {
+      border-color: var(--settings-coral);
+      color: var(--settings-coral-text);
+    }
+
+    .settings-enum-btn--active {
+      background: var(--settings-coral);
+      color: #ffffff;
+      border-color: var(--settings-coral);
+    }
+
+    .settings-enum-btn--active:hover {
+      background: #b8613e;
+    }
+
+    /* Toggle */
+    .settings-toggle {
+      display: inline-flex;
+      align-items: center;
+      width: 40px;
+      height: 22px;
+      border-radius: 11px;
+      background: var(--settings-toggle-off);
+      border: none;
+      padding: 2px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      position: relative;
+    }
+
+    .settings-toggle--on {
+      background: var(--settings-toggle-on);
+    }
+
+    .settings-toggle-thumb {
+      display: block;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s ease;
+      transform: translateX(0);
+    }
+
+    .settings-toggle--on .settings-toggle-thumb {
+      transform: translateX(18px);
+    }
+
+    /* Number input */
+    .settings-number-input {
+      width: 90px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      background: var(--settings-input-bg);
+      color: var(--settings-text-primary);
+      border: 1px solid var(--settings-border);
+      text-align: right;
+    }
+
+    .settings-number-input:focus {
+      outline: none;
+      border-color: var(--settings-coral);
+      box-shadow: 0 0 0 2px var(--settings-coral-light);
+    }
+
+    @media (max-width: 768px) {
+      .settings-view {
+        padding: 20px 16px 32px;
+      }
+
+      .settings-row {
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .settings-row-control {
+        align-self: flex-start;
+      }
+    }
   </style>
 </head>
 
