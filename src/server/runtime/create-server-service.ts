@@ -25,6 +25,9 @@ import {
   type ServerQueueManager,
   type ServerServiceGraph,
 } from './types.js';
+import { SettingsStore } from '../settings/SettingsStore.js';
+import { SettingsResolver } from '../settings/SettingsResolver.js';
+import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 
 export interface CreateServerServiceOptions {
   pool?: PostgresPool;
@@ -238,10 +241,18 @@ function buildGenerationWorkerManager(
       'no server generation provider configured; set MEMSMITH_SERVER_PROVIDER and the matching API key to enable.',
     );
   }
+  // Task 9: build a SettingsResolver + GenerationProviderHolder so each
+  // generation job can resolve its (provider, model) at job-start, enabling
+  // live Ollama<->Claude hot-swap without a worker restart. The env-built
+  // `provider` is kept as the fallback for when the holder returns null.
+  const settingsStore = new SettingsStore(pool);
+  const resolver = new SettingsResolver(settingsStore);
+  const providerHolder = new GenerationProviderHolder(resolver);
   return new ActiveServerGenerationWorkerManager({
     pool,
     queueManager,
     provider,
+    providerHolder,
   });
 }
 
