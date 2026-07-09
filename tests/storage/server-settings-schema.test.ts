@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect, beforeAll } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { Pool } from 'pg';
 import { bootstrapServerPostgresSchema, SERVER_POSTGRES_SCHEMA_VERSION } from '../../src/storage/postgres/schema.js';
 
