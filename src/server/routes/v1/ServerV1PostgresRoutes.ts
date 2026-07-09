@@ -35,6 +35,7 @@ import { IngestEventsService, type EnqueueOutcome } from '../../services/IngestE
 import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
 import { resolveHeads } from '../../retrieval/supersession.js';
+import { recordServedCompression } from '../../retrieval/recordServedCompression.js';
 import { ObservationStream } from './ObservationStream.js';
 import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
@@ -1016,6 +1017,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           this.handleDbError(err, res, 'observation.context');
           return;
         }
+        await recordServedCompression({
+          usage: new PostgresUsageRepository(this.options.pool),
+          teamId,
+          projectId,
+          rows: results.map(r => ({ content: r.content, metadata: (r.metadata ?? {}) as Record<string, unknown> })),
+          maxChars: 10000,
+          maxItems: results.length,
+        });
         const context = results
           .map(observation => observation.content)
           .filter(text => typeof text === 'string' && text.length > 0)
