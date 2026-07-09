@@ -35,6 +35,7 @@ import { IngestEventsService, type EnqueueOutcome } from '../../services/IngestE
 import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
 import { resolveHeads } from '../../retrieval/supersession.js';
+import { ObservationStream } from './ObservationStream.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1003,6 +1004,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         });
       },
     ));
+
+    // GET /v1/stream — SSE fan-out for real-time new_observation events.
+    // Uses readAuth (memories:read) so the same API key that reads search also
+    // receives live updates. The client (Task 5) subscribes and renders new
+    // observations as they arrive. Best-effort: the stream never blocks or
+    // affects generation; a broken connection is dropped on next publish.
+    app.get('/v1/stream', readAuth, (req: Request, res: Response) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write(`data: ${JSON.stringify({ type: 'initial_load' })}\n\n`);
+      const unsub = ObservationStream.instance.subscribe(res);
+      req.on('close', () => { unsub(); });
+    });
 
     // Remote authenticated MCP endpoint. The "secure MCP link" a user pastes
     // into Claude Code (or any MCP client) to recall their cloud memory:
