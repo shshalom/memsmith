@@ -143,7 +143,7 @@ function CostPanel({ cost }: { cost: unknown }) {
             <dd>{c.savedTokens.toLocaleString()}</dd>
           </>
         )}
-        {typeof c.pctSmaller === 'number' && c.preTokens !== 0 && (
+        {typeof c.pctSmaller === 'number' && typeof c.preTokens === 'number' && c.preTokens > 0 && (
           <>
             <dt>Compression</dt>
             <dd>{(c.pctSmaller * 100).toFixed(1)}%</dd>
