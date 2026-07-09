@@ -1,68 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'bun:test';
 import { PostgresObservationRepository } from '../../src/storage/postgres/observations.js';
+import { combineRanks } from '../../src/server/retrieval/rrf.js';
 
-// This proves the hybridSearch input carries ftsWeight/vecWeight/rrfK overrides
-// (the plumbing the route must populate from the resolver). We call hybridSearch
-// with explicit weights and assert the results ordering is driven by the override
-// weight, not the env default.
+// Two layers of proof for the search-path wiring:
 //
-// Note: ftsWeight/vecWeight are used in combineRanks (JS-side RRF fusion),
-// not as SQL params — so we verify the ordering effect, not SQL params.
-//
-// Setup: fts returns [A, B], vec returns [B, A].
-// With ftsWeight=1.0, vecWeight=0.0: FTS dominates, A ranks first.
-// With ftsWeight=0.0, vecWeight=1.0: vec dominates, B ranks first.
-// The only way both assertions hold is if the override weights are actually used.
+// 1. combineRanks (where fts/vec weights and rrfK are actually consumed) —
+//    deterministically proves that the weight VALUES flip the fused winner and
+//    that rrfK changes the scores. This is the meaningful assertion: it fails
+//    if the weights/k are ignored.
+// 2. hybridSearch input plumbing — confirms the input type carries
+//    ftsWeight/vecWeight/rrfK and that they reach the fusion without throwing.
 
-function makeObs(id: string) {
-  return { id, content: id, obsType: 'factual', lifecycleState: 'active', projectId: 'p', teamId: 't', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-}
+describe('combineRanks consumes weights and k (the values the route now supplies)', () => {
+  // fts ranks [A, B] (A best), vec ranks [B, A] (B best). The winner is decided
+  // entirely by which arm is weighted higher — so flipping the weights flips the
+  // result. If combineRanks ignored `weights`, both cases would tie/agree.
+  const fts = [{ id: 'A', rank: 0 }, { id: 'B', rank: 1 }];
+  const vec = [{ id: 'B', rank: 0 }, { id: 'A', rank: 1 }];
 
-const OBS_A = makeObs('obs-A');
-const OBS_B = makeObs('obs-B');
-
-// Fake DB that returns FTS=[A,B], vec=[B,A].
-// search() is invoked for FTS, multiVectorSearch path uses a vector query.
-// We intercept at the db.query level: first call = FTS, second = vector.
-function makeFakeDb(callResponses: Record<string, any[]>[]) {
-  let callIdx = 0;
-  return {
-    query: async (_sql: string, _args: any[]) => {
-      const resp = callResponses[callIdx] ?? { rows: [] };
-      callIdx++;
-      return resp;
-    },
-  } as any;
-}
-
-describe('hybridSearch honors explicit weight/rrfK overrides', () => {
-  it('ftsWeight=1/vecWeight=0: FTS arm dominates, A ranks before B', async () => {
-    // First query = FTS (search): returns [A, B]
-    // Second query = vector embed: returns embedding rows (empty ok, will make vec arm empty)
-    // When vec is empty, only FTS ranks contribute.
-    const fakeDb = makeFakeDb([
-      { rows: [OBS_A, OBS_B] },  // FTS result
-      { rows: [] },               // vector search result (empty)
-    ]);
-    const repo = new PostgresObservationRepository(fakeDb);
-    const results = await repo.hybridSearch({
-      projectId: 'p', teamId: 't', query: 'q',
-      ftsWeight: 1.0, vecWeight: 0.0,
-    });
-    // With vec empty, A and B come from FTS only; A must be first.
-    expect(results[0]?.id).toBe('obs-A');
+  it('ftsWeight dominant -> A wins', () => {
+    const fused = combineRanks([fts, vec], 60, [1.0, 0.0]);
+    expect(fused[0].id).toBe('A');
   });
 
-  it('rrfK field is accepted by hybridSearch input type', async () => {
-    // TypeScript type check: if rrfK is not in the type, this won't compile.
-    // At runtime, just confirm it doesn't throw.
-    const fakeDb = {
-      query: async () => ({ rows: [] }),
-    } as any;
+  it('vecWeight dominant -> B wins', () => {
+    const fused = combineRanks([fts, vec], 60, [0.0, 1.0]);
+    expect(fused[0].id).toBe('B');
+  });
+
+  it('rrfK changes the fused scores (k is actually used)', () => {
+    const small = combineRanks([fts, vec], 1, [1, 1]);
+    const large = combineRanks([fts, vec], 1000, [1, 1]);
+    // 1/(k+rank) shrinks as k grows, so the top score is strictly smaller at k=1000.
+    expect(large[0].score).toBeLessThan(small[0].score);
+  });
+});
+
+describe('hybridSearch input plumbing carries the overrides', () => {
+  it('accepts ftsWeight/vecWeight/rrfK without throwing (type + runtime plumbing)', async () => {
+    const fakeDb = { query: async () => ({ rows: [] }) } as any;
     const repo = new PostgresObservationRepository(fakeDb);
     await expect(
-      repo.hybridSearch({ projectId: 'p', teamId: 't', query: 'q', rrfK: 42 })
+      repo.hybridSearch({ projectId: 'p', teamId: 't', query: 'q', ftsWeight: 0.9, vecWeight: 0.1, rrfK: 42 })
     ).resolves.toBeDefined();
   });
 });
