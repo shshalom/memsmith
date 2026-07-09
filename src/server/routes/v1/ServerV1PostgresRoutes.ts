@@ -1021,7 +1021,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           usage: new PostgresUsageRepository(this.options.pool),
           teamId,
           projectId,
-          rows: results.map(r => ({ content: r.content, metadata: (r.metadata ?? {}) as Record<string, unknown> })),
+          rows: results,
           maxChars: 10000,
           maxItems: results.length,
         });

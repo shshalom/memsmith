@@ -8,7 +8,9 @@ export interface RecordServedCompressionDeps {
   usage: PostgresUsageRepository;
   teamId: string;
   projectId: string | null;
-  rows: TierInput[];
+  // Raw served rows; normalized to TierInput INSIDE the guarded block so even
+  // the row-mapping cannot escape the never-throws envelope.
+  rows: Array<{ content: string; metadata?: unknown }>;
   maxChars: number;
   maxItems: number;
 }
@@ -20,7 +22,11 @@ export interface RecordServedCompressionDeps {
 export async function recordServedCompression(deps: RecordServedCompressionDeps): Promise<void> {
   if (process.env.MEMSMITH_USAGE_METERING !== '1') return;
   try {
-    const visible = deps.rows.slice(0, Math.max(0, deps.maxItems));
+    const normalized: TierInput[] = deps.rows.map(r => ({
+      content: r.content ?? '',
+      metadata: (r.metadata ?? {}) as Record<string, unknown>,
+    }));
+    const visible = normalized.slice(0, Math.max(0, deps.maxItems));
     if (visible.length === 0) return;
     const rendered = tierToBudget(visible, { maxChars: deps.maxChars, maxItems: deps.maxItems });
     for (let i = 0; i < rendered.length; i++) {
