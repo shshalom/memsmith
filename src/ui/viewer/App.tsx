@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
 import { Feed } from './components/Feed';
 import { ContextSettingsModal } from './components/ContextSettingsModal';
 import { LogsDrawer } from './components/LogsModal';
 import { WelcomeCard, getStoredWelcomeDismissed, setStoredWelcomeDismissed } from './components/WelcomeCard';
+import { ObservationsView } from './views/ObservationsView';
+import { DashboardView } from './views/DashboardView';
 import { useSSE } from './hooks/useSSE';
 import { useSettings } from './hooks/useSettings';
 import { usePagination } from './hooks/usePagination';
 import { useTheme } from './hooks/useTheme';
+import { getInitialView, ViewId } from './views/viewState';
 import { Observation, Summary, UserPrompt } from './types';
 import { mergeAndDeduplicateByProject } from './utils/data';
 
 export function App() {
+  const [activeView, setActiveView] = useState<ViewId>(getInitialView());
   const [currentFilter, setCurrentFilter] = useState('');
   const [contextPreviewOpen, setContextPreviewOpen] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
@@ -92,59 +97,65 @@ export function App() {
   }, [currentFilter]);
 
   return (
-    <>
-      <Header
+    <div className="app-shell">
+      <Sidebar
+        activeView={activeView}
+        onSelect={setActiveView}
         projects={projects}
-        currentFilter={currentFilter}
-        onFilterChange={setCurrentFilter}
-        isProcessing={isProcessing}
-        queueDepth={queueDepth}
+        currentProject={currentFilter}
+        onProjectChange={setCurrentFilter}
         themePreference={preference}
         onThemeChange={setThemePreference}
-        onContextPreviewToggle={toggleContextPreview}
-        onShowHelp={() => {
-          setStoredWelcomeDismissed(false);
-          setWelcomeDismissed(false);
-        }}
       />
 
-      <Feed
-        observations={allObservations}
-        summaries={allSummaries}
-        prompts={allPrompts}
-        onLoadMore={handleLoadMore}
-        isLoading={pagination.observations.isLoading || pagination.summaries.isLoading || pagination.prompts.isLoading}
-        hasMore={pagination.observations.hasMore || pagination.summaries.hasMore || pagination.prompts.hasMore}
-      />
+      <div className="app-main">
+        <Header
+          projects={projects}
+          currentFilter={currentFilter}
+          onFilterChange={setCurrentFilter}
+          isProcessing={isProcessing}
+          queueDepth={queueDepth}
+          themePreference={preference}
+          onThemeChange={setThemePreference}
+          onContextPreviewToggle={toggleContextPreview}
+          onShowHelp={() => {
+            setStoredWelcomeDismissed(false);
+            setWelcomeDismissed(false);
+          }}
+        />
 
-      {!welcomeDismissed && (
-        <WelcomeCard onDismiss={() => setWelcomeDismissed(true)} />
-      )}
+        {activeView === 'observations' && <ObservationsView />}
+        {activeView === 'dashboard' && <DashboardView />}
 
-      <ContextSettingsModal
-        isOpen={contextPreviewOpen}
-        onClose={toggleContextPreview}
-        settings={settings}
-        onSave={saveSettings}
-        isSaving={isSaving}
-        saveStatus={saveStatus}
-      />
+        {!welcomeDismissed && (
+          <WelcomeCard onDismiss={() => setWelcomeDismissed(true)} />
+        )}
 
-      <button
-        className="console-toggle-btn"
-        onClick={toggleLogsModal}
-        title="Toggle Console"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="4 17 10 11 4 5"></polyline>
-          <line x1="12" y1="19" x2="20" y2="19"></line>
-        </svg>
-      </button>
+        <ContextSettingsModal
+          isOpen={contextPreviewOpen}
+          onClose={toggleContextPreview}
+          settings={settings}
+          onSave={saveSettings}
+          isSaving={isSaving}
+          saveStatus={saveStatus}
+        />
 
-      <LogsDrawer
-        isOpen={logsModalOpen}
-        onClose={toggleLogsModal}
-      />
-    </>
+        <button
+          className="console-toggle-btn"
+          onClick={toggleLogsModal}
+          title="Toggle Console"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+        </button>
+
+        <LogsDrawer
+          isOpen={logsModalOpen}
+          onClose={toggleLogsModal}
+        />
+      </div>
+    </div>
   );
 }
