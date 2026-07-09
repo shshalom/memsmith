@@ -14,6 +14,7 @@ import { GeminiObservationProvider } from '../generation/providers/GeminiObserva
 import { OllamaObservationProvider } from '../generation/providers/OllamaObservationProvider.js';
 import { OpenRouterObservationProvider } from '../generation/providers/OpenRouterObservationProvider.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
+export type { ServerGenerationProvider };
 import { ServerService } from './ServerService.js';
 import {
   DisabledServerGenerationWorkerManager,
@@ -258,26 +259,30 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
   }
 }
 
-export function instantiateServerGenerationProvider(provider: string): ServerGenerationProvider | null {
+export function instantiateServerGenerationProvider(
+  provider: string,
+  model?: string,
+): ServerGenerationProvider | null {
+  const chosenModel = model ?? process.env.MEMSMITH_SERVER_MODEL;
   if (provider === 'claude' || provider === 'anthropic') {
     const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.MEMSMITH_ANTHROPIC_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string } = { apiKey };
-    if (process.env.MEMSMITH_SERVER_MODEL) opts.model = process.env.MEMSMITH_SERVER_MODEL;
+    if (chosenModel) opts.model = chosenModel;
     return new ClaudeObservationProvider(opts);
   }
   if (provider === 'gemini') {
     const apiKey = process.env.GEMINI_API_KEY ?? process.env.MEMSMITH_GEMINI_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string } = { apiKey };
-    if (process.env.MEMSMITH_SERVER_MODEL) opts.model = process.env.MEMSMITH_SERVER_MODEL;
+    if (chosenModel) opts.model = chosenModel;
     return new GeminiObservationProvider(opts);
   }
   if (provider === 'openrouter') {
     const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.MEMSMITH_OPENROUTER_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string; baseUrl?: string } = { apiKey };
-    if (process.env.MEMSMITH_SERVER_MODEL) opts.model = process.env.MEMSMITH_SERVER_MODEL;
+    if (chosenModel) opts.model = chosenModel;
     // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL.
     const baseUrl = process.env.MEMSMITH_OPENROUTER_BASE_URL ?? process.env.OPENROUTER_BASE_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
@@ -288,7 +293,7 @@ export function instantiateServerGenerationProvider(provider: string): ServerGen
     // Ollama is fronted by an auth proxy.
     const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      model: process.env.MEMSMITH_SERVER_MODEL ?? 'llama3.1:8b',
+      model: chosenModel ?? 'llama3.1:8b',
     };
     if (apiKey) opts.apiKey = apiKey;
     const baseUrl = process.env.MEMSMITH_OLLAMA_URL;
