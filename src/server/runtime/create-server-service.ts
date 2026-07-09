@@ -253,6 +253,9 @@ function buildGenerationWorkerManager(
     queueManager,
     provider,
     providerHolder,
+    // Task 13: pass the same resolver so quality knobs (qualityFloor,
+    // reformatRetries) honor team overrides in the generation pipeline.
+    settingsResolver: resolver,
   });
 }
 

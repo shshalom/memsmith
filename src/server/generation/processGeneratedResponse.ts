@@ -79,6 +79,9 @@ export interface ProcessGeneratedResponseInput {
   sourceAdapter?: string | null;
   // Provider tokens this job spent (from the generate() result), for cost metering.
   tokensUsed?: number;
+  // Task 13 — optional resolver so team overrides for qualityFloor are honored.
+  // When absent the env-default qualityFloorEnv() is used as before.
+  resolver?: { qualityFloor(teamId: string): Promise<number> };
 }
 
 export async function processGeneratedResponse(
@@ -108,7 +111,8 @@ export async function processGeneratedResponse(
     title: o.title ?? undefined,
     concepts: o.concepts,
   }));
-  const kept = applyQualityGate(scoreable);
+  const floor = input.resolver ? await input.resolver.qualityFloor(input.job.teamId) : undefined;
+  const kept = floor !== undefined ? applyQualityGate(scoreable, floor) : applyQualityGate(scoreable);
   const droppedCount = scoreable.length - kept.length;
   if (droppedCount > 0) {
     logger.info('SYSTEM', 'quality gate dropped low-signal observations', {

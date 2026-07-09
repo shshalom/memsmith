@@ -7,6 +7,7 @@ import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { ProviderObservationGenerator } from '../generation/ProviderObservationGenerator.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 import type { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
+import type { SettingsResolver } from '../settings/SettingsResolver.js';
 import type { ServerGenerationJobPayload } from '../jobs/types.js';
 import type { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import type {
@@ -32,6 +33,9 @@ export interface ActiveServerGenerationWorkerManagerOptions {
   // Task 9: optional provider holder for live hot-swap. Passed through to
   // ProviderObservationGenerator so each job re-resolves its provider.
   providerHolder?: GenerationProviderHolder;
+  // Task 13: optional resolver so team overrides for qualityFloor and
+  // reformatRetries are honored. Passed through to ProviderObservationGenerator.
+  settingsResolver?: SettingsResolver;
   // Test seam: replace the generator with a stub.
   generatorFactory?: (
     pool: PostgresPool,
@@ -57,6 +61,8 @@ export class ActiveServerGenerationWorkerManager implements ServerGenerationWork
           workerId: this.workerId,
           // Task 9: thread the holder through so each job resolves its provider.
           ...(options.providerHolder !== undefined ? { providerHolder: options.providerHolder } : {}),
+          // Task 13: thread the resolver so quality knobs honor team overrides.
+          ...(options.settingsResolver !== undefined ? { settingsResolver: options.settingsResolver } : {}),
         });
   }
 
