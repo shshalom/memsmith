@@ -36,6 +36,9 @@ import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
 import { resolveHeads } from '../../retrieval/supersession.js';
 import { ObservationStream } from './ObservationStream.js';
+import type { SettingsResolver } from '../../settings/SettingsResolver.js';
+import type { SettingsStore } from '../../settings/SettingsStore.js';
+import { registerSettingsRoutes } from './settingsRoutes.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -69,6 +72,11 @@ export interface ServerV1PostgresRoutesOptions {
   // pick up — never claim observations were generated.
   getEventQueue?: () => ReturnType<ActiveServerQueueManager['getQueue']> | null;
   getSummaryQueue?: () => ReturnType<ActiveServerQueueManager['getQueue']> | null;
+  // Task 8 — settings control panel. Both are optional so existing tests that
+  // construct ServerV1PostgresRoutes without them continue to compile and run;
+  // when absent the /v1/settings routes are simply not registered.
+  settingsResolver?: SettingsResolver;
+  settingsStore?: SettingsStore;
 }
 
 interface BatchPreValidationFailure {
@@ -1155,6 +1163,55 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         this.handleDbError(err, res, 'project.purge');
       }
     }));
+
+    // Task 8 — GET /v1/settings + PATCH /v1/settings.
+    // Only registered when the caller wired both resolver and store (production
+    // ServerService.ts does; tests that omit them skip the routes cleanly).
+    if (this.options.settingsResolver && this.options.settingsStore) {
+      // Build per-verb auth middlewares that mirror the existing readAuth/writeAuth idiom.
+      // These are registered BEFORE the route handlers via app.use so that
+      // production requests are rejected at the middleware layer before the
+      // handler body runs. The requireScopes shim inside registerSettingsRoutes
+      // provides a secondary (synchronous) scope check that the unit test relies
+      // on when it injects authContext directly without real auth.
+      const settingsReadAuth = requirePostgresServerAuth(this.options.pool, {
+        authMode: this.options.authMode,
+        allowLocalDevBypass: this.options.allowLocalDevBypass,
+        localDevTeamId: this.options.localDevTeamId,
+        requiredScopes: ['memories:read'],
+      });
+      const settingsAdminAuth = requirePostgresServerAuth(this.options.pool, {
+        authMode: this.options.authMode,
+        allowLocalDevBypass: this.options.allowLocalDevBypass,
+        localDevTeamId: this.options.localDevTeamId,
+        requiredScopes: ['settings:admin'],
+      });
+      // app.use runs before any route handler registered for the same path.
+      // Registering this BEFORE registerSettingsRoutes guarantees the auth
+      // middleware runs first on every GET and PATCH to /v1/settings.
+      app.use('/v1/settings', (req, res, next) => {
+        if (req.method === 'GET') {
+          settingsReadAuth(req, res, next);
+        } else if (req.method === 'PATCH') {
+          settingsAdminAuth(req, res, next);
+        } else {
+          next();
+        }
+      });
+      registerSettingsRoutes(app, {
+        resolver: this.options.settingsResolver,
+        store: this.options.settingsStore,
+        requireScopes: (req: Request, res: Response, needed: string): boolean => {
+          // In production the auth middleware above already enforced the scope.
+          // This callback is the secondary guard for unit tests that inject
+          // authContext directly (bypassing real auth middleware).
+          const scopes: string[] = (req as any).authContext?.scopes ?? [];
+          if (scopes.includes('*') || scopes.includes(needed)) return true;
+          res.status(403).json({ error: 'Forbidden', message: 'insufficient scope' });
+          return false;
+        },
+      });
+    }
   }
 
   // Phase 11 — resolve actor identity for audit. We look up the api_keys row

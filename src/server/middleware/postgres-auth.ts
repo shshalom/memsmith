@@ -78,7 +78,7 @@ async function authenticatePostgresRequest(
       organizationId: null,
       teamId: options.localDevTeamId ?? null,
       projectId: null,
-      scopes: ['local-dev'],
+      scopes: ['local-dev', 'memories:read', 'memories:write', 'settings:admin'],
       apiKeyId: null,
       mode: 'local-dev',
     };

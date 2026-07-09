@@ -17,6 +17,8 @@ import {
 } from '../../supervisor/process-registry.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
+import { SettingsStore } from '../settings/SettingsStore.js';
+import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapter.js';
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
@@ -177,11 +179,16 @@ export class ServerService {
       },
     });
     server.registerRoutes(new ServerRuntimeInfoRoutes(this.graph));
+    const settingsStore = new SettingsStore(this.graph.postgres.pool);
+    const settingsResolver = new SettingsResolver(settingsStore);
     const v1Routes = new ServerV1PostgresRoutes({
       pool: this.graph.postgres.pool,
       queueManager: this.graph.queueManager,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
+      allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
       localDevTeamId: this.graph.localDevTeamId,
+      settingsStore,
+      settingsResolver,
     });
     server.registerRoutes(v1Routes);
 
