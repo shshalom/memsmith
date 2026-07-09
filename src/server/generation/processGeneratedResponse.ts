@@ -23,12 +23,14 @@ import {
 import { stripTags } from '../../utils/tag-stripping.js';
 import { ObservationStream } from '../routes/v1/ObservationStream.js';
 
-const QUALITY_FLOOR = Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
+function qualityFloorEnv(): number {
+  return Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
+}
 
 // Pure, testable core. Returns kept observations with `quality` stamped on.
 export function applyQualityGate<T extends {
   obsType?: string; facts?: string[]; narrative?: string; title?: string; concepts?: string[];
-}>(parsed: T[], floor: number = QUALITY_FLOOR): (T & { quality: number })[] {
+}>(parsed: T[], floor: number = qualityFloorEnv()): (T & { quality: number })[] {
   const kept: (T & { quality: number })[] = [];
   for (const p of parsed) {
     const quality = scoreObservation(p);
