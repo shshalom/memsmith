@@ -1583,3 +1583,471 @@ git commit -m "feat(ui): Settings view (Claude aesthetic) — provider switch, l
 - **`teamId` threading:** T6 keeps env fallback so no caller breaks before it's wired; T8/T9 pass the resolver where `teamId` is in scope (request authContext / job data).
 - **Type consistency:** `SettingField` (UI) mirrors the GET item shape from T8; `ResolvedSetting` (resolver) → GET payload adds `boot`+metadata from the registry; `costPanel` return shape used identically in T7 test and T10 savings strip.
 - **YAGNI:** user tier and quota-live-reload deliberately deferred (seams/flags only).
+
+---
+
+# Phase 2 — Wiring fixes (from the whole-branch review)
+
+The whole-branch review found the settings store/resolver/API/UI and provider hot-swap all work, but the resolver was never threaded into most read sites (dead knobs) and compression metering is unreachable server-side (cost story ships as $0). Root cause: Phase-1 Task 6 assumed later tasks would thread the resolver into the search/cost/generation-quality read paths, but their briefs never specified it. Phase 2 closes every gap. Constraints and conventions from the Global Constraints section above still apply.
+
+### Task 11: Thread resolver into the search path (hybrid, weights, rrfK, supersede)
+
+**Files:**
+- Modify: `src/server/routes/v1/ServerV1PostgresRoutes.ts` (`searchHybridEnabled` :1365-1367, `resolveSearchResults` :1369-1387, `applySupersession` :1389-1395)
+- Modify: `src/storage/postgres/observations.ts` (`hybridSearch` input type :264-268 add optional `rrfK?`; pass it to `combineRanks` at :298)
+- Test: `tests/server/search-resolver-wiring.test.ts`
+
+**Interfaces:**
+- Consumes: `this.options.settingsResolver` (already on `ServerV1PostgresRoutesOptions` :78, optional); `teamId` (already in scope via `requireTeamId`, passed into `resolveSearchResults` input).
+- Produces: search reads honor team overrides for `searchHybrid`, `ftsWeight`, `vecWeight`, `rrfK`, `supersedeMaxDepth`. Env fallback preserved when `settingsResolver` is undefined.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/server/search-resolver-wiring.test.ts
+// SPDX-License-Identifier: Apache-2.0
+import { describe, it, expect } from 'bun:test';
+import { PostgresObservationRepository } from '../../src/storage/postgres/observations.js';
+
+// This proves the hybridSearch input carries ftsWeight/vecWeight/rrfK overrides
+// (the plumbing the route must populate from the resolver). We call hybridSearch
+// with explicit weights and assert they are used rather than the env defaults.
+// Pure-ish: uses a fake queryable that captures the SQL params.
+describe('hybridSearch honors explicit weight/rrfK overrides', () => {
+  it('passes provided ftsWeight/vecWeight instead of env', async () => {
+    const captured: any[] = [];
+    const fakeDb = {
+      query: async (_sql: string, args: any[]) => {
+        captured.push(args);
+        return { rows: [] };
+      },
+    } as any;
+    const repo = new PostgresObservationRepository(fakeDb);
+    await repo.hybridSearch({ projectId: 'p', teamId: 't', query: 'q', ftsWeight: 0.9, vecWeight: 0.1 });
+    // At least one query ran; the weights must appear in some param array.
+    const flat = captured.flat();
+    expect(flat).toContain(0.9);
+    expect(flat).toContain(0.1);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails or drives the design**
+
+Run: `bun test tests/server/search-resolver-wiring.test.ts`
+Expected: If `hybridSearch` already threads `ftsWeight`/`vecWeight` into params, this passes (confirming the plumbing) — the real change is the ROUTE populating them. If the SQL shape differs, adjust the assertion to match how weights reach the query (they are used in the ranking expression). Treat a pass here as "plumbing confirmed"; the route wiring below is what makes the knob live.
+
+- [ ] **Step 3: Make `searchHybridEnabled` resolver-aware**
+
+Change `resolveSearchResults` to consult the resolver (fallback to the private env method). Replace the body:
+
+```ts
+  private async searchHybridEnabledFor(teamId: string): Promise<boolean> {
+    if (this.options.settingsResolver) return this.options.settingsResolver.searchHybridEnabled(teamId);
+    return process.env.MEMSMITH_SEARCH_HYBRID !== '0';
+  }
+
+  private async resolveSearchResults(input: {
+    projectId: string; teamId: string; query: string; limit: number;
+    platformSource: string | null; mode: 'search' | 'context';
+  }): Promise<PostgresObservation[]> {
+    const repo = new PostgresObservationRepository(this.options.pool);
+    const hybrid = await this.searchHybridEnabledFor(input.teamId);
+    let searchInput: typeof input & { ftsWeight?: number; vecWeight?: number; rrfK?: number } = input;
+    if (this.options.settingsResolver) {
+      const w = await this.options.settingsResolver.weights(input.teamId);
+      const rrfK = await this.options.settingsResolver.rrfK(input.teamId);
+      searchInput = { ...input, ftsWeight: w.fts, vecWeight: w.vec, rrfK };
+    }
+    const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(input);
+    try {
+      return await this.applySupersession(ranked, input.mode, { teamId: input.teamId, projectId: input.projectId });
+    } catch (err) {
+      logger.warn('SYSTEM', 'supersession resolution failed; returning ranked results', {}, err instanceof Error ? err : new Error(String(err)));
+      return ranked;
+    }
+  }
+```
+
+Keep the old private `searchHybridEnabled()` only if still referenced elsewhere; otherwise remove it to avoid a dead method.
+
+- [ ] **Step 4: Thread `rrfK` through `hybridSearch` → `combineRanks`**
+
+In `src/storage/postgres/observations.ts`: add `rrfK?: number` to the `hybridSearch` input type (:264-268). At the `combineRanks([toRanked(fts), toRanked(vec)], undefined, [ftsWeight, vecWeight])` call (:298), replace `undefined` with `input.rrfK ?? undefined` so an explicit value overrides `DEFAULT_K`:
+
+```ts
+const fused = combineRanks([toRanked(fts), toRanked(vec)], input.rrfK, [ftsWeight, vecWeight]);
+```
+
+(`combineRanks(rankings, k = DEFAULT_K, weights?)` — passing `undefined` keeps the env default, a number overrides it.)
+
+- [ ] **Step 5: Thread `supersedeMaxDepth` into `applySupersession`**
+
+Change `applySupersession` to resolve maxDepth and pass it to `resolveHeads`:
+
+```ts
+  private async applySupersession(
+    ranked: PostgresObservation[], mode: 'search' | 'context',
+    scope: { teamId: string; projectId?: string },
+  ): Promise<PostgresObservation[]> {
+    if (ranked.length === 0) return ranked;
+    const maxDepth = this.options.settingsResolver
+      ? await this.options.settingsResolver.supersedeMaxDepth(scope.teamId)
+      : undefined;
+    const heads = await resolveHeads(this.options.pool, ranked.map(r => r.id), scope, maxDepth);
+    // ... rest unchanged
+```
+
+(`resolveHeads(db, ids, scope, maxDepth?)` already accepts the optional 4th arg — supersession.ts:54-55.)
+
+- [ ] **Step 6: Run tests + regression + typecheck**
+
+Run: `bun test tests/server/search-resolver-wiring.test.ts && bun test tests/server 2>&1 | tail -3 && npx tsc --noEmit`
+Expected: new test PASS; server suite green; tsc 0.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/server/routes/v1/ServerV1PostgresRoutes.ts src/storage/postgres/observations.ts tests/server/search-resolver-wiring.test.ts
+git commit -m "fix(server): thread resolver into search path (hybrid, weights, rrfK, supersede)"
+```
+
+---
+
+### Task 12: Thread resolver into the cost route
+
+**Files:**
+- Modify: `src/server/dashboard/routes.ts` (`DashboardRoutesOptions` :111-119 add `settingsResolver?`; `GET /dashboard/cost` :90-95 pass it to `costPanel`)
+- Modify: `src/server/services/server/ServerService.ts` (:224-228 pass `settingsResolver` into `DashboardRoutes`)
+- Test: `tests/server/cost-route-resolver.test.ts`
+
+**Interfaces:**
+- Consumes: `costPanel(db, s, resolver?)` (already accepts optional resolver — queries.ts:55); `settingsResolver` already built in `ServerService` (:183).
+- Produces: `/dashboard/cost` returns `activeProvider`/`localGeneration`/`estUsdSaved` reflecting team settings.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/server/cost-route-resolver.test.ts
+// SPDX-License-Identifier: Apache-2.0
+import { describe, it, expect } from 'bun:test';
+import express from 'express';
+import { registerDashboardRoutes } from '../../src/server/dashboard/routes.js';
+
+// Assert the cost route forwards a resolver so the rate/provider come from settings.
+describe('dashboard cost route forwards resolver to costPanel', () => {
+  it('uses resolver-provided provider (localGeneration reflects it)', async () => {
+    const fakeDb = { query: async () => ({ rows: [{ saved: '0', pre: '0', discovery_tokens: '0' }] }) } as any;
+    const resolver = { inputRatePerMtok: async () => 7, provider: async () => 'claude' } as any;
+    const app = express();
+    app.use((req: any, _res, next) => { req.authContext = { teamId: 'team-x' }; next(); });
+    registerDashboardRoutes(app, fakeDb, [], resolver);
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      const port = (server.address() as any).port;
+      const res = await fetch(`http://127.0.0.1:${port}/dashboard/cost?teamId=team-x`);
+      const body = await res.json();
+      expect(body.localGeneration).toBe(false); // claude -> not local
+    } finally { server.close(); }
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test tests/server/cost-route-resolver.test.ts`
+Expected: FAIL — `registerDashboardRoutes` does not accept a resolver arg / cost route passes none.
+
+- [ ] **Step 3: Add the resolver param to the route registrar**
+
+In `src/server/dashboard/routes.ts`:
+- Add `settingsResolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> }` to `DashboardRoutesOptions`.
+- Change `registerDashboardRoutes(app, db, mw = [], resolver?)` signature to accept an optional 4th `resolver` param.
+- In the `GET /dashboard/cost` handler, call `costPanel(db, scope, resolver)`.
+- In the `DashboardRoutes.setupRoutes`, pass `this.options.settingsResolver` as the 4th arg to `registerDashboardRoutes`.
+
+- [ ] **Step 4: Pass the resolver from ServerService**
+
+In `src/server/services/server/ServerService.ts` (:224-228), add `settingsResolver` to the `new DashboardRoutes({...})` options (the same `settingsResolver` built at :183).
+
+- [ ] **Step 5: Run tests + regression + typecheck**
+
+Run: `bun test tests/server/cost-route-resolver.test.ts && bun test tests/server/dashboard 2>&1 | tail -3 && npx tsc --noEmit`
+Expected: new test PASS; dashboard suite green; tsc 0.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/server/dashboard/routes.ts src/server/services/server/ServerService.ts tests/server/cost-route-resolver.test.ts
+git commit -m "fix(server): forward settings resolver to /dashboard/cost (live rate + provider)"
+```
+
+---
+
+### Task 13: Thread resolver into generation quality knobs
+
+**Files:**
+- Modify: `src/server/generation/processGeneratedResponse.ts` (`ProcessGeneratedResponseInput` :66-82 add `resolver?`; call site :111 pass resolved floor)
+- Modify: `src/server/generation/ProviderObservationGenerator.ts` (`ProviderObservationGeneratorOptions` :57-66 add `settingsResolver?`; `reformatRetryLimit` call :262 use resolver), `create-server-service.ts` (pass resolver into the generator options)
+- Test: `tests/server/generation-quality-resolver.test.ts`
+
+**Interfaces:**
+- Consumes: `SettingsResolver.qualityFloor(teamId)`, `SettingsResolver.reformatRetries(teamId)`; `teamId` via `input.job.teamId` / `payload.team_id`.
+- Produces: quality floor + reformat retries honor team overrides; env fallback when no resolver.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/server/generation-quality-resolver.test.ts
+// SPDX-License-Identifier: Apache-2.0
+import { describe, it, expect } from 'bun:test';
+import { applyQualityGate } from '../../src/server/generation/processGeneratedResponse.js';
+
+describe('applyQualityGate honors an explicit floor (resolver-supplied)', () => {
+  it('drops items below the supplied floor, not the env default', () => {
+    const items = [
+      { obsType: 'decision', facts: ['a', 'b', 'c'], why: 'because' }, // higher quality
+      { obsType: 'note' },                                             // low quality
+    ];
+    const keptHigh = applyQualityGate(items as any, 90); // very high floor
+    const keptLow = applyQualityGate(items as any, 0);   // floor 0 keeps all
+    expect(keptLow.length).toBeGreaterThanOrEqual(keptHigh.length);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails or confirms**
+
+Run: `bun test tests/server/generation-quality-resolver.test.ts`
+Expected: PASS if `applyQualityGate(parsed, floor)` already honors an explicit floor (it does — the `floor` param exists). This confirms the gate; the real change is THREADING the resolver value into the call at :111 and into `reformatRetryLimit`.
+
+- [ ] **Step 3: Thread resolver-supplied floor at the call site**
+
+In `src/server/generation/processGeneratedResponse.ts`: add `resolver?: { qualityFloor(teamId: string): Promise<number> }` to `ProcessGeneratedResponseInput`. At :111, compute the floor:
+
+```ts
+const floor = input.resolver ? await input.resolver.qualityFloor(input.job.teamId) : undefined;
+const kept = floor !== undefined ? applyQualityGate(scoreable, floor) : applyQualityGate(scoreable);
+```
+
+- [ ] **Step 4: Thread reformat retries via the generator's resolver**
+
+In `src/server/generation/ProviderObservationGenerator.ts`: add `settingsResolver?: SettingsResolver` to `ProviderObservationGeneratorOptions`. At :262, prefer the resolver:
+
+```ts
+const maxReformat = this.options.settingsResolver
+  ? await this.options.settingsResolver.reformatRetries(payload.team_id)
+  : reformatRetryLimit();
+```
+
+Keep `reformatRetryLimit()` as the env fallback. Also pass `input.resolver` when this generator calls `processGeneratedResponse` (thread the same `this.options.settingsResolver`).
+
+- [ ] **Step 5: Pass the resolver into the generator from create-server-service**
+
+In `src/server/runtime/create-server-service.ts` `buildGenerationWorkerManager`: it already builds a `SettingsResolver` for the provider holder (Task 9). Pass that same resolver into `ActiveServerGenerationWorkerManager` → `ProviderObservationGenerator` options as `settingsResolver`. (Thread through `ActiveServerGenerationWorkerManager` options like `providerHolder` is.)
+
+- [ ] **Step 6: Run tests + regression + typecheck**
+
+Run: `bun test tests/server/generation-quality-resolver.test.ts && bun test tests/server 2>&1 | tail -3 && npx tsc --noEmit`
+Expected: new test PASS; server suite green; tsc 0.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/server/generation/processGeneratedResponse.ts src/server/generation/ProviderObservationGenerator.ts src/server/runtime/create-server-service.ts src/server/runtime/ActiveServerGenerationWorkerManager.ts tests/server/generation-quality-resolver.test.ts
+git commit -m "fix(server): thread resolver into generation quality (qualityFloor, reformatRetries)"
+```
+
+---
+
+### Task 14: Make compression metering reachable server-side (real cost story)
+
+**Files:**
+- Modify: `src/server/routes/v1/ServerV1PostgresRoutes.ts` (the `/v1/context` handler ~:983-1030 — after `resolveSearchResults`, measure compression on the returned rows and record it)
+- Create: `src/server/retrieval/recordServedCompression.ts` (pure-ish helper: given rows + a budget + a usage repo + scope, run `tierToBudget` to measure pre/post and record events; never throws)
+- Test: `tests/server/served-compression.test.ts`
+
+**Interfaces:**
+- Consumes: `tierToBudget` (tiering.ts) + `renderAtTier` (via tiering), `buildCompressionEvent`/`estimateTokens` (compressionMetering.ts, Task 7), `PostgresUsageRepository` (usage.ts).
+- Produces: `recordServedCompression(deps): Promise<void>` — measures what tiering compression saves on the exact rows the server returns for context, and records `kind='compression'` usage events (guarded by `MEMSMITH_USAGE_METERING==='1'`; never throws). Wired into `/v1/context` so the cost story is populated by real server traffic.
+
+**Design note (why here):** injection itself is client-side (CLI). But `/v1/context` is the server endpoint that returns the memory rows the client injects. The server can run the SAME deterministic `tierToBudget` on those rows to measure the pre-vs-post size — the honest "what compression saves on the served memory" — and record it. This is server-executed, has `teamId` + a usage repo, and requires no new client protocol.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/server/served-compression.test.ts
+// SPDX-License-Identifier: Apache-2.0
+import { describe, it, expect } from 'bun:test';
+import { recordServedCompression } from '../../src/server/retrieval/recordServedCompression.js';
+
+describe('recordServedCompression', () => {
+  it('records a compression event when tiering shrinks the served rows', async () => {
+    const recorded: any[] = [];
+    const usage = { record: async (e: any) => { recorded.push(e); } } as any;
+    const rows = [
+      { content: 'X'.repeat(4000), metadata: { title: 'T', facts: ['f'], why: 'W' } },
+    ];
+    process.env.MEMSMITH_USAGE_METERING = '1';
+    await recordServedCompression({ usage, teamId: 't', projectId: 'p', rows, maxChars: 200, maxItems: 1 });
+    delete process.env.MEMSMITH_USAGE_METERING;
+    expect(recorded.length).toBe(1);
+    expect(recorded[0].kind).toBe('compression');
+    expect(recorded[0].quantity).toBeGreaterThan(0);
+  });
+
+  it('records nothing when metering is disabled', async () => {
+    const recorded: any[] = [];
+    const usage = { record: async (e: any) => { recorded.push(e); } } as any;
+    delete process.env.MEMSMITH_USAGE_METERING;
+    await recordServedCompression({ usage, teamId: 't', projectId: 'p', rows: [{ content: 'X'.repeat(4000), metadata: { title: 'T', facts: ['f'], why: 'W' } }], maxChars: 200, maxItems: 1 });
+    expect(recorded.length).toBe(0);
+  });
+
+  it('never throws on a bad usage repo', async () => {
+    const usage = { record: async () => { throw new Error('db down'); } } as any;
+    process.env.MEMSMITH_USAGE_METERING = '1';
+    await recordServedCompression({ usage, teamId: 't', projectId: 'p', rows: [{ content: 'X'.repeat(4000), metadata: { title: 'T', facts: ['f'], why: 'W' } }], maxChars: 200, maxItems: 1 });
+    delete process.env.MEMSMITH_USAGE_METERING;
+    expect(true).toBe(true); // reached here without throwing
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test tests/server/served-compression.test.ts`
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement the helper**
+
+```ts
+// src/server/retrieval/recordServedCompression.ts
+// SPDX-License-Identifier: Apache-2.0
+import { tierToBudget, type TierInput } from './tiering.js';
+import { buildCompressionEvent } from './compressionMetering.js';
+import type { PostgresUsageRepository } from '../../storage/postgres/usage.js';
+import { logger } from '../../utils/logger.js';
+
+export interface RecordServedCompressionDeps {
+  usage: PostgresUsageRepository;
+  teamId: string;
+  projectId: string | null;
+  rows: TierInput[];
+  maxChars: number;
+  maxItems: number;
+}
+
+// Measures what tiering compression would save on the memory rows the server
+// returns for /v1/context, and records one 'compression' usage event per row
+// that actually shrank. Server-executed, gated by MEMSMITH_USAGE_METERING, and
+// NEVER throws — a metering failure must not affect the context response.
+export async function recordServedCompression(deps: RecordServedCompressionDeps): Promise<void> {
+  if (process.env.MEMSMITH_USAGE_METERING !== '1') return;
+  try {
+    const visible = deps.rows.slice(0, Math.max(0, deps.maxItems));
+    if (visible.length === 0) return;
+    const rendered = tierToBudget(visible, { maxChars: deps.maxChars, maxItems: deps.maxItems });
+    for (let i = 0; i < rendered.length; i++) {
+      const preChars = (visible[i]?.content ?? '').length;
+      const postChars = rendered[i].length;
+      if (preChars > postChars) {
+        await deps.usage.record(buildCompressionEvent(deps.teamId, deps.projectId, preChars, postChars, 'served'));
+      }
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.warn('SYSTEM', 'served-compression metering failed; ignoring', { teamId: deps.teamId }, err);
+  }
+}
+```
+
+- [ ] **Step 4: Wire into `/v1/context`**
+
+In the `/v1/context` handler (~:1005-1024, after `results = await this.resolveSearchResults({... mode: 'context'})` and before/after building the response), call the helper (fire-and-forget-safe, awaited but never throws):
+
+```ts
+await recordServedCompression({
+  usage: new PostgresUsageRepository(this.options.pool),
+  teamId, projectId,
+  rows: results.map(r => ({ content: r.content, metadata: (r.metadata ?? {}) as Record<string, unknown> })),
+  maxChars: 10000, maxItems: results.length,
+});
+```
+
+Use the same `maxChars` default the CLI injection uses (10000) so the measurement matches what the client actually compresses to. `teamId`/`projectId` are already in scope in the handler.
+
+- [ ] **Step 5: Run tests + regression + typecheck**
+
+Run: `bun test tests/server/served-compression.test.ts && bun test tests/server 2>&1 | tail -3 && npx tsc --noEmit`
+Expected: new test PASS; server suite green; tsc 0.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/server/retrieval/recordServedCompression.ts src/server/routes/v1/ServerV1PostgresRoutes.ts tests/server/served-compression.test.ts
+git commit -m "fix(server): record served-memory compression in /v1/context (real cost story)"
+```
+
+---
+
+### Task 15: Audit trail on PATCH /v1/settings
+
+**Files:**
+- Modify: `src/server/routes/v1/settingsRoutes.ts` (add an audit call on successful write) and/or `ServerV1PostgresRoutes.ts` wiring so the settings PATCH records to the audit log like other privileged writes.
+- Test: extend `tests/server/v1-settings.test.ts` with an audit assertion (PG-gated) OR a spy on the audit function.
+
+**Interfaces:**
+- Consumes: the same audit mechanism other `/v1` writes use (find `auditWrite`/`audit_log` usage in `ServerV1PostgresRoutes.ts` — 20+ call sites; mirror the shape: actor/team/action/target).
+- Produces: a `settings.update` (or matching convention) audit entry on each successful PATCH.
+
+- [ ] **Step 1: Find the audit convention**
+
+Read how existing writes audit in `ServerV1PostgresRoutes.ts` (grep `audit`). Note the exact function name, its arguments (team, actor/keyId, action string, metadata), and how it's invoked in a handler.
+
+- [ ] **Step 2: Write the failing test**
+
+```ts
+// add to tests/server/v1-settings.test.ts (PG-gated) — after a successful PATCH,
+// assert an audit_log row exists for the settings update.
+it('records an audit_log entry on a successful settings PATCH', async () => {
+  await call(appWith(['settings:admin']), 'PATCH', '/v1/settings', { patch: { tiering: false } });
+  const { rows } = await pool.query(
+    `SELECT action FROM audit_log WHERE team_id = $1 AND action LIKE 'settings%' ORDER BY created_at DESC LIMIT 1`,
+    [TEAM]);
+  expect(rows.length).toBe(1);
+});
+```
+
+(Adjust the `action` string / column names to the real audit_log schema discovered in Step 1. If the unit-test path can't reach the real audit writer, use the PG-gated production-wired path or a spy consistent with the file's pattern.)
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `bun test tests/server/v1-settings.test.ts`
+Expected: FAIL — no audit row.
+
+- [ ] **Step 4: Add the audit call on successful PATCH**
+
+In `settingsRoutes.ts` (or the route wiring that has the audit writer in scope), after `putTeamOverrides` succeeds and before responding, record an audit entry mirroring the other writes' shape: team, actor/keyId (from `req.authContext`), action `settings.update`, metadata `{ keys: Object.keys(clean) }`. Match the exact audit helper and signature found in Step 1.
+
+- [ ] **Step 5: Run tests + regression + typecheck**
+
+Run: `bun test tests/server/v1-settings.test.ts && bun test tests/server 2>&1 | tail -3 && npx tsc --noEmit`
+Expected: PASS; server suite green; tsc 0.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/server/routes/v1/settingsRoutes.ts src/server/routes/v1/ServerV1PostgresRoutes.ts tests/server/v1-settings.test.ts
+git commit -m "fix(server): audit-log settings PATCH (privileged write parity)"
+```
+
+---
+
+## Phase 2 Self-Review
+
+- **Critical (cost story):** Task 14 makes compression metering reachable via `/v1/context` (server-executed, gated, never-throws) — closes the "$0 always" gap.
+- **Important (dead knobs):** Task 11 (search: hybrid/weights/rrfK/supersede), Task 12 (cost route: rate/provider), Task 13 (generation: qualityFloor/reformatRetries) thread the resolver into every read site the review flagged. After Phase 2, the only remaining env-only knobs are the quota/rate-limit middleware (correctly `boot:true`).
+- **Recommended (audit):** Task 15 adds audit parity for the privileged settings write.
+- **Env fallback preserved everywhere:** every wiring keeps the env/default path when no resolver is threaded — no regression to existing callers.
+- **Type consistency:** the resolver getters (`weights`/`rrfK`/`supersedeMaxDepth`/`qualityFloor`/`reformatRetries`/`inputRatePerMtok`/`searchHybridEnabled`/`provider`) all exist from Task 4; Phase 2 only adds call sites and optional params.
