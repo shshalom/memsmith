@@ -35,6 +35,7 @@ import { IngestEventsService, type EnqueueOutcome } from '../../services/IngestE
 import { EndSessionService } from '../../services/EndSessionService.js';
 import { normalizePlatformSource, normalizePlatformSourceOrNull } from '../../../shared/platform-source.js';
 import { resolveHeads } from '../../retrieval/supersession.js';
+import { ObservationStream } from './ObservationStream.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -58,6 +59,10 @@ export interface ServerV1PostgresRoutesOptions {
   queueManager: ServerQueueManager;
   authMode?: string;
   allowLocalDevBypass?: boolean;
+  // Local-dev fallback team for unauthenticated loopback requests. Only
+  // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
+  // request is loopback — the middleware guards enforce all three conditions.
+  localDevTeamId?: string | null;
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -154,11 +159,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const baseWrite = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:write'],
     });
     const baseRead = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:read'],
     });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
@@ -910,7 +917,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // single source of truth for the read path is the REST core.
     app.post('/v1/search', readAuth, this.handleCreate(
       z.object({
-        projectId: z.string().min(1),
+        projectId: z.string().min(1).optional(),
         query: z.string().min(1),
         limit: z.number().int().positive().max(100).optional(),
         platformSource: z.string().min(1).nullable().optional(),
@@ -918,14 +925,22 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
-        if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Resolve effective projectId: body takes precedence over authContext.
+        // In api-key mode authContext.projectId is set from the key; in local-dev
+        // mode authContext.projectId is null, so callers must pass it explicitly.
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         // Hybrid (FTS+vector via RRF) is the default ranking; force plain FTS
         // with MEMSMITH_SEARCH_HYBRID=0. See resolveSearchResults.
         let results;
         try {
           results = await this.resolveSearchResults({
-            projectId: body.projectId,
+            projectId,
             teamId,
             query: body.query,
             limit: body.limit ?? 20,
@@ -938,7 +953,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           this.handleDbError(err, res, 'observation.search');
           return;
         }
-        await this.auditWrite(req, 'observation.read', null, body.projectId, {
+        await this.auditWrite(req, 'observation.read', null, projectId, {
           mode: 'search',
           query: body.query,
           limit: body.limit ?? 20,
@@ -959,7 +974,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // ranking and context-packing rule.
     app.post('/v1/context', readAuth, this.handleCreate(
       z.object({
-        projectId: z.string().min(1),
+        projectId: z.string().min(1).optional(),
         query: z.string().min(1),
         limit: z.number().int().positive().max(50).optional(),
         platformSource: z.string().min(1).nullable().optional(),
@@ -967,12 +982,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
-        if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Resolve effective projectId: body takes precedence over authContext.
+        // In api-key mode authContext.projectId is set from the key; in local-dev
+        // mode authContext.projectId is null, so callers must pass it explicitly.
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         let results;
         try {
           results = await this.resolveSearchResults({
-            projectId: body.projectId,
+            projectId,
             teamId,
             query: body.query,
             limit: body.limit ?? 10,
@@ -989,7 +1012,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           .map(observation => observation.content)
           .filter(text => typeof text === 'string' && text.length > 0)
           .join('\n\n');
-        await this.auditWrite(req, 'observation.read', null, body.projectId, {
+        await this.auditWrite(req, 'observation.read', null, projectId, {
           mode: 'context',
           query: body.query,
           limit: body.limit ?? 10,
@@ -1003,6 +1026,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         });
       },
     ));
+
+    // GET /v1/stream — SSE fan-out for real-time new_observation events.
+    // Uses readAuth (memories:read) so the same API key that reads search also
+    // receives live updates. The client (Task 5) subscribes and renders new
+    // observations as they arrive. Best-effort: the stream never blocks or
+    // affects generation; a broken connection is dropped on next publish.
+    app.get('/v1/stream', readAuth, (req: Request, res: Response) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write(`data: ${JSON.stringify({ type: 'initial_load' })}\n\n`);
+      const unsub = ObservationStream.instance.subscribe(res);
+      req.on('close', () => { unsub(); });
+    });
 
     // Remote authenticated MCP endpoint. The "secure MCP link" a user pastes
     // into Claude Code (or any MCP client) to recall their cloud memory:

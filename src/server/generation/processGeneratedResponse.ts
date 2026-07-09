@@ -21,6 +21,7 @@ import {
   type PostgresPool,
 } from '../../storage/postgres/pool.js';
 import { stripTags } from '../../utils/tag-stripping.js';
+import { ObservationStream } from '../routes/v1/ObservationStream.js';
 
 const QUALITY_FLOOR = Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
 
@@ -354,6 +355,28 @@ async function persistGeneratedObservations(
         lifecycleState: lifecycleState ?? undefined,
       });
       persisted.push(observation);
+
+      // Emit a live SSE event for the new observation. Best-effort: wrapped in
+      // try/catch so a streaming failure NEVER breaks or throws into the
+      // generation pipeline. Generation correctness is paramount.
+      try {
+        ObservationStream.instance.publish({
+          type: 'new_observation',
+          observation: {
+            id: observation.id,
+            projectId: observation.projectId,
+            teamId: observation.teamId,
+            serverSessionId: observation.serverSessionId,
+            kind: observation.kind,
+            content: observation.content,
+            metadata: observation.metadata,
+            obsType: observation.obsType,
+            lifecycleState: observation.lifecycleState,
+            createdAtEpoch: observation.createdAtEpoch,
+            updatedAtEpoch: observation.updatedAtEpoch,
+          },
+        });
+      } catch { /* streaming is best-effort; never break generation */ }
 
       await sourcesRepo.addSource({
         observationId: observation.id,

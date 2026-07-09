@@ -638,6 +638,16 @@ async function buildHooks() {
     fs.copyFileSync(onboardingExplainerSrc, onboardingExplainerDst);
     console.log(`✓ Copied ${onboardingExplainerSrc} → ${onboardingExplainerDst}`);
 
+    console.log('\n📋 Copying dashboard UI to plugin tree...');
+    const dashboardHtmlSrc = 'src/server/dashboard/ui.html';
+    const dashboardHtmlDst = 'plugin/ui/dashboard.html';
+    if (!fs.existsSync(dashboardHtmlSrc)) {
+      throw new Error(`Missing dashboard UI source: ${dashboardHtmlSrc}`);
+    }
+    fs.mkdirSync(path.dirname(dashboardHtmlDst), { recursive: true });
+    fs.copyFileSync(dashboardHtmlSrc, dashboardHtmlDst);
+    console.log(`✓ Copied ${dashboardHtmlSrc} → ${dashboardHtmlDst}`);
+
     console.log('\n📋 Verifying distribution files...');
     const validCodexHookEvents = new Set([
       'SessionStart',

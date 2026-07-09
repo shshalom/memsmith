@@ -19,9 +19,16 @@ import { logger } from '../../utils/logger.js';
 
 const VIEWER_HTML_CANDIDATE_PATHS: readonly string[] = (() => {
   const packageRoot = getPackageRoot();
+  // In production the built server-service.cjs lives under plugin/scripts/,
+  // so getPackageRoot() returns plugin/ and the first candidate resolves.
+  // In development/test, paths.ts is imported as source from src/shared/,
+  // so getPackageRoot() returns src/ — we need to climb one more level.
+  const parentRoot = path.join(packageRoot, '..');
   return [
     path.join(packageRoot, 'ui', 'viewer.html'),
     path.join(packageRoot, 'plugin', 'ui', 'viewer.html'),
+    path.join(parentRoot, 'ui', 'viewer.html'),
+    path.join(parentRoot, 'plugin', 'ui', 'viewer.html'),
   ];
 })();
 
@@ -46,11 +53,14 @@ if (resolvedViewerHtmlPath) {
 export class ServerViewerRoutes implements RouteHandler {
   setupRoutes(app: Application): void {
     const packageRoot = getPackageRoot();
-    // Serve static assets from BOTH the npm-package `ui` dir and the plugin
-    // `plugin/ui` dir, matching the worker's resolution order so the viewer
-    // loads regardless of which layout the server image ships.
+    const parentRoot = path.join(packageRoot, '..');
+    // Serve static assets from candidate ui directories, covering both the
+    // production layout (plugin/ root → ui/ dir) and the dev/test layout
+    // (project root → plugin/ui/ dir).
     app.use(express.static(path.join(packageRoot, 'ui')));
     app.use(express.static(path.join(packageRoot, 'plugin', 'ui')));
+    app.use(express.static(path.join(parentRoot, 'ui')));
+    app.use(express.static(path.join(parentRoot, 'plugin', 'ui')));
 
     app.get('/', (_req: Request, res: Response) => {
       if (!viewerHtmlBytes) {

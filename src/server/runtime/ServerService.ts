@@ -181,6 +181,7 @@ export class ServerService {
       pool: this.graph.postgres.pool,
       queueManager: this.graph.queueManager,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
+      localDevTeamId: this.graph.localDevTeamId,
     });
     server.registerRoutes(v1Routes);
 
@@ -216,6 +217,7 @@ export class ServerService {
     server.registerRoutes(new DashboardRoutes({
       db: this.graph.postgres.pool,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
+      localDevTeamId: this.graph.localDevTeamId,
     }));
 
     server.finalizeRoutes();

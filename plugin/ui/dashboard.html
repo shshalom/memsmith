@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Team Dashboard — MemSmith</title>
+<style>
+  :root {
+    --bg: #0a1628;
+    --surface: #0f2040;
+    --surface2: #152848;
+    --border: #1e3a5f;
+    --gold: #c9a84c;
+    --gold-dim: #9b7d35;
+    --text: #d8e8f8;
+    --text-dim: #7a9cbf;
+    --green: #3db87a;
+    --red: #e05c5c;
+    --orange: #e07c3a;
+    --blue: #4da6e8;
+    --purple: #9b72cf;
+    --radius: 6px;
+    --font: 'SF Mono', 'Fira Code', monospace, system-ui;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; min-height: 100vh; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; font-weight: 600; color: var(--gold); letter-spacing: 0.04em; }
+  header span { color: var(--text-dim); font-size: 12px; }
+  #controls { display: flex; gap: 10px; margin-left: auto; align-items: center; }
+  input, select {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; border-radius: var(--radius); font-size: 12px; font-family: var(--font);
+  }
+  input:focus, select:focus { outline: 1px solid var(--gold-dim); }
+  button {
+    background: var(--gold); color: var(--bg); border: none; padding: 6px 14px;
+    border-radius: var(--radius); cursor: pointer; font-size: 12px; font-weight: 600;
+    font-family: var(--font); transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  main { padding: 20px 24px; display: flex; flex-direction: column; gap: 24px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .panel-header {
+    border-bottom: 1px solid var(--border); padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-header h2 { font-size: 13px; color: var(--gold); font-weight: 600; letter-spacing: 0.05em; }
+  .panel-body { padding: 16px; }
+  /* Kanban */
+  .kanban { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .lane { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
+  .lane-title {
+    padding: 7px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; border-bottom: 1px solid var(--border);
+  }
+  .lane-title.open    { color: var(--blue); }
+  .lane-title.active  { color: var(--green); }
+  .lane-title.blocked { color: var(--red); }
+  .lane-title.deferred { color: var(--orange); }
+  .lane-title.resolved { color: var(--text-dim); }
+  .lane-title.superseded { color: var(--purple); }
+  .lane-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 48px; }
+  .card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    padding: 7px 9px; font-size: 11px; line-height: 1.5; word-break: break-word;
+  }
+  .card-meta { color: var(--text-dim); font-size: 10px; margin-top: 3px; }
+  /* Decision log */
+  .decision-list { display: flex; flex-direction: column; gap: 10px; }
+  .decision {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 14px;
+  }
+  .decision-content { font-size: 12px; line-height: 1.6; }
+  .decision-why { color: var(--text-dim); font-size: 11px; margin-top: 5px; }
+  .decision-rejected { color: var(--gold-dim); font-size: 11px; margin-top: 3px; }
+  /* Blocked */
+  .blocked-list { display: flex; flex-direction: column; gap: 10px; }
+  .blocker-group { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
+  .blocker-name { padding: 7px 12px; color: var(--red); font-weight: 700; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .blocker-items { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+  .blocker-item { font-size: 11px; line-height: 1.5; color: var(--text-dim); }
+  /* Cost panel */
+  .cost-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .cost-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .cost-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .cost-value { font-size: 22px; color: var(--gold); font-weight: 700; }
+  .cost-unit { font-size: 11px; color: var(--text-dim); }
+  /* Empty + error states */
+  .empty { color: var(--text-dim); font-size: 11px; padding: 8px 0; }
+  .error-msg { color: var(--red); font-size: 12px; padding: 8px; background: rgba(224,92,92,0.08); border-radius: var(--radius); }
+  .loading { color: var(--text-dim); font-size: 12px; padding: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Team Dashboard</h1>
+  <span>memsmith</span>
+  <div id="controls">
+    <input id="teamId-input" type="text" placeholder="Team ID" style="width:200px" />
+    <input id="projectId-input" type="text" placeholder="Project ID (optional)" style="width:180px" />
+    <button id="load-btn">Load</button>
+  </div>
+</header>
+
+<main>
+  <div class="panel" id="board-panel">
+    <div class="panel-header"><h2>Lifecycle Board</h2></div>
+    <div class="panel-body"><div class="loading" id="board-status">Enter a Team ID and click Load.</div><div class="kanban" id="board-kanban"></div></div>
+  </div>
+
+  <div class="panel" id="decisions-panel">
+    <div class="panel-header"><h2>Decision Log</h2></div>
+    <div class="panel-body"><div class="loading" id="decisions-status"></div><div class="decision-list" id="decisions-list"></div></div>
+  </div>
+
+  <div class="panel" id="blocked-panel">
+    <div class="panel-header"><h2>Blocked On Whom</h2></div>
+    <div class="panel-body"><div class="loading" id="blocked-status"></div><div class="blocked-list" id="blocked-list"></div></div>
+  </div>
+
+  <div class="panel" id="cost-panel">
+    <div class="panel-header"><h2>Cost Panel</h2></div>
+    <div class="panel-body"><div class="loading" id="cost-status"></div><div class="cost-grid" id="cost-grid"></div></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const LANES = ['open', 'active', 'blocked', 'deferred', 'resolved', 'superseded'];
+
+  // Read teamId/projectId from URL query params on load.
+  function queryParam(name) {
+    return new URLSearchParams(window.location.search).get(name) ?? '';
+  }
+
+  document.getElementById('teamId-input').value = queryParam('teamId');
+  document.getElementById('projectId-input').value = queryParam('projectId');
+
+  function apiUrl(path) {
+    const teamId = document.getElementById('teamId-input').value.trim();
+    const projectId = document.getElementById('projectId-input').value.trim();
+    const p = new URLSearchParams({ teamId });
+    if (projectId) p.set('projectId', projectId);
+    return `${path}?${p}`;
+  }
+
+  function setStatus(id, msg, isError) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = isError ? 'error-msg' : (msg ? 'loading' : '');
+  }
+
+  async function fetchJSON(url) {
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    return res.json();
+  }
+
+  // Lifecycle board
+  async function loadBoard() {
+    const kanban = document.getElementById('board-kanban');
+    kanban.innerHTML = '';
+    setStatus('board-status', 'Loading…');
+    try {
+      const board = await fetchJSON(apiUrl('/dashboard/board'));
+      setStatus('board-status', '');
+      for (const lane of LANES) {
+        const items = board[lane] ?? [];
+        const laneEl = document.createElement('div');
+        laneEl.className = 'lane';
+        const titleEl = document.createElement('div');
+        titleEl.className = `lane-title ${lane}`;
+        titleEl.textContent = `${lane} (${items.length})`;
+        laneEl.appendChild(titleEl);
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'lane-body';
+        if (items.length === 0) {
+          bodyEl.innerHTML = '<span class="empty">—</span>';
+        } else {
+          for (const item of items) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const content = item.content ?? item.kind ?? '(no content)';
+            card.textContent = content.length > 100 ? content.slice(0, 100) + '…' : content;
+            const meta = document.createElement('div');
+            meta.className = 'card-meta';
+            meta.textContent = item.id ? item.id.slice(0, 8) : '';
+            card.appendChild(meta);
+            bodyEl.appendChild(card);
+          }
+        }
+        laneEl.appendChild(bodyEl);
+        kanban.appendChild(laneEl);
+      }
+    } catch (e) {
+      setStatus('board-status', e.message, true);
+    }
+  }
+
+  // Decision log
+  async function loadDecisions() {
+    const list = document.getElementById('decisions-list');
+    list.innerHTML = '';
+    setStatus('decisions-status', 'Loading…');
+    try {
+      const chains = await fetchJSON(apiUrl('/dashboard/decisions'));
+      setStatus('decisions-status', chains.length === 0 ? 'No decisions recorded.' : '');
+      for (const chain of chains) {
+        const row = chain.head;
+        const history = chain.history ?? [];
+        const meta = row.metadata ?? {};
+        const el = document.createElement('div');
+        el.className = 'decision';
+        let inner = `
+          <div class="decision-content">${escHtml(row.content ?? '')}</div>
+          ${meta.why ? `<div class="decision-why">Why: ${escHtml(meta.why)}</div>` : ''}
+          ${meta.rejected_alternatives ? `<div class="decision-rejected">Rejected: ${escHtml(Array.isArray(meta.rejected_alternatives) ? meta.rejected_alternatives.join(', ') : meta.rejected_alternatives)}</div>` : ''}
+        `;
+        if (history.length > 0) {
+          inner += `<details style="margin-top:6px"><summary class="decision-why" style="cursor:pointer;user-select:none">superseded (${history.length})</summary>`;
+          for (const h of history) {
+            const hMeta = h.metadata ?? {};
+            inner += `<div class="card" style="margin-top:5px">
+              <div class="decision-content">${escHtml(h.content ?? '')}</div>
+              ${hMeta.why ? `<div class="decision-why">Why: ${escHtml(hMeta.why)}</div>` : ''}
+              <div class="card-meta">${escHtml(h.id ? h.id.slice(0, 8) : '')}</div>
+            </div>`;
+          }
+          inner += '</details>';
+        }
+        el.innerHTML = inner;
+        list.appendChild(el);
+      }
+    } catch (e) {
+      setStatus('decisions-status', e.message, true);
+    }
+  }
+
+  // Blocked-on-whom
+  async function loadBlocked() {
+    const list = document.getElementById('blocked-list');
+    list.innerHTML = '';
+    setStatus('blocked-status', 'Loading…');
+    try {
+      const byBlocker = await fetchJSON(apiUrl('/dashboard/blocked'));
+      const blockers = Object.keys(byBlocker);
+      setStatus('blocked-status', blockers.length === 0 ? 'Nothing blocked.' : '');
+      for (const blocker of blockers) {
+        const items = byBlocker[blocker] ?? [];
+        const grp = document.createElement('div');
+        grp.className = 'blocker-group';
+        grp.innerHTML = `<div class="blocker-name">${escHtml(blocker)} (${items.length})</div>`;
+        const itemsEl = document.createElement('div');
+        itemsEl.className = 'blocker-items';
+        for (const item of items) {
+          const div = document.createElement('div');
+          div.className = 'blocker-item';
+          const content = item.content ?? '';
+          div.textContent = content.length > 120 ? content.slice(0, 120) + '…' : content;
+          itemsEl.appendChild(div);
+        }
+        grp.appendChild(itemsEl);
+        list.appendChild(grp);
+      }
+    } catch (e) {
+      setStatus('blocked-status', e.message, true);
+    }
+  }
+
+  // Cost panel
+  async function loadCost() {
+    const grid = document.getElementById('cost-grid');
+    grid.innerHTML = '';
+    setStatus('cost-status', 'Loading…');
+    try {
+      const cost = await fetchJSON(apiUrl('/dashboard/cost'));
+      setStatus('cost-status', '');
+      const cards = [
+        { label: 'Discovery Tokens', value: Number(cost.discoveryTokens ?? 0).toLocaleString(), unit: 'tokens' },
+        { label: 'Est. Cost', value: `$${(cost.estUsd ?? 0).toFixed(4)}`, unit: 'USD (est.)' },
+        { label: 'Distilled Tokens', value: cost.distilledTokens != null ? Number(cost.distilledTokens).toLocaleString() : '—', unit: 'tokens' },
+      ];
+      for (const c of cards) {
+        const el = document.createElement('div');
+        el.className = 'cost-card';
+        el.innerHTML = `<div class="cost-label">${escHtml(c.label)}</div><div class="cost-value">${escHtml(c.value)}</div><div class="cost-unit">${escHtml(c.unit)}</div>`;
+        grid.appendChild(el);
+      }
+    } catch (e) {
+      setStatus('cost-status', e.message, true);
+    }
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function loadAll() {
+    const teamId = document.getElementById('teamId-input').value.trim();
+    if (!teamId) {
+      ['board-status', 'decisions-status', 'blocked-status', 'cost-status'].forEach(id =>
+        setStatus(id, 'Team ID is required.', true));
+      return;
+    }
+    loadBoard();
+    loadDecisions();
+    loadBlocked();
+    loadCost();
+  }
+
+  document.getElementById('load-btn').addEventListener('click', loadAll);
+  document.getElementById('teamId-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadAll(); });
+
+  // Auto-load if teamId provided in URL.
+  if (queryParam('teamId')) loadAll();
+})();
+</script>
+</body>
+</html>
