@@ -112,6 +112,10 @@ export interface DashboardRoutesOptions {
   db: PostgresPool;
   authMode?: string;
   allowLocalDevBypass?: boolean;
+  // Local-dev fallback team for unauthenticated loopback requests. Only
+  // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
+  // request is loopback — the middleware guards enforce all three conditions.
+  localDevTeamId?: string | null;
 }
 
 /**
@@ -126,6 +130,7 @@ export class DashboardRoutes implements RouteHandler {
     const readAuth = requirePostgresServerAuth(this.options.db, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:read'],
     });
     registerDashboardRoutes(app, this.options.db, [readAuth]);

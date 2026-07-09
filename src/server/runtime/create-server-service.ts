@@ -196,6 +196,9 @@ export async function createServerService(
           'MEMSMITH_GENERATION_DISABLED is set; this server runs HTTP only. A separate `memsmith server worker start` process consumes the BullMQ queues.',
         )
       : buildGenerationWorkerManager(pool, queueManager, options.generationProvider));
+  // Read the local-dev fallback team. Trim + coerce empty string to null so
+  // the downstream middleware receives null (no scoping) when the var is unset.
+  const localDevTeamId = (process.env.MEMSMITH_LOCAL_DEV_TEAM_ID ?? '').trim() || null;
   const graph: ServerServiceGraph = {
     // Persisted runtime literal — Phase 1d will migrate this value. The TS
     // identifiers above are now `Server*`; the wire/storage value remains
@@ -206,6 +209,7 @@ export async function createServerService(
       bootstrap,
     },
     authMode: options.authMode ?? parseAuthMode(process.env.MEMSMITH_AUTH_MODE),
+    localDevTeamId,
     queueManager,
     generationWorkerManager,
   };

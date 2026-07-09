@@ -57,6 +57,11 @@ export interface ServerServiceGraph {
     bootstrap: ServerBootstrapStatus;
   };
   authMode: ServerAuthMode;
+  // Local-dev fallback team for unauthenticated loopback requests. Only used
+  // when authMode === 'local-dev' AND allowLocalDevBypass AND the request is
+  // on loopback. The middleware enforces all three conditions; this value is
+  // NEVER consulted in api-key mode or for non-loopback requests.
+  localDevTeamId?: string | null;
   queueManager: ServerQueueManager;
   generationWorkerManager: ServerGenerationWorkerManager;
 }

@@ -59,6 +59,10 @@ export interface ServerV1PostgresRoutesOptions {
   queueManager: ServerQueueManager;
   authMode?: string;
   allowLocalDevBypass?: boolean;
+  // Local-dev fallback team for unauthenticated loopback requests. Only
+  // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
+  // request is loopback — the middleware guards enforce all three conditions.
+  localDevTeamId?: string | null;
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -155,11 +159,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const baseWrite = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:write'],
     });
     const baseRead = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
       requiredScopes: ['memories:read'],
     });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
