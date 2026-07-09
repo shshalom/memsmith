@@ -7,12 +7,28 @@ import type { RouteHandler } from '../../services/server/Server.js';
 import type { PostgresQueryable } from '../../storage/postgres/utils.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+import { getPackageRoot } from '../../shared/paths.js';
 import { lifecycleBoard, decisionLog, blockedOnWhom, costPanel } from './queries.js';
 
-// Resolve ui.html relative to this source file so it works regardless of cwd.
-const UI_HTML_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'ui.html');
+// Resolve ui.html via getPackageRoot() (bundle-safe) rather than
+// `new URL(import.meta.url)`, which is undefined once esbuild bundles this into
+// the CJS server-service and throws ERR_INVALID_URL at module load. Mirrors
+// ServerViewerRoutes' candidate-path approach; source layout and the bundled
+// plugin layout are both covered.
+const UI_HTML_CANDIDATE_PATHS: readonly string[] = (() => {
+  const packageRoot = getPackageRoot();
+  return [
+    path.join(packageRoot, 'src', 'server', 'dashboard', 'ui.html'),
+    path.join(packageRoot, 'server', 'dashboard', 'ui.html'),
+    path.join(packageRoot, 'dashboard', 'ui.html'),
+    path.join(packageRoot, 'ui', 'dashboard.html'),
+  ];
+})();
 
-const uiHtmlBytes: Buffer | null = existsSync(UI_HTML_PATH) ? readFileSync(UI_HTML_PATH) : null;
+const UI_HTML_PATH: string | null =
+  UI_HTML_CANDIDATE_PATHS.find(candidate => existsSync(candidate)) ?? null;
+
+const uiHtmlBytes: Buffer | null = UI_HTML_PATH ? readFileSync(UI_HTML_PATH) : null;
 
 // Wraps an async Express handler and forwards thrown errors to next().
 function asyncHandler(
