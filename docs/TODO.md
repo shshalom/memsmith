@@ -17,7 +17,7 @@
 ### 0. DATA MIGRATED + EMBEDDED ✅ (2026-07-10)
 - claude-mem's `team-agent-memory` history (2,378 obs — decisions/features/changes/bugfixes/discovery/refactor) migrated into the MemSmith dogfood Postgres store via `scripts/migrate-claude-mem.ts` (idempotent, dry-run-first, read-only source). So MemSmith now HAS this project's full decision/reasoning history — searchable via `/v1/search` (pass `platformSource: null`, since migrated rows have no live-agent platform attribution).
 - **Embeddings backfilled** via `scripts/backfill-embeddings.ts` (local ONNX all-MiniLM-L6-v2, 384-dim; idempotent, only null rows). All 2,380 rows now have `embedding_vec` → SEMANTIC search works (`/v1/search` hybrid FTS+vector RRF fusion verified: "why did we pick the database engine" returns storage-architecture obs w/o keyword overlap).
-- NOTE: the generation pipeline still doesn't populate embedding_vec on NEW obs (the known gap — see Deferred below); re-run `backfill-embeddings.ts --execute` periodically, or fix the pipeline.
+- **Embed-on-write gap CLOSED** (713c8330): `processGeneratedResponse` now embeds new observations on write (pre-computed before the DB txn; best-effort/never-breaks-generation). New MemSmith memory gets `embedding_vec` automatically. `backfill-embeddings.ts` remains for any historical/failed-embed rows.
 - Backup of pre-migration target table: `/tmp/memsmith-observations-backup-*.sql`. Rollback = `DELETE FROM observations WHERE id LIKE 'cmem-%'`.
 - Re-runnable safely: `bun scripts/migrate-claude-mem.ts --execute` only inserts genuinely-new source rows (claude-mem keeps capturing this live session).
 
@@ -43,7 +43,7 @@
 
 ## Deferred / tracked (not started, larger)
 - **Team identity & access**: owners, members, self-serve API keys, real multi-user auth, attribution DATA. The UI + settings resolver leave SEAMS (user tier in the resolution chain is dormant; attribution slots exist) but no identity subsystem is built.
-- **Embedding gap**: server-mode generation does NOT populate `embedding_vec` → semantic search arm is empty (FTS covers it). Separate investigation.
+- ~~**Embedding gap**: server-mode generation does NOT populate `embedding_vec`~~ **CLOSED 2026-07-10 (713c8330)** — generation now embeds on write; migrated history backfilled. Semantic search fully live.
 - **Quota/rate-limit live-reload**: `monthlyTokenCap`/`monthlyRequestCap`/`rateLimitPerMin` are `boot:true` (middleware wired at setupRoutes); changing them needs a restart. Deliberately deferred (YAGNI — caps change rarely).
 
 ## Minor review findings accepted (not blocking, from SDD reviews)
