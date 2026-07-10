@@ -8,6 +8,54 @@
   <link rel="icon" type="image/webp" href="memsmith-logomark.webp">
   <style>
     @font-face {
+      font-family: 'Plus Jakarta Sans';
+      src: url('assets/fonts/plus-jakarta-sans-400.woff2') format('woff2');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      src: url('assets/fonts/plus-jakarta-sans-500.woff2') format('woff2');
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      src: url('assets/fonts/plus-jakarta-sans-600.woff2') format('woff2');
+      font-weight: 600;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      src: url('assets/fonts/plus-jakarta-sans-700.woff2') format('woff2');
+      font-weight: 700;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      src: url('assets/fonts/plus-jakarta-sans-800.woff2') format('woff2');
+      font-weight: 800;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Azeret Mono';
+      src: url('assets/fonts/azeret-mono-400.woff2') format('woff2');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Azeret Mono';
+      src: url('assets/fonts/azeret-mono-500.woff2') format('woff2');
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Azeret Mono';
+      src: url('assets/fonts/azeret-mono-600.woff2') format('woff2');
+      font-weight: 600;
+      font-display: swap;
+    }
+    @font-face {
       font-family: 'Monaspace Radon';
       src: url('assets/fonts/monaspace-radon-var.woff2') format('woff2-variations'),
         url('assets/fonts/monaspace-radon-var.woff') format('woff-variations');
@@ -18,280 +66,284 @@
     /* Theme Variables - Light Mode */
     :root,
     [data-theme="light"] {
-      --color-bg-primary: #ffffff;
-      --color-bg-secondary: #efebe4;
-      --color-bg-tertiary: #f0f0f0;
-      --color-bg-header: #f6f8fa;
+      --color-bg-primary: #faf6f0;
+      --color-bg-secondary: #f5ece0;
+      --color-bg-tertiary: #f5ece0;
+      --color-bg-header: #faf6f0;
       --color-bg-card: #ffffff;
-      --color-bg-card-hover: #f6f8fa;
+      --color-bg-card-hover: #fffdf5;
       --color-bg-input: #ffffff;
-      --color-bg-button: #0969da;
-      --color-bg-button-hover: #1177e6;
-      --color-bg-button-active: #0860ca;
-      --color-bg-summary: #fffbf0;
+      --color-bg-button: #c2410c;
+      --color-bg-button-hover: #a8380a;
+      --color-bg-button-active: #952f08;
+      --color-bg-summary: #fffdf5;
       --color-bg-prompt: #f6f3fb;
-      --color-bg-observation: #f0f6fb;
-      --color-bg-stat: #f6f8fa;
-      --color-bg-scrollbar-track: #ffffff;
-      --color-bg-scrollbar-thumb: #d1d5da;
-      --color-bg-scrollbar-thumb-hover: #b1b5ba;
+      --color-bg-observation: #fffdf5;
+      --color-bg-stat: #faf6f0;
+      --color-bg-scrollbar-track: #faf6f0;
+      --color-bg-scrollbar-thumb: #d8cfc4;
+      --color-bg-scrollbar-thumb-hover: #c0b5a8;
 
-      --color-border-primary: #d0d7de;
-      --color-border-secondary: #d8dee4;
-      --color-border-hover: #0969da;
-      --color-border-focus: #0969da;
-      --color-border-summary: #d4a72c;
-      --color-border-summary-hover: #c29d29;
+      --color-border-primary: rgba(60, 40, 20, 0.08);
+      --color-border-secondary: rgba(60, 40, 20, 0.08);
+      --color-border-hover: #c2410c;
+      --color-border-focus: #c2410c;
+      --color-border-summary: rgba(194, 65, 12, 0.25);
+      --color-border-summary-hover: rgba(194, 65, 12, 0.45);
       --color-border-prompt: #8250df;
       --color-border-prompt-hover: #6e40c9;
-      --color-border-observation: #0969da;
-      --color-border-observation-hover: #0550ae;
+      --color-border-observation: #c2410c;
+      --color-border-observation-hover: #a8380a;
 
-      --color-text-primary: #2b2520;
+      --color-text-primary: #2c2a25;
       --color-text-secondary: #5a5248;
-      --color-text-tertiary: #726b5f;
-      --color-text-muted: #8f8a7e;
-      --color-text-header: #2b2520;
-      --color-text-title: #2b2520;
+      --color-text-tertiary: #7c756a;
+      --color-text-muted: #a09888;
+      --color-text-header: #2c2a25;
+      --color-text-title: #2c2a25;
       --color-text-subtitle: #5a5248;
       --color-text-button: #ffffff;
-      --color-text-summary: #8a6116;
-      --color-text-observation: #2b2520;
-      --color-text-logo: #2b2520;
+      --color-text-summary: #8a5a10;
+      --color-text-observation: #2c2a25;
+      --color-text-logo: #2c2a25;
 
-      --color-accent-primary: #0969da;
-      --color-accent-focus: #0969da;
-      --color-accent-success: #1a7f37;
-      --color-accent-error: #d1242f;
-      --color-accent-summary: #9a6700;
+      --color-accent-primary: #c2410c;
+      --color-accent-focus: #c2410c;
+      --color-accent-success: #15803d;
+      --color-accent-error: #b91c1c;
+      --color-accent-summary: #8a5a10;
       --color-accent-prompt: #8250df;
-      --color-accent-observation: #0550ae;
+      --color-accent-observation: #c2410c;
 
-      --color-type-badge-bg: rgba(9, 105, 218, 0.12);
-      --color-type-badge-text: #0969da;
-      --color-summary-badge-bg: rgba(154, 103, 0, 0.12);
-      --color-summary-badge-text: #9a6700;
+      --color-type-badge-bg: rgba(194, 65, 12, 0.10);
+      --color-type-badge-text: #c2410c;
+      --color-summary-badge-bg: rgba(138, 90, 16, 0.10);
+      --color-summary-badge-text: #8a5a10;
       --color-prompt-badge-bg: rgba(130, 80, 223, 0.12);
       --color-prompt-badge-text: #8250df;
-      --color-observation-badge-bg: rgba(9, 105, 218, 0.12);
-      --color-observation-badge-text: #0550ae;
+      --color-observation-badge-bg: rgba(194, 65, 12, 0.10);
+      --color-observation-badge-text: #c2410c;
 
-      --color-skeleton-base: #d0d7de;
-      --color-skeleton-highlight: #e8ecef;
+      --color-skeleton-base: #ddd5c8;
+      --color-skeleton-highlight: #ede5d8;
 
-      --shadow-focus: 0 0 0 2px rgba(9, 105, 218, 0.3);
+      --shadow-focus: 0 0 0 2px rgba(194, 65, 12, 0.3);
 
       /* Font families */
-      --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --font-terminal: 'Azeret Mono', 'SF Mono', Consolas, monospace;
     }
 
     /* Theme Variables - Dark Mode */
     [data-theme="dark"] {
-      --color-bg-primary: #1a1916;
-      --color-bg-secondary: #252320;
-      --color-bg-tertiary: #1f1d1a;
-      --color-bg-header: #1f1d1a;
-      --color-bg-card: #252320;
-      --color-bg-card-hover: #2d2a26;
-      --color-bg-input: #252320;
-      --color-bg-button: #0969da;
-      --color-bg-button-hover: #1177e6;
-      --color-bg-button-active: #0860ca;
-      --color-bg-summary: #2a2724;
+      --color-bg-primary: #1c1916;
+      --color-bg-secondary: #302b28;
+      --color-bg-tertiary: #262220;
+      --color-bg-header: #1c1916;
+      --color-bg-card: #262220;
+      --color-bg-card-hover: #3a3430;
+      --color-bg-input: #262220;
+      --color-bg-button: #e85d2a;
+      --color-bg-button-hover: #d4521f;
+      --color-bg-button-active: #c04918;
+      --color-bg-summary: #262220;
       --color-bg-prompt: #262033;
-      --color-bg-observation: #1a2332;
-      --color-bg-stat: #252320;
-      --color-bg-scrollbar-track: #1a1916;
-      --color-bg-scrollbar-thumb: #3a3834;
+      --color-bg-observation: #2a211e;
+      --color-bg-stat: #262220;
+      --color-bg-scrollbar-track: #1c1916;
+      --color-bg-scrollbar-thumb: #3a3430;
       --color-bg-scrollbar-thumb-hover: #4a4540;
 
-      --color-border-primary: #3a3834;
-      --color-border-secondary: #3a3834;
-      --color-border-hover: #4a4540;
-      --color-border-focus: #58a6ff;
-      --color-border-summary: #7a6a50;
-      --color-border-summary-hover: #8b7960;
+      --color-border-primary: rgba(200, 180, 160, 0.08);
+      --color-border-secondary: rgba(200, 180, 160, 0.08);
+      --color-border-hover: rgba(200, 180, 160, 0.16);
+      --color-border-focus: #e85d2a;
+      --color-border-summary: rgba(232, 93, 42, 0.25);
+      --color-border-summary-hover: rgba(232, 93, 42, 0.45);
       --color-border-prompt: #6e5b9e;
       --color-border-prompt-hover: #7e6bae;
-      --color-border-observation: #527aa0;
-      --color-border-observation-hover: #6a8eb8;
+      --color-border-observation: #e85d2a;
+      --color-border-observation-hover: #d4521f;
 
-      --color-text-primary: #dcd6cc;
-      --color-text-secondary: #b8b0a4;
-      --color-text-tertiary: #938a7e;
-      --color-text-muted: #7a7266;
-      --color-text-header: #e8e2d8;
-      --color-text-title: #e8e2d8;
-      --color-text-subtitle: #b8b0a4;
+      --color-text-primary: #f0e8dc;
+      --color-text-secondary: #c8b8a8;
+      --color-text-tertiary: #a09888;
+      --color-text-muted: #7a7066;
+      --color-text-header: #f0e8dc;
+      --color-text-title: #f0e8dc;
+      --color-text-subtitle: #c8b8a8;
       --color-text-button: #ffffff;
-      --color-text-summary: #d4b888;
-      --color-text-observation: #a8b8c8;
-      --color-text-logo: #e0dad0;
+      --color-text-summary: #d4a858;
+      --color-text-observation: #f0e8dc;
+      --color-text-logo: #f0e8dc;
 
-      --color-accent-primary: #58a6ff;
-      --color-accent-focus: #58a6ff;
-      --color-accent-success: #16c60c;
-      --color-accent-error: #e74856;
-      --color-accent-summary: #d4b888;
-      --color-accent-prompt: #8e7cbc;
-      --color-accent-observation: #79b8ff;
+      --color-accent-primary: #e85d2a;
+      --color-accent-focus: #e85d2a;
+      --color-accent-success: #4ade80;
+      --color-accent-error: #f87171;
+      --color-accent-summary: #d4a858;
+      --color-accent-prompt: #a78bfa;
+      --color-accent-observation: #e85d2a;
 
-      --color-type-badge-bg: rgba(88, 166, 255, 0.125);
-      --color-type-badge-text: #58a6ff;
-      --color-summary-badge-bg: rgba(212, 184, 136, 0.15);
-      --color-summary-badge-text: #d4b888;
-      --color-prompt-badge-bg: rgba(142, 124, 188, 0.15);
-      --color-prompt-badge-text: #9e8ccc;
-      --color-observation-badge-bg: rgba(121, 184, 255, 0.15);
-      --color-observation-badge-text: #79b8ff;
+      --color-type-badge-bg: rgba(232, 93, 42, 0.12);
+      --color-type-badge-text: #e85d2a;
+      --color-summary-badge-bg: rgba(212, 168, 88, 0.12);
+      --color-summary-badge-text: #d4a858;
+      --color-prompt-badge-bg: rgba(167, 139, 250, 0.12);
+      --color-prompt-badge-text: #a78bfa;
+      --color-observation-badge-bg: rgba(232, 93, 42, 0.12);
+      --color-observation-badge-text: #e85d2a;
 
-      --color-skeleton-base: #3a3834;
+      --color-skeleton-base: #3a3430;
       --color-skeleton-highlight: #4a4540;
 
-      --shadow-focus: 0 0 0 2px rgba(88, 166, 255, 0.2);
+      --shadow-focus: 0 0 0 2px rgba(232, 93, 42, 0.25);
 
       /* Font families */
-      --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --font-terminal: 'Azeret Mono', 'SF Mono', Consolas, monospace;
     }
 
     /* System preference default */
     @media (prefers-color-scheme: light) {
       :root:not([data-theme]) {
-        --color-bg-primary: #ffffff;
-        --color-bg-secondary: #f6f8fa;
-        --color-bg-tertiary: #f0f0f0;
-        --color-bg-header: #f6f8fa;
+        --color-bg-primary: #faf6f0;
+        --color-bg-secondary: #f5ece0;
+        --color-bg-tertiary: #f5ece0;
+        --color-bg-header: #faf6f0;
         --color-bg-card: #ffffff;
-        --color-bg-card-hover: #f6f8fa;
+        --color-bg-card-hover: #fffdf5;
         --color-bg-input: #ffffff;
-        --color-bg-button: #0969da;
-        --color-bg-button-hover: #1177e6;
-        --color-bg-button-active: #0860ca;
-        --color-bg-summary: #fffbf0;
+        --color-bg-button: #c2410c;
+        --color-bg-button-hover: #a8380a;
+        --color-bg-button-active: #952f08;
+        --color-bg-summary: #fffdf5;
         --color-bg-prompt: #f6f3fb;
-        --color-bg-observation: #f0f6fb;
-        --color-bg-stat: #f6f8fa;
-        --color-bg-scrollbar-track: #ffffff;
-        --color-bg-scrollbar-thumb: #d1d5da;
-        --color-bg-scrollbar-thumb-hover: #b1b5ba;
+        --color-bg-observation: #fffdf5;
+        --color-bg-stat: #faf6f0;
+        --color-bg-scrollbar-track: #faf6f0;
+        --color-bg-scrollbar-thumb: #d8cfc4;
+        --color-bg-scrollbar-thumb-hover: #c0b5a8;
 
-        --color-border-primary: #d0d7de;
-        --color-border-secondary: #d8dee4;
-        --color-border-hover: #0969da;
-        --color-border-focus: #0969da;
-        --color-border-summary: #d4a72c;
-        --color-border-summary-hover: #c29d29;
+        --color-border-primary: rgba(60, 40, 20, 0.08);
+        --color-border-secondary: rgba(60, 40, 20, 0.08);
+        --color-border-hover: #c2410c;
+        --color-border-focus: #c2410c;
+        --color-border-summary: rgba(194, 65, 12, 0.25);
+        --color-border-summary-hover: rgba(194, 65, 12, 0.45);
         --color-border-prompt: #8250df;
         --color-border-prompt-hover: #6e40c9;
-        --color-border-observation: #0969da;
-        --color-border-observation-hover: #0550ae;
+        --color-border-observation: #c2410c;
+        --color-border-observation-hover: #a8380a;
 
-        --color-text-primary: #24292f;
-        --color-text-secondary: #57606a;
-        --color-text-tertiary: #6e7781;
-        --color-text-muted: #8b949e;
-        --color-text-header: #24292f;
-        --color-text-title: #24292f;
-        --color-text-subtitle: #57606a;
+        --color-text-primary: #2c2a25;
+        --color-text-secondary: #5a5248;
+        --color-text-tertiary: #7c756a;
+        --color-text-muted: #a09888;
+        --color-text-header: #2c2a25;
+        --color-text-title: #2c2a25;
+        --color-text-subtitle: #5a5248;
         --color-text-button: #ffffff;
-        --color-text-summary: #8a6116;
-        --color-text-observation: #24292f;
-        --color-text-logo: #24292f;
+        --color-text-summary: #8a5a10;
+        --color-text-observation: #2c2a25;
+        --color-text-logo: #2c2a25;
 
-        --color-accent-primary: #0969da;
-        --color-accent-focus: #0969da;
-        --color-accent-success: #1a7f37;
-        --color-accent-error: #d1242f;
-        --color-accent-summary: #9a6700;
+        --color-accent-primary: #c2410c;
+        --color-accent-focus: #c2410c;
+        --color-accent-success: #15803d;
+        --color-accent-error: #b91c1c;
+        --color-accent-summary: #8a5a10;
         --color-accent-prompt: #8250df;
-        --color-accent-observation: #0550ae;
+        --color-accent-observation: #c2410c;
 
-        --color-type-badge-bg: rgba(9, 105, 218, 0.12);
-        --color-type-badge-text: #0969da;
-        --color-summary-badge-bg: rgba(154, 103, 0, 0.12);
-        --color-summary-badge-text: #9a6700;
+        --color-type-badge-bg: rgba(194, 65, 12, 0.10);
+        --color-type-badge-text: #c2410c;
+        --color-summary-badge-bg: rgba(138, 90, 16, 0.10);
+        --color-summary-badge-text: #8a5a10;
         --color-prompt-badge-bg: rgba(130, 80, 223, 0.12);
         --color-prompt-badge-text: #8250df;
-        --color-observation-badge-bg: rgba(9, 105, 218, 0.12);
-        --color-observation-badge-text: #0550ae;
+        --color-observation-badge-bg: rgba(194, 65, 12, 0.10);
+        --color-observation-badge-text: #c2410c;
 
-        --color-skeleton-base: #d0d7de;
-        --color-skeleton-highlight: #e8ecef;
+        --color-skeleton-base: #ddd5c8;
+        --color-skeleton-highlight: #ede5d8;
 
-        --shadow-focus: 0 0 0 2px rgba(9, 105, 218, 0.3);
+        --shadow-focus: 0 0 0 2px rgba(194, 65, 12, 0.3);
 
         /* Font families */
-        --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+        --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+        --font-terminal: 'Azeret Mono', 'SF Mono', Consolas, monospace;
       }
     }
 
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme]) {
-        --color-bg-primary: #1e1e1e;
-        --color-bg-secondary: #2d2d2d;
-        --color-bg-tertiary: #252526;
-        --color-bg-header: #252526;
-        --color-bg-card: #2d2d2d;
-        --color-bg-card-hover: #333333;
-        --color-bg-input: #2d2d2d;
-        --color-bg-button: #0969da;
-        --color-bg-button-hover: #1177e6;
-        --color-bg-button-active: #0860ca;
-        --color-bg-summary: #3d2f00;
-        --color-bg-prompt: #2d1b4e;
-        --color-bg-observation: #1a2332;
-        --color-bg-stat: #2d2d2d;
-        --color-bg-scrollbar-track: #1e1e1e;
-        --color-bg-scrollbar-thumb: #424242;
-        --color-bg-scrollbar-thumb-hover: #4e4e4e;
+        --color-bg-primary: #1c1916;
+        --color-bg-secondary: #302b28;
+        --color-bg-tertiary: #262220;
+        --color-bg-header: #1c1916;
+        --color-bg-card: #262220;
+        --color-bg-card-hover: #3a3430;
+        --color-bg-input: #262220;
+        --color-bg-button: #e85d2a;
+        --color-bg-button-hover: #d4521f;
+        --color-bg-button-active: #c04918;
+        --color-bg-summary: #262220;
+        --color-bg-prompt: #262033;
+        --color-bg-observation: #2a211e;
+        --color-bg-stat: #262220;
+        --color-bg-scrollbar-track: #1c1916;
+        --color-bg-scrollbar-thumb: #3a3430;
+        --color-bg-scrollbar-thumb-hover: #4a4540;
 
-        --color-border-primary: #404040;
-        --color-border-secondary: #404040;
-        --color-border-hover: #505050;
-        --color-border-focus: #58a6ff;
-        --color-border-summary: #9e6a03;
-        --color-border-summary-hover: #ae7a13;
+        --color-border-primary: rgba(200, 180, 160, 0.08);
+        --color-border-secondary: rgba(200, 180, 160, 0.08);
+        --color-border-hover: rgba(200, 180, 160, 0.16);
+        --color-border-focus: #e85d2a;
+        --color-border-summary: rgba(232, 93, 42, 0.25);
+        --color-border-summary-hover: rgba(232, 93, 42, 0.45);
         --color-border-prompt: #6e40c9;
         --color-border-prompt-hover: #8e6cdb;
-        --color-border-observation: #527aa0;
-        --color-border-observation-hover: #6a8eb8;
+        --color-border-observation: #e85d2a;
+        --color-border-observation-hover: #d4521f;
 
-        --color-text-primary: #cccccc;
-        --color-text-secondary: #a0a0a0;
-        --color-text-tertiary: #6e7681;
-        --color-text-muted: #8b949e;
-        --color-text-header: #e0e0e0;
-        --color-text-title: #e0e0e0;
-        --color-text-subtitle: #a0a0a0;
+        --color-text-primary: #f0e8dc;
+        --color-text-secondary: #c8b8a8;
+        --color-text-tertiary: #a09888;
+        --color-text-muted: #7a7066;
+        --color-text-header: #f0e8dc;
+        --color-text-title: #f0e8dc;
+        --color-text-subtitle: #c8b8a8;
         --color-text-button: #ffffff;
-        --color-text-summary: #f2cc60;
-        --color-text-observation: #a8b8c8;
-        --color-text-logo: #dadada;
+        --color-text-summary: #d4a858;
+        --color-text-observation: #f0e8dc;
+        --color-text-logo: #f0e8dc;
 
-        --color-accent-primary: #58a6ff;
-        --color-accent-focus: #58a6ff;
-        --color-accent-success: #16c60c;
-        --color-accent-error: #e74856;
-        --color-accent-summary: #f2cc60;
-        --color-accent-prompt: #8e6cdb;
-        --color-accent-observation: #79b8ff;
+        --color-accent-primary: #e85d2a;
+        --color-accent-focus: #e85d2a;
+        --color-accent-success: #4ade80;
+        --color-accent-error: #f87171;
+        --color-accent-summary: #d4a858;
+        --color-accent-prompt: #a78bfa;
+        --color-accent-observation: #e85d2a;
 
-        --color-type-badge-bg: rgba(88, 166, 255, 0.125);
-        --color-type-badge-text: #58a6ff;
-        --color-summary-badge-bg: rgba(242, 204, 96, 0.125);
-        --color-summary-badge-text: #f2cc60;
-        --color-prompt-badge-bg: rgba(110, 64, 201, 0.125);
-        --color-prompt-badge-text: #8e6cdb;
-        --color-observation-badge-bg: rgba(121, 184, 255, 0.15);
-        --color-observation-badge-text: #79b8ff;
+        --color-type-badge-bg: rgba(232, 93, 42, 0.12);
+        --color-type-badge-text: #e85d2a;
+        --color-summary-badge-bg: rgba(212, 168, 88, 0.12);
+        --color-summary-badge-text: #d4a858;
+        --color-prompt-badge-bg: rgba(167, 139, 250, 0.12);
+        --color-prompt-badge-text: #a78bfa;
+        --color-observation-badge-bg: rgba(232, 93, 42, 0.12);
+        --color-observation-badge-text: #e85d2a;
 
         --color-skeleton-base: #404040;
         --color-skeleton-highlight: #505050;
 
-        --shadow-focus: 0 0 0 2px rgba(88, 166, 255, 0.2);
+        --shadow-focus: 0 0 0 2px rgba(232, 93, 42, 0.25);
 
         /* Font families */
-        --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+        --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+        --font-terminal: 'Azeret Mono', 'SF Mono', Consolas, monospace;
       }
     }
 
@@ -302,7 +354,7 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
       background: var(--color-bg-primary);
       color: var(--color-text-primary);
       font-size: 14px;
@@ -357,7 +409,7 @@
       color: var(--color-text-button);
       font-size: 10px;
       font-weight: 600;
-      font-family: 'Monaspace Radon', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       height: 18px;
       border-radius: 9px;
       display: flex;
@@ -379,10 +431,10 @@
     }
 
     .logo-text {
-      font-family: 'Monaspace Radon', monospace;
-      font-weight: 100;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      font-weight: 800;
       font-size: 21px;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.5px;
       color: var(--color-text-logo);
       line-height: 1;
       padding-top: 1px;
@@ -425,7 +477,7 @@
       background: linear-gradient(135deg, var(--color-bg-button) 0%, var(--color-accent-primary) 100%);
       border-color: var(--color-bg-button);
       color: var(--color-text-button);
-      box-shadow: 0 2px 8px rgba(9, 105, 218, 0.25);
+      box-shadow: 0 2px 8px rgba(194, 65, 12, 0.25);
     }
 
     /* GitHub Stars Button - Similar to Community Button */
@@ -567,7 +619,7 @@
     .status select:focus {
       outline: none;
       border-color: var(--color-border-focus);
-      box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.1);
+      box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.1);
       transform: translateY(-1px);
     }
 
@@ -888,7 +940,7 @@
     }
 
     .summary-badge {
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       font-weight: 600;
       font-size: 10px;
       text-transform: uppercase;
@@ -897,7 +949,7 @@
     }
 
     .summary-project-badge {
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       font-size: 11px;
       color: var(--color-text-muted);
       font-weight: 400;
@@ -983,7 +1035,7 @@
       color: var(--color-accent-summary);
       text-transform: uppercase;
       margin: 0;
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
     }
 
     .summary-section-content {
@@ -1002,7 +1054,7 @@
       gap: 8px;
       padding-top: 16px;
       border-top: 1px solid var(--color-border-primary);
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       font-size: 11px;
       color: var(--color-text-tertiary);
     }
@@ -1886,7 +1938,7 @@
     .form-field select:focus {
       outline: none;
       border-color: var(--color-border-focus);
-      box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.1);
+      box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.1);
     }
 
     /* ============================================
@@ -2427,54 +2479,54 @@
        active chip. Defined in all four theme contexts so vars resolve. */
     :root,
     [data-theme="light"] {
-      --color-sidebar-bg: #1a1916;
-      --color-sidebar-gold: #d4a72c;
-      --color-sidebar-gold-dim: rgba(212, 167, 44, 0.12);
-      --color-sidebar-gold-border: rgba(212, 167, 44, 0.35);
+      --color-sidebar-bg: #1c1916;
+      --color-sidebar-gold: #c2410c;
+      --color-sidebar-gold-dim: rgba(194, 65, 12, 0.12);
+      --color-sidebar-gold-border: rgba(194, 65, 12, 0.35);
       --color-sidebar-text: #b8b0a4;
       --color-sidebar-text-muted: #6a6460;
       --color-sidebar-border: #2e2c28;
       --color-sidebar-item-hover: rgba(255, 255, 255, 0.04);
-      --color-sidebar-active-border: #d4a72c;
+      --color-sidebar-active-border: #c2410c;
     }
 
     [data-theme="dark"] {
       --color-sidebar-bg: #141311;
-      --color-sidebar-gold: #c9a02a;
-      --color-sidebar-gold-dim: rgba(201, 160, 42, 0.13);
-      --color-sidebar-gold-border: rgba(201, 160, 42, 0.32);
+      --color-sidebar-gold: #e85d2a;
+      --color-sidebar-gold-dim: rgba(232, 93, 42, 0.13);
+      --color-sidebar-gold-border: rgba(232, 93, 42, 0.32);
       --color-sidebar-text: #a09890;
       --color-sidebar-text-muted: #5a5450;
       --color-sidebar-border: #252320;
       --color-sidebar-item-hover: rgba(255, 255, 255, 0.03);
-      --color-sidebar-active-border: #c9a02a;
+      --color-sidebar-active-border: #e85d2a;
     }
 
     @media (prefers-color-scheme: light) {
       :root:not([data-theme]) {
-        --color-sidebar-bg: #1a1916;
-        --color-sidebar-gold: #d4a72c;
-        --color-sidebar-gold-dim: rgba(212, 167, 44, 0.12);
-        --color-sidebar-gold-border: rgba(212, 167, 44, 0.35);
+        --color-sidebar-bg: #1c1916;
+        --color-sidebar-gold: #c2410c;
+        --color-sidebar-gold-dim: rgba(194, 65, 12, 0.12);
+        --color-sidebar-gold-border: rgba(194, 65, 12, 0.35);
         --color-sidebar-text: #b8b0a4;
         --color-sidebar-text-muted: #6a6460;
         --color-sidebar-border: #2e2c28;
         --color-sidebar-item-hover: rgba(255, 255, 255, 0.04);
-        --color-sidebar-active-border: #d4a72c;
+        --color-sidebar-active-border: #c2410c;
       }
     }
 
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme]) {
         --color-sidebar-bg: #141311;
-        --color-sidebar-gold: #c9a02a;
-        --color-sidebar-gold-dim: rgba(201, 160, 42, 0.13);
-        --color-sidebar-gold-border: rgba(201, 160, 42, 0.32);
+        --color-sidebar-gold: #e85d2a;
+        --color-sidebar-gold-dim: rgba(232, 93, 42, 0.13);
+        --color-sidebar-gold-border: rgba(232, 93, 42, 0.32);
         --color-sidebar-text: #a09890;
         --color-sidebar-text-muted: #5a5450;
         --color-sidebar-border: #252320;
         --color-sidebar-item-hover: rgba(255, 255, 255, 0.03);
-        --color-sidebar-active-border: #c9a02a;
+        --color-sidebar-active-border: #e85d2a;
       }
     }
 
@@ -2506,14 +2558,14 @@
       color: var(--color-sidebar-gold);
       line-height: 1;
       flex-shrink: 0;
-      filter: drop-shadow(0 0 6px rgba(212, 167, 44, 0.4));
+      filter: drop-shadow(0 0 6px rgba(194, 65, 12, 0.4));
     }
 
     .sidebar-brand-name {
-      font-family: 'Monaspace Radon', monospace;
-      font-weight: 600;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      font-weight: 800;
       font-size: 15px;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.5px;
       color: var(--color-sidebar-gold);
       line-height: 1;
     }
@@ -2852,7 +2904,7 @@
     }
 
     .dash-kpi-value {
-      font-family: 'Monaspace Radon', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       font-size: 28px;
       font-weight: 700;
       line-height: 1;
@@ -2883,7 +2935,7 @@
     }
 
     .dash-section-title {
-      font-family: 'Monaspace Radon', monospace;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
       font-size: 13px;
       font-weight: 600;
       color: var(--color-text-summary);
@@ -2931,7 +2983,7 @@
     }
 
     .dash-kanban-count {
-      font-family: 'Monaspace Radon', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       font-size: 12px;
       font-weight: 700;
       color: var(--color-text-summary);
@@ -3097,7 +3149,7 @@
     }
 
     .dash-cost-dl dd {
-      font-family: 'Monaspace Radon', monospace;
+      font-family: 'Azeret Mono', 'SF Mono', monospace;
       color: var(--color-text-primary);
       margin: 0;
     }
@@ -3203,56 +3255,56 @@
     }
 
     /* ── Settings view — Claude aesthetic ────────────────────────
-       Warm cream/ivory ground, coral/rust accent (#cc785c),
+       Warm cream/ivory ground, terracotta accent (#c2410c),
        humanist sans, soft rounded cards (radius 11px),
        generous padding, subtle 1px warm borders (#e3e0d6).
        Coral for active states/toggles.
        Savings strip: soft green (#eef3ec bg, #3f7d3f text).
     ──────────────────────────────────────────────────────────── */
 
-    /* Theme variables for settings in Claude aesthetic */
+    /* Theme variables for settings — Warm Signal */
     :root,
     [data-theme="light"] {
-      --settings-bg: #f0eee6;
-      --settings-card-bg: #faf9f5;
-      --settings-border: #e3e0d6;
-      --settings-coral: #cc785c;
-      --settings-coral-light: rgba(204, 120, 92, 0.12);
-      --settings-coral-text: #aa5a3e;
-      --settings-text-primary: #2b2520;
+      --settings-bg: #faf6f0;
+      --settings-card-bg: #ffffff;
+      --settings-border: rgba(60, 40, 20, 0.08);
+      --settings-coral: #c2410c;
+      --settings-coral-light: rgba(194, 65, 12, 0.12);
+      --settings-coral-text: #a8380a;
+      --settings-text-primary: #2c2a25;
       --settings-text-secondary: #5a5248;
-      --settings-text-muted: #8f8a7e;
+      --settings-text-muted: #7c756a;
       --settings-savings-bg: #eef3ec;
-      --settings-savings-text: #3f7d3f;
-      --settings-toggle-off: #d6d2c8;
-      --settings-toggle-on: #cc785c;
+      --settings-savings-text: #15803d;
+      --settings-toggle-off: #d8cfc4;
+      --settings-toggle-on: #c2410c;
       --settings-input-bg: #ffffff;
       --settings-error-bg: #fdf0ed;
-      --settings-error-text: #b03e1e;
+      --settings-error-text: #b91c1c;
       --settings-confirm-bg: #fdf7ed;
-      --settings-confirm-border: #e8c87a;
-      --settings-confirm-text: #7a5a18;
+      --settings-confirm-border: rgba(194, 65, 12, 0.25);
+      --settings-confirm-text: #8a5a10;
     }
 
     [data-theme="dark"] {
-      --settings-bg: #1a1916;
-      --settings-card-bg: #252320;
-      --settings-border: #3a3834;
-      --settings-coral: #cc785c;
-      --settings-coral-light: rgba(204, 120, 92, 0.15);
-      --settings-coral-text: #e8957a;
-      --settings-text-primary: #dcd6cc;
-      --settings-text-secondary: #b8b0a4;
-      --settings-text-muted: #7a7266;
+      --settings-bg: #1c1916;
+      --settings-card-bg: #262220;
+      --settings-border: rgba(200, 180, 160, 0.08);
+      --settings-coral: #e85d2a;
+      --settings-coral-light: rgba(232, 93, 42, 0.15);
+      --settings-coral-text: #f0956a;
+      --settings-text-primary: #f0e8dc;
+      --settings-text-secondary: #c8b8a8;
+      --settings-text-muted: #a09888;
       --settings-savings-bg: #1a2a1a;
-      --settings-savings-text: #5fad5f;
-      --settings-toggle-off: #3a3834;
-      --settings-toggle-on: #cc785c;
+      --settings-savings-text: #4ade80;
+      --settings-toggle-off: #3a3430;
+      --settings-toggle-on: #e85d2a;
       --settings-input-bg: #1f1d1a;
       --settings-error-bg: #2d1a16;
-      --settings-error-text: #e8957a;
+      --settings-error-text: #f87171;
       --settings-confirm-bg: #2a2416;
-      --settings-confirm-border: #7a6040;
+      --settings-confirm-border: rgba(232, 93, 42, 0.25);
       --settings-confirm-text: #d4a858;
     }
 
