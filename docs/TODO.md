@@ -14,8 +14,13 @@
 
 ## Open items (prioritized)
 
+### 0. DATA MIGRATED ✅ (2026-07-10)
+- claude-mem's `team-agent-memory` history (2,378 obs — decisions/features/changes/bugfixes/discovery/refactor) migrated into the MemSmith dogfood Postgres store via `scripts/migrate-claude-mem.ts` (idempotent, dry-run-first, read-only source). So MemSmith now HAS this project's full decision/reasoning history — searchable via `/v1/search` (pass `platformSource: null`, since migrated rows have no live-agent platform attribution).
+- Backup of pre-migration target table: `/tmp/memsmith-observations-backup-*.sql`. Rollback = `DELETE FROM observations WHERE id LIKE 'cmem-%'`.
+- Re-runnable safely: `bun scripts/migrate-claude-mem.ts --execute` only inserts genuinely-new source rows (claude-mem keeps capturing this live session).
+
 ### 1. Decide + execute: dogfood MemSmith as THIS project's plugin (IN DISCUSSION)
-- This Claude Code session currently uses UPSTREAM `claude-mem` (thedotmack v13.6.1), NOT MemSmith.
+- This Claude Code session currently uses UPSTREAM `claude-mem` (thedotmack v13.6.1), NOT MemSmith. (The DATA is now migrated — item 0 — so switching loses no history.)
 - `shshalom` marketplace dir is empty and NOT in `~/.claude/plugins/known_marketplaces.json`.
 - `sync-marketplace.cjs` targets `~/.claude/plugins/marketplaces/shshalom` — likely STALE (written before repo moved to root); verify before running.
 - Switch = build-and-sync + register shshalom marketplace + install MemSmith plugin + (optionally) disable claude-mem@thedotmack + RESTART Claude Code.
