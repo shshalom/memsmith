@@ -12,28 +12,16 @@ import type { SessionStore as SessionStoreType } from '../sqlite/SessionStore.js
 import { logger } from '../../utils/logger.js';
 import { ChromaUnavailableError } from '../worker/search/errors.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import type * as SqliteFilesModule from '../sqlite/observations/files.js';
+// parseFileList is a PURE helper (JSON-array parse; its only dependency is the
+// logger). Despite its path under sqlite/, it has NO `bun:sqlite` coupling, so
+// a normal static import is safe for BOTH the worker bundle and the SDK bundle.
+// (A previous lazy `createRequire('../sqlite/observations/files.js')` broke at
+// runtime once bundled into plugin/scripts/worker-service.cjs — import.meta.url
+// resolved the relative path to a non-existent plugin/sqlite/... location,
+// failing the Chroma backfill. Static import inlines it correctly.)
+import { parseFileList } from '../sqlite/observations/files.js';
 
 type SessionStore = SessionStoreType;
-
-// Lazy CJS require so tsup (used by the cmem-sdk build) does not follow
-// these SQLite-coupled modules into the SDK bundle. Worker/Bun runtime
-// reaches them at first call; the SDK never calls the methods that
-// trigger these loads, so they never load in SDK consumers.
-const lazyCreateRequire = (): ((id: string) => unknown) => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('module') as typeof import('module');
-  return mod.createRequire(import.meta.url);
-};
-
-let _filesHelper: typeof SqliteFilesModule | undefined;
-function loadFilesHelper(): typeof SqliteFilesModule {
-  if (!_filesHelper) {
-    const req = lazyCreateRequire();
-    _filesHelper = req('../sqlite/observations/files.js') as typeof SqliteFilesModule;
-  }
-  return _filesHelper;
-}
 
 // Exported for cmem-sdk Phase 6: the SDK builds ChromaDocument values from
 // Postgres observations (UUID id, content string, metadata bag) and calls
@@ -140,12 +128,8 @@ export class ChromaSync {
 
     const facts = obs.facts ? JSON.parse(obs.facts) : [];
     const concepts = obs.concepts ? JSON.parse(obs.concepts) : [];
-    // parseFileList is SQLite-shaped (`bun:sqlite` in the import chain) —
-    // resolve it through the deferred loader so this method stays out of
-    // the SDK bundle's import graph. Plan §3.
-    const filesHelper = loadFilesHelper();
-    const files_read = filesHelper.parseFileList(obs.files_read);
-    const files_modified = filesHelper.parseFileList(obs.files_modified);
+    const files_read = parseFileList(obs.files_read);
+    const files_modified = parseFileList(obs.files_modified);
 
     const baseMetadata: Record<string, string | number | null> = {
       sqlite_id: obs.id,
