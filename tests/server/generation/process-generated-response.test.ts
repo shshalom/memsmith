@@ -155,6 +155,39 @@ describe('processGeneratedResponse + markGenerationFailed', () => {
     expect(sources[0]!.generationJobId).toBe(jobId);
   });
 
+  it('populates embedding_vec on the persisted observation (semantic search)', async () => {
+    const xml = `
+      <observation>
+        <type>decision</type>
+        <title>Chose Postgres over SQLite</title>
+        <facts><fact>concurrent writers and pgvector support</fact></facts>
+      </observation>
+    `;
+    await storage.observationGenerationJobs.transitionStatus({ id: jobId, projectId, teamId, status: 'processing' });
+    const fresh = (await reloadJob())!;
+    const outcome = await processGeneratedResponse({
+      pool: pool as unknown as Parameters<typeof processGeneratedResponse>[0]['pool'],
+      job: fresh,
+      rawText: xml,
+      providerLabel: 'fake',
+      modelId: 'fake-1',
+    });
+    expect(outcome.kind).toBe('completed');
+    if (outcome.kind !== 'completed') throw new Error('generation did not complete');
+    const obsId = outcome.observations[0]!.id;
+
+    // embedding_vec is a 384-dim pgvector; assert it is non-null and has the
+    // right dimensionality, proving the generation path now embeds on write.
+    const res = await pool.query(
+      `SELECT embedding_vec IS NOT NULL AS has_vec,
+              array_length(embedding_vec::real[], 1) AS dim
+         FROM observations WHERE id = $1`,
+      [obsId],
+    );
+    expect(res.rows[0]!.has_vec).toBe(true);
+    expect(res.rows[0]!.dim).toBe(384);
+  });
+
   it('records token + observation usage when metering is enabled', async () => {
     const prev = process.env.MEMSMITH_USAGE_METERING;
     process.env.MEMSMITH_USAGE_METERING = '1';

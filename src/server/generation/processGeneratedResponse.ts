@@ -22,6 +22,27 @@ import {
 } from '../../storage/postgres/pool.js';
 import { stripTags } from '../../utils/tag-stripping.js';
 import { ObservationStream } from '../routes/v1/ObservationStream.js';
+import { embed } from './embedder.js';
+
+// Embed observation content for semantic search. Best-effort: a failure returns
+// null (the row persists without a vector; a later backfill can fill it) and
+// NEVER throws into the generation pipeline — generation correctness is
+// paramount. Empty/blank content skips embedding.
+async function embedForPersist(content: string): Promise<number[] | null> {
+  const text = content.trim();
+  if (!text) return null;
+  try {
+    return await embed(text);
+  } catch (error) {
+    logger.warn(
+      'SYSTEM',
+      'generation: embedding failed; persisting observation without embedding_vec',
+      {},
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return null;
+  }
+}
 
 function qualityFloorEnv(): number {
   return Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
@@ -293,6 +314,21 @@ async function persistGeneratedObservations(
 ): Promise<ProcessGeneratedResponseOutcome> {
   const { job } = input;
 
+  // Pre-compute embeddings BEFORE opening the transaction, so the (potentially
+  // multi-second, cold-start) ONNX model load never runs while a Postgres
+  // connection is held mid-transaction (which could trip
+  // idle_in_transaction_session_timeout). Keyed by rendered index; the content
+  // matches what the persist loop stores (stripTags(content).stripped).
+  // Best-effort: embedForPersist never throws (null on failure).
+  const embeddingByIndex = new Map<number, number[] | null>();
+  for (let index = 0; index < rendered.length; index++) {
+    const c = rendered[index]!.content;
+    if (!c || c.trim().length === 0) continue;
+    const stripped = stripTags(c).stripped;
+    if (!stripped || stripped.trim().length === 0) continue;
+    embeddingByIndex.set(index, await embedForPersist(stripped));
+  }
+
   return withPostgresTransaction(input.pool, async (client) => {
     const obsRepo = new PostgresObservationRepository(client);
     const sourcesRepo = new PostgresObservationSourcesRepository(client);
@@ -343,6 +379,9 @@ async function persistGeneratedObservations(
         content: scrubbed.stripped,
       });
 
+      // Vector was pre-computed before the transaction opened (see above).
+      const embeddingVec = embeddingByIndex.get(index) ?? null;
+
       const observation = await obsRepo.create({
         projectId: fresh.projectId,
         teamId: fresh.teamId,
@@ -359,6 +398,7 @@ async function persistGeneratedObservations(
         obsType: obsType ?? undefined,
         quality: quality ?? undefined,
         lifecycleState: lifecycleState ?? undefined,
+        embeddingVec,
       });
       persisted.push(observation);
 
