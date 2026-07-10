@@ -117,6 +117,7 @@ export interface DashboardRoutesOptions {
   // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
   // request is loopback — the middleware guards enforce all three conditions.
   localDevTeamId?: string | null;
+  localDevProjectId?: string | null;
   settingsResolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> };
 }
 
@@ -133,6 +134,7 @@ export class DashboardRoutes implements RouteHandler {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
+      localDevProjectId: this.options.localDevProjectId,
       requiredScopes: ['memories:read'],
     });
     registerDashboardRoutes(app, this.options.db, [readAuth], this.options.settingsResolver);

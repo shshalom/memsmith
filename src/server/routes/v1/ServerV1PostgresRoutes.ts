@@ -67,6 +67,9 @@ export interface ServerV1PostgresRoutesOptions {
   // applied when authMode === 'local-dev' AND allowLocalDevBypass AND the
   // request is loopback — the middleware guards enforce all three conditions.
   localDevTeamId?: string | null;
+  // Local-dev fallback project, parallel to localDevTeamId (same loopback +
+  // local-dev gating in the middleware).
+  localDevProjectId?: string | null;
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -169,12 +172,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
+      localDevProjectId: this.options.localDevProjectId,
       requiredScopes: ['memories:write'],
     });
     const baseRead = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
+      localDevProjectId: this.options.localDevProjectId,
       requiredScopes: ['memories:read'],
     });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
@@ -1187,12 +1192,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         authMode: this.options.authMode,
         allowLocalDevBypass: this.options.allowLocalDevBypass,
         localDevTeamId: this.options.localDevTeamId,
+        localDevProjectId: this.options.localDevProjectId,
         requiredScopes: ['memories:read'],
       });
       const settingsAdminAuth = requirePostgresServerAuth(this.options.pool, {
         authMode: this.options.authMode,
         allowLocalDevBypass: this.options.allowLocalDevBypass,
         localDevTeamId: this.options.localDevTeamId,
+        localDevProjectId: this.options.localDevProjectId,
         requiredScopes: ['settings:admin'],
       });
       // app.use runs before any route handler registered for the same path.

@@ -31,6 +31,9 @@ export interface PostgresRequireAuthOptions {
   // AND the request is on loopback. It must NEVER be used to scope a real
   // production request.
   localDevTeamId?: string | null;
+  // Local-dev fallback project, parallel to localDevTeamId. Same rule: only
+  // applied inside the loopback + local-dev bypass, NEVER a production request.
+  localDevProjectId?: string | null;
 }
 
 export function requirePostgresServerAuth(
@@ -77,7 +80,7 @@ async function authenticatePostgresRequest(
       userId: null,
       organizationId: null,
       teamId: options.localDevTeamId ?? null,
-      projectId: null,
+      projectId: options.localDevProjectId ?? null,
       scopes: ['local-dev', 'memories:read', 'memories:write', 'settings:admin'],
       apiKeyId: null,
       mode: 'local-dev',

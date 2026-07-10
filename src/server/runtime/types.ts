@@ -62,6 +62,9 @@ export interface ServerServiceGraph {
   // on loopback. The middleware enforces all three conditions; this value is
   // NEVER consulted in api-key mode or for non-loopback requests.
   localDevTeamId?: string | null;
+  // Local-dev fallback project, parallel to localDevTeamId and gated by the
+  // same loopback + local-dev conditions in the middleware.
+  localDevProjectId?: string | null;
   queueManager: ServerQueueManager;
   generationWorkerManager: ServerGenerationWorkerManager;
 }

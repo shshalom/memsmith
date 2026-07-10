@@ -187,6 +187,7 @@ export class ServerService {
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
       allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
       localDevTeamId: this.graph.localDevTeamId,
+      localDevProjectId: this.graph.localDevProjectId,
       settingsStore,
       settingsResolver,
     });
@@ -225,6 +226,7 @@ export class ServerService {
       db: this.graph.postgres.pool,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
       localDevTeamId: this.graph.localDevTeamId,
+      localDevProjectId: this.graph.localDevProjectId,
       settingsResolver,
     }));
 
