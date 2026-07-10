@@ -30,12 +30,12 @@
 - Rollback: back up the two JSONs first; MemSmith data → `~/.memsmith/` (separate store, no mixing).
 - CLAUDE.md rule: install-active hooks must be safe-by-default; don't merge install-active work without explicit consent.
 
-### 2. Wire `MEMSMITH_LOCAL_DEV_PROJECT_ID` (small)
-- Keyless local-dev bypass resolves teamId but NOT projectId → the Observations view is empty keyless.
-- Mirror the `MEMSMITH_LOCAL_DEV_TEAM_ID` plumbing (middleware bypass + create-server-service + route options) for projectId, loopback+local-dev only, never production.
+### 2. Wire `MEMSMITH_LOCAL_DEV_PROJECT_ID` ✅ CLOSED (2026-07-10)
+- Wired parallel to `MEMSMITH_LOCAL_DEV_TEAM_ID` across all 11 hops; bypass now sets authContext.projectId. VERIFIED live: keyless `/v1/search` (no projectId) returns migrated data (was 400), `/dashboard/board` 200 keyless. Dogfood server now launched with `MEMSMITH_LOCAL_DEV_PROJECT_ID=4af1b61f-6299-4234-ae74-9228fdc09a73`. So the Observations view fills keyless.
 
-### 3. Cost panel shows $0 until traffic (expected, verify)
-- Compression events only record on `/v1/context` calls with `MEMSMITH_USAGE_METERING=1`. Exercise `/v1/context` (or seed traffic) to populate the savings number, then confirm the dashboard cost panel shows non-zero.
+### 3. Cost panel ✅ VERIFIED CORRECT (2026-07-10)
+- The panel works: proved end-to-end (recordServedCompression → usage_events → costPanel) returns real numbers (savedTokens 372, 89% smaller, $0.0019) when compression ACTUALLY occurs (forced tight budget on real rows).
+- It reads $0 in normal dogfood browsing NOT because of a bug: migrated rows are small (avg 674 chars, max 1666), so `/v1/context`'s 10,000-char budget never needs to compress them — nothing to save. Truthful behavior; populates naturally with larger memory sets that overflow the injection budget.
 
 ### 4. Design follow-ups (user said "work on design later")
 - Restyle applied globally, but user hasn't approved the final look yet. Open question: sidebar is a dark rail w/ terracotta accent — user may want it cream/light to match the deck's light-first feel.
