@@ -21,6 +21,8 @@ export interface SettingsDefaults {
   MEMSMITH_OPENROUTER_BASE_URL: string;
   MEMSMITH_OPENROUTER_SITE_URL: string;
   MEMSMITH_OPENROUTER_APP_NAME: string;
+  MEMSMITH_OLLAMA_URL: string;
+  MEMSMITH_OLLAMA_MODEL: string;
   MEMSMITH_DATA_DIR: string;
   MEMSMITH_LOG_LEVEL: string;
   MEMSMITH_PYTHON_VERSION: string;
@@ -110,6 +112,8 @@ export class SettingsDefaultsManager {
     MEMSMITH_OPENROUTER_BASE_URL: '',  // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL (e.g. https://api.deepseek.com, http://localhost:1234/v1). Empty = default OpenRouter endpoint.
     MEMSMITH_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
     MEMSMITH_OPENROUTER_APP_NAME: 'memsmith',  // App name for OpenRouter analytics
+    MEMSMITH_OLLAMA_URL: 'http://localhost:11434/v1',  // Ollama local base URL (OpenAI-compatible)
+    MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b',  // Default Ollama model
     MEMSMITH_DATA_DIR: join(homedir(), '.memsmith'),
     MEMSMITH_LOG_LEVEL: 'INFO',
     MEMSMITH_PYTHON_VERSION: '3.13',

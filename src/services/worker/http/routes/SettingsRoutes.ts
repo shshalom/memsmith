@@ -87,6 +87,8 @@ export class SettingsRoutes extends BaseRouteHandler {
       'MEMSMITH_OPENROUTER_MODEL',
       'MEMSMITH_OPENROUTER_SITE_URL',
       'MEMSMITH_OPENROUTER_APP_NAME',
+      'MEMSMITH_OLLAMA_URL',
+      'MEMSMITH_OLLAMA_MODEL',
       'MEMSMITH_DATA_DIR',
       'MEMSMITH_LOG_LEVEL',
       'MEMSMITH_PYTHON_VERSION',
@@ -133,9 +135,9 @@ export class SettingsRoutes extends BaseRouteHandler {
 
   private validateSettings(settings: any): { valid: boolean; error?: string } {
     if (settings.MEMSMITH_PROVIDER) {
-    const validProviders = ['claude', 'gemini', 'openrouter'];
+    const validProviders = ['claude', 'gemini', 'openrouter', 'ollama'];
     if (!validProviders.includes(settings.MEMSMITH_PROVIDER)) {
-      return { valid: false, error: 'MEMSMITH_PROVIDER must be "claude", "gemini", or "openrouter"' };
+      return { valid: false, error: 'MEMSMITH_PROVIDER must be "claude", "gemini", "openrouter", or "ollama"' };
       }
     }
 

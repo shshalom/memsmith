@@ -71,6 +71,28 @@ describe('worker dependency preflight', () => {
     expect(getDependencyStatus('claude_cli')).toBeNull();
   });
 
+  it('clears stale Claude CLI setup status when Ollama provider is selected', () => {
+    recordDependencyStatus('claude_cli', 'setup_required', 'old failure');
+
+    runWorkerDependencyPreflight({
+      settings: {
+        MEMSMITH_PROVIDER: 'ollama',
+        MEMSMITH_CHROMA_ENABLED: 'false',
+      },
+      classifyClaudeError: classifier,
+      findClaudeExecutable: () => {
+        throw new Error('Claude should not be checked for Ollama');
+      },
+      env: { PATH: '' },
+      platform: 'linux',
+      homedir: () => '/tmp/home',
+      pathExists: () => false,
+      isFile: () => false,
+    });
+
+    expect(getDependencyStatus('claude_cli')).toBeNull();
+  });
+
   it('records Claude CLI setup_required when Claude is selected and discovery fails', () => {
     runWorkerDependencyPreflight({
       settings: {

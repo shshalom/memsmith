@@ -770,7 +770,7 @@ function mergeSettings(updates: Record<string, string>): boolean {
   }
 }
 
-type ProviderId = 'claude' | 'gemini' | 'openrouter';
+type ProviderId = 'claude' | 'gemini' | 'openrouter' | 'ollama';
 type ClaudeAccessMode = 'subscription' | 'api-key';
 type ClaudeApiMode = 'direct' | 'gateway';
 // Phase 1d: Persisted DB literals (`server_beta_schema_migrations`, job_type
@@ -1097,6 +1097,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         { value: 'claude', label: 'Claude Agent SDK (recommended)' },
         { value: 'gemini', label: 'Gemini' },
         { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'ollama', label: 'Ollama (local)' },
       ],
       initialValue: initialProvider,
     });
@@ -1110,6 +1111,13 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   if (selectedProvider === 'claude') {
     await runClaudeAuthFlow();
     return 'claude';
+  }
+
+  if (selectedProvider === 'ollama') {
+    // Ollama is keyless — no API key needed. Just persist the provider selection.
+    const wrote = mergeSettings({ MEMSMITH_PROVIDER: 'ollama' });
+    if (wrote) log.info(`Saved provider=ollama to ~/.memsmith/settings.json`);
+    return 'ollama';
   }
 
   const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
@@ -1397,7 +1405,7 @@ async function promptCmemOnlineOptIn(version: string): Promise<void> {
 
 export interface InstallOptions {
   ide?: string;
-  provider?: 'claude' | 'gemini' | 'openrouter';
+  provider?: 'claude' | 'gemini' | 'openrouter' | 'ollama';
   model?: string;
   noAutoStart?: boolean;
   disableAutoMemory?: boolean;
