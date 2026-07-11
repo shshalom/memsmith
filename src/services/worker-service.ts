@@ -824,6 +824,14 @@ export function parseWorkerServiceCommand(argv: string[]): ParsedWorkerCommand {
     };
   }
 
+  if (rawCommand === 'local') {
+    const localAliases = new Set(['start', 'stop', 'status', 'restart']);
+    return {
+      command: maybeSubCommand && localAliases.has(maybeSubCommand) ? `local-${maybeSubCommand}` : 'local-help',
+      args: rest,
+    };
+  }
+
   return {
     command: rawCommand,
     args: maybeSubCommand === undefined ? [] : [maybeSubCommand, ...rest],
@@ -1225,6 +1233,32 @@ async function main() {
     case 'worker-help': {
       printWorkerAliasHelp();
       break;
+    }
+
+    case 'local-start': {
+      process.env.MEMSMITH_RUNTIME = 'local';
+      const { startLocalRuntime } = await import('../server/runtime/local-runtime.js');
+      await startLocalRuntime();   // blocks in the foreground server loop
+      return;
+    }
+
+    case 'local-stop': {
+      const { EmbeddedPostgresManager } = await import('../server/runtime/EmbeddedPostgresManager.js');
+      await new EmbeddedPostgresManager().stop();
+      console.log('Local embedded Postgres stopped.');
+      return;
+    }
+
+    case 'local-status': {
+      const { EmbeddedPostgresManager } = await import('../server/runtime/EmbeddedPostgresManager.js');
+      const running = new EmbeddedPostgresManager().isRunning();
+      console.log(running ? 'Local embedded Postgres: RUNNING' : 'Local embedded Postgres: stopped');
+      return;
+    }
+
+    case 'local-help': {
+      console.error('Usage: worker-service local start|stop|status');
+      process.exit(1);
     }
 
     case 'cursor': {
