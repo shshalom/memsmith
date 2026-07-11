@@ -453,6 +453,14 @@ async function runServerForeground(port: number, host: string): Promise<void> {
   await service.start();
 }
 
+// Exported for the local runtime, which boots embedded PG then runs the same
+// foreground service loop. Mirrors the `server start` port/host resolution.
+export async function runServerForegroundForLocal(): Promise<void> {
+  const port = getServerPort();
+  const host = process.env.MEMSMITH_SERVER_HOST ?? DEFAULT_SERVER_HOST;
+  await runServerForeground(port, host);
+}
+
 // Phase 10 — Postgres-backed `server api-key create|list|revoke` CLI. The
 // legacy `worker-service.cjs server api-key` command talks to SQLite and
 // is invisible to the server runtime, which reads keys from Postgres. Use
