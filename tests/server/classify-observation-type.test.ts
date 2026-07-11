@@ -25,4 +25,9 @@ describe('resolveObsType', () => {
     const t = await resolveObsType({ content: 'x', sourceType: 'note', canonical: CANON, classifier });
     expect(t).toBe('change');
   });
+  it('falls back to change when the model throws for a non-canonical type', async () => {
+    const classifier = { classify: async () => { throw new Error('ollama unreachable'); } };
+    const t = await resolveObsType({ content: 'x', sourceType: 'note', canonical: CANON, classifier });
+    expect(t).toBe('change');
+  });
 });
