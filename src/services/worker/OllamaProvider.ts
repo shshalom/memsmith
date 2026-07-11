@@ -246,7 +246,7 @@ export class OllamaProvider extends OpenAICompatibleProvider<OllamaConfig> {
   }
 }
 
-function getOllamaConfig(): OllamaConfig {
+export function getOllamaConfig(): OllamaConfig {
   const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
   // Non-empty dummy key: base class throws on falsy apiKey; Ollama ignores it.
   const apiKey = 'ollama-local';
