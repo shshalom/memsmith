@@ -105,20 +105,38 @@ export class SettingsRoutes extends BaseRouteHandler {
       'MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY',
       'MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE',
       'MEMSMITH_FOLDER_CLAUDEMD_ENABLED',
+      // Generation timeout — local models (Ollama) on large prompts can exceed
+      // the 30s default; this key was previously missing from the whitelist so
+      // POSTs to change it were silently dropped.
+      'MEMSMITH_API_TIMEOUT_MS',
     ];
+    const allowed = new Set(settingKeys);
 
+    // The viewer UI POSTs the FULL settings object, so we can't hard-reject
+    // unknown keys. But we MUST report honestly: apply only whitelisted keys,
+    // and surface which submitted keys were ignored + how many actually
+    // changed — a POST that changed nothing must not silently report plain
+    // success (the old bug: unknown keys dropped, `success:true` returned).
+    let changed = 0;
     for (const key of settingKeys) {
       if (req.body[key] !== undefined) {
         settings[key] = req.body[key];
+        changed++;
       }
     }
+    const ignored = Object.keys(req.body as Record<string, unknown>).filter(k => !allowed.has(k));
 
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
 
     clearPortCache();
 
-    logger.info('WORKER', 'Settings updated');
-    res.json({ success: true, message: 'Settings updated successfully' });
+    logger.info('WORKER', 'Settings updated', { changed, ignoredCount: ignored.length });
+    res.json({
+      success: true,
+      message: `Settings updated (${changed} applied${ignored.length ? `, ${ignored.length} unknown key(s) ignored` : ''})`,
+      changed,
+      ...(ignored.length ? { ignored } : {}),
+    });
   });
 
   private handleGetMcpStatus = this.wrapHandler((req: Request, res: Response): void => {
