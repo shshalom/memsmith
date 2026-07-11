@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
+import { isPidAlive } from '../../supervisor/process-registry.js';
 
 export interface EmbeddedPostgresPaths { binariesDir: string; dataDir: string; pidFile: string; }
 export interface EmbeddedPostgresInstance {
@@ -98,10 +99,64 @@ export class EmbeddedPostgresManager {
     return this.connectionString;
   }
 
-  // start()/stop() implemented in Task 2. Exposed here so Task 2 can set these:
-  protected setStarted(instance: EmbeddedPostgresInstance, connectionString: string): void {
-    this.instance = instance;
-    this.connectionString = connectionString;
+  isRunning(): boolean {
+    if (!existsSync(this.paths.pidFile)) return false;
+    const pid = Number.parseInt(readFileSync(this.paths.pidFile, 'utf8').trim(), 10);
+    return Number.isInteger(pid) && isPidAlive(pid);
   }
-  protected getInstance(): EmbeddedPostgresInstance | null { return this.instance; }
+
+  async start(): Promise<{ connectionString: string; reused: boolean }> {
+    // Reuse path: a live pid file means an instance we own is already up.
+    if (this.isRunning()) {
+      this.connectionString = this.buildConnectionString();
+      logger.info('SYSTEM', 'embedded PG already running; reusing', { port: this.port });
+      return { connectionString: this.connectionString, reused: true };
+    }
+    // Stale pid file (process dead) — remove it and boot fresh; PG WAL crash-recovers dataDir.
+    if (existsSync(this.paths.pidFile)) {
+      logger.warn('SYSTEM', 'stale embedded PG pid file; recovering', { pidFile: this.paths.pidFile });
+      try { unlinkSync(this.paths.pidFile); } catch { /* best effort */ }
+    }
+    // Port guard: if the port is already in use by a foreign process, refuse to start.
+    const { isPortInUse } = await import('../../services/infrastructure/HealthMonitor.js');
+    if (await isPortInUse(this.port)) {
+      throw new Error(
+        `MEMSMITH_LOCAL_PG_PORT ${this.port} is in use by another process. ` +
+        `Stop it or set MEMSMITH_LOCAL_PG_PORT to a free port.`,
+      );
+    }
+    await this.ensureBinary();
+    mkdirSync(this.paths.dataDir, { recursive: true });
+    const driver = await this.driver();
+    const instance = driver.createServer({
+      binariesDir: this.paths.binariesDir,
+      dataDir: this.paths.dataDir,
+      port: this.port,
+      username: this.username,
+      password: this.password,
+    });
+    await instance.initialize();
+    await instance.start();
+    await instance.waitForReady();
+    this.instance = instance;
+    this.connectionString = instance.getConnectionString();
+    writeFileSync(this.paths.pidFile, String(process.pid), 'utf8');
+    logger.info('SYSTEM', 'embedded PG started', { port: this.port, dataDir: this.paths.dataDir });
+    return { connectionString: this.connectionString, reused: false };
+  }
+
+  async stop(): Promise<void> {
+    if (this.instance) {
+      try { await this.instance.stop(); } catch (error) {
+        logger.warn('SYSTEM', 'error stopping embedded PG', {}, error instanceof Error ? error : new Error(String(error)));
+      }
+      this.instance = null;
+    }
+    try { if (existsSync(this.paths.pidFile)) unlinkSync(this.paths.pidFile); } catch { /* best effort */ }
+    this.connectionString = null;
+  }
+
+  private buildConnectionString(): string {
+    return `postgres://${this.username}:${this.password}@127.0.0.1:${this.port}/postgres`;
+  }
 }
