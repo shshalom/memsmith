@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, afterEach } from 'bun:test';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { EmbeddedPostgresManager } from '../../src/server/runtime/EmbeddedPostgresManager.js';
@@ -24,9 +24,18 @@ function fakeDriver() {
 describe('EmbeddedPostgresManager', () => {
   it('ensureBinary downloads once', async () => {
     const { driver, calls } = fakeDriver();
-    const mgr = new EmbeddedPostgresManager({ driver, paths: { binariesDir: '/tmp/does-not-exist-memsmith-test' } });
-    await mgr.ensureBinary();
-    expect(calls).toContain('download');
+    // Use a fresh, guaranteed-absent temp path with cleanup so the download
+    // precondition (binariesDir does not yet exist) holds regardless of prior
+    // runs. A hardcoded shared path flakes once any run creates it.
+    const binariesDir = join(tmpdir(), `memsmith-test-pg-download-${process.pid}`);
+    rmSync(binariesDir, { recursive: true, force: true });
+    try {
+      const mgr = new EmbeddedPostgresManager({ driver, paths: { binariesDir } });
+      await mgr.ensureBinary();
+      expect(calls).toContain('download');
+    } finally {
+      rmSync(binariesDir, { recursive: true, force: true });
+    }
   });
 
   it('getConnectionString throws before start', () => {
