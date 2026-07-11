@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
@@ -84,6 +84,9 @@ export class EmbeddedPostgresManager {
     try {
       await driver.downloadBinaries({ targetDir: this.paths.binariesDir, variant: 'lite' });
     } catch (error) {
+      // Remove the dir we just created so a later run re-attempts the download
+      // cleanly instead of hitting the existsSync skip-path with no binaries.
+      try { rmSync(this.paths.binariesDir, { recursive: true, force: true }); } catch { /* best-effort */ }
       const err = error instanceof Error ? error : new Error(String(error));
       throw new Error(
         `Failed to download embedded Postgres binaries into ${this.paths.binariesDir}: ${err.message}. ` +
