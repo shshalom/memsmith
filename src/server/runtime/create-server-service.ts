@@ -9,6 +9,7 @@ import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
+import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
 import { OllamaObservationProvider } from '../generation/providers/OllamaObservationProvider.js';
@@ -21,6 +22,7 @@ import {
   DisabledServerQueueManager,
   type ServerAuthMode,
   type ServerBootstrapStatus,
+  type ServerGenerationQueueManager,
   type ServerGenerationWorkerManager,
   type ServerQueueManager,
   type ServerServiceGraph,
@@ -234,9 +236,9 @@ function buildGenerationWorkerManager(
   queueManager: ServerQueueManager,
   injectedProvider?: ServerGenerationProvider,
 ): ServerGenerationWorkerManager {
-  if (!(queueManager instanceof ActiveServerQueueManager)) {
+  if (!(queueManager instanceof ActiveServerQueueManager) && !(queueManager instanceof InlineServerQueueManager)) {
     return new DisabledServerGenerationWorkerManager(
-      'queue manager is disabled; set MEMSMITH_QUEUE_ENGINE=bullmq to enable provider generation.',
+      'queue manager is disabled; set MEMSMITH_QUEUE_ENGINE=bullmq or inline to enable provider generation.',
     );
   }
   const provider = injectedProvider ?? buildServerGenerationProviderFromEnv();
@@ -254,7 +256,10 @@ function buildGenerationWorkerManager(
   const providerHolder = new GenerationProviderHolder(resolver);
   return new ActiveServerGenerationWorkerManager({
     pool,
-    queueManager,
+    // Cast is safe: queueManager is guarded by the instanceof check above,
+    // so only ActiveServerQueueManager or InlineServerQueueManager reach here —
+    // both satisfy ServerGenerationQueueManager.
+    queueManager: queueManager as ServerGenerationQueueManager,
     provider,
     providerHolder,
     // Task 13: pass the same resolver so quality knobs (qualityFloor,
@@ -329,6 +334,9 @@ export function instantiateServerGenerationProvider(
 // compatible.
 function buildQueueManager(): ServerQueueManager {
   const config = getRedisQueueConfig();
+  if (config.engine === 'inline') {
+    return new InlineServerQueueManager();
+  }
   if (config.engine !== 'bullmq') {
     return new DisabledServerQueueManager(
       `Queue engine is "${config.engine}"; set MEMSMITH_QUEUE_ENGINE=bullmq to activate the server queue manager.`,

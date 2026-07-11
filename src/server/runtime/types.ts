@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { PostgresPool } from '../../storage/postgres/index.js';
+import type { ServerGenerationJobKind, ServerGenerationJobPayload } from '../jobs/types.js';
+import type { ServerJobObservedListener } from '../jobs/ServerJobQueue.js';
 
 export type ServerRuntimeName = 'server-beta';
 export type ServerAuthMode = 'api-key' | 'local-dev' | 'disabled';
@@ -42,6 +44,14 @@ export interface ServerQueueManager {
   readonly kind: 'queue-manager';
   getHealth(): ServerBoundaryHealth;
   close(): Promise<void>;
+}
+
+export interface ServerGenerationQueueManager extends ServerQueueManager {
+  start(
+    kind: ServerGenerationJobKind,
+    processor: (job: { id: string; data: ServerGenerationJobPayload; attemptsMade: number }) => Promise<unknown>,
+  ): void;
+  getQueue(kind: ServerGenerationJobKind): { observe(listener: ServerJobObservedListener): void };
 }
 
 export interface ServerGenerationWorkerManager {
