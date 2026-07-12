@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, afterEach } from 'bun:test';
-import { existsSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { EmbeddedPostgresManager } from '../../src/server/runtime/EmbeddedPostgresManager.js';
@@ -15,7 +15,12 @@ function fakeDriver() {
     stop: async () => { calls.push('stop'); },
   };
   const driver = {
-    downloadBinaries: async () => { calls.push('download'); },
+    // A real download populates the `bin/` subdir. Mirror that so ensureBinary's
+    // completion check (a populated dir, not merely an existing dir) is exercised.
+    downloadBinaries: async (opts: { targetDir: string }) => {
+      calls.push('download');
+      mkdirSync(join(opts.targetDir, 'bin'), { recursive: true });
+    },
     createServer: () => instance,
   };
   return { driver, instance, calls };
@@ -33,6 +38,39 @@ describe('EmbeddedPostgresManager', () => {
       const mgr = new EmbeddedPostgresManager({ driver, paths: { binariesDir } });
       await mgr.ensureBinary();
       expect(calls).toContain('download');
+    } finally {
+      rmSync(binariesDir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-downloads when the binaries dir exists but is empty (partial/interrupted download)', async () => {
+    // A SIGKILL mid-download leaves binariesDir present but without `bin/`.
+    // A plain existsSync(dir) skip would then wedge every later start with a
+    // confusing failure deep in createServer. ensureBinary must treat an
+    // unpopulated dir as absent and re-download.
+    const { driver, calls } = fakeDriver();
+    const binariesDir = join(tmpdir(), `memsmith-test-pg-partial-${process.pid}`);
+    rmSync(binariesDir, { recursive: true, force: true });
+    mkdirSync(binariesDir, { recursive: true }); // dir exists, but empty — no bin/
+    try {
+      const mgr = new EmbeddedPostgresManager({ driver, paths: { binariesDir } });
+      await mgr.ensureBinary();
+      expect(calls).toContain('download');
+      expect(existsSync(join(binariesDir, 'bin'))).toBe(true);
+    } finally {
+      rmSync(binariesDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT re-download when the binaries dir is already populated', async () => {
+    const { driver, calls } = fakeDriver();
+    const binariesDir = join(tmpdir(), `memsmith-test-pg-populated-${process.pid}`);
+    rmSync(binariesDir, { recursive: true, force: true });
+    mkdirSync(join(binariesDir, 'bin'), { recursive: true }); // already complete
+    try {
+      const mgr = new EmbeddedPostgresManager({ driver, paths: { binariesDir } });
+      await mgr.ensureBinary();
+      expect(calls).not.toContain('download');
     } finally {
       rmSync(binariesDir, { recursive: true, force: true });
     }

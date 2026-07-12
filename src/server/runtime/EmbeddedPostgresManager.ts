@@ -83,10 +83,17 @@ export class EmbeddedPostgresManager {
   }
 
   async ensureBinary(): Promise<void> {
-    if (existsSync(this.paths.binariesDir)) {
+    // A completed download populates a `bin/` subdir. Check for that marker
+    // rather than the top dir alone: a SIGKILL mid-download (which bypasses the
+    // catch below) leaves an existing-but-unpopulated dir, and a bare
+    // existsSync(dir) skip would then wedge every later start with a confusing
+    // failure deep in createServer. Treat an unpopulated dir as absent.
+    if (existsSync(join(this.paths.binariesDir, 'bin'))) {
       logger.info('SYSTEM', 'embedded PG binaries present', { dir: this.paths.binariesDir });
       return;
     }
+    // Clear any partial remnants so the download starts from a clean dir.
+    rmSync(this.paths.binariesDir, { recursive: true, force: true });
     mkdirSync(this.paths.binariesDir, { recursive: true });
     const driver = await this.driver();
     logger.info('SYSTEM', 'downloading embedded PG binaries', { dir: this.paths.binariesDir });
