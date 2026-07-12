@@ -4,7 +4,7 @@ import { toDecisionChains, type DecisionChain } from '../utils/dashboardShape';
 
 // ── Metrics payload (matches /dashboard/metrics) ─────────────────────────────
 
-interface AttentionItem { id: string; type: string; lifecycle: string; reason: string; title: string; createdAt: string; }
+interface AttentionItem { id: string; type: string; lifecycle: string; reason: string; title: string; content: string; createdAt: string; }
 interface Metrics {
   total: number;
   embedded: number;
@@ -124,21 +124,39 @@ function ActivityChart({ activity }: { activity: Array<{ day: string; count: num
 }
 
 function NeedsAttention({ items }: { items: AttentionItem[] }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setOpen(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+  });
   return (
     <div className="dash-card">
       <h2 className="dash-h2">Needs attention</h2>
-      <p className="dash-cap">Open, blocked &amp; parked work items — the short list worth looking at.</p>
+      <p className="dash-cap">Parked decisions &amp; security items — click any to read the full observation.</p>
       {items.length === 0 ? (
         <p className="dash-empty">Nothing flagged for attention — no parked decisions, unfinished items, or security alerts. ✦</p>
       ) : (
         <div className="dash-attn">
           {items.map(a => {
             const b = REASON_BADGE[a.reason] ?? REASON_BADGE['attention']!;
+            const isOpen = open.has(a.id);
+            const expandable = (a.content || '').trim().length > (a.title || '').trim().length;
             return (
-              <div className="dash-attn-item" key={a.id}>
+              <div
+                className={`dash-attn-item${expandable ? ' dash-attn-item--clickable' : ''}${isOpen ? ' dash-attn-item--open' : ''}`}
+                key={a.id}
+                onClick={expandable ? () => toggle(a.id) : undefined}
+                role={expandable ? 'button' : undefined}
+                tabIndex={expandable ? 0 : undefined}
+                onKeyDown={expandable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(a.id); } } : undefined}
+                aria-expanded={expandable ? isOpen : undefined}
+              >
                 <span className={`dash-badge ${b.cls}`}>{b.label}</span>
                 <div className="dash-attn-body">
-                  <div className="dash-attn-title">{a.title || '(untitled)'}</div>
+                  <div className="dash-attn-title">
+                    {a.title || '(untitled)'}
+                    {expandable && <span className="dash-attn-chevron">{isOpen ? '▾' : '▸'}</span>}
+                  </div>
+                  {isOpen && <div className="dash-attn-full">{a.content}</div>}
                   <div className="dash-attn-meta"><span className="dash-attn-type">{a.type}</span> · {String(a.id).slice(0, 8)}</div>
                 </div>
               </div>

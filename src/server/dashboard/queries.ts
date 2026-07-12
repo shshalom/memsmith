@@ -83,6 +83,8 @@ export async function metricsOverview(db: PostgresQueryable, s: Scope) {
       lifecycle: r.lifecycle_state,
       reason,
       title: firstLineOf(r.content),
+      // Full content so the card can expand to show the whole observation.
+      content: typeof r.content === 'string' ? r.content : '',
       createdAt: r.created_at,
     };
   });
