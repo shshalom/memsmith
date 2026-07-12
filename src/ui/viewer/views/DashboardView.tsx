@@ -1,268 +1,304 @@
 import React, { useEffect, useState } from 'react';
 import { fetchDashboard } from '../utils/serverData';
-import {
-  toKpis, toKanbanColumns, toDecisionChains,
-  type Kpis, type KanbanColumn, type DecisionChain,
-} from '../utils/dashboardShape';
+import { toDecisionChains, type DecisionChain } from '../utils/dashboardShape';
 
-// ── Blocked panel types ──────────────────────────────────────────────────────
+// ── Metrics payload (matches /dashboard/metrics) ─────────────────────────────
 
-interface BlockedByBlocker {
-  [blockerName: string]: Array<{ id?: string; content?: string; metadata?: Record<string, unknown> }>;
+interface AttentionItem { id: string; type: string; lifecycle: string; title: string; createdAt: string; }
+interface Metrics {
+  total: number;
+  embedded: number;
+  embeddedPct: number;
+  decisions: number;
+  byType: Array<{ type: string; count: number }>;
+  work: Record<string, number>;
+  attention: AttentionItem[];
+  activity: Array<{ day: string; count: number }>;
 }
+interface Cost {
+  savedTokens?: number; pctSmaller?: number; estUsdSaved?: number; activeProvider?: string; localGeneration?: boolean;
+}
+interface Spend {
+  available: boolean; scoped: boolean; totalCostUsd: number; totalTokens: number;
+  days: Array<{ date: string; costUsd: number; totalTokens: number }>; agentsDetected: string[]; reason?: string;
+}
+
+const LC_COLOR: Record<string, string> = {
+  resolved: 'var(--color-lifecycle-resolved, #6bbf7c)',
+  active: 'var(--color-warn, #e9a23b)',
+  blocked: 'var(--color-danger, #e5654f)',
+  deferred: 'var(--color-lifecycle-superseded, #b18bd0)',
+  open: 'var(--color-info, #6aa9d8)',
+};
+const LC_ORDER = ['resolved', 'active', 'blocked', 'deferred', 'open'];
+const BADGE_CLASS: Record<string, string> = { blocked: 'dash-badge--blocked', open: 'dash-badge--open', deferred: 'dash-badge--deferred' };
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function KpiStrip({ kpis }: { kpis: Kpis }) {
+function KpiHero({ m }: { m: Metrics }) {
+  const cards = [
+    { n: m.total.toLocaleString(), l: 'Memories', hint: 'observations stored', accent: true },
+    { n: m.decisions.toLocaleString(), l: 'Decisions', hint: 'reasoning recorded', accent: false },
+    { n: Math.round(m.embeddedPct * 100) + '%', l: 'Embedded', hint: 'semantic-searchable', accent: false },
+    { n: 'local', l: 'Runtime', hint: 'embedded Postgres · no Docker', accent: false },
+  ];
   return (
-    <div className="dash-kpi-strip">
-      <div className="dash-kpi-card">
-        <span className="dash-kpi-value">{kpis.open}</span>
-        <span className="dash-kpi-label">Open</span>
+    <div className="dash-kpis">
+      {cards.map((k, i) => (
+        <div className="dash-kpi" key={k.l} style={{ animationDelay: `${0.03 + i * 0.06}s` }}>
+          <div className={`dash-kpi-n${k.accent ? ' dash-kpi-n--accent' : ''}`}>{k.n}</div>
+          <div className="dash-kpi-l">{k.l}</div>
+          <div className="dash-kpi-hint">{k.hint}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkInFlight({ work }: { work: Record<string, number> }) {
+  const total = LC_ORDER.reduce((s, k) => s + (work[k] || 0), 0) || 1;
+  return (
+    <div className="dash-card">
+      <h2 className="dash-h2">Work in flight</h2>
+      <p className="dash-cap">Parked &amp; blocked vs. completed — across decisions, features, bugfixes &amp; refactors.</p>
+      <div className="dash-stack">
+        {LC_ORDER.filter(k => (work[k] || 0) > 0).map(k => (
+          <span key={k} style={{ width: `${((work[k] || 0) / total * 100).toFixed(2)}%`, background: LC_COLOR[k] }} title={`${k}: ${work[k]}`} />
+        ))}
       </div>
-      <div className="dash-kpi-card dash-kpi-card--blocked">
-        <span className="dash-kpi-value">{kpis.blocked}</span>
-        <span className="dash-kpi-label">Blocked</span>
-      </div>
-      <div className="dash-kpi-card">
-        <span className="dash-kpi-value">{kpis.resolved}</span>
-        <span className="dash-kpi-label">Resolved</span>
-      </div>
-      <div className="dash-kpi-card dash-kpi-card--cost">
-        <span className="dash-kpi-value">${kpis.usd.toFixed(2)}</span>
-        <span className="dash-kpi-label">Est. Cost</span>
+      <div className="dash-legend">
+        {LC_ORDER.map(k => (
+          <div className="dash-leg" key={k}>
+            <span className="dash-leg-dot" style={{ background: LC_COLOR[k] }} />
+            <span className="dash-leg-name">{k}</span>
+            <span className="dash-leg-val">{(work[k] || 0).toLocaleString()}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function LifecycleKanban({ columns }: { columns: KanbanColumn[] }) {
+function Composition({ byType }: { byType: Array<{ type: string; count: number }> }) {
+  const max = Math.max(1, ...byType.map(t => t.count));
   return (
-    <section className="dash-section">
-      <h2 className="dash-section-title">Lifecycle Board</h2>
-      <div className="dash-kanban">
-        {columns.map(col => (
-          <div key={col.state} className={`dash-kanban-col dash-kanban-col--${col.state}`}>
-            <div className="dash-kanban-col-header">
-              <span className="dash-kanban-state">{col.state}</span>
-              <span className="dash-kanban-count">{col.items.length}</span>
-            </div>
-            <ul className="dash-kanban-items">
-              {col.items.length === 0 ? (
-                <li className="dash-kanban-empty">—</li>
-              ) : (
-                col.items.map(item => (
-                  <li key={item.id} className="dash-kanban-item" title={item.title}>
-                    {item.title || item.id}
-                  </li>
-                ))
-              )}
-            </ul>
+    <div className="dash-card">
+      <h2 className="dash-h2">Memory composition</h2>
+      <p className="dash-cap">What kind of knowledge is captured.</p>
+      <div className="dash-bars">
+        {byType.map(t => (
+          <div className="dash-bar-row" key={t.type}>
+            <span className="dash-bar-t">{t.type}</span>
+            <div className="dash-bar-track"><div className="dash-bar-fill" style={{ width: `${(t.count / max * 100).toFixed(1)}%` }} /></div>
+            <span className="dash-bar-c">{t.count.toLocaleString()}</span>
           </div>
         ))}
       </div>
-    </section>
+    </div>
+  );
+}
+
+function ActivityChart({ activity }: { activity: Array<{ day: string; count: number }> }) {
+  if (!activity.length) return null;
+  const max = Math.max(1, ...activity.map(a => a.count));
+  return (
+    <div className="dash-card">
+      <h2 className="dash-h2">Capture activity</h2>
+      <p className="dash-cap">Observations recorded per day.</p>
+      <div className="dash-spark">
+        {activity.map(a => (
+          <div className="dash-spark-col" key={a.day} title={`${a.day}: ${a.count}`}>
+            <div className="dash-spark-bar" style={{ height: `${Math.max(4, a.count / max * 100)}%` }} />
+            <span className="dash-spark-x">{a.day.slice(5)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NeedsAttention({ items }: { items: AttentionItem[] }) {
+  return (
+    <div className="dash-card">
+      <h2 className="dash-h2">Needs attention</h2>
+      <p className="dash-cap">Open, blocked &amp; parked work items — the short list worth looking at.</p>
+      {items.length === 0 ? (
+        <p className="dash-empty">Nothing open, blocked, or parked. All clear. ✦</p>
+      ) : (
+        <div className="dash-attn">
+          {items.map(a => (
+            <div className="dash-attn-item" key={a.id}>
+              <span className={`dash-badge ${BADGE_CLASS[a.lifecycle] || 'dash-badge--open'}`}>{a.lifecycle}</span>
+              <div className="dash-attn-body">
+                <div className="dash-attn-title">{a.title || '(untitled)'}</div>
+                <div className="dash-attn-meta"><span className="dash-attn-type">{a.type}</span> · {String(a.id).slice(0, 8)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtUsd(n: number): string {
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtTok(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+function thisMonthCost(days: Spend['days']): number {
+  // Current month prefix YYYY-MM from the most recent day in the data.
+  if (!days.length) return 0;
+  const latest = days[days.length - 1]!.date.slice(0, 7);
+  return days.filter(d => d.date.startsWith(latest)).reduce((s, d) => s + d.costUsd, 0);
+}
+
+function SpendPanel({ spend }: { spend: Spend | null }) {
+  if (!spend || !spend.available) {
+    return (
+      <div className="dash-card">
+        <h2 className="dash-h2">AI coding spend</h2>
+        <p className="dash-cap">Real cost from your local Claude Code / Codex usage logs (ccusage).</p>
+        <p className="dash-empty">Usage logs unavailable{spend?.reason ? ` — ${spend.reason}` : ''}.</p>
+      </div>
+    );
+  }
+  const monthCost = thisMonthCost(spend.days);
+  const maxCost = Math.max(0.0001, ...spend.days.map(d => d.costUsd));
+  return (
+    <div className="dash-card">
+      <h2 className="dash-h2">AI coding spend</h2>
+      <p className="dash-cap">
+        Real cost from this project&apos;s Claude Code usage logs (ccusage{spend.scoped ? ', project-scoped' : ', all projects'}).
+      </p>
+      <div className="dash-spend-figs">
+        <div className="dash-spend-fig">
+          <div className="dash-spend-n">{fmtUsd(spend.totalCostUsd)}</div>
+          <div className="dash-spend-l">Historical billed</div>
+        </div>
+        <div className="dash-spend-fig">
+          <div className="dash-spend-n">{fmtTok(spend.totalTokens)}</div>
+          <div className="dash-spend-l">Tokens processed</div>
+        </div>
+        <div className="dash-spend-fig">
+          <div className="dash-spend-n">{monthCost > 0 ? fmtUsd(monthCost) : '$0'}</div>
+          <div className="dash-spend-l">This month</div>
+        </div>
+      </div>
+      {spend.days.length > 0 && (
+        <div className="dash-spend-spark">
+          {spend.days.map(d => (
+            <div className="dash-spark-col" key={d.date} title={`${d.date}: ${fmtUsd(d.costUsd)}`}>
+              <div className="dash-spark-bar dash-spark-bar--spend" style={{ height: `${Math.max(4, d.costUsd / maxCost * 100)}%` }} />
+              <span className="dash-spark-x">{d.date.slice(5)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="dash-spend-note">ⓘ Subscription / flat-rate sessions report <b>$0 billable</b> — the token volume is real, the billed cost isn&apos;t metered per-token.</p>
+    </div>
+  );
+}
+
+function CompressionNote({ cost }: { cost: Cost | null }) {
+  const saved = Number(cost?.savedTokens ?? 0);
+  const provider = cost?.activeProvider ?? 'local';
+  return (
+    <div className="dash-note">
+      <span className="dash-note-ico">{saved > 0 ? '✦' : '◷'}</span>
+      <span className="dash-note-txt">
+        {saved > 0 ? (
+          <>Context compression has saved <b>{saved.toLocaleString()}</b> tokens (<b>{((cost?.pctSmaller ?? 0) * 100).toFixed(0)}%</b> smaller), ~<b>${Number(cost?.estUsdSaved ?? 0).toFixed(4)}</b> — running on <b>{provider}</b>.</>
+        ) : (
+          <>Token-saving compression is <b>armed</b> but idle: it activates when injected memory exceeds the context budget. Nothing to compress yet — generation runs on <b>{provider}</b>.</>
+        )}
+      </span>
+    </div>
   );
 }
 
 function DecisionLog({ chains }: { chains: DecisionChain[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  const toggle = (id: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  if (chains.length === 0) {
-    return (
-      <section className="dash-section">
-        <h2 className="dash-section-title">Decision Log</h2>
-        <p className="dash-empty">No decisions recorded yet.</p>
-      </section>
-    );
-  }
-
+  const toggle = (id: string) => setExpanded(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+  });
+  if (chains.length === 0) return null;
   return (
-    <section className="dash-section">
-      <h2 className="dash-section-title">Decision Log</h2>
+    <div className="dash-card">
+      <h2 className="dash-h2">Decision log</h2>
+      <p className="dash-cap">Architectural &amp; design choices, with supersession history.</p>
       <ul className="dash-decisions">
         {chains.map(chain => (
           <li key={chain.head.id} className="dash-decision-chain">
             <div className="dash-decision-head">
               <span className="dash-decision-title">{chain.head.title || chain.head.id}</span>
-              {chain.head.why && (
-                <span className="dash-decision-why">{chain.head.why}</span>
-              )}
+              {chain.head.why && <span className="dash-decision-why">{chain.head.why}</span>}
               {chain.history.length > 0 && (
-                <button
-                  className="dash-decision-toggle"
-                  onClick={() => toggle(chain.head.id)}
-                  aria-expanded={expanded.has(chain.head.id)}
-                >
+                <button className="dash-decision-toggle" onClick={() => toggle(chain.head.id)} aria-expanded={expanded.has(chain.head.id)}>
                   {expanded.has(chain.head.id) ? '▾' : '▸'} {chain.history.length} superseded
                 </button>
               )}
             </div>
             {expanded.has(chain.head.id) && chain.history.length > 0 && (
               <ul className="dash-decision-history">
-                {chain.history.map(h => (
-                  <li key={h.id} className="dash-decision-history-item">
-                    {h.title || h.id}
-                  </li>
-                ))}
+                {chain.history.map(h => <li key={h.id} className="dash-decision-history-item">{h.title || h.id}</li>)}
               </ul>
             )}
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-function CostPanel({ cost }: { cost: unknown }) {
-  const c = (cost ?? {}) as { discoveryTokens?: number; distilledTokens?: number | null; estUsd?: number; estUsdSaved?: number; savedTokens?: number; preTokens?: number; pctSmaller?: number; activeProvider?: string; localGeneration?: boolean };
-  const usd = typeof c.estUsdSaved === 'number' ? c.estUsdSaved : (typeof c.estUsd === 'number' ? c.estUsd : null);
-  return (
-    <section className="dash-section">
-      <h2 className="dash-section-title">Cost</h2>
-      <dl className="dash-cost-dl">
-        <dt>Discovery tokens</dt>
-        <dd>{typeof c.discoveryTokens === 'number' ? c.discoveryTokens.toLocaleString() : '—'}</dd>
-        {c.distilledTokens != null && (
-          <>
-            <dt>Distilled tokens</dt>
-            <dd>{c.distilledTokens.toLocaleString()}</dd>
-          </>
-        )}
-        {typeof c.savedTokens === 'number' && (
-          <>
-            <dt>Saved tokens</dt>
-            <dd>{c.savedTokens.toLocaleString()}</dd>
-          </>
-        )}
-        {typeof c.pctSmaller === 'number' && typeof c.preTokens === 'number' && c.preTokens > 0 && (
-          <>
-            <dt>Compression</dt>
-            <dd>{(c.pctSmaller * 100).toFixed(1)}%</dd>
-          </>
-        )}
-        <dt>Est. USD saved</dt>
-        <dd>${usd != null ? usd.toFixed(4) : '0.0000'}</dd>
-        {c.activeProvider !== undefined && (
-          <>
-            <dt>Provider</dt>
-            <dd>{c.activeProvider}{c.localGeneration ? ' (local)' : ''}</dd>
-          </>
-        )}
-      </dl>
-    </section>
-  );
-}
-
-/** Blocked-on-whom seam — renders groups by blocker; empty state is intentional */
-function BlockedByPanel({ byBlocker }: { byBlocker: BlockedByBlocker | null }) {
-  // TODO(team-identity): this seam will show per-team blocked items once team context is wired
-  if (!byBlocker || Object.keys(byBlocker).length === 0) {
-    return (
-      <section className="dash-section dash-section--seam">
-        <h2 className="dash-section-title">Blocked on Whom</h2>
-        <p className="dash-empty">No blockers tracked yet.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="dash-section dash-section--seam">
-      <h2 className="dash-section-title">Blocked on Whom</h2>
-      {Object.entries(byBlocker).map(([blocker, items]) => (
-        <div key={blocker} className="dash-blocker-group">
-          <h3 className="dash-blocker-name">{blocker}</h3>
-          <ul className="dash-blocker-items">
-            {items.map((item, idx) => {
-              const id = item.id ?? String(idx);
-              const title =
-                (item.metadata?.title as string | undefined) ??
-                (typeof item.content === 'string' ? item.content.split('\n')[0] : '') ??
-                id;
-              return (
-                <li key={id} className="dash-blocker-item">{title}</li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </section>
+    </div>
   );
 }
 
 // ── Main DashboardView ───────────────────────────────────────────────────────
 
-interface DashboardData {
-  board: unknown;
-  decisions: unknown;
-  cost: unknown;
-  byBlocker: BlockedByBlocker | null;
-}
-
 export function DashboardView() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [cost, setCost] = useState<Cost | null>(null);
+  const [spend, setSpend] = useState<Spend | null>(null);
+  const [chains, setChains] = useState<DecisionChain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      fetchDashboard('board'),
-      fetchDashboard('decisions'),
-      fetchDashboard('cost'),
-      fetchDashboard('blocked'),
-    ])
-      .then(([board, decisions, cost, blocked]) => {
+    setLoading(true); setError(null);
+    Promise.all([fetchDashboard('metrics'), fetchDashboard('cost'), fetchDashboard('decisions')])
+      .then(([m, c, d]) => {
         if (cancelled) return;
-        setData({
-          board,
-          decisions,
-          cost,
-          byBlocker: (blocked && typeof blocked === 'object' && !Array.isArray(blocked))
-            ? (blocked as BlockedByBlocker)
-            : null,
-        });
+        if (!m) { setError('metrics unavailable'); return; }
+        setMetrics(m as Metrics);
+        setCost((c ?? null) as Cost | null);
+        setChains(toDecisionChains(d));
       })
-      .catch(err => {
-        if (!cancelled) setError(String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+      .catch(err => { if (!cancelled) setError(String(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    // Spend loads separately — ccusage can take ~2s, so it shouldn't block the
+    // rest of the dashboard; it fills in when ready.
+    fetchDashboard('spend').then(s => { if (!cancelled) setSpend((s ?? null) as Spend | null); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) {
-    return <div className="dash-loading">Loading dashboard…</div>;
-  }
-
-  if (error || !data) {
-    return <div className="dash-error">Failed to load dashboard data.</div>;
-  }
-
-  const kpis = toKpis(data.board, data.cost);
-  const columns = toKanbanColumns(data.board);
-  const chains = toDecisionChains(data.decisions);
+  if (loading) return <div className="dash-loading">Loading dashboard…</div>;
+  if (error || !metrics) return <div className="dash-error">Failed to load dashboard data.</div>;
 
   return (
     <div className="dashboard-view">
-      <KpiStrip kpis={kpis} />
-      <LifecycleKanban columns={columns} />
+      <KpiHero m={metrics} />
+      <div className="dash-grid">
+        <WorkInFlight work={metrics.work} />
+        <Composition byType={metrics.byType} />
+      </div>
+      <ActivityChart activity={metrics.activity} />
+      <SpendPanel spend={spend} />
+      <NeedsAttention items={metrics.attention} />
       <DecisionLog chains={chains} />
-      <CostPanel cost={data.cost} />
-      <BlockedByPanel byBlocker={data.byBlocker} />
+      <CompressionNote cost={cost} />
     </div>
   );
 }

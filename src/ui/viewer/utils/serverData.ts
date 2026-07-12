@@ -23,9 +23,10 @@ export async function fetchObservations(
   } catch { return []; }
 }
 
-export async function fetchDashboard(kind: 'board'|'decisions'|'blocked'|'cost'): Promise<unknown> {
+export async function fetchDashboard(kind: 'board'|'decisions'|'blocked'|'cost'|'metrics'|'spend'): Promise<unknown> {
   const map = { board: V1_ENDPOINTS.DASH_BOARD, decisions: V1_ENDPOINTS.DASH_DECISIONS,
-    blocked: V1_ENDPOINTS.DASH_BLOCKED, cost: V1_ENDPOINTS.DASH_COST };
+    blocked: V1_ENDPOINTS.DASH_BLOCKED, cost: V1_ENDPOINTS.DASH_COST,
+    metrics: '/dashboard/metrics', spend: '/dashboard/spend' };
   try {
     const res = await fetch(map[kind], { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;

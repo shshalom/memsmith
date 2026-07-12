@@ -14,6 +14,85 @@ export async function lifecycleBoard(db: PostgresQueryable, s: Scope) {
   for (const r of rows) (board[r.lifecycle_state] ??= []).push(r);
   return board;
 }
+
+// The trackable-work observation types — the ones that represent actual work
+// items worth surfacing on a dashboard, as opposed to `discovery` (which is
+// point-in-time "the agent looked at X" logging noise, the bulk of the corpus).
+const WORK_TYPES = ['decision', 'feature', 'bugfix', 'refactor', 'change', 'security_alert', 'security_note'];
+
+// Single overview payload for the redesigned dashboard. Every number here is a
+// real aggregate over the observations table — no invented/placeholder metrics.
+export async function metricsOverview(db: PostgresQueryable, s: Scope) {
+  const w = scopeWhere(s);
+  const one = async (sql: string) => (await db.query(sql, w.args)).rows;
+
+  const total = Number((await one(`SELECT count(*)::int n FROM observations WHERE ${w.sql}`))[0].n);
+  const embedded = Number((await one(`SELECT count(*)::int n FROM observations WHERE ${w.sql} AND embedding_vec IS NOT NULL`))[0].n);
+
+  const byType = (await one(
+    `SELECT obs_type, count(*)::int n FROM observations WHERE ${w.sql} GROUP BY obs_type ORDER BY n DESC`,
+  )).map((r: any) => ({ type: r.obs_type ?? 'unknown', count: Number(r.n) }));
+
+  // Completed (resolved+superseded) vs in-flight (active) vs parked (deferred)
+  // vs blocked vs open — over TRACKABLE work types only, so the ratio is real
+  // work, not logging noise. This drives the parked-vs-completed chart.
+  const workRows = await one(
+    `SELECT lifecycle_state, count(*)::int n
+       FROM observations
+      WHERE ${w.sql} AND obs_type = ANY('{${WORK_TYPES.join(',')}}')
+      GROUP BY lifecycle_state`,
+  );
+  const work: Record<string, number> = { open: 0, active: 0, blocked: 0, deferred: 0, resolved: 0, superseded: 0 };
+  for (const r of workRows) work[r.lifecycle_state] = Number(r.n);
+
+  // Needs-attention: the short, actionable list — non-resolved work items of
+  // meaningful types, most recent first, capped. This is what a user should
+  // actually look at ("what's open / parked / blocked / a bug").
+  const attention = (await one(
+    `SELECT id, obs_type, lifecycle_state, content, created_at
+       FROM observations
+      WHERE ${w.sql}
+        AND obs_type = ANY('{${WORK_TYPES.join(',')}}')
+        AND lifecycle_state IN ('open','blocked','deferred')
+      ORDER BY CASE lifecycle_state WHEN 'blocked' THEN 0 WHEN 'open' THEN 1 WHEN 'deferred' THEN 2 ELSE 3 END,
+               created_at DESC
+      LIMIT 40`,
+  )).map((r: any) => ({
+    id: r.id,
+    type: r.obs_type,
+    lifecycle: r.lifecycle_state,
+    title: firstLineOf(r.content),
+    createdAt: r.created_at,
+  }));
+
+  // Capture activity per day (last 30 days that have data).
+  const activity = (await one(
+    `SELECT to_char(created_at, 'YYYY-MM-DD') AS day, count(*)::int n
+       FROM observations WHERE ${w.sql}
+      GROUP BY day ORDER BY day DESC LIMIT 30`,
+  )).map((r: any) => ({ day: r.day, count: Number(r.n) })).reverse();
+
+  const decisions = Number((await one(
+    `SELECT count(*)::int n FROM observations WHERE ${w.sql} AND obs_type = 'decision'`,
+  ))[0].n);
+
+  return {
+    total,
+    embedded,
+    embeddedPct: total > 0 ? embedded / total : 0,
+    decisions,
+    byType,
+    work,
+    attention,
+    activity,
+  };
+}
+
+function firstLineOf(content: unknown): string {
+  const s = typeof content === 'string' ? content : '';
+  const line = (s.split('\n')[0] ?? '').trim();
+  return line.length > 120 ? line.slice(0, 120).trimEnd() + '…' : line;
+}
 export async function decisionLog(db: PostgresQueryable, s: Scope) {
   const w = scopeWhere(s);
   const { rows } = await db.query(`SELECT * FROM observations WHERE ${w.sql} AND obs_type='decision' ORDER BY created_at ASC`, w.args);
