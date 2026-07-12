@@ -4,7 +4,7 @@ import { toDecisionChains, type DecisionChain } from '../utils/dashboardShape';
 
 // ── Metrics payload (matches /dashboard/metrics) ─────────────────────────────
 
-interface AttentionItem { id: string; type: string; lifecycle: string; title: string; createdAt: string; }
+interface AttentionItem { id: string; type: string; lifecycle: string; reason: string; title: string; createdAt: string; }
 interface Metrics {
   total: number;
   embedded: number;
@@ -31,7 +31,13 @@ const LC_COLOR: Record<string, string> = {
   open: 'var(--color-info, #6aa9d8)',
 };
 const LC_ORDER = ['resolved', 'active', 'blocked', 'deferred', 'open'];
-const BADGE_CLASS: Record<string, string> = { blocked: 'dash-badge--blocked', open: 'dash-badge--open', deferred: 'dash-badge--deferred' };
+// Attention reason → badge style + short label.
+const REASON_BADGE: Record<string, { cls: string; label: string }> = {
+  'security alert': { cls: 'dash-badge--blocked', label: 'security' },
+  'security note': { cls: 'dash-badge--open', label: 'security' },
+  'parked decision': { cls: 'dash-badge--deferred', label: 'parked' },
+  'attention': { cls: 'dash-badge--open', label: 'attention' },
+};
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
@@ -123,18 +129,21 @@ function NeedsAttention({ items }: { items: AttentionItem[] }) {
       <h2 className="dash-h2">Needs attention</h2>
       <p className="dash-cap">Open, blocked &amp; parked work items — the short list worth looking at.</p>
       {items.length === 0 ? (
-        <p className="dash-empty">Nothing open, blocked, or parked. All clear. ✦</p>
+        <p className="dash-empty">Nothing flagged for attention — no parked decisions, unfinished items, or security alerts. ✦</p>
       ) : (
         <div className="dash-attn">
-          {items.map(a => (
-            <div className="dash-attn-item" key={a.id}>
-              <span className={`dash-badge ${BADGE_CLASS[a.lifecycle] || 'dash-badge--open'}`}>{a.lifecycle}</span>
-              <div className="dash-attn-body">
-                <div className="dash-attn-title">{a.title || '(untitled)'}</div>
-                <div className="dash-attn-meta"><span className="dash-attn-type">{a.type}</span> · {String(a.id).slice(0, 8)}</div>
+          {items.map(a => {
+            const b = REASON_BADGE[a.reason] ?? REASON_BADGE['attention']!;
+            return (
+              <div className="dash-attn-item" key={a.id}>
+                <span className={`dash-badge ${b.cls}`}>{b.label}</span>
+                <div className="dash-attn-body">
+                  <div className="dash-attn-title">{a.title || '(untitled)'}</div>
+                  <div className="dash-attn-meta"><span className="dash-attn-type">{a.type}</span> · {String(a.id).slice(0, 8)}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -45,25 +45,47 @@ export async function metricsOverview(db: PostgresQueryable, s: Scope) {
   const work: Record<string, number> = { open: 0, active: 0, blocked: 0, deferred: 0, resolved: 0, superseded: 0 };
   for (const r of workRows) work[r.lifecycle_state] = Number(r.n);
 
-  // Needs-attention: the short, actionable list — non-resolved work items of
-  // meaningful types, most recent first, capped. This is what a user should
-  // actually look at ("what's open / parked / blocked / a bug").
+  // Needs-attention: only signals we can TRUST. Retroactive lifecycle labels
+  // and content keyword-matching both produce mostly false positives on
+  // historical narration ("blocked" past events; observations that merely
+  // *mention* the word TODO). The genuinely reliable, actionable signals are:
+  //   1. security_alert / security_note — always worth surfacing.
+  //   2. deferred decisions — structured (type+lifecycle) parked work; the one
+  //      lifecycle signal that's meaningful because deferral is a deliberate,
+  //      still-relevant state ("postponing X until Y").
+  // A short, correct list beats a long, noisy one. If nothing qualifies, the
+  // panel honestly shows "all clear".
   const attention = (await one(
-    `SELECT id, obs_type, lifecycle_state, content, created_at
+    `SELECT id, obs_type, lifecycle_state, content, created_at,
+            CASE
+              WHEN obs_type = 'security_alert' THEN 0
+              WHEN obs_type = 'security_note' THEN 1
+              WHEN lifecycle_state = 'deferred' AND obs_type = 'decision' THEN 2
+              ELSE 9
+            END AS rank
        FROM observations
       WHERE ${w.sql}
-        AND obs_type = ANY('{${WORK_TYPES.join(',')}}')
-        AND lifecycle_state IN ('open','blocked','deferred')
-      ORDER BY CASE lifecycle_state WHEN 'blocked' THEN 0 WHEN 'open' THEN 1 WHEN 'deferred' THEN 2 ELSE 3 END,
-               created_at DESC
-      LIMIT 40`,
-  )).map((r: any) => ({
-    id: r.id,
-    type: r.obs_type,
-    lifecycle: r.lifecycle_state,
-    title: firstLineOf(r.content),
-    createdAt: r.created_at,
-  }));
+        AND (
+          obs_type IN ('security_alert','security_note')
+          OR (lifecycle_state = 'deferred' AND obs_type = 'decision')
+        )
+      ORDER BY rank ASC, created_at DESC
+      LIMIT 25`,
+  )).map((r: any) => {
+    const rank = Number(r.rank);
+    const reason =
+      rank === 0 ? 'security alert' :
+      rank === 1 ? 'security note' :
+      rank === 2 ? 'parked decision' : 'attention';
+    return {
+      id: r.id,
+      type: r.obs_type,
+      lifecycle: r.lifecycle_state,
+      reason,
+      title: firstLineOf(r.content),
+      createdAt: r.created_at,
+    };
+  });
 
   // Capture activity per day (last 30 days that have data).
   const activity = (await one(
