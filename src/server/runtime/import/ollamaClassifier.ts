@@ -33,6 +33,10 @@ export function buildOllamaClassifier(candidateTypes?: string[]): TaxonomyClassi
             temperature: 0,
             stream: false,
           }),
+          // Hard timeout so a slow/contended model call can never wedge the
+          // whole first-run import. On timeout the fetch aborts → caught below →
+          // returns null → resolver falls back to 'change'.
+          signal: AbortSignal.timeout(20000),
         });
         if (!res.ok) return null;
         const json = (await res.json()) as {

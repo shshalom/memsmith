@@ -47,6 +47,15 @@ async function loadRealDriver(): Promise<EmbeddedPostgresDriver> {
       port: opts.port,
       username: opts.username,
       password: opts.password,
+      // The package hardcodes log_statement='all' + log_min_duration_statement=0,
+      // which logs every statement + duration synchronously — crippling for the
+      // ~2.7k-row first-run import (it ground the import to a near-stall). Override
+      // to quiet logging. writeConfig() spreads this.config LAST and runs on every
+      // start(), so the override applies even to an existing pgdata on restart.
+      config: {
+        log_statement: `'none'`,
+        log_min_duration_statement: '-1',
+      },
     }) as unknown as EmbeddedPostgresInstance,
   };
 }

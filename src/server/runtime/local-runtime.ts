@@ -52,10 +52,30 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
   const projectId = (process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID ?? '').trim() || 'local';
 
   const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
+  const { bootstrapServerPostgresSchema } = await import('../../storage/postgres/schema.js');
+  const { loadServerMode } = await import('./create-server-service.js');
   const { runFirstRunImport } = await import('./import/firstRunImport.js');
   const { buildOllamaClassifier } = await import('./import/ollamaClassifier.js');
   const { readWorkerObservations } = await import('./import/sqliteReader.js');
+
+  // Load the active mode BEFORE the import so loadCanonicalTypeIds() returns the
+  // real 8-type taxonomy (bugfix/feature/refactor/change/discovery/decision/...),
+  // not the 4-item fallback. Otherwise most rows look "non-canonical" and hit the
+  // Ollama classifier per row — which serializes on the model and can wedge the
+  // import. With the real taxonomy, these source types fast-path (no model call).
+  try {
+    loadServerMode();
+  } catch (error) {
+    logger.warn('SYSTEM', 'could not load mode before import; taxonomy falls back', {}, error instanceof Error ? error : new Error(String(error)));
+  }
+
   const pool = getSharedPostgresPool({ requireDatabaseUrl: true });
+
+  // The import runs BEFORE createServerService (which normally bootstraps the
+  // schema), so on a fresh embedded PG the tables don't exist yet. Bootstrap
+  // here first — it is idempotent (CREATE TABLE IF NOT EXISTS throughout), so
+  // createServerService re-running it afterward is a safe no-op.
+  await bootstrapServerPostgresSchema(pool);
 
   // The observations table requires a team + project (both NOT NULL, FK). Ensure
   // fixed local rows exist so inserts don't violate the FK. Idempotent.
@@ -85,6 +105,31 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
       );
       inserted.push(row.id);
     },
+    // Batch insert: one multi-row INSERT per ~200 rows instead of a round-trip
+    // per row. This is what makes the ~2.7k-row import complete in seconds.
+    // 6 bound params per row (kind is a SQL literal).
+    insertBatch: async (rows) => {
+      const tuples: string[] = [];
+      const values: unknown[] = [];
+      rows.forEach((row, j) => {
+        const b = j * 6;
+        tuples.push(`($${b + 1},$${b + 2},$${b + 3},'observation',$${b + 4},$${b + 5},$${b + 6})`);
+        values.push(
+          row.id,
+          teamId,
+          projectId,
+          row.obsType,
+          row.obsType === 'decision' ? 'active' : 'resolved',
+          row.content,
+        );
+      });
+      await pool.query(
+        `INSERT INTO observations (id, team_id, project_id, kind, obs_type, lifecycle_state, content)
+         VALUES ${tuples.join(',')} ON CONFLICT (id) DO NOTHING`,
+        values,
+      );
+      for (const row of rows) inserted.push(row.id);
+    },
     classifier: buildOllamaClassifier(),
   });
 
@@ -96,6 +141,8 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
       const pending = await pool.query<{ id: string; content: string }>(
         'SELECT id, content FROM observations WHERE embedding_vec IS NULL',
       );
+      logger.info('SYSTEM', 'embedding backfill starting', { rows: pending.rows.length });
+      let done = 0;
       for (const r of pending.rows) {
         try {
           const vec = await embed(r.content || ' ');
@@ -112,7 +159,12 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
             rowError instanceof Error ? rowError : new Error(String(rowError)),
           );
         }
+        done += 1;
+        if (done % 500 === 0) {
+          logger.info('SYSTEM', 'embedding backfill progress', { done, total: pending.rows.length });
+        }
       }
+      logger.info('SYSTEM', 'embedding backfill complete', { done });
     } catch (error) {
       logger.warn(
         'SYSTEM',

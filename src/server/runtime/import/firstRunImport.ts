@@ -2,15 +2,27 @@
 import { loadCanonicalTypeIds, resolveObsType, type TaxonomyClassifier } from './classifyObservationType.js';
 import { logger } from '../../../utils/logger.js';
 
+export interface ResolvedImportRow {
+  id: string;
+  obsType: string;
+  content: string;
+}
+
 export interface FirstRunImportDeps {
   sqliteExists: () => boolean;
   observationsEmpty: () => Promise<boolean>;
   markerExists: () => boolean;
   writeMarker: () => void;
   readSourceRows: () => Promise<Array<{ id: string; type: string; content: string }>>;
-  insertRow: (row: { id: string; obsType: string; content: string }) => Promise<void>;
+  insertRow: (row: ResolvedImportRow) => Promise<void>;
+  // Optional batch insert. When provided, rows are resolved then inserted in
+  // batches (far fewer round-trips than per-row insertRow). Falls back to
+  // insertRow when absent, so existing callers/tests keep working.
+  insertBatch?: (rows: ResolvedImportRow[]) => Promise<void>;
   classifier: TaxonomyClassifier;
 }
+
+const IMPORT_BATCH_SIZE = 200;
 
 export async function runFirstRunImport(
   deps: FirstRunImportDeps,
@@ -22,11 +34,26 @@ export async function runFirstRunImport(
   const canonical = loadCanonicalTypeIds();
   const rows = await deps.readSourceRows();
   let imported = 0;
+  let batch: ResolvedImportRow[] = [];
+
+  const flush = async () => {
+    if (batch.length === 0) return;
+    if (deps.insertBatch) {
+      await deps.insertBatch(batch);
+    } else {
+      for (const r of batch) await deps.insertRow(r);
+    }
+    imported += batch.length;
+    batch = [];
+  };
+
   for (const row of rows) {
     const obsType = await resolveObsType({ content: row.content, sourceType: row.type, canonical, classifier: deps.classifier });
-    await deps.insertRow({ id: row.id, obsType, content: row.content });
-    imported += 1;
+    batch.push({ id: row.id, obsType, content: row.content });
+    if (batch.length >= IMPORT_BATCH_SIZE) await flush();
   }
+  await flush();
+
   deps.writeMarker();
   logger.info('SYSTEM', 'first-run import complete', { imported });
   return { imported, skipped: false };
