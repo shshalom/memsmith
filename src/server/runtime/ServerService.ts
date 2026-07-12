@@ -203,6 +203,12 @@ export class ServerService {
       pool: this.graph.postgres.pool,
       ingestEvents: v1Routes.getIngestEventsService(),
       authMode: compatAuthMode,
+      // GET /api/observations (viewer list) must honor the same loopback
+      // local-dev bypass as the /v1 + /dashboard reads, else the viewer's
+      // Observations tab 403s in local mode.
+      allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
+      localDevTeamId: this.graph.localDevTeamId ?? null,
+      localDevProjectId: this.graph.localDevProjectId ?? null,
     }));
     server.registerRoutes(new SessionsSummarizeAdapter({
       pool: this.graph.postgres.pool,
