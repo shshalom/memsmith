@@ -57,6 +57,19 @@ export const sessionInitHandler: EventHandler = {
     const project = getProjectContext(cwd).primary;
     const platformSource = normalizePlatformSource(input.platform);
 
+    // Non-fatal identity mint: ensure the project has a durable identity + base key
+    // in the local embedded PG. Skips silently when the DB is not reachable (e.g.
+    // the hook fires before the local runtime is up). Next session-init retries.
+    try {
+      const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
+      const pool = getSharedPostgresPool({ requireDatabaseUrl: true });
+      const { ensureProjectIdentity, ensureBaseKey } = await import('../../services/identity/project-identity.js');
+      const { teamId, projectId: identityProjectId } = await ensureProjectIdentity(pool, cwd);
+      await ensureBaseKey(pool, teamId, identityProjectId);
+    } catch (err) {
+      logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
+    }
+
     const runtime = dependencies.resolveRuntimeContext();
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.

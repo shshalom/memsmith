@@ -17,9 +17,12 @@
 // PROJECT_ID}` are read first and fall back to the legacy
 // `MEMSMITH_SERVER_BETA_*` keys when unset.
 
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
+import { CredentialStore } from '../identity/credential-store.js';
 
 export type SelectedRuntime = 'local' | 'server';
 
@@ -53,7 +56,21 @@ export function selectRuntime(): SelectedRuntime {
   return normalizeRuntime(settings.MEMSMITH_RUNTIME);
 }
 
-export function buildServerContext(): ServerRuntimeContext | null {
+export interface BuildServerContextOptions {
+  cwd?: string;
+  credentialStore?: CredentialStore;
+}
+
+function readMarkerFor(cwd: string): { teamId: string; projectId: string } | null {
+  const p = join(cwd, '.memsmith', 'project.json');
+  if (!existsSync(p)) return null;
+  try {
+    const m = JSON.parse(readFileSync(p, 'utf-8')) as { teamId?: string; projectId?: string };
+    return m.teamId && m.projectId ? { teamId: m.teamId, projectId: m.projectId } : null;
+  } catch { return null; }
+}
+
+export function buildServerContext(options: BuildServerContextOptions = {}): ServerRuntimeContext | null {
   const settings = loadFromFileOnce();
   // Phase 1a: read new keys first, fall back to legacy `*_BETA_*` keys so
   // existing settings.json files keep resolving the server runtime.
@@ -71,11 +88,11 @@ export function buildServerContext(): ServerRuntimeContext | null {
     settings.MEMSMITH_SERVER_URL,
     settings.MEMSMITH_SERVER_BETA_URL,
   );
-  const apiKey = pickFirstNonEmpty(
+  let apiKey = pickFirstNonEmpty(
     settings.MEMSMITH_SERVER_API_KEY,
     settings.MEMSMITH_SERVER_BETA_API_KEY,
   );
-  const projectId = pickFirstNonEmpty(
+  let projectId = pickFirstNonEmpty(
     settings.MEMSMITH_SERVER_PROJECT_ID,
     settings.MEMSMITH_SERVER_BETA_PROJECT_ID,
   );
@@ -84,6 +101,24 @@ export function buildServerContext(): ServerRuntimeContext | null {
     logger.warn('HOOK', '[server-fallback] reason=missing_base_url');
     return null;
   }
+
+  // Local-identity path: when no explicit team-mode key is configured, resolve
+  // the project's base key from the marker + CredentialStore (the key-everywhere
+  // seam). This is what makes local injection + MCP recall work without the
+  // keyless bypass.
+  if (!apiKey) {
+    const cwd = options.cwd ?? process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+    const marker = readMarkerFor(cwd);
+    if (marker) {
+      const store = options.credentialStore ?? new CredentialStore();
+      const resolved = store.resolveKeyForTeam(marker.teamId);
+      if (resolved) {
+        apiKey = resolved;
+        if (!projectId) projectId = marker.projectId;
+      }
+    }
+  }
+
   if (!apiKey) {
     logger.warn('HOOK', '[server-fallback] reason=missing_api_key');
     return null;
