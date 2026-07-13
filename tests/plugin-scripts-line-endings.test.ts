@@ -6,10 +6,11 @@ const SCRIPTS_DIR = join(import.meta.dir, '..', 'plugin', 'scripts');
 
 const SHEBANG_SCRIPTS = [
   'mcp-server.cjs',
-  'worker-service.cjs',
-  'context-generator.cjs',
+  'server-service.cjs',
   'bun-runner.js',
-  'worker-cli.js',
+  'transcript-watcher.cjs',
+  'statusline-counts.js',
+  'version-check.js',
 ];
 
 describe('plugin/scripts line endings (#1342)', () => {

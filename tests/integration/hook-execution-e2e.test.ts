@@ -6,10 +6,10 @@ import { logger } from '../../src/utils/logger.js';
 // namespace, then re-register the snapshot in afterAll. bun's mock.module is
 // process-global and mock.restore() does NOT undo it, so without this the stub
 // createMiddleware leaks into later files (e.g. CORS + v1-routes server tests).
-import * as realMiddleware from '../../src/services/worker/http/middleware.js';
+import * as realMiddleware from '../../src/services/server/middleware.js';
 const realMiddlewareSnapshot = { ...realMiddleware };
 
-mock.module('../../src/services/worker/http/middleware.js', () => ({
+mock.module('../../src/services/server/middleware.js', () => ({
   createMiddleware: () => [],
   requireLocalhost: (_req: any, _res: any, next: any) => next(),
   summarizeRequestBody: () => 'test body',
@@ -63,7 +63,7 @@ describe('Hook Execution E2E', () => {
   });
 
   afterAll(() => {
-    mock.module('../../src/services/worker/http/middleware.js', () => realMiddlewareSnapshot);
+    mock.module('../../src/services/server/middleware.js', () => realMiddlewareSnapshot);
   });
 
   describe('health and readiness endpoints', () => {
