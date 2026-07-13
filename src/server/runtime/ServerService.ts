@@ -317,6 +317,26 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
   const port = getServerPort();
   const host = process.env.MEMSMITH_SERVER_HOST ?? DEFAULT_SERVER_HOST;
 
+  // `hook <platform> <event>` — plugin capture hooks (claude-code, codex, etc.)
+  // IO discipline: once hookCommand is invoked, src/shared/hook-io.ts owns all
+  // stdout/stderr/exit. The pre-hookCommand error paths below are CLI-style:
+  // console.error + exit 1 is acceptable because they occur BEFORE the
+  // buffered window opens. argv[0]='hook', argv[1]=platform, argv[2]=event
+  // (argv is process.argv.slice(2) so these map to process.argv[2..4]).
+  if (command === 'hook') {
+    const platform = argv[1];
+    const event = argv[2];
+    if (!platform || !event) {
+      console.error('Usage: memsmith hook <platform> <event>');
+      console.error('Platforms: claude-code, codex, cursor, antigravity-cli, raw');
+      console.error('Events: context, session-init, observation, summarize, user-message');
+      process.exit(1);
+    }
+    const { hookCommand } = await import('../../cli/hook-command.js');
+    const code = await hookCommand(platform, event);
+    process.exit(code);
+  }
+
   // Phase 10: `memsmith server worker [start|--daemon]` runs the BullMQ
   // generation worker as a foregrounded process — no HTTP server, no route
   // registration. In Compose this becomes a separately scaled service.
