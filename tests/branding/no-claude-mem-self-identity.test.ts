@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'bun:test';
-import { readFileSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 
