@@ -19,9 +19,8 @@ import { searchCodebase, formatSearchResults } from '../services/smart-file-read
 import { parseFile, formatFoldedView, unfoldSymbol } from '../services/smart-file-read/parser.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import {
   ServerClientError,
   isServerClientError,
@@ -37,18 +36,6 @@ import {
   type ServerRuntimeContext,
 } from '../services/hooks/runtime-selector.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
-
-let mcpServerDirResolutionFailed = false;
-const mcpServerDir = (() => {
-  if (typeof __dirname !== 'undefined') return __dirname;
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch (error) {
-    mcpServerDirResolutionFailed = true;
-    logger.warn('SYSTEM', 'mcp-server: failed to resolve module directory from import.meta.url, falling back to process.cwd()', undefined, error instanceof Error ? error : new Error(String(error)));
-    return process.cwd();
-  }
-})();
 
 async function callWorker(
   endpoint: string,
