@@ -42,6 +42,12 @@ describe('skill namespace separation (ms- prefix)', () => {
         const bareSlash = new RegExp(`/${old}\\b`, 'g');
         for (const match of src.matchAll(bareSlash)) {
           const idx = match.index ?? 0;
+          // Skip matches that are part of a URL hostname
+          // (e.g. https://wowerpoint-api.<subdomain>.workers.dev).
+          // The regex matches the second `/` of `https://`, so look for `https:/`
+          // or `http:/` in the 20 chars preceding the match.
+          const urlCtx = src.slice(Math.max(0, idx - 20), idx);
+          if (/https?:\//.test(urlCtx)) continue;
           const preceding = src.slice(Math.max(0, idx - 3), idx);
           expect(preceding.endsWith('ms-'),
             `${d}/SKILL.md has bare /${old} (must be /ms-${old})`).toBe(true);

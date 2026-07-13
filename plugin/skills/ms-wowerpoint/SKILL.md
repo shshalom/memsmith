@@ -83,8 +83,8 @@ After the PDF lands on disk, the subagent also POSTs it to the WOWerpoint Server
 Required env (exported in the user's shell — the subagent inherits the parent's environment, so plain `export` is enough; no dotenv loader runs):
 
 ```bash
-WOWERPOINT_API_BASE=https://ms-wowerpoint-api.<subdomain>.workers.dev
-WOWERPOINT_VIEWER_BASE=https://ms-wowerpoint-viewer.<subdomain>.workers.dev
+WOWERPOINT_API_BASE=https://wowerpoint-api.<subdomain>.workers.dev
+WOWERPOINT_VIEWER_BASE=https://wowerpoint-viewer.<subdomain>.workers.dev
 WOWERPOINT_UPLOAD_TOKEN=<token>
 ```
 
