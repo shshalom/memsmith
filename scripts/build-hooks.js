@@ -290,72 +290,77 @@ async function buildHooks() {
       });
     });
 
-    console.log(`\n🔧 Building worker service...`);
-    await build({
-      entryPoints: [WORKER_SERVICE.source],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'cjs',
-      outfile: `${hooksDir}/${WORKER_SERVICE.name}.cjs`,
-      minify: true,
-      logLevel: 'error', // Suppress warnings (import.meta warning is benign)
-      external: [
-        'bun:sqlite',
-        'zod',
-        'cohere-ai',
-        'ollama',
-        '@chroma-core/default-embed',
-        'onnxruntime-node',
-        // Defensive: the worker doesn't currently reach the embedder, but keep
-        // @huggingface/transformers external too so a future transitive import
-        // can't reintroduce the onnxruntime-node .node bundling failure.
-        '@huggingface/transformers',
-        // better-auth (~3.7MB) is only reachable through BetterAuthRoutes' request-time
-        // dynamic import('better-auth/node') / import('./auth.js'). esbuild otherwise
-        // inlines that dynamic-import target into the worker bundle, dragging in the full
-        // better-auth library (kysely, oauth, nanoid, …) even though the worker never
-        // exercises it (the dep isn't in the worker's runtime plugin/package.json deps,
-        // and the route handler already wraps the import in try/catch → graceful 500).
-        // Keeping it external strips the dead weight from worker-service.cjs. See #2584.
-        'better-auth',
-        'better-auth/node',
-        'better-auth/plugins',
-        '@better-auth/api-key',
-      ],
-      define: {
-        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,
-        // Polyfill import.meta.url for ESM deps bundled into CJS output.
-        // @anthropic-ai/claude-agent-sdk's *.mjs files use createRequire(import.meta.url)
-        // and `new URL(rel, import.meta.url)`. We map import.meta.url to a file:// URL
-        // (not the raw __filename path) so URL construction preserves its semantics.
-        'import.meta.url': '__IMPORT_META_URL__'
-      },
-      banner: {
-        js: [
-          '#!/usr/bin/env bun',
-          'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
-          'var __dirname = __dirname || require("node:path").dirname(__filename);',
-          'var __IMPORT_META_URL__ = require("node:url").pathToFileURL(__filename).href;'
-        ].join('\n')
+    // worker-service.ts deleted in Tasks 12+13; full build-script cleanup in Task 15.
+    if (fs.existsSync(WORKER_SERVICE.source)) {
+      console.log(`\n🔧 Building worker service...`);
+      await build({
+        entryPoints: [WORKER_SERVICE.source],
+        bundle: true,
+        platform: 'node',
+        target: 'node18',
+        format: 'cjs',
+        outfile: `${hooksDir}/${WORKER_SERVICE.name}.cjs`,
+        minify: true,
+        logLevel: 'error', // Suppress warnings (import.meta warning is benign)
+        external: [
+          'bun:sqlite',
+          'zod',
+          'cohere-ai',
+          'ollama',
+          '@chroma-core/default-embed',
+          'onnxruntime-node',
+          // Defensive: the worker doesn't currently reach the embedder, but keep
+          // @huggingface/transformers external too so a future transitive import
+          // can't reintroduce the onnxruntime-node .node bundling failure.
+          '@huggingface/transformers',
+          // better-auth (~3.7MB) is only reachable through BetterAuthRoutes' request-time
+          // dynamic import('better-auth/node') / import('./auth.js'). esbuild otherwise
+          // inlines that dynamic-import target into the worker bundle, dragging in the full
+          // better-auth library (kysely, oauth, nanoid, …) even though the worker never
+          // exercises it (the dep isn't in the worker's runtime plugin/package.json deps,
+          // and the route handler already wraps the import in try/catch → graceful 500).
+          // Keeping it external strips the dead weight from worker-service.cjs. See #2584.
+          'better-auth',
+          'better-auth/node',
+          'better-auth/plugins',
+          '@better-auth/api-key',
+        ],
+        define: {
+          '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,
+          // Polyfill import.meta.url for ESM deps bundled into CJS output.
+          // @anthropic-ai/claude-agent-sdk's *.mjs files use createRequire(import.meta.url)
+          // and `new URL(rel, import.meta.url)`. We map import.meta.url to a file:// URL
+          // (not the raw __filename path) so URL construction preserves its semantics.
+          'import.meta.url': '__IMPORT_META_URL__'
+        },
+        banner: {
+          js: [
+            '#!/usr/bin/env bun',
+            'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
+            'var __dirname = __dirname || require("node:path").dirname(__filename);',
+            'var __IMPORT_META_URL__ = require("node:url").pathToFileURL(__filename).href;'
+          ].join('\n')
+        }
+      });
+
+      stripHardcodedDirname(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
+
+      fs.chmodSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 0o755);
+      const workerStats = fs.statSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
+      console.log(`✓ worker-service built (${(workerStats.size / 1024).toFixed(2)} KB)`);
+
+      // Advisory only — a sudden jump usually means a heavy server-only dependency
+      // (better-auth, kysely, a database driver) leaked into the worker bundle via a
+      // transitive import (#2584). Never blocks the build.
+      const WORKER_SERVICE_MAX_BYTES = 2900 * 1024;
+      if (workerStats.size > WORKER_SERVICE_MAX_BYTES) {
+        console.warn(
+          `⚠️  worker-service.cjs is ${(workerStats.size / 1024).toFixed(2)} KB (advisory budget ${(WORKER_SERVICE_MAX_BYTES / 1024).toFixed(0)} KB). ` +
+          `If this jumped unexpectedly, check whether a server-only dependency leaked into the worker bundle (see #2584).`
+        );
       }
-    });
-
-    stripHardcodedDirname(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
-
-    fs.chmodSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 0o755);
-    const workerStats = fs.statSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
-    console.log(`✓ worker-service built (${(workerStats.size / 1024).toFixed(2)} KB)`);
-
-    // Advisory only — a sudden jump usually means a heavy server-only dependency
-    // (better-auth, kysely, a database driver) leaked into the worker bundle via a
-    // transitive import (#2584). Never blocks the build.
-    const WORKER_SERVICE_MAX_BYTES = 2900 * 1024;
-    if (workerStats.size > WORKER_SERVICE_MAX_BYTES) {
-      console.warn(
-        `⚠️  worker-service.cjs is ${(workerStats.size / 1024).toFixed(2)} KB (advisory budget ${(WORKER_SERVICE_MAX_BYTES / 1024).toFixed(0)} KB). ` +
-        `If this jumped unexpectedly, check whether a server-only dependency leaked into the worker bundle (see #2584).`
-      );
+    } else {
+      console.log(`\n⏭  worker-service.ts removed (Tasks 12+13) — skipping worker-service.cjs build`);
     }
 
     console.log(`\n🔧 Building server beta service...`);
@@ -629,7 +634,7 @@ async function buildHooks() {
     }
 
     console.log('\n📋 Copying onboarding explainer to plugin tree...');
-    const onboardingExplainerSrc = 'src/services/worker/onboarding-explainer.md';
+    const onboardingExplainerSrc = 'src/services/onboarding-explainer.md'; // relocated from worker/ in Tasks 12+13
     const onboardingExplainerDst = 'plugin/skills/how-it-works/onboarding-explainer.md';
     if (!fs.existsSync(onboardingExplainerSrc)) {
       throw new Error(`Missing onboarding explainer source: ${onboardingExplainerSrc}`);

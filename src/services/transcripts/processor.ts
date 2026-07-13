@@ -10,7 +10,6 @@ import { resolveFieldSpec, resolveFields, matchesRule } from './field-utils.js';
 import { expandHomePath, shouldSuppressNativeCodexAgentsContext } from './config.js';
 import type { TranscriptSchema, WatchTarget, SchemaEvent } from './types.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import { ingestObservation } from '../worker/http/shared.js';
 
 interface SessionState {
   sessionId: string;
@@ -244,18 +243,28 @@ export class TranscriptEventProcessor {
     const toolName = typeof fields.toolName === 'string' ? fields.toolName : undefined;
     if (!toolName) return;
 
-    const result = await ingestObservation({
+    const workerReady = await ensureWorkerRunning();
+    if (!workerReady) return;
+
+    const requestBody = JSON.stringify({
       contentSessionId: session.sessionId,
       cwd: session.cwd ?? process.cwd(),
-      toolName,
-      toolInput: this.maybeParseJson(fields.toolInput),
-      toolResponse: this.maybeParseJson(fields.toolResponse),
+      tool_name: toolName,
+      tool_input: this.maybeParseJson(fields.toolInput),
+      tool_response: this.maybeParseJson(fields.toolResponse),
       platformSource: session.platformSource,
       toolUseId: typeof fields.toolUseId === 'string' ? fields.toolUseId : undefined,
     });
 
-    if (!result.ok) {
-      throw new Error(`ingestObservation failed: ${result.reason}`);
+    const response = await workerHttpRequest('/api/sessions/observations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBody,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`ingestObservation HTTP failed: ${response.status} ${text}`);
     }
   }
 

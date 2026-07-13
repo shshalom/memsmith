@@ -10,7 +10,7 @@ import { ParsedObservation, ParsedSummary } from '../../sdk/parser.js';
 // the SDK bundle externals — fix the import chain.
 import type { SessionStore as SessionStoreType } from '../sqlite/SessionStore.js';
 import { logger } from '../../utils/logger.js';
-import { ChromaUnavailableError } from '../worker/search/errors.js';
+import { ChromaUnavailableError } from './errors.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 // parseFileList is a PURE helper (JSON-array parse; its only dependency is the
 // logger). Despite its path under sqlite/, it has NO `bun:sqlite` coupling, so

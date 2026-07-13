@@ -12,7 +12,7 @@ import { USER_SETTINGS_PATH, paths } from '../../shared/paths.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { getSupervisor } from '../../supervisor/index.js';
 import { clearDependencyStatus, recordUvxVectorSearchUnavailable } from '../../shared/dependency-health.js';
-import { ChromaUnavailableError } from '../worker/search/errors.js';
+import { ChromaUnavailableError } from './errors.js';
 
 const execFileAsync = promisify(execFile);
 

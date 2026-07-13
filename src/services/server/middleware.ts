@@ -1,8 +1,7 @@
-
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import path from 'path';
-import { getPackageRoot } from '../../../shared/paths.js';
-import { logger } from '../../../utils/logger.js';
+import { getPackageRoot } from '../../shared/paths.js';
+import { logger } from '../../utils/logger.js';
 
 export function createMiddleware(): RequestHandler[] {
   const middlewares: RequestHandler[] = [];
@@ -12,7 +11,7 @@ export function createMiddleware(): RequestHandler[] {
   middlewares.push((req: Request, res: Response, next: NextFunction) => {
     const staticExtensions = ['.html', '.js', '.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.woff', '.woff2', '.ttf', '.eot'];
     const isStaticAsset = staticExtensions.some(ext => req.path.endsWith(ext));
-    const isPollingEndpoint = req.path === '/api/logs'; 
+    const isPollingEndpoint = req.path === '/api/logs';
     if (req.path.startsWith('/health') || req.path === '/' || isStaticAsset || isPollingEndpoint) {
       return next();
     }

@@ -1,5 +1,5 @@
-
-import { AppError } from '../../server/ErrorHandler.js';
+// Relocated from src/services/worker/search/errors.ts (deleted in Tasks 12+13).
+import { AppError } from '../server/ErrorHandler.js';
 
 export class ChromaUnavailableError extends AppError {
   constructor(message: string, cause?: Error) {
