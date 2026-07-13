@@ -27,6 +27,7 @@ import { telemetryBuffer } from './telemetry/buffer.js';
 import { collectInstallStats } from './telemetry/install-stats.js';
 import { runHistoricalBackfill } from './telemetry/backfill.js';
 import { runWorkerDependencyPreflight } from './worker/dependency-preflight.js';
+import { parseLocalCommand, runLocalCommand } from './local-runtime-cli.js';
 
 export { isPluginDisabledInClaudeSettings } from '../shared/plugin-state.js';
 import { isPluginDisabledInClaudeSettings } from '../shared/plugin-state.js';
@@ -824,13 +825,8 @@ export function parseWorkerServiceCommand(argv: string[]): ParsedWorkerCommand {
     };
   }
 
-  if (rawCommand === 'local') {
-    const localAliases = new Set(['start', 'stop', 'status', 'restart']);
-    return {
-      command: maybeSubCommand && localAliases.has(maybeSubCommand) ? `local-${maybeSubCommand}` : 'local-help',
-      args: rest,
-    };
-  }
+  const localResult = parseLocalCommand(rawCommand, maybeSubCommand, rest);
+  if (localResult !== null) return localResult;
 
   return {
     command: rawCommand,
@@ -1235,30 +1231,13 @@ async function main() {
       break;
     }
 
-    case 'local-start': {
-      process.env.MEMSMITH_RUNTIME = 'local';
-      const { startLocalRuntime } = await import('../server/runtime/local-runtime.js');
-      await startLocalRuntime();   // blocks in the foreground server loop
-      return;
-    }
-
-    case 'local-stop': {
-      const { EmbeddedPostgresManager } = await import('../server/runtime/EmbeddedPostgresManager.js');
-      await new EmbeddedPostgresManager().stop();
-      console.log('Local embedded Postgres stopped.');
-      return;
-    }
-
-    case 'local-status': {
-      const { EmbeddedPostgresManager } = await import('../server/runtime/EmbeddedPostgresManager.js');
-      const running = new EmbeddedPostgresManager().isRunning();
-      console.log(running ? 'Local embedded Postgres: RUNNING' : 'Local embedded Postgres: stopped');
-      return;
-    }
-
+    case 'local-start':
+    case 'local-stop':
+    case 'local-status':
+    case 'local-restart':
     case 'local-help': {
-      console.error('Usage: worker-service local start|stop|status');
-      process.exit(1);
+      await runLocalCommand(command, commandArgs);
+      return;
     }
 
     case 'cursor': {
