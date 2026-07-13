@@ -30,9 +30,9 @@ function mcpStartupCommandFrom(relativePath: string): string {
 }
 
 describe('Plugin Distribution - Skills', () => {
-  const skillPath = path.join(projectRoot, 'plugin/skills/mem-search/SKILL.md');
+  const skillPath = path.join(projectRoot, 'plugin/skills/ms-mem-search/SKILL.md');
 
-  it('should include plugin/skills/mem-search/SKILL.md', () => {
+  it('should include plugin/skills/ms-mem-search/SKILL.md', () => {
     expect(existsSync(skillPath)).toBe(true);
   });
 
@@ -64,7 +64,7 @@ describe('Plugin Distribution - Required Files', () => {
     'plugin/.claude-plugin/plugin.json',
     'plugin/.codex-plugin/plugin.json',
     'plugin/.mcp.json',
-    'plugin/skills/mem-search/SKILL.md',
+    'plugin/skills/ms-mem-search/SKILL.md',
     '.agents/plugins/marketplace.json',
   ];
 
@@ -210,7 +210,7 @@ describe('Plugin Distribution - Build Script Verification', () => {
     const buildScriptPath = path.join(projectRoot, 'scripts/build-hooks.js');
     const content = readFileSync(buildScriptPath, 'utf-8');
 
-    expect(content).toContain('plugin/skills/mem-search/SKILL.md');
+    expect(content).toContain('plugin/skills/ms-mem-search/SKILL.md');
     expect(content).toContain('plugin/hooks/hooks.json');
     expect(content).toContain('plugin/.claude-plugin/plugin.json');
   });

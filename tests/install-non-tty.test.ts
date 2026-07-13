@@ -129,7 +129,7 @@ describe('Install Non-TTY Support', () => {
       expect(codexInstallerSource).toContain("path.join('plugin', '.codex-plugin', 'plugin.json')");
       expect(codexInstallerSource).toContain("path.join('plugin', '.mcp.json')");
       expect(codexInstallerSource).toContain("path.join('plugin', 'hooks', 'codex-hooks.json')");
-      expect(codexInstallerSource).toContain("path.join('plugin', 'skills', 'mem-search', 'SKILL.md')");
+      expect(codexInstallerSource).toContain("path.join('plugin', 'skills', 'ms-mem-search', 'SKILL.md')");
     });
 
     it('keeps the sync-managed gitignore override mechanism for local marketplace sync', () => {

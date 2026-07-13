@@ -24,7 +24,7 @@ const REQUIRED_MARKETPLACE_FILES = [
   path.join('plugin', '.codex-plugin', 'plugin.json'),
   path.join('plugin', '.mcp.json'),
   path.join('plugin', 'hooks', 'codex-hooks.json'),
-  path.join('plugin', 'skills', 'mem-search', 'SKILL.md'),
+  path.join('plugin', 'skills', 'ms-mem-search', 'SKILL.md'),
 ];
 const WINDOWS_CODEX_EXTENSIONS = new Set(['.cmd', '.exe', '.bat', '.com']);
 const WINDOWS_CODEX_CMD_EXTENSIONS = new Set(['.cmd', '.bat']);
