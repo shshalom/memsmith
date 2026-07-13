@@ -14,7 +14,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { getWorkerPort, workerHttpRequest, resolveWorkerScriptPath } from '../shared/worker-utils.js';
+import { workerHttpRequest } from '../shared/worker-utils.js';
 import { searchCodebase, formatSearchResults } from '../services/smart-file-read/search.js';
 import { parseFile, formatFoldedView, unfoldSymbol } from '../services/smart-file-read/parser.js';
 import { readFile } from 'node:fs/promises';
@@ -49,23 +49,6 @@ const mcpServerDir = (() => {
     return process.cwd();
   }
 })();
-// Prefer the canonical marketplace copy of the worker bundle (same
-// marketplace-first candidates as the hook launcher) over this server's own
-// directory: an MCP server still running out of a stale plugin cache dir
-// would otherwise auto-spawn a stale worker. The own-dir resolution stays as
-// the fallback for installs without a marketplace copy.
-const WORKER_SCRIPT_PATH = resolveWorkerScriptPath() ?? resolve(mcpServerDir, 'worker-service.cjs');
-
-function errorIfWorkerScriptMissing(): void {
-  if (!mcpServerDirResolutionFailed) return;
-  if (existsSync(WORKER_SCRIPT_PATH)) return;
-
-  logger.error(
-    'SYSTEM',
-    'mcp-server: dirname resolution failed (both __dirname and import.meta.url are unavailable). Fell back to process.cwd() and the resolved WORKER_SCRIPT_PATH does not exist. This is the actual problem — the worker bundle is fine, but mcp-server cannot locate it. Worker auto-start will fail until the dirname-resolution path is fixed.',
-    { workerScriptPath: WORKER_SCRIPT_PATH, mcpServerDir }
-  );
-}
 
 async function callWorker(
   endpoint: string,
@@ -117,15 +100,6 @@ async function callWorker(
   }
 }
 
-async function verifyWorkerConnection(): Promise<boolean> {
-  try {
-    const response = await workerHttpRequest('/api/health');
-    return response.ok;
-  } catch (error: unknown) {
-    logger.debug('SYSTEM', 'Worker health check failed', {}, error instanceof Error ? error : new Error(String(error)));
-    return false;
-  }
-}
 
 // Phase 8 — runtime selection for MCP tools.
 // In server mode, observation_* tools talk to the server `/v1`
