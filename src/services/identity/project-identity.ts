@@ -2,10 +2,18 @@ import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { CredentialStore } from './credential-store.js';
-import { createRawApiKey, hashApiKey, HOOK_API_KEY_SCOPES } from '../hooks/server-bootstrap.js';
+import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
 
 export const MARKER_RELATIVE_PATH = '.memsmith/project.json';
+
+// A local base key both captures (writes) and recalls (reads), so it needs the
+// full read+write memory scopes — HOOK_API_KEY_SCOPES alone (no memories:read)
+// would 403 every recall route. Matches the e2e "full" key scope set.
+const IDENTITY_KEY_SCOPES = [
+  'events:write', 'sessions:write', 'observations:read', 'jobs:read',
+  'memories:read', 'memories:write',
+] as const;
 
 // Actor id for identity-layer key minting (local variant of the hook bootstrap actor).
 // MUST match LOCAL_HOOK_ACTOR_ID in src/services/hooks/server-bootstrap.ts (not exported, so duplicated here).
@@ -63,10 +71,33 @@ export async function ensureProjectIdentity(
   return { teamId, projectId };
 }
 
+/** Insert (or idempotently re-insert) an api_key hash row. Used by both the
+ * mint path and the cache/DB-drift repair path so both are guaranteed identical. */
+async function insertApiKeyHash(
+  pool: QueryablePool,
+  keyHash: string,
+  teamId: string,
+  projectId: string,
+): Promise<void> {
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO api_keys (id, key_hash, team_id, actor_id, scopes)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
+    [id, keyHash, teamId, IDENTITY_ACTOR_ID, JSON.stringify([...IDENTITY_KEY_SCOPES])],
+  );
+}
+
 /**
- * Return the team's base key: the cached plaintext if present, else mint a new
- * key (hash persisted to api_keys, plaintext cached in the store). Reuses the
- * existing better-auth key primitives (createRawApiKey, hashApiKey).
+ * Return the team's base key: the cached plaintext if present (and its hash
+ * verified in PG), else mint a new key (hash persisted to api_keys, plaintext
+ * cached in the store). Reuses the existing better-auth key primitives
+ * (createRawApiKey, hashApiKey).
+ *
+ * Cache/DB-drift guard: if the cache holds a key but its hash is absent from
+ * api_keys (e.g. DB was reset while the cache survived), the hash is
+ * re-inserted so the server can validate it — the cached plaintext is returned
+ * unchanged (no new key is minted).
  *
  * The INSERT is issued directly on the pool rather than through
  * PostgresAuthRepository.createApiKey so we can avoid the RETURNING clause
@@ -81,17 +112,23 @@ export async function ensureBaseKey(
   store: CredentialStore = new CredentialStore(),
 ): Promise<string> {
   const cached = store.resolveKeyForTeam(teamId);
-  if (cached) return cached;
+  if (cached) {
+    const keyHash = hashApiKey(cached);
+    const existing = await pool.query(
+      'SELECT 1 FROM api_keys WHERE key_hash = $1 AND team_id = $2 LIMIT 1',
+      [keyHash, teamId],
+    );
+    if (existing.rowCount && existing.rowCount > 0) return cached;
+    // cache/DB drift: hash missing — re-insert it (do NOT mint a new key; reuse the cached one)
+    await insertApiKeyHash(pool, keyHash, teamId, projectId);
+    logger.info('IDENTITY', 'repaired cache/DB drift: re-inserted key hash', { teamId, projectId });
+    return cached;
+  }
 
+  // no cached key: mint fresh
   const rawKey = createRawApiKey();
   const keyHash = hashApiKey(rawKey);
-  const id = randomUUID();
-  await pool.query(
-    `INSERT INTO api_keys (id, key_hash, team_id, actor_id, scopes)
-     VALUES ($1, $2, $3, $4, $5::jsonb)
-     ON CONFLICT (id) DO NOTHING`,
-    [id, keyHash, teamId, IDENTITY_ACTOR_ID, JSON.stringify([...HOOK_API_KEY_SCOPES])],
-  );
+  await insertApiKeyHash(pool, keyHash, teamId, projectId);
   store.storeKeyForTeam(teamId, rawKey);
   logger.info('IDENTITY', 'minted base key', { teamId, projectId });
   return rawKey;

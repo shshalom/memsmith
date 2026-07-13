@@ -6,11 +6,19 @@ import { ensureProjectIdentity, ensureBaseKey, MARKER_RELATIVE_PATH } from '../.
 import { CredentialStore } from '../../src/services/identity/credential-store.js';
 
 // Minimal fake pool: records SQL, returns empty rows (upserts are fire-and-check).
-function fakePool() {
+// Pass `hashCheckRowCount` > 0 to make the hash-existence SELECT return a row.
+function fakePool(hashCheckRowCount = 0) {
   const calls: Array<{ text: string; values?: unknown[] }> = [];
   return {
     calls,
-    query: async (text: string, values?: unknown[]) => { calls.push({ text, values }); return { rows: [], rowCount: 0 }; },
+    query: async (text: string, values?: unknown[]) => {
+      calls.push({ text, values });
+      // Simulate a hash-existence check returning a row when configured.
+      if (hashCheckRowCount > 0 && /FROM api_keys WHERE key_hash/i.test(text)) {
+        return { rows: [{ '?column?': 1 }], rowCount: hashCheckRowCount };
+      }
+      return { rows: [], rowCount: 0 };
+    },
     connect: async () => ({ query: async (t: string, v?: unknown[]) => { calls.push({ text: t, values: v }); return { rows: [], rowCount: 0 }; }, release: () => {} }),
     end: async () => {},
   } as any;
@@ -67,13 +75,14 @@ describe('ensureBaseKey', () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'memsmith-key-')); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it('returns cached key without minting when present', async () => {
+  it('returns cached key without minting when present and hash exists in DB', async () => {
     const store = new CredentialStore(join(dir, 'credentials.json'));
     store.storeKeyForTeam('team-a', 'msk_existing');
-    const pool = fakePool();
+    // Pool configured to return a row for the hash-existence SELECT.
+    const pool = fakePool(1);
     const key = await ensureBaseKey(pool, 'team-a', 'proj-a', store);
     expect(key).toBe('msk_existing');
-    // no api_keys insert when cached
+    // no api_keys INSERT when cached and hash verified in DB
     expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(false);
   });
 
@@ -85,5 +94,42 @@ describe('ensureBaseKey', () => {
     expect(key.length).toBeGreaterThan(0);
     expect(store.resolveKeyForTeam('team-b')).toBe(key);       // plaintext cached
     expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(true); // hash persisted
+  });
+
+  it('C1 scope assertion: minted key INSERT includes memories:read and memories:write', async () => {
+    const store = new CredentialStore(join(dir, 'credentials.json'));
+    const pool = fakePool();
+    await ensureBaseKey(pool, 'team-c', 'proj-c', store);
+    const insertCall = pool.calls.find((c: any) => /insert into api_keys/i.test(c.text));
+    expect(insertCall).toBeDefined();
+    // The scopes arg is the 5th value ($5) — a JSON string.
+    const scopesArg = insertCall!.values?.[4] as string;
+    expect(typeof scopesArg).toBe('string');
+    const scopes: string[] = JSON.parse(scopesArg);
+    expect(scopes).toContain('memories:read');
+    expect(scopes).toContain('memories:write');
+  });
+
+  it('I1 cache/DB-drift repair: cached key but hash absent → re-inserts hash, returns same key', async () => {
+    const store = new CredentialStore(join(dir, 'credentials.json'));
+    store.storeKeyForTeam('team-d', 'msk_cached_key');
+    // Pool configured to return 0 rows for hash-existence SELECT (simulates DB drift).
+    const pool = fakePool(0);
+    const key = await ensureBaseKey(pool, 'team-d', 'proj-d', store);
+    // Must return the SAME cached key, not a new one.
+    expect(key).toBe('msk_cached_key');
+    // Must have re-inserted the hash into api_keys.
+    expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(true);
+  });
+
+  it('I1 cache hit, hash present: cached key + hash in DB → returns cached key with NO INSERT', async () => {
+    const store = new CredentialStore(join(dir, 'credentials.json'));
+    store.storeKeyForTeam('team-e', 'msk_verified_key');
+    // Pool configured to return 1 row for hash-existence SELECT.
+    const pool = fakePool(1);
+    const key = await ensureBaseKey(pool, 'team-e', 'proj-e', store);
+    expect(key).toBe('msk_verified_key');
+    // No INSERT should occur — hash already in DB.
+    expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(false);
   });
 });
