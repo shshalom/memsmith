@@ -80,6 +80,12 @@ Five focused units:
 - Replaces the `if (!apiKey) return null` local-mode bail: in local mode the key now comes from `credentials.json`, so context builds and injection + MCP recall work.
 - The server-side keyless loopback bypass (`postgres-auth.ts:87-108`) REMAINS as a fallback but is no longer the path local relies on.
 
+### 6. Settings-view identity surface (read-only)
+- A read-only panel in the existing Settings view showing the CURRENT project's identity: `team_id`, `project_id`, and the base key **masked by default with a reveal toggle** (e.g. `msk_••••••••1234` → click to reveal). No edit, no rotate, no regenerate in this spec — display only.
+- **Data path:** a small server endpoint (reuse the existing dashboard/settings server, e.g. a `GET /identity` or an addition to the settings data the view already fetches) that returns `{ teamId, projectId, keyPresent, keyMasked, keyPlaintext? }` for the running project. The plaintext is only served to the local loopback UI (same trust boundary as the rest of the local dashboard) and only on explicit reveal.
+- **Why here:** the user explicitly wants to *see* the minted identity. This is the minimal visibility surface; the full Identity view (join, users, grant/revoke) is still subsystem #3.
+- Files: the settings server route (`src/server/routes/v1/settingsRoutes.ts` or the dashboard settings data source) + the Settings view component (`src/ui/viewer/views/SettingsView.tsx` or equivalent). Follow the existing Settings-view card + fetch pattern; do not restyle.
+
 ## One-time dogfood seed (this project)
 
 This project has existing data that must land under its new durable identity. A one-off, idempotent seed script (`scripts/seed-dogfood-identity.ts`, run manually once, not part of the plugin runtime):
@@ -119,6 +125,7 @@ session-init (per project, has cwd)
 - **CredentialStore**: store→resolve round-trips; file is 0600; resolve returns null for unknown team; multiple teams coexist in the file.
 - **ensureBaseKey**: generates when absent (key appears in api_keys + credentials.json), returns cached when present, no duplicate keys on repeat.
 - **buildServerContext**: in local mode with a stored key → builds a context with that key + projectId (no longer returns null); with no key → falls back to keyless bypass path. A test proving local injection returns real content through the resolved key (the GAP-A regression guard).
+- **Settings identity surface**: the endpoint returns `{teamId, projectId, keyPresent, keyMasked}` for the running project; plaintext only on explicit reveal; masked value never exposes more than the last 4 chars by default. A view test that the panel renders the ids + masked key and reveal toggles to plaintext.
 - **Seed script**: on a fixture DB, re-scope moves all `local/local` rows to new ids; claude-mem import dedups by content_hash (no doubles); backup created. (Run against a copy, not live, in tests.)
 - tsc clean; full suite no new failures beyond the known pre-existing set.
 
@@ -130,12 +137,13 @@ session-init (per project, has cwd)
 4. `credentials.json` is 0600 and the base key never appears in the repo or any committed file.
 5. The dogfood project is seeded: durable identity minted, 2790 rows re-scoped, claude-mem delta imported+deduped; its MemSmith memory is whole through the seed time and recallable.
 6. The key-retrieval path is behind `resolveKeyForTeam` so an AWS Secrets Manager implementation can replace the file backing without touching `buildServerContext`.
+7. The Settings view shows the current project's team_id, project_id, and base key (masked, with reveal) — read-only. The user can SEE the minted identity.
 
 ## Explicitly deferred (subsystem #3 — the team-line, NOT this spec)
 
 - Team generation, team accounts, membership.
 - The user layer: attaching users under a base key; grant/revoke; offboarding enforcement.
 - local→team promotion mechanics; memory sync to a shared PG.
-- Dashboard identity/join UI; the Settings/Identity view surface for showing the key.
+- Dashboard identity/join UI (the *full* Identity view: join flow, user management, grant/revoke). NOTE: a read-only key/identity *display* in Settings IS in this spec (component 6); only the interactive identity management is deferred.
 - AWS Secrets Manager backing of `resolveKeyForTeam`.
 - Per-project access limits within a team.
