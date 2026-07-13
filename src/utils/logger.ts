@@ -29,6 +29,7 @@ export type Component =
   | 'GIT'
   | 'HOOK'
   | 'HTTP'
+  | 'IDENTITY'
   | 'IMPORT'
   | 'INGEST'
   | 'OAUTH'
