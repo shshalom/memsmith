@@ -64,19 +64,19 @@ function stripHardcodedDirname(filePath) {
  */
 function shellTemplateManifest(buildShellCommand) {
   const ccTrailing = (...tail) => [
-    'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/worker-service.cjs"', ...tail,
+    'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/server-service.cjs"', ...tail,
   ];
   const claudeHook = (tail, extra = {}) => buildShellCommand({
-    host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found', ...extra,
   });
   const codexHook = (tail) => buildShellCommand({
-    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found',
     extraEnv: { MEMSMITH_CODEX_HOOK: '1' },
   });
   const codexStartupHook = () => buildShellCommand({
-    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: [
       '_V=$(MEMSMITH_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
       'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',

@@ -251,19 +251,19 @@ describe('Plugin Distribution - Setup Hook (#1547)', () => {
 // ---------------------------------------------------------------------------
 
 const ccTrailing = (...tail: string[]) => [
-  'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/worker-service.cjs"', ...tail,
+  'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/server-service.cjs"', ...tail,
 ];
 const claudeHook = (tail: string[], extra: Record<string, unknown> = {}) => buildShellCommand({
-  host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found', ...extra,
 });
 const codexHook = (tail: string[]) => buildShellCommand({
-  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found',
   extraEnv: { MEMSMITH_CODEX_HOOK: '1' },
 });
 const codexStartupHook = () => buildShellCommand({
-  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: [
     '_V=$(MEMSMITH_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
     'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',
@@ -380,7 +380,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     mkdirSync(path.join(root, 'scripts'), { recursive: true });
     writeFileSync(path.join(root, 'scripts', 'version-check.js'), '');
     writeFileSync(path.join(root, 'scripts', 'bun-runner.js'), '');
-    writeFileSync(path.join(root, 'scripts', 'worker-service.cjs'), '');
+    writeFileSync(path.join(root, 'scripts', 'server-service.cjs'), '');
     try {
       for (const { command } of claudeCommands()) {
         const { stdout } = shellEval(instrument(command), {
@@ -400,7 +400,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     mkdirSync(path.join(cacheRoot, 'scripts'), { recursive: true });
     writeFileSync(path.join(cacheRoot, 'scripts', 'version-check.js'), '');
     writeFileSync(path.join(cacheRoot, 'scripts', 'bun-runner.js'), '');
-    writeFileSync(path.join(cacheRoot, 'scripts', 'worker-service.cjs'), '');
+    writeFileSync(path.join(cacheRoot, 'scripts', 'server-service.cjs'), '');
     try {
       for (const { command } of claudeCommands()) {
         const { stdout } = shellEval(instrument(command), { HOME: home });
