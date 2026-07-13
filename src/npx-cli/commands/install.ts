@@ -1767,19 +1767,23 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // spinners and summary note (a live print would be clobbered by clack).
   flushSummary(summary, (line) => (isInteractive ? p.log.message(line) : console.log(`  ${line}`)));
 
-  const workerPort = getSetting('MEMSMITH_WORKER_PORT');
+  // The health-check block always runs for the local runtime (selectedRuntime === 'local').
+  // The server runtime sets autoStartSkipped=true and never reaches this point.
+  // Use the local runtime's URL (UID-derived port, matches runServerForegroundForLocal).
+  const localRuntimeBaseUrl = getSetting('MEMSMITH_SERVER_URL');
+  const localRuntimePort = new URL(localRuntimeBaseUrl).port || '37877';
 
-  let actualPort: number | string = workerPort;
+  let actualPort: number | string = localRuntimePort;
   let workerReady = false;
-  // Don't poll the worker or imply it's "still starting" when autostart was
+  // Don't poll the local runtime or imply it's "still starting" when autostart was
   // intentionally skipped (--no-auto-start, or non-interactive default). The
-  // user knows they have to start it themselves; lying about a starting worker
+  // user knows they have to start it themselves; lying about a starting runtime
   // is misleading.
   if (!autoStartSkipped) {
     const healthSpinner = isInteractive ? p.spinner() : null;
-    healthSpinner?.start(`Verifying worker on port ${workerPort}…`);
+    healthSpinner?.start(`Verifying local runtime on port ${localRuntimePort}…`);
     try {
-      const healthResponse = await fetch(`http://127.0.0.1:${workerPort}/api/health`, {
+      const healthResponse = await fetch(`${localRuntimeBaseUrl}/api/health`, {
         signal: AbortSignal.timeout(3000),
       });
       if (healthResponse.ok) {
@@ -1795,11 +1799,11 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       }
       healthSpinner?.stop(
         workerReady
-          ? `Worker ready at http://localhost:${actualPort}`
-          : `Worker reachable but not ready on port ${workerPort}`,
+          ? `Local runtime ready at http://localhost:${actualPort}`
+          : `Local runtime reachable but not ready on port ${localRuntimePort}`,
       );
     } catch {
-      healthSpinner?.stop(`Worker not yet responding on port ${workerPort} (still starting)`);
+      healthSpinner?.stop(`Local runtime not yet responding on port ${localRuntimePort} (still starting)`);
     }
   }
 
@@ -1814,12 +1818,12 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', `http://localhost:${actualPort}`)} — give it ~30s, then refresh`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
-    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(workerPort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith local start')}`;
+    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith local start')}`;
   const firstSuccessOpener = autoStartSkipped
-    ? `once the local runtime is running, keep ${styleText('underline', `http://localhost:${workerPort}`)} open in a browser`
+    ? `once the local runtime is running, keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`
     : workerAlive
       ? 'keep that URL open in a browser'
-      : `keep ${styleText('underline', `http://localhost:${workerPort}`)} open in a browser`;
+      : `keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`;
   const nextSteps = [
     nextStepsHeadline,
     ``,
