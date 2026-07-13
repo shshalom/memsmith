@@ -5,54 +5,52 @@ const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url
 describe('MCP tool inputSchema declarations', () => {
   let tools: any[];
 
-  it('search tool declares query parameter', async () => {
+  // C3 (worker retirement) — the relic worker-route tools were deleted. These
+  // guards assert they are gone from the tool registrations (no ListTools entry)
+  // and that no worker dispatch remains.
+  it('relic worker-route tools (search/timeline/get_observations) are removed', async () => {
     const src = await Bun.file(mcpServerPath).text();
-
-    expect(src).toContain("name: 'search'");
-    const searchSection = src.slice(src.indexOf("name: 'search'"), src.indexOf("name: 'timeline'"));
-    expect(searchSection).toContain("query:");
-    expect(searchSection).toContain("limit:");
-    expect(searchSection).toContain("project:");
-    expect(searchSection).toContain("orderBy:");
-    expect(searchSection).not.toContain("properties: {}");
+    expect(src).not.toContain("name: 'search'");
+    expect(src).not.toContain("name: 'timeline'");
+    expect(src).not.toContain("name: 'get_observations'");
   });
 
-  it('timeline tool declares anchor and query parameters', async () => {
+  it('corpus family tools are removed', async () => {
     const src = await Bun.file(mcpServerPath).text();
-
-    const timelineSection = src.slice(
-      src.indexOf("name: 'timeline'"),
-      src.indexOf("name: 'get_observations'")
-    );
-    expect(timelineSection).toContain("anchor:");
-    expect(timelineSection).toContain("query:");
-    expect(timelineSection).toContain("depth_before:");
-    expect(timelineSection).toContain("depth_after:");
-    expect(timelineSection).toContain("project:");
-    expect(timelineSection).not.toContain("properties: {}");
+    for (const name of ['build_corpus', 'list_corpora', 'prime_corpus', 'query_corpus', 'rebuild_corpus', 'reprime_corpus']) {
+      expect(src).not.toContain(`name: '${name}'`);
+    }
   });
 
-  it('get_observations still declares ids (regression check)', async () => {
+  it('callWorker and worker dispatch are gone from the MCP server', async () => {
     const src = await Bun.file(mcpServerPath).text();
-
-    const getObsSection = src.slice(src.indexOf("name: 'get_observations'"));
-    expect(getObsSection).toContain("ids:");
-    expect(getObsSection).toContain("required:");
+    // No live callWorker function/dispatch and no workerHttpRequest import.
+    // Comments mentioning the retired routes are fine (grep-clean allows
+    // comments); a live `callWorker(` call or the worker-utils import is not.
+    expect(src).not.toContain('async function callWorker');
+    expect(src).not.toContain('callWorker(');
+    expect(src).not.toContain('workerHttpRequest');
   });
 
-  it('session_start_context exposes worker SessionStart renderer parameters', async () => {
+  it('session_start_context is repointed to the runtime (no worker route)', async () => {
     const src = await Bun.file(mcpServerPath).text();
     const section = src.slice(
       src.indexOf("name: 'session_start_context'"),
       src.indexOf("name: 'observation_add'"),
     );
-    expect(section).toContain('/api/context/inject');
+    // No worker route; wired to the runtime handler and recent-mode search.
+    expect(section).not.toContain('/api/context/inject');
     expect(section).toContain('handleSessionStartContext');
     expect(section).toContain('project:');
     expect(section).toContain('projects:');
     expect(section).toContain('platformSource:');
-    expect(section).toContain('full:');
-    expect(section).toContain('colors:');
+    // The handler pulls recent observations via searchObservations (recent mode).
+    const handler = src.slice(
+      src.indexOf('const handleSessionStartContext'),
+      src.indexOf('const handleObservationGenerationStatus'),
+    );
+    expect(handler).toContain('searchObservations');
+    expect(handler).toContain("query: ''");
   });
 
   // Phase 8 — observation_* tools backed by server-beta REST core.
