@@ -46,7 +46,8 @@ export interface SettingsDefaults {
   MEMSMITH_CODEX_TRANSCRIPT_INGESTION: string;
   MEMSMITH_MAX_CONCURRENT_AGENTS: string;  
   MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: string;  
-  MEMSMITH_EXCLUDED_PROJECTS: string;  
+  MEMSMITH_EXCLUDED_PROJECTS: string;
+  MEMSMITH_INCLUDED_PROJECTS: string;  // Allowlist: comma-separated glob patterns; when non-empty, only matching cwds are tracked (exclusions still win)
   MEMSMITH_FOLDER_MD_EXCLUDE: string;
   MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: string;
   MEMSMITH_SEMANTIC_INJECT: string;        
@@ -129,6 +130,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
     MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
     MEMSMITH_EXCLUDED_PROJECTS: '',  // Comma-separated glob patterns for excluded project paths
+    MEMSMITH_INCLUDED_PROJECTS: '',  // Allowlist: comma-separated glob patterns; empty = capture all (backward compat); non-empty = track only matching cwds (exclusions still win)
     MEMSMITH_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
     MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
     MEMSMITH_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
