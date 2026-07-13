@@ -168,7 +168,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_REDIS_MODE: 'external',
     MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(37700 + ((process.getuid?.() ?? 77) % 100))}`,
     MEMSMITH_AUTH_MODE: 'api-key',
-    MEMSMITH_RUNTIME: 'worker',
+    MEMSMITH_RUNTIME: 'local',
     // Phase 1a (cmem-sdk rename): canonical server settings keys. Hooks read
     // these first; the legacy `*_BETA_*` defaults below remain so existing
     // settings.json files still resolve correctly.
