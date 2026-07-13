@@ -296,7 +296,7 @@ Anti-patterns to guard against (specific to REDESIGN):
 - **Score what is, not what was intended** — design is what ships, not what was drawn
 - **Honesty applies to the audit too** — if total is 28/30, say REFINE even if the user wanted a redesign; if it's 12/30, say REDESIGN even if the user wanted a refine
 - **One verdict, not three** — pick NEW or REFINE or REDESIGN; do not hedge
-- **Handoff, don't implement** — `design-is` ends at the `/ms-make-plan` prompt; `/ms-make-plan` and `/do` take it from there
+- **Handoff, don't implement** — `ms-design-is` ends at the `/ms-make-plan` prompt; `/ms-make-plan` and `/ms-do` take it from there
 - **Verdict commitment** — Once `02-scorecard.md` is written, the verdict follows the Phase 3 rule mechanically. Never re-score to back into a preferred verdict; if the scorecard says REDESIGN, the handoff is REDESIGN.
 
 ## Failure Modes to Prevent

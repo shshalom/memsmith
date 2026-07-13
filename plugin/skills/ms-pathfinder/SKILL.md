@@ -101,7 +101,7 @@ Format each as a fenced code block the user can copy directly into `/ms-make-pla
 - **Current state before ideal state** — Phases 0–2 describe what IS; Phase 3 describes what SHOULD BE
 - **Simplest unification wins** — prefer deletion over abstraction; prefer one path over configurable paths
 - **Specialization is not duplication** — two components serving different trust models or data sources are legitimate even if their code looks similar
-- **Handoff, don't implement** — Pathfinder ends at plan prompts; `/ms-make-plan` and `/do` take it from there
+- **Handoff, don't implement** — Pathfinder ends at plan prompts; `/ms-make-plan` and `/ms-do` take it from there
 
 ## Failure Modes to Prevent
 

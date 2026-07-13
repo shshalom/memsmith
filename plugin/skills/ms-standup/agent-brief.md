@@ -43,5 +43,5 @@ Each time you're brought in:
 
 Only ever speak as yourself — never post as another branch. **Read-only**:
 introspect, discuss, decide — do not commit, merge, push, or deploy. Execution
-happens later via `/do`, under the human's eye. A sharp, honest turn beats a long
+happens later via `/ms-do`, under the human's eye. A sharp, honest turn beats a long
 one.
