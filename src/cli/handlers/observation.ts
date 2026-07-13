@@ -3,7 +3,6 @@
 // console.* / process.exit. logger.* calls are DIAGNOSTIC; thrown errors are
 // caught by hookCommand and routed through emitBlockingError.
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { executeWithWorkerFallback, isWorkerFallback } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
@@ -39,32 +38,6 @@ export async function shouldLogRediscovery(
   }
 }
 
-async function dispatchToWorker(
-  input: NormalizedHookInput,
-  platformSource: string,
-): Promise<HookResult> {
-  const result = await executeWithWorkerFallback<{ status?: string }>(
-    '/api/sessions/observations',
-    'POST',
-    {
-      contentSessionId: input.sessionId,
-      platformSource,
-      tool_name: input.toolName,
-      tool_input: input.toolInput,
-      tool_response: input.toolResponse,
-      cwd: input.cwd,
-      agentId: input.agentId,
-      agentType: input.agentType,
-    },
-  );
-
-  if (isWorkerFallback(result)) {
-    return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
-  }
-
-  logger.debug('HOOK', 'Observation sent successfully via worker', { toolName: input.toolName });
-  return { continue: true, suppressOutput: true };
-}
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
@@ -117,7 +90,7 @@ export const observationHandler: EventHandler = {
       } catch (error: unknown) {
         if (isServerClientError(error) && error.isFallbackEligible()) {
           logServerFallback(error.kind, { status: error.status, message: error.message, route: '/v1/events' });
-          // fall through to worker fallback
+          // fall through to clean skip (worker fallback retired)
         } else {
           logger.error('HOOK', 'Server event failed (non-recoverable)', {
             error: error instanceof Error ? error.message : String(error),
@@ -127,20 +100,9 @@ export const observationHandler: EventHandler = {
       }
     }
 
-    const result = await dispatchToWorker(input, platformSource);
-    try {
-      const settings = loadFromFileOnce();
-      if (settings.MEMSMITH_REDISCOVERY_LOG === 'true' && toolName) {
-        const projectName = getProjectContext(cwd).primary;
-        const r = await shouldLogRediscovery(
-          { fetchTeamMemory: realFetchTeamMemory },
-          { toolName, toolInput: (toolInput as Record<string, unknown>) ?? {}, projectName,
-            enabled: true, gateTools: settings.MEMSMITH_GATE_TOOLS ?? '',
-            serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '', apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '' },
-        );
-        if (r.rediscovered) logger.info('HOOK', 'rediscovery: memory already held an answer for this discovery query', { toolName, matchedIds: r.matchedIds });
-      }
-    } catch { /* never let rediscovery logging break the observation path */ }
-    return result;
+    // No server runtime reachable (embedded not yet available). The worker
+    // fallback has been retired; skip cleanly so the hook never blocks.
+    logger.debug('HOOK', 'No reachable runtime for observation; skipping', { toolName });
+    return { continue: true, suppressOutput: true };
   },
 };
