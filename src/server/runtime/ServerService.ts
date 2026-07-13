@@ -31,7 +31,7 @@ import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 // back-compat. Plan §1d will handle the literal migration.
 const SERVER_RUNTIME = 'server-beta';
 const DEFAULT_SERVER_HOST = '127.0.0.1';
-const DEFAULT_SERVER_PORT = 37877;
+const DEFAULT_SERVER_PORT = 38877;
 
 export interface ServerServiceOptions {
   graph: ServerServiceGraph;

@@ -801,7 +801,7 @@ function resolveClaudeAuthMethod(): 'subscription' | 'api-key' | 'gateway' {
   return 'subscription';
 }
 
-const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:37877';
+const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:38877';
 
 async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   // #2543 — non-interactive runtime selection via `--runtime`. When the flag is
@@ -1771,7 +1771,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // The server runtime sets autoStartSkipped=true and never reaches this point.
   // Use the local runtime's URL (UID-derived port, matches runServerForegroundForLocal).
   const localRuntimeBaseUrl = getSetting('MEMSMITH_SERVER_URL');
-  const localRuntimePort = new URL(localRuntimeBaseUrl).port || '37877';
+  const localRuntimePort = new URL(localRuntimeBaseUrl).port || '38877';
 
   let actualPort: number | string = localRuntimePort;
   let workerReady = false;

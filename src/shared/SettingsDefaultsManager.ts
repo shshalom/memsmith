@@ -90,7 +90,7 @@ export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
     MEMSMITH_MODEL: 'claude-haiku-4-5-20251001',
     MEMSMITH_CONTEXT_OBSERVATIONS: '50',
-    MEMSMITH_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
+    MEMSMITH_WORKER_PORT: String(38700 + ((process.getuid?.() ?? 77) % 100)),
     MEMSMITH_WORKER_HOST: '127.0.0.1',
     MEMSMITH_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
     MEMSMITH_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
@@ -150,16 +150,16 @@ export class SettingsDefaultsManager {
     MEMSMITH_REDIS_HOST: '127.0.0.1',
     MEMSMITH_REDIS_PORT: '6379',
     MEMSMITH_REDIS_MODE: 'external',
-    MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(37700 + ((process.getuid?.() ?? 77) % 100))}`,
+    MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(38700 + ((process.getuid?.() ?? 77) % 100))}`,
     MEMSMITH_AUTH_MODE: 'api-key',
     MEMSMITH_RUNTIME: 'local',
     // Phase 1a (cmem-sdk rename): canonical server settings keys. Hooks read
     // these first; the legacy `*_BETA_*` defaults below remain so existing
     // settings.json files still resolve correctly.
-    MEMSMITH_SERVER_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(38877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
     MEMSMITH_SERVER_API_KEY: '',                          // Local hook API key, populated by installer when runtime=server
     MEMSMITH_SERVER_PROJECT_ID: '',                       // Default Postgres project_id used by hooks when runtime=server
-    MEMSMITH_SERVER_BETA_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_BETA_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(38877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
     MEMSMITH_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when MEMSMITH_SERVER_API_KEY unset)
     MEMSMITH_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when MEMSMITH_SERVER_PROJECT_ID unset)
     MEMSMITH_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')
