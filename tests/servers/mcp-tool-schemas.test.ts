@@ -122,12 +122,15 @@ describe('MCP tool inputSchema declarations', () => {
     expect(handlers).toContain('platformSource: normalizeMcpPlatformSource(args.platformSource)');
   });
 
-  it('mcp-server skips worker auto-start when runtime=server (anti-pattern guard)', async () => {
+  it('mcp-server skips worker auto-start for both local and server runtimes (anti-pattern guard)', async () => {
     const src = await Bun.file(mcpServerPath).text();
-    // Phase 1a (cmem-sdk rename): canonical runtime literal is `'server'`.
-    // `selectRuntime()` normalizes the legacy `'server-beta'` to `'server'`.
-    expect(src).toContain("selectRuntime() === 'server'");
+    // Task 8: selectRuntime() now returns 'local' | 'server' only; the worker is
+    // retired.  The gate unconditionally skips worker auto-start for every runtime.
+    expect(src).toContain('selectRuntime()');
     expect(src).toContain('skipping worker auto-start');
+    // Ensure ensureWorkerStarted / worker-spawner is gone.
+    expect(src).not.toContain('ensureWorkerStarted');
+    expect(src).not.toContain('worker-spawner');
   });
 
   it('mcp-server does NOT import WorkerService (anti-pattern guard, plan line 772)', async () => {

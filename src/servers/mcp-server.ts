@@ -15,7 +15,6 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { getWorkerPort, workerHttpRequest, resolveWorkerScriptPath } from '../shared/worker-utils.js';
-import { ensureWorkerStarted } from '../services/worker-spawner.js';
 import { searchCodebase, formatSearchResults } from '../services/smart-file-read/search.js';
 import { parseFile, formatFoldedView, unfoldSymbol } from '../services/smart-file-read/parser.js';
 import { readFile } from 'node:fs/promises';
@@ -140,8 +139,9 @@ async function verifyWorkerConnection(): Promise<boolean> {
 type ServerToolContext = ServerRuntimeContext;
 
 interface ServerUnavailable {
-  // Phase 1a (cmem-sdk rename): canonical runtime literal is `'server'`.
-  runtime: 'server';
+  // Task 8: both 'local' and 'server' use the server-context path; the
+  // runtime literal here reflects whichever is active.
+  runtime: SelectedRuntime;
   available: false;
   reason: string;
 }
@@ -152,20 +152,18 @@ interface ServerAvailable extends ServerToolContext {
 
 type ServerResolution = ServerAvailable | ServerUnavailable;
 
-function resolveServerToolContext(): ServerResolution | null {
+function resolveServerToolContext(): ServerResolution {
+  // Task 8: both 'local' and 'server' reach the engine over HTTP.
+  // In 'local' mode the embedded PG server runs in-process and
+  // MEMSMITH_SERVER_URL points at it — so the same buildServerContext()
+  // path works for both.  There is no worker fallback for either runtime.
   const runtime: SelectedRuntime = selectRuntime();
-  // Phase 1a (cmem-sdk rename): canonical runtime literal is `'server'`.
-  // `selectRuntime()` accepts legacy `'server-beta'` settings and returns
-  // `'server'` for either.
-  if (runtime !== 'server') {
-    return null;
-  }
   const ctx = buildServerContext();
   if (!ctx) {
     return {
-      runtime: 'server',
+      runtime,
       available: false,
-      reason: 'server runtime is selected but configuration is incomplete (missing url, api key, or project id)',
+      reason: `${runtime} runtime is selected but configuration is incomplete (missing url, api key, or project id)`,
     };
   }
   return { ...ctx, available: true };
@@ -200,13 +198,11 @@ function formatJsonResult(payload: unknown): { content: Array<{ type: 'text'; te
 }
 
 function requireServerForObservationTool(toolName: string): ServerAvailable {
+  // Task 8: resolveServerToolContext() never returns null — both 'local' and
+  // 'server' use the server-context path.  A missing/incomplete configuration
+  // produces a ServerUnavailable result (available: false) which surfaces the
+  // existing "requires a running runtime" style error below.
   const resolution = resolveServerToolContext();
-  if (!resolution) {
-    throw new ServerClientError(
-      'transport',
-      `${toolName} requires MEMSMITH_RUNTIME=server. Current runtime is "worker"; use the existing search/timeline/get_observations tools for worker-mode memory access.`,
-    );
-  }
   if (!resolution.available) {
     throw new ServerClientError('missing_api_key', `${toolName}: ${resolution.reason}`);
   }
@@ -404,35 +400,6 @@ const handleObservationGenerationStatus = wrapHandler('observation_generation_st
   return formatJsonResult(response);
 });
 
-async function ensureWorkerConnection(): Promise<boolean> {
-  if (await verifyWorkerConnection()) {
-    return true;
-  }
-
-  logger.warn('SYSTEM', 'Worker not available, attempting auto-start for MCP client');
-
-  errorIfWorkerScriptMissing();
-
-  try {
-    const port = getWorkerPort();
-    const result = await ensureWorkerStarted(port, WORKER_SCRIPT_PATH);
-    if (result === 'dead') {
-      logger.error(
-        'SYSTEM',
-        'Worker auto-start failed — MCP tools that require the worker (search, timeline, get_observations) will fail until the worker is running. Check earlier log lines for the specific failure reason (Bun not found, missing worker bundle, port conflict, etc.).'
-      );
-    }
-    return result !== 'dead';
-  } catch (error: unknown) {
-    logger.error(
-      'SYSTEM',
-      'Worker auto-start threw — MCP tools that require the worker (search, timeline, get_observations) will fail until the worker is running.',
-      undefined,
-      error instanceof Error ? error : new Error(String(error))
-    );
-    return false;
-  }
-}
 
 const tools = [
   {
@@ -995,25 +962,13 @@ async function main() {
 
   startParentHeartbeat();
 
-  setTimeout(async () => {
-    // Phase 8 — when MEMSMITH_RUNTIME=server (or legacy `server-beta`,
-    // normalized to `'server'` by selectRuntime), MCP must NOT auto-start
-    // the worker. observation_* tools talk to the server runtime directly;
-    // the legacy worker-backed tools (search/timeline/get_observations)
-    // will simply error with a helpful message until the user switches
-    // runtime.
-    if (selectRuntime() === 'server') {
-      logger.info('SYSTEM', 'MCP runtime=server — skipping worker auto-start', undefined, {});
-      return;
-    }
-    const workerAvailable = await ensureWorkerConnection();
-    if (!workerAvailable) {
-      logger.error('SYSTEM', 'Worker not available', undefined, {});
-      logger.error('SYSTEM', 'Tools will fail until Worker is started');
-      logger.error('SYSTEM', 'Start Worker with: npm run worker:restart');
-    } else {
-      logger.info('SYSTEM', 'Worker available', undefined, {});
-    }
+  setTimeout(() => {
+    // Task 8 — selectRuntime() now returns 'local' | 'server' only; the worker
+    // runtime is retired.  Both 'local' and 'server' talk to the engine over
+    // HTTP (local's embedded PG server runs in-process with MEMSMITH_SERVER_URL
+    // pointing at it), so MCP must NEVER auto-spawn a worker for either.
+    const runtime = selectRuntime();
+    logger.info('SYSTEM', `MCP runtime=${runtime} — skipping worker auto-start`, undefined, {});
   }, 0);
 }
 
