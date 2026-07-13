@@ -35,6 +35,12 @@ describe('ensureProjectIdentity', () => {
     // upserted teams + projects
     expect(pool.calls.some((c: any) => /insert into teams/i.test(c.text))).toBe(true);
     expect(pool.calls.some((c: any) => /insert into projects/i.test(c.text))).toBe(true);
+    // projects INSERT must supply a non-empty name (NOT NULL column — regression guard)
+    const projectsInsert = pool.calls.find((c: any) => /insert into projects/i.test(c.text));
+    expect(projectsInsert).toBeDefined();
+    expect(/insert into projects.*\bname\b/i.test(projectsInsert!.text)).toBe(true);
+    const nameValue = projectsInsert!.values?.find((v: unknown) => typeof v === 'string' && v.length > 0 && v !== teamId);
+    expect(nameValue).toBeDefined(); // a non-empty name value (projectId used as name) was passed
   });
 
   it('recognizes existing marker without minting new ids', async () => {

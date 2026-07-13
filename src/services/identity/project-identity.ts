@@ -8,6 +8,7 @@ import { logger } from '../../utils/logger.js';
 export const MARKER_RELATIVE_PATH = '.memsmith/project.json';
 
 // Actor id for identity-layer key minting (local variant of the hook bootstrap actor).
+// MUST match LOCAL_HOOK_ACTOR_ID in src/services/hooks/server-bootstrap.ts (not exported, so duplicated here).
 const IDENTITY_ACTOR_ID = 'system:local-hook-bootstrap';
 
 interface ProjectMarker { projectId: string; teamId: string; note: string; }
@@ -39,7 +40,7 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
 
 async function upsertTeamAndProject(pool: QueryablePool, teamId: string, projectId: string): Promise<void> {
   await pool.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [teamId]);
-  await pool.query('INSERT INTO projects (id, team_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING', [projectId, teamId]);
+  await pool.query('INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING', [projectId, teamId]);
 }
 
 /**
