@@ -96,11 +96,8 @@ interface OllamaResponse {
   };
 }
 
-interface OllamaConfig {
-  apiKey: string;
-  model: string;
-  apiUrl: string;
-}
+import { getOllamaConfig, type OllamaConfig } from '../../shared/ollama-config.js';
+export { getOllamaConfig, type OllamaConfig };
 
 export class OllamaProvider extends OpenAICompatibleProvider<OllamaConfig> {
   protected readonly providerName = 'Ollama';
@@ -246,19 +243,6 @@ export class OllamaProvider extends OpenAICompatibleProvider<OllamaConfig> {
   }
 }
 
-export function getOllamaConfig(): OllamaConfig {
-  const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-  // Non-empty dummy key: base class throws on falsy apiKey; Ollama ignores it.
-  const apiKey = 'ollama-local';
-  const model = (typeof settings.MEMSMITH_OLLAMA_MODEL === 'string' && settings.MEMSMITH_OLLAMA_MODEL.trim())
-    ? settings.MEMSMITH_OLLAMA_MODEL : 'qwen2.5:14b';
-  const base = settings.MEMSMITH_OLLAMA_URL || process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
-  // Ensure the chat-completions path — mirror resolveOpenRouterChatCompletionsUrl behavior.
-  const apiUrl = base.replace(/\/+$/, '').endsWith('/chat/completions')
-    ? base
-    : base.replace(/\/+$/, '') + '/chat/completions';
-  return { apiKey, model, apiUrl };
-}
 
 export function isOllamaAvailable(): boolean {
   return true; // local + keyless — always available

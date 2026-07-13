@@ -3,7 +3,7 @@
 // pick ONE canonical label for the given content and parses a single token
 // from the reply. Small and defensive: returns null on ANY failure (unreachable
 // model, bad status, unparseable reply) so the resolver falls back to 'change'.
-import { getOllamaConfig } from '../../../services/worker/OllamaProvider.js';
+import { getOllamaConfig } from '../../../shared/ollama-config.js';
 import type { TaxonomyClassifier } from './classifyObservationType.js';
 import { logger } from '../../../utils/logger.js';
 
