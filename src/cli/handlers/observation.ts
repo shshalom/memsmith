@@ -9,11 +9,8 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
-import { loadFromFileOnce } from '../../shared/hook-settings.js';
-import { getProjectContext } from '../../utils/project-name.js';
 import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
 import { detectRediscovery } from '../../server/retrieval/rediscovery.js';
-import { fetchTeamMemory as realFetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
 
 export interface RediscoveryLogDeps {
   fetchTeamMemory(input: { serverUrl: string; apiKey: string; projectId: string; teamId: string; query: string; limit?: number }): Promise<Array<{ id: string; content: string; metadata: Record<string, unknown> }>>;

@@ -9,10 +9,12 @@ import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaul
 import * as realHookSettings from '../../../src/shared/hook-settings.js';
 import * as realTranscriptParser from '../../../src/shared/transcript-parser.js';
 import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
+import * as realRuntimeSelector from '../../../src/services/hooks/runtime-selector.js';
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
 const realTranscriptParserSnapshot = { ...realTranscriptParser };
 const realWorkerUtilsSnapshot = { ...realWorkerUtils };
+const realRuntimeSelectorSnapshot = { ...realRuntimeSelector };
 
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
@@ -53,7 +55,49 @@ mock.module('../../../src/shared/worker-utils.js', () => ({
     return { status: 'queued' };
   },
   isWorkerFallback: (_result: unknown) => false,
+  fetchWithTimeout: async (_url: string, _init: RequestInit, _timeout: number) => {
+    return new Response('{}', { status: 200 });
+  },
 }));
+
+// Mock server client used when driving the server path in tag-stripping tests.
+// Captures the recordEvent payload so tests can assert on last_assistant_message.
+interface RecordedEvent {
+  projectId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+}
+let recordedEvents: RecordedEvent[] = [];
+let startSessionCallCount = 0;
+let endSessionCallCount = 0;
+
+// Build a fresh mock server client for each test that needs the server path.
+function makeMockServerClient() {
+  return {
+    startSession: async (_req: any) => {
+      startSessionCallCount += 1;
+      return { session: { id: 'mock-server-session-id', projectId: 'test-proj', teamId: '', externalSessionId: null, contentSessionId: null } };
+    },
+    recordEvent: async (req: any) => {
+      recordedEvents.push({ projectId: req.projectId, eventType: req.eventType, payload: req.payload as Record<string, unknown> });
+      return { event: { id: 'mock-event-id', projectId: req.projectId, serverSessionId: null } };
+    },
+    endSession: async (_req: any) => {
+      endSessionCallCount += 1;
+      return { session: { id: 'mock-server-session-id' } };
+    },
+  };
+}
+
+// Build a mock server RuntimeContext.
+function makeServerRuntimeContext() {
+  return {
+    runtime: 'server' as const,
+    client: makeMockServerClient() as any,
+    projectId: 'test-proj',
+    serverBaseUrl: 'http://mock-server',
+  };
+}
 
 import { logger } from '../../../src/utils/logger.js';
 
@@ -61,6 +105,9 @@ let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
 beforeEach(() => {
   workerCallLog.length = 0;
+  recordedEvents = [];
+  startSessionCallCount = 0;
+  endSessionCallCount = 0;
   mockExtractedMessage = '';
   extractCallCount = 0;
   loggerSpies = [
@@ -82,6 +129,7 @@ afterAll(() => {
   mock.module('../../../src/shared/hook-settings.js', () => realHookSettingsSnapshot);
   mock.module('../../../src/shared/transcript-parser.js', () => realTranscriptParserSnapshot);
   mock.module('../../../src/shared/worker-utils.js', () => realWorkerUtilsSnapshot);
+  mock.module('../../../src/services/hooks/runtime-selector.js', () => realRuntimeSelectorSnapshot);
 });
 
 const baseInput = {
@@ -92,10 +140,19 @@ const baseInput = {
 };
 
 // Worker fallback is retired — the handler skips cleanly (no worker POST).
-// These tests verify the handler still processes and strips tags before skipping.
+// Tag-stripping tests now drive the SERVER path so the stripped
+// last_assistant_message reaching recordEvent() can be asserted directly.
 
 describe('summarizeHandler — privacy tag stripping', () => {
   it('uses Codex lastAssistantMessage directly without reading a transcript', async () => {
+    // Codex platform with stopHookActive=false goes through stripping then
+    // the runtime check. Drive server path so we can see the stripped value.
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
+
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute({
       sessionId: 'sess-codex',
@@ -104,14 +161,19 @@ describe('summarizeHandler — privacy tag stripping', () => {
       lastAssistantMessage: 'Codex answer <private>SECRET</private>',
     });
 
-    // Worker is retired: no worker calls expected; handler skips cleanly.
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(extractCallCount).toBe(0);
     expect(workerCallLog).toHaveLength(0);
+    // Tag-stripping must have removed the private block before POSTing.
+    const assistantEvent = recordedEvents.find(e => e.eventType === 'assistant_message');
+    expect(assistantEvent).toBeDefined();
+    expect(String(assistantEvent!.payload.last_assistant_message)).not.toContain('SECRET');
+    expect(String(assistantEvent!.payload.last_assistant_message)).toContain('Codex answer');
   });
 
   it('short-circuits Codex stop hook re-entry', async () => {
+    // stopHookActive=true returns early before any runtime call.
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute({
       sessionId: 'sess-codex',
@@ -131,30 +193,61 @@ describe('summarizeHandler — privacy tag stripping', () => {
   it('strips <private> tags and their content from last_assistant_message', async () => {
     mockExtractedMessage = 'Hello <private>SECRET-VALUE-42</private> world';
 
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
+
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute(baseInput as any);
 
-    // Tag stripping runs before the handler reaches the runtime check.
-    // With no reachable server runtime the handler skips cleanly — no worker call.
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(workerCallLog).toHaveLength(0);
+    // The stripped message should reach the server without the secret.
+    const assistantEvent = recordedEvents.find(e => e.eventType === 'assistant_message');
+    expect(assistantEvent).toBeDefined();
+    expect(String(assistantEvent!.payload.last_assistant_message)).not.toContain('SECRET-VALUE-42');
+    expect(assistantEvent!.payload.last_assistant_message).toBe('Hello  world');
   });
 
   it('preserves surrounding content when stripping privacy tags', async () => {
     mockExtractedMessage =
       'Before tag. <private>leak</private> Middle. <private>another</private> After.';
 
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
+
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute(baseInput as any);
 
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(workerCallLog).toHaveLength(0);
+    const assistantEvent = recordedEvents.find(e => e.eventType === 'assistant_message');
+    expect(assistantEvent).toBeDefined();
+    const stripped = String(assistantEvent!.payload.last_assistant_message);
+    expect(stripped).toContain('Before tag.');
+    expect(stripped).toContain('Middle.');
+    expect(stripped).toContain('After.');
+    expect(stripped).not.toContain('leak');
+    expect(stripped).not.toContain('another');
   });
 
   it('skips the POST when the entire turn is wrapped in a privacy tag', async () => {
+    // After stripping, the message is empty → handler returns early without
+    // calling server. No recordEvent call is expected.
     mockExtractedMessage = '<private>everything is private</private>';
+
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
 
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute(baseInput as any);
@@ -162,27 +255,48 @@ describe('summarizeHandler — privacy tag stripping', () => {
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(workerCallLog).toHaveLength(0);
+    // Handler exits early (empty stripped message) — no server event POSTed.
+    expect(recordedEvents).toHaveLength(0);
   });
 
   it('skips the POST when stripping leaves only whitespace', async () => {
     mockExtractedMessage = '   <private>x</private>\n\t<private>y</private>  ';
 
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
+
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     await summarizeHandler.execute(baseInput as any);
 
     expect(workerCallLog).toHaveLength(0);
+    // Stripped message is whitespace-only → handler returns early, no server call.
+    expect(recordedEvents).toHaveLength(0);
   });
 
   it('does not modify content that contains no privacy tags', async () => {
     mockExtractedMessage = 'Just a normal assistant turn with no privacy markers.';
 
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      resolveRuntimeContext: () => makeServerRuntimeContext(),
+      logServerFallback: () => {},
+    }));
+
     const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
     const result = await summarizeHandler.execute(baseInput as any);
 
-    // Handler skips cleanly — no worker call (worker retired).
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(workerCallLog).toHaveLength(0);
+    // No tags → message passes through unchanged.
+    const assistantEvent = recordedEvents.find(e => e.eventType === 'assistant_message');
+    expect(assistantEvent).toBeDefined();
+    expect(assistantEvent!.payload.last_assistant_message).toBe(
+      'Just a normal assistant turn with no privacy markers.',
+    );
   });
 
   const taggedPayloads: Array<[string, string]> = [
@@ -198,14 +312,22 @@ describe('summarizeHandler — privacy tag stripping', () => {
       const secret = payload.match(/SECRET-[A-Z-]+/)![0];
       mockExtractedMessage = `before ${payload} after`;
 
+      mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+        ...realRuntimeSelectorSnapshot,
+        resolveRuntimeContext: () => makeServerRuntimeContext(),
+        logServerFallback: () => {},
+      }));
+
       const { summarizeHandler } = await import('../../../src/cli/handlers/summarize.js');
       const result = await summarizeHandler.execute(baseInput as any);
 
-      // Handler reaches the runtime check with a non-empty stripped message,
-      // then skips cleanly (no server runtime configured in tests).
       expect(result.continue).toBe(true);
       expect(result.suppressOutput).toBe(true);
       expect(workerCallLog).toHaveLength(0);
+      // The secret must NOT appear in what was POSTed to the server.
+      const assistantEvent = recordedEvents.find(e => e.eventType === 'assistant_message');
+      expect(assistantEvent).toBeDefined();
+      expect(String(assistantEvent!.payload.last_assistant_message)).not.toContain(secret);
     });
   }
 });
