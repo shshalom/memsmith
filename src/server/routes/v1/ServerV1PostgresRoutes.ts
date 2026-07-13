@@ -39,7 +39,8 @@ import { recordServedCompression } from '../../retrieval/recordServedCompression
 import { ObservationStream } from './ObservationStream.js';
 import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
-import { registerSettingsRoutes } from './settingsRoutes.js';
+import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes.js';
+import { CredentialStore } from '../../../services/identity/credential-store.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -81,6 +82,9 @@ export interface ServerV1PostgresRoutesOptions {
   // when absent the /v1/settings routes are simply not registered.
   settingsResolver?: SettingsResolver;
   settingsStore?: SettingsStore;
+  // Task 4 — identity surface. Optional so existing tests compile without it;
+  // when absent, /v1/identity still registers but uses the default CredentialStore.
+  credentialStore?: CredentialStore;
 }
 
 interface BatchPreValidationFailure {
@@ -1259,6 +1263,33 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         auditFn: this.auditWrite.bind(this),
       });
     }
+
+    // Task 4 — GET /v1/identity: read-only identity surface (teamId, projectId, masked key).
+    // Runs under the same readAuth middleware as /v1/settings (memories:read).
+    // The reveal query param is also gated on loopback inside registerIdentityRoutes.
+    const identityReadAuth = requirePostgresServerAuth(this.options.pool, {
+      authMode: this.options.authMode,
+      allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId,
+      localDevProjectId: this.options.localDevProjectId,
+      requiredScopes: ['memories:read'],
+    });
+    app.use('/v1/identity', (req, res, next) => {
+      if (req.method === 'GET') {
+        identityReadAuth(req, res, next);
+      } else {
+        next();
+      }
+    });
+    registerIdentityRoutes(app, {
+      credentialStore: this.options.credentialStore ?? new CredentialStore(),
+      requireScopes: (req: Request, res: Response, needed: string): boolean => {
+        const scopes: string[] = (req as any).authContext?.scopes ?? [];
+        if (scopes.includes('*') || scopes.includes(needed)) return true;
+        res.status(403).json({ error: 'Forbidden', message: 'insufficient scope' });
+        return false;
+      },
+    });
   }
 
   // Phase 11 — resolve actor identity for audit. We look up the api_keys row

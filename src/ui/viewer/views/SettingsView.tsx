@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import React, { useEffect, useState, useCallback } from 'react';
-import { fetchSettings, patchSettings, SettingField } from '../utils/settingsData.js';
+import { fetchSettings, patchSettings, fetchIdentity, IdentityPayload, SettingField } from '../utils/settingsData.js';
 import { V1_ENDPOINTS } from '../constants/api.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -176,6 +176,8 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!initialFields);
+  const [identity, setIdentity] = useState<IdentityPayload | null>(null);
+  const [revealKey, setRevealKey] = useState(false);
 
   // Fetch on mount unless initialFields provided
   useEffect(() => {
@@ -188,10 +190,12 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
       fetch(V1_ENDPOINTS.DASH_COST, { headers: { Accept: 'application/json' } })
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
-    ]).then(([s, c]) => {
+      fetchIdentity(),
+    ]).then(([s, c, id]) => {
       if (cancelled) return;
       setFields(s);
       setCost(c as CostData | null);
+      setIdentity(id);
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -245,6 +249,21 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
     setConfirmPatch(null);
     setConfirmMessage(null);
   }, []);
+
+  const handleRevealToggle = useCallback(async () => {
+    if (revealKey) {
+      // Hide: refetch without reveal to drop plaintext from state
+      setRevealKey(false);
+      const fresh = await fetchIdentity(false);
+      setIdentity(fresh);
+    } else {
+      const revealed = await fetchIdentity(true);
+      if (revealed) {
+        setRevealKey(true);
+        setIdentity(revealed);
+      }
+    }
+  }, [revealKey]);
 
   if (loading) {
     return <div className="settings-loading">Loading settings…</div>;
@@ -300,6 +319,53 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
           </section>
         );
       })}
+
+      {identity && (
+        <section className="settings-card">
+          <h2 className="settings-card-title">Project Identity</h2>
+          <div className="settings-rows">
+            <div className="settings-row">
+              <div className="settings-row-meta">
+                <span className="settings-row-label">Team ID</span>
+                <span className="settings-row-desc">Durable team identifier for this installation.</span>
+              </div>
+              <div className="settings-row-control">
+                <span className="settings-row-label">{identity.teamId}</span>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-meta">
+                <span className="settings-row-label">Project ID</span>
+                <span className="settings-row-desc">Durable project identifier for this directory.</span>
+              </div>
+              <div className="settings-row-control">
+                <span className="settings-row-label">{identity.projectId}</span>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-meta">
+                <span className="settings-row-label">Base Key</span>
+                <span className="settings-row-desc">
+                  {identity.keyPresent ? (revealKey && identity.keyPlaintext ? identity.keyPlaintext : identity.keyMasked) : 'No key stored.'}
+                </span>
+              </div>
+              <div className="settings-row-control">
+                {identity.keyPresent && (
+                  <button
+                    type="button"
+                    className={`settings-toggle${revealKey ? ' settings-toggle--on' : ''}`}
+                    role="switch"
+                    aria-checked={revealKey}
+                    onClick={handleRevealToggle}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
