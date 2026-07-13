@@ -21,7 +21,7 @@ import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
 
-export type SelectedRuntime = 'worker' | 'server';
+export type SelectedRuntime = 'local' | 'server';
 
 export interface ServerRuntimeContext {
   runtime: 'server';
@@ -30,19 +30,27 @@ export interface ServerRuntimeContext {
   serverBaseUrl: string;
 }
 
-export interface WorkerRuntimeContext {
-  runtime: 'worker';
+export interface LocalRuntimeContext {
+  runtime: 'local';
+  // Embedded server not yet reachable (URL/key/project unwritten). Handlers
+  // treat this as "skip this hook cleanly" — there is no worker fallback.
+  reason: 'server_context_unavailable';
 }
 
-export type RuntimeContext = ServerRuntimeContext | WorkerRuntimeContext;
+export type RuntimeContext = ServerRuntimeContext | LocalRuntimeContext;
+
+export function normalizeRuntime(raw: string | undefined): SelectedRuntime {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'server' || v === 'server-beta') return 'server';
+  // Legacy `worker` and anything unset/unknown now resolve to the embedded
+  // local runtime (worker retired). Smooth remap: an existing settings.json
+  // with MEMSMITH_RUNTIME=worker keeps working, pointed at embedded PG.
+  return 'local';
+}
 
 export function selectRuntime(): SelectedRuntime {
   const settings = loadFromFileOnce();
-  const raw = (settings.MEMSMITH_RUNTIME ?? 'worker').trim().toLowerCase();
-  // Accept both the canonical `'server'` (Phase 1a) and the legacy
-  // `'server-beta'` literal for back-compat with installed settings.json.
-  if (raw === 'server' || raw === 'server-beta') return 'server';
-  return 'worker';
+  return normalizeRuntime(settings.MEMSMITH_RUNTIME);
 }
 
 export function buildServerContext(): ServerRuntimeContext | null {
@@ -98,14 +106,13 @@ export function buildServerContext(): ServerRuntimeContext | null {
 }
 
 export function resolveRuntimeContext(): RuntimeContext {
-  if (selectRuntime() !== 'server') {
-    return { runtime: 'worker' };
-  }
+  // Both `server` and `local` reach the engine over HTTP; in `local` mode the
+  // server runs in-process and MEMSMITH_SERVER_URL points at it. Build a server
+  // context for either. If the context can't be built (missing URL/key/project),
+  // return a local "skip" context — the worker fallback no longer exists.
   const ctx = buildServerContext();
-  if (!ctx) {
-    return { runtime: 'worker' };
-  }
-  return ctx;
+  if (ctx) return ctx;
+  return { runtime: 'local', reason: 'server_context_unavailable' };
 }
 
 export function logServerFallback(reason: string, details?: Record<string, unknown>): void {
