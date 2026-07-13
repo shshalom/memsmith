@@ -532,7 +532,7 @@ async function buildHooks() {
 
     console.log('\n📋 Copying onboarding explainer to plugin tree...');
     const onboardingExplainerSrc = 'src/services/onboarding-explainer.md'; // relocated from worker/ in Tasks 12+13
-    const onboardingExplainerDst = 'plugin/skills/how-it-works/onboarding-explainer.md';
+    const onboardingExplainerDst = 'plugin/skills/ms-how-it-works/onboarding-explainer.md';
     if (!fs.existsSync(onboardingExplainerSrc)) {
       throw new Error(`Missing onboarding explainer source: ${onboardingExplainerSrc}`);
     }
@@ -560,10 +560,10 @@ async function buildHooks() {
       'Stop',
     ]);
     const requiredDistributionFiles = [
-      'plugin/skills/mem-search/SKILL.md',
-      'plugin/skills/smart-explore/SKILL.md',
-      'plugin/skills/how-it-works/SKILL.md',
-      'plugin/skills/how-it-works/onboarding-explainer.md',
+      'plugin/skills/ms-mem-search/SKILL.md',
+      'plugin/skills/ms-smart-explore/SKILL.md',
+      'plugin/skills/ms-how-it-works/SKILL.md',
+      'plugin/skills/ms-how-it-works/onboarding-explainer.md',
       'plugin/hooks/hooks.json',
       'plugin/hooks/codex-hooks.json',
       'plugin/scripts/bun-runner.js',

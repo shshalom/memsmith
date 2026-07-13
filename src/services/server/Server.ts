@@ -16,7 +16,7 @@ import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../../s
 import { globalRateLimitStore } from './RateLimitStore.js';
 import type { ObservationQueueHealth } from '../../server/queue/queue-health-types.js';
 
-const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills/mem-search');
+const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills/ms-mem-search');
 const INSTRUCTIONS_OPERATIONS_DIR: string = path.join(INSTRUCTIONS_BASE_DIR, 'operations');
 const INSTRUCTIONS_SKILL_PATH: string = path.join(INSTRUCTIONS_BASE_DIR, 'SKILL.md');
 
