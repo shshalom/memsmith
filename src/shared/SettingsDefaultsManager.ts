@@ -56,15 +56,6 @@ export interface SettingsDefaults {
   MEMSMITH_TIER_SUMMARY_MODEL: string;
   MEMSMITH_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in MEMSMITH_MODEL
   MEMSMITH_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in MEMSMITH_MODEL
-  MEMSMITH_CHROMA_ENABLED: string;   
-  MEMSMITH_CHROMA_MODE: string;      
-  MEMSMITH_CHROMA_HOST: string;
-  MEMSMITH_CHROMA_PORT: string;
-  MEMSMITH_CHROMA_SSL: string;
-  MEMSMITH_CHROMA_API_KEY: string;
-  MEMSMITH_CHROMA_TENANT: string;
-  MEMSMITH_CHROMA_DATABASE: string;
-  MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: string;
   MEMSMITH_TELEGRAM_ENABLED: string;
   MEMSMITH_TELEGRAM_BOT_TOKEN: string;
   MEMSMITH_TELEGRAM_CHAT_ID: string;
@@ -147,15 +138,6 @@ export class SettingsDefaultsManager {
     MEMSMITH_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
     MEMSMITH_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
     MEMSMITH_TIER_SMART_MODEL: 'sonnet',            // #2289 — $TIER:smart resolves here (portable alias)
-    MEMSMITH_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
-    MEMSMITH_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
-    MEMSMITH_CHROMA_HOST: '127.0.0.1',
-    MEMSMITH_CHROMA_PORT: '8000',
-    MEMSMITH_CHROMA_SSL: 'false',
-    MEMSMITH_CHROMA_API_KEY: '',
-    MEMSMITH_CHROMA_TENANT: 'default_tenant',
-    MEMSMITH_CHROMA_DATABASE: 'default_database',
-    MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: '120000',
     MEMSMITH_TELEGRAM_ENABLED: 'true',
     MEMSMITH_TELEGRAM_BOT_TOKEN: '',
     MEMSMITH_TELEGRAM_CHAT_ID: '',

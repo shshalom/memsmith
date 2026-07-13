@@ -35,7 +35,7 @@ running the same server engine (Postgres + pgvector + semantic search):
 ## Requirements
 
 - **Bun** (all platforms - auto-installed if missing)
-- **uv** (all platforms - auto-installed if missing, provides Python for Chroma)
+- **uv** (all platforms - auto-installed if missing, used by the installer runtime setup)
 - Node.js
 
 ## Documentation

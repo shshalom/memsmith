@@ -106,11 +106,8 @@ EOF
 ## Step 3: Install Cursor Hooks
 
 ```bash
-# From the memsmith repo directory (recommended - all projects)
-bun run cursor:install -- user
-
-# Or for project-level only:
-bun run cursor:install
+# Run the interactive installer
+npx memsmith install
 ```
 
 This installs:
@@ -118,13 +115,13 @@ This installs:
 - Hook configuration to `.cursor/hooks.json`
 - Context template to `.cursor/rules/`
 
-## Step 4: Start the Worker
+## Step 4: Start the Server
 
 ```bash
-bun run worker:start
+npx memsmith server start
 ```
 
-The worker runs in the background and handles:
+The server runs in the background and handles:
 - Session management
 - Observation processing
 - AI-powered summarization
@@ -134,12 +131,12 @@ The worker runs in the background and handles:
 
 1. **Restart Cursor IDE** to load the new hooks
 
-2. **Check installation status**:
+2. **Check server status**:
    ```bash
-   bun run cursor:status
+   npx memsmith server status
    ```
 
-3. **Verify the worker is running**:
+3. **Verify the server is running**:
    ```bash
    curl http://127.0.0.1:37777/api/readiness
    ```
@@ -196,12 +193,11 @@ If you hit the 1500 requests/day limit:
 
 | Command | Purpose |
 |---------|---------|
-| `bun run cursor:install -- user` | Install hooks for all projects (recommended) |
-| `bun run cursor:install` | Install hooks for current project only |
-| `bun run cursor:status` | Check installation status |
-| `bun run worker:start` | Start the background worker |
-| `bun run worker:stop` | Stop the background worker |
-| `bun run worker:restart` | Restart the worker |
+| `npx memsmith install` | Install hooks and configure the server |
+| `npx memsmith server start` | Start the background server |
+| `npx memsmith server stop` | Stop the background server |
+| `npx memsmith server restart` | Restart the server |
+| `npx memsmith server status` | Check server status |
 
 ---
 
@@ -237,12 +233,8 @@ New-Item -ItemType Directory -Force -Path $settingsDir
 }
 "@ | Out-File -FilePath "$settingsDir\settings.json" -Encoding UTF8
 
-# Interactive setup (recommended - walks you through everything)
-bun run cursor:setup
-
-# Or manual installation
-bun run cursor:install
-bun run worker:start
+# Interactive installer (recommended - walks you through everything)
+npx memsmith install
 ```
 
 ### What Gets Installed on Windows
