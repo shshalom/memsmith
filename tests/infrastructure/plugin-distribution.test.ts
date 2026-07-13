@@ -26,7 +26,7 @@ function commandHooksFrom(relativePath: string): string[] {
 
 function mcpStartupCommandFrom(relativePath: string): string {
   const parsed = readJson(relativePath);
-  return parsed.mcpServers['mcp-search'].args[1];
+  return parsed.mcpServers['mem'].args[1];
 }
 
 describe('Plugin Distribution - Skills', () => {
@@ -103,7 +103,7 @@ describe('Plugin Distribution - Codex Marketplace', () => {
   it('MCP launcher can recover without plugin root environment variables', () => {
     const mcpPath = path.join(projectRoot, 'plugin/.mcp.json');
     const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-    const command = mcp.mcpServers['mcp-search'].args.join(' ');
+    const command = mcp.mcpServers['mem'].args.join(' ');
 
     expect(command).toContain('.codex/plugins/cache/memsmith-local/memsmith');
     expect(command).toContain('plugins/cache/shshalom/memsmith');
@@ -324,9 +324,9 @@ describe('Spawn-Contract Templating - Rule A generator parity', () => {
     }
   }
 
-  it('plugin/.mcp.json mcp-search command equals buildShellCommand output', () => {
+  it('plugin/.mcp.json mem command equals buildShellCommand output', () => {
     const parsed = readJson('plugin/.mcp.json');
-    expect(parsed.mcpServers['mcp-search'].args[1]).toBe(MCP_EXPECTED);
+    expect(parsed.mcpServers['mem'].args[1]).toBe(MCP_EXPECTED);
   });
 
   it('never leaks a raw ${CLAUDE_PLUGIN_ROOT} into the resolved trailing command', () => {

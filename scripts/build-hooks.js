@@ -146,10 +146,10 @@ async function verifyShellTemplateCanonical() {
   for (const [filePath, spec] of Object.entries(manifest)) {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     if (spec.kind === 'mcp') {
-      const actual = parsed.mcpServers?.['mcp-search']?.args?.[1] ?? '';
+      const actual = parsed.mcpServers?.['mem']?.args?.[1] ?? '';
       if (actual !== spec.command) {
         throw new Error(
-          `Hand-edited shell string detected in ${filePath} (mcp-search). It no longer matches src/build/hook-shell-template.ts. ` +
+          `Hand-edited shell string detected in ${filePath} (mem). It no longer matches src/build/hook-shell-template.ts. ` +
           `Update the generator (and this manifest) instead of hand-editing the launcher.`
         );
       }
@@ -596,12 +596,12 @@ async function buildHooks() {
       throw new Error('.agents/plugins/marketplace.json must point memsmith source.path at ./plugin so Codex loads the bundled plugin root');
     }
     const bundledMcp = JSON.parse(fs.readFileSync('plugin/.mcp.json', 'utf-8'));
-    const mcpSearchCommand = bundledMcp.mcpServers?.['mcp-search']?.args?.join(' ') ?? '';
+    const mcpSearchCommand = bundledMcp.mcpServers?.['mem']?.args?.join(' ') ?? '';
     if (!mcpSearchCommand.includes('.codex/plugins/cache/memsmith-local/memsmith')) {
-      throw new Error('plugin/.mcp.json mcp-search launcher must include Codex cache fallback for hosts that do not inject PLUGIN_ROOT');
+      throw new Error('plugin/.mcp.json mem launcher must include Codex cache fallback for hosts that do not inject PLUGIN_ROOT');
     }
     if (!mcpSearchCommand.includes('plugins/cache/shshalom/memsmith')) {
-      throw new Error('plugin/.mcp.json mcp-search launcher must include Claude cache fallback for hosts that do not inject PLUGIN_ROOT');
+      throw new Error('plugin/.mcp.json mem launcher must include Claude cache fallback for hosts that do not inject PLUGIN_ROOT');
     }
     console.log('✓ All required distribution files present');
 

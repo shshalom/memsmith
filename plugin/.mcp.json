@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "mcp-search": {
+    "mem": {
       "type": "stdio",
       "command": "node",
       "args": [
