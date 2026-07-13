@@ -1,11 +1,13 @@
 import path from 'path';
 import { sessionInitHandler } from '../../cli/handlers/session-init.js';
 import { fileEditHandler } from '../../cli/handlers/file-edit.js';
-import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
+import { observationHandler } from '../../cli/handlers/observation.js';
+import { summarizeHandler } from '../../cli/handlers/summarize.js';
 import { DATA_DIR } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { writeAgentsMd } from '../../utils/agents-md-utils.js';
+import { fetchRecentContextString } from '../../services/hooks/recent-context-injection.js';
 import { resolveFieldSpec, resolveFields, matchesRule } from './field-utils.js';
 import { expandHomePath, shouldSuppressNativeCodexAgentsContext } from './config.js';
 import type { TranscriptSchema, WatchTarget, SchemaEvent } from './types.js';
@@ -243,29 +245,20 @@ export class TranscriptEventProcessor {
     const toolName = typeof fields.toolName === 'string' ? fields.toolName : undefined;
     if (!toolName) return;
 
-    const workerReady = await ensureWorkerRunning();
-    if (!workerReady) return;
-
-    const requestBody = JSON.stringify({
-      contentSessionId: session.sessionId,
+    // Worker retirement — the transcript observation formerly POSTed to the
+    // worker route `/api/sessions/observations`. Delegate to the PostToolUse
+    // observation handler, which now records via the runtime-selector +
+    // ServerClient path (POST /v1/events) and clean-skips when no runtime is
+    // reachable. This drops the file's dependency on the worker HTTP/spawn
+    // machinery entirely.
+    await observationHandler.execute({
+      sessionId: session.sessionId,
       cwd: session.cwd ?? process.cwd(),
-      tool_name: toolName,
-      tool_input: this.maybeParseJson(fields.toolInput),
-      tool_response: this.maybeParseJson(fields.toolResponse),
-      platformSource: session.platformSource,
-      toolUseId: typeof fields.toolUseId === 'string' ? fields.toolUseId : undefined,
+      toolName,
+      toolInput: this.maybeParseJson(fields.toolInput),
+      toolResponse: this.maybeParseJson(fields.toolResponse),
+      platform: session.platformSource,
     });
-
-    const response = await workerHttpRequest('/api/sessions/observations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: requestBody,
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`ingestObservation HTTP failed: ${response.status} ${text}`);
-    }
   }
 
   private async sendFileEdit(session: SessionState, fields: Record<string, unknown>): Promise<void> {
@@ -326,27 +319,19 @@ export class TranscriptEventProcessor {
   }
 
   private async queueSummary(session: SessionState): Promise<void> {
-    const workerReady = await ensureWorkerRunning();
-    if (!workerReady) return;
-
-    const lastAssistantMessage = session.lastAssistantMessage ?? '';
-    const requestBody = JSON.stringify({
-      contentSessionId: session.sessionId,
-      last_assistant_message: lastAssistantMessage,
-      platformSource: session.platformSource
+    // Worker retirement — the transcript session summary formerly POSTed to the
+    // worker route `/api/sessions/summarize`. Delegate to the Stop-hook
+    // summarize handler, which now starts/ends the server session and records
+    // the last assistant message via the runtime-selector + ServerClient path
+    // (POST /v1/sessions/start + /v1/events + /v1/sessions/:id/end), clean-
+    // skipping when no runtime is reachable. The handler already swallows its
+    // own recoverable errors and never throws on the fallback path.
+    await summarizeHandler.execute({
+      sessionId: session.sessionId,
+      cwd: session.cwd ?? process.cwd(),
+      lastAssistantMessage: session.lastAssistantMessage ?? '',
+      platform: session.platformSource,
     });
-
-    try {
-      await workerHttpRequest('/api/sessions/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody
-      });
-    } catch (error: unknown) {
-      logger.warn('TRANSCRIPT', 'Summary request failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
   }
 
   private async updateContext(session: SessionState, watch: WatchTarget): Promise<void> {
@@ -354,16 +339,11 @@ export class TranscriptEventProcessor {
     if (watch.context.mode !== 'agents') return;
     if (shouldSuppressNativeCodexAgentsContext(watch)) return;
 
-    const workerReady = await ensureWorkerRunning();
-    if (!workerReady) return;
-
     const cwd = session.cwd ?? watch.workspace;
     if (!cwd) return;
 
     const context = getProjectContext(cwd);
-    const projectsParam = context.allProjects.join(',');
 
-    const contextUrl = `/api/context/inject?projects=${encodeURIComponent(projectsParam)}&platformSource=${encodeURIComponent(session.platformSource)}`;
     const agentsPath = expandHomePath(watch.context.path ?? `${cwd}/AGENTS.md`);
 
     const resolvedAgentsPath = path.resolve(agentsPath);
@@ -378,19 +358,15 @@ export class TranscriptEventProcessor {
       return;
     }
 
-    let response: Awaited<ReturnType<typeof workerHttpRequest>>;
-    try {
-      response = await workerHttpRequest(contextUrl);
-    } catch (error: unknown) {
-      logger.warn('TRANSCRIPT', 'Failed to fetch AGENTS.md context', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return;
-    }
-
-    if (!response.ok) return;
-
-    const content = (await response.text()).trim();
+    // Worker retirement — the AGENTS.md context formerly came from the worker
+    // route `/api/context/inject`. Repointed to the C1 recent-mode injection
+    // pattern: pull the most recent observations for the project scope off the
+    // server/local runtime (empty-query /v1/search) packed into a string. Returns
+    // '' (never throws) when no runtime is reachable or nothing to inject.
+    const content = (await fetchRecentContextString({
+      projectId: context.primary,
+      platformSource: session.platformSource,
+    })).trim();
     if (!content) return;
 
     writeAgentsMd(agentsPath, content);

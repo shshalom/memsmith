@@ -117,18 +117,39 @@ function workerPostFireAndForget(
   });
 }
 
-async function workerGetText(path: string): Promise<string | null> {
+// Worker retirement — memory search formerly hit the deleted worker route
+// `/api/search/observations`. Repointed to the server runtime's POST /v1/search
+// (empty query = list-recent; a provided query = FTS). The plugin runs
+// out-of-process, so it reads the same server URL / API key / project id the
+// installer writes into settings.json for the server runtime. Returns null when
+// the server is unreachable or unconfigured so the tool can surface a clear
+// "not running" message (identical UX to the old worker-unreachable case).
+const SERVER_BASE_URL = SettingsDefaultsManager.get("MEMSMITH_SERVER_URL").replace(/\/+$/, "");
+const SERVER_API_KEY = SettingsDefaultsManager.get("MEMSMITH_SERVER_API_KEY");
+const SERVER_PROJECT_ID = SettingsDefaultsManager.get("MEMSMITH_SERVER_PROJECT_ID");
+
+async function searchObservationsViaServer(query: string): Promise<string | null> {
+  if (!SERVER_API_KEY || !SERVER_PROJECT_ID) {
+    return null;
+  }
   try {
-    const response = await fetch(`${WORKER_BASE_URL}${path}`, { headers: JSON_HEADERS });
+    const response = await fetch(`${SERVER_BASE_URL}/v1/search`, {
+      method: "POST",
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${SERVER_API_KEY}`,
+      },
+      body: JSON.stringify({ projectId: SERVER_PROJECT_ID, query, limit: 10 }),
+    });
     if (!response.ok) {
-      console.warn(`[memsmith] Worker GET ${path} returned ${response.status}`);
+      console.warn(`[memsmith] Server POST /v1/search returned ${response.status}`);
       return null;
     }
     return await response.text();
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("ECONNREFUSED")) {
-      console.warn(`[memsmith] Worker GET ${path} failed: ${message}`);
+      console.warn(`[memsmith] Server POST /v1/search failed: ${message}`);
     }
     return null;
   }
@@ -282,12 +303,10 @@ export const MemSmithPlugin = async (ctx: OpenCodePluginContext) => {
             return "Please provide a search query.";
           }
 
-          const text = await workerGetText(
-            `/api/search/observations?query=${encodeURIComponent(query)}&limit=10`,
-          );
+          const text = await searchObservationsViaServer(query);
 
           if (!text) {
-            return "memsmith worker is not running. Start it with: npx memsmith start";
+            return "memsmith server is not running or not configured. Start it with: npx memsmith start";
           }
 
           return parseSearchResponse(text, query);
@@ -298,10 +317,11 @@ export const MemSmithPlugin = async (ctx: OpenCodePluginContext) => {
 };
 
 /**
- * The worker returns Claude-style `{ content: [{ type: 'text', text: '...' }] }`
- * blocks, NOT `{ items: [...] }` (#2406). Concatenate the text blocks and return
- * them verbatim; an empty block list or a "No observations found" body becomes a
- * clear no-results message.
+ * Worker retirement — the server's POST /v1/search returns
+ * `{ observations: [{ id, content, ... }] }` (ServerSearchObservationsResponse),
+ * not the worker's old Claude-style `{ content: [{ type: 'text', text }] }`
+ * blocks. Concatenate the observation contents and return them verbatim; an
+ * empty observation list becomes a clear no-results message.
  */
 export function parseSearchResponse(text: string, query: string): string {
   let data: unknown;
@@ -315,15 +335,15 @@ export function parseSearchResponse(text: string, query: string): string {
     return "Failed to parse search results.";
   }
 
-  const content = (data as { content?: Array<{ type?: string; text?: string }> }).content;
-  if (!Array.isArray(content) || content.length === 0) {
+  const observations = (data as { observations?: Array<{ content?: unknown }> }).observations;
+  if (!Array.isArray(observations) || observations.length === 0) {
     return `No results found for "${query}".`;
   }
 
-  const rendered = content
-    .filter((block) => block.type === "text" && typeof block.text === "string")
-    .map((block) => block.text as string)
-    .join("\n")
+  const rendered = observations
+    .map((obs) => obs.content)
+    .filter((content): content is string => typeof content === "string" && content.length > 0)
+    .join("\n\n")
     .trim();
 
   if (!rendered) {

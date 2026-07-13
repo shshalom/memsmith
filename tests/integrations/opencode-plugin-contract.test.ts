@@ -124,42 +124,39 @@ describe("OpenCode plugin event contract", () => {
 });
 
 describe("OpenCode search client response-shape contract", () => {
-  it("parses the worker's real data.content blocks and returns the rows", () => {
-    // This is exactly what SearchManager.searchObservations returns on a hit.
-    const workerResponse = JSON.stringify({
-      content: [
-        {
-          type: "text",
-          text:
-            'Found 2 observation(s) matching "auth"\n\n| # | Title |\n|---|---|\n1. Added login flow\n2. Fixed token refresh',
-        },
+  // Worker retirement — memory search now hits the server's POST /v1/search,
+  // whose response is { observations: [{ id, content, ... }] }
+  // (ServerSearchObservationsResponse), NOT the worker's old
+  // { content: [{ type: 'text', text }] } blocks.
+  it("parses the server's /v1/search observations and returns their content", () => {
+    const serverResponse = JSON.stringify({
+      observations: [
+        { id: "obs_1", content: "Added login flow" },
+        { id: "obs_2", content: "Fixed token refresh" },
       ],
     });
 
-    const rendered = parseSearchResponse(workerResponse, "auth");
-    expect(rendered).toContain("Found 2 observation(s)");
+    const rendered = parseSearchResponse(serverResponse, "auth");
     expect(rendered).toContain("Added login flow");
     expect(rendered).toContain("Fixed token refresh");
     expect(rendered).not.toContain("No results");
   });
 
-  it("does NOT parse the old data.items shape (regression guard)", () => {
-    // The pre-fix worker contract was wrongly assumed to be { items: [...] }.
-    // A client that still reads data.items would render rows here; the real
-    // client reads data.content, so this is correctly reported as no results.
-    const oldShape = JSON.stringify({
-      items: [{ title: "should-not-render" }, { title: "also-not" }],
+  it("does NOT parse the old worker data.content shape (regression guard)", () => {
+    // The retired worker contract returned { content: [{ text }] } blocks. The
+    // server client now reads `observations[].content`, so a worker-shaped body
+    // has no observations and is correctly reported as no results.
+    const oldWorkerShape = JSON.stringify({
+      content: [{ type: "text", text: "should-not-render" }],
     });
-    const rendered = parseSearchResponse(oldShape, "auth");
+    const rendered = parseSearchResponse(oldWorkerShape, "auth");
     expect(rendered).toContain("No results");
     expect(rendered).not.toContain("should-not-render");
   });
 
-  it("returns a clear no-results message for the worker's empty-content shape", () => {
-    const emptyResponse = JSON.stringify({
-      content: [{ type: "text", text: 'No observations found matching "zzz"' }],
-    });
+  it("returns a clear no-results message for the server's empty-observations shape", () => {
+    const emptyResponse = JSON.stringify({ observations: [] });
     const rendered = parseSearchResponse(emptyResponse, "zzz");
-    expect(rendered).toContain("No observations found");
+    expect(rendered).toContain('No results found for "zzz"');
   });
 });

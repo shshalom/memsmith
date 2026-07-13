@@ -3,7 +3,9 @@ import path from 'path';
 import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { logger } from '../../utils/logger.js';
-import { workerHttpRequest } from '../../shared/worker-utils.js';
+import { fetchRecentContextString } from '../../services/hooks/recent-context-injection.js';
+import { resolveRuntimeContext } from '../../services/hooks/runtime-selector.js';
+import { getProjectContext } from '../../utils/project-name.js';
 import { DATA_DIR } from '../../shared/paths.js';
 import {
   readCursorRegistry as readCursorRegistryFromFile,
@@ -40,16 +42,15 @@ export async function updateCursorContextForProject(projectName: string): Promis
   const registry = readCursorRegistry();
   const entry = registry[projectName];
 
-  if (!entry) return; 
+  if (!entry) return;
 
   try {
-    const response = await workerHttpRequest(
-      `/api/context/inject?project=${encodeURIComponent(projectName)}`
-    );
-
-    if (!response.ok) return;
-
-    const context = await response.text();
+    // Worker retirement — the Cursor auto-context update formerly fetched the
+    // worker route `/api/context/inject`. Repointed to the C1 recent-mode
+    // injection pattern (server/local runtime + empty-query /v1/search packed
+    // to a string). Returns '' (never throws) when no runtime is reachable.
+    const projectId = getProjectContext(entry.workspacePath).primary;
+    const context = await fetchRecentContextString({ projectId });
     if (!context || !context.trim()) return;
 
     writeContextFile(entry.workspacePath, context);
@@ -222,12 +223,12 @@ async function setupProjectContext(targetDir: string, workspaceRoot: string): Pr
   console.log(`  Generating initial context...`);
 
   try {
-    contextGenerated = await fetchInitialContextFromWorker(projectName, workspaceRoot);
+    contextGenerated = await fetchInitialContextFromRuntime(projectName, workspaceRoot);
   } catch (error) {
     if (error instanceof Error) {
-      logger.debug('WORKER', 'Worker not running during install', {}, error);
+      logger.debug('CURSOR', 'Runtime not reachable during install', {}, error);
     } else {
-      logger.debug('WORKER', 'Worker not running during install', {}, new Error(String(error)));
+      logger.debug('CURSOR', 'Runtime not reachable during install', {}, new Error(String(error)));
     }
   }
 
@@ -252,19 +253,23 @@ Use memsmith's MCP search tools for manual memory queries.
   console.log(`  Registered for auto-context updates`);
 }
 
-async function fetchInitialContextFromWorker(
+async function fetchInitialContextFromRuntime(
   projectName: string,
   workspaceRoot: string,
 ): Promise<boolean> {
-  const healthResponse = await workerHttpRequest('/api/readiness');
-  if (!healthResponse.ok) return false;
+  // Worker retirement — install-time context preview formerly probed the worker
+  // `/api/readiness` then fetched `/api/context/inject`. Repointed to the
+  // runtime selector: if the server/local runtime is reachable (resolves to a
+  // 'server' context — the readiness gate equivalent), pull recent project
+  // context via the C1 recent-mode pattern. When the runtime is not yet up, the
+  // caller falls back to writing the "context will populate after first session"
+  // placeholder — same UX as the old worker-unreachable path.
+  void projectName;
+  const runtime = resolveRuntimeContext();
+  if (runtime.runtime !== 'server') return false;
 
-  const contextResponse = await workerHttpRequest(
-    `/api/context/inject?project=${encodeURIComponent(projectName)}`,
-  );
-  if (!contextResponse.ok) return false;
-
-  const context = await contextResponse.text();
+  const projectId = getProjectContext(workspaceRoot).primary;
+  const context = await fetchRecentContextString({ projectId });
   if (context && context.trim()) {
     writeContextFile(workspaceRoot, context);
     console.log(`  Generated initial context from existing memory`);

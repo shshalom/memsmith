@@ -3,14 +3,18 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
 import * as realHookSettings from '../../../src/shared/hook-settings.js';
-import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
+import * as realRuntimeSelector from '../../../src/services/hooks/runtime-selector.js';
 
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
-const realWorkerUtilsSnapshot = { ...realWorkerUtils };
+const realRuntimeSelectorSnapshot = { ...realRuntimeSelector };
 
 const dataDir = join(tmpdir(), 'memsmith-file-edit-observer-test');
-const workerCallLog: Array<{ path: string; method: string; body: unknown }> = [];
+// Worker retirement — file-edit now records via the runtime-selector +
+// ServerClient path (POST /v1/events) instead of executeWithWorkerFallback.
+// For an internal observer session the handler must clean-skip BEFORE resolving
+// the runtime, so recordEvent must never fire.
+const recordEventLog: Array<Record<string, unknown>> = [];
 
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
@@ -27,12 +31,19 @@ mock.module('../../../src/shared/hook-settings.js', () => ({
   loadFromFileOnce: () => ({ MEMSMITH_EXCLUDED_PROJECTS: '' }),
 }));
 
-mock.module('../../../src/shared/worker-utils.js', () => ({
-  executeWithWorkerFallback: (apiPath: string, method: string, body: unknown) => {
-    workerCallLog.push({ path: apiPath, method, body });
-    throw new Error(`worker must not be called for internal observer sessions: ${apiPath}`);
-  },
-  isWorkerFallback: () => false,
+mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+  resolveRuntimeContext: () => ({
+    runtime: 'server',
+    projectId: 'observer-project',
+    serverBaseUrl: 'http://127.0.0.1:1',
+    client: {
+      recordEvent: async (event: Record<string, unknown>) => {
+        recordEventLog.push(event);
+        throw new Error('recordEvent must not be called for internal observer sessions');
+      },
+    },
+  }),
+  logServerFallback: () => {},
 }));
 
 import { OBSERVER_SESSIONS_DIR } from '../../../src/shared/paths.js';
@@ -41,7 +52,7 @@ import { logger } from '../../../src/utils/logger.js';
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
 beforeEach(() => {
-  workerCallLog.length = 0;
+  recordEventLog.length = 0;
   loggerSpies = [
     spyOn(logger, 'debug').mockImplementation(() => {}),
     spyOn(logger, 'dataIn').mockImplementation(() => {}),
@@ -55,11 +66,11 @@ afterEach(() => {
 afterAll(() => {
   mock.module('../../../src/shared/SettingsDefaultsManager.js', () => realSettingsSnapshot);
   mock.module('../../../src/shared/hook-settings.js', () => realHookSettingsSnapshot);
-  mock.module('../../../src/shared/worker-utils.js', () => realWorkerUtilsSnapshot);
+  mock.module('../../../src/services/hooks/runtime-selector.js', () => realRuntimeSelectorSnapshot);
 });
 
 describe('fileEditHandler internal observer sessions', () => {
-  it('skips file edit observations before calling the worker', async () => {
+  it('skips file edit observations before resolving the runtime', async () => {
     const { fileEditHandler } = await import('../../../src/cli/handlers/file-edit.js');
 
     const result = await fileEditHandler.execute({
@@ -73,6 +84,6 @@ describe('fileEditHandler internal observer sessions', () => {
     expect(result.continue).toBe(true);
     expect(result.suppressOutput).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(workerCallLog).toEqual([]);
+    expect(recordEventLog).toEqual([]);
   });
 });
