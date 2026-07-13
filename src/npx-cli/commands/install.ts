@@ -586,7 +586,7 @@ async function promptForIDESelection(): Promise<string[]> {
   const claudeCodeInfo = detectedIDEs.find((ide) => ide.id === 'claude-code');
 
   if (claudeCodeInfo && !claudeCodeInfo.detected) {
-    log.warn('Claude Code is not installed. Claude-mem works best in Claude Code, but also works with the IDEs below.');
+    log.warn('Claude Code is not installed. MemSmith works best in Claude Code, but also works with the IDEs below.');
     const choice = await p.select<'install' | 'skip' | 'cancel'>({
       message: 'Install Claude Code now?',
       options: [

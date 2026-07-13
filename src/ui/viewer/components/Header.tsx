@@ -58,7 +58,7 @@ export function Header({
           </svg>
         </a>
         <a
-          href="https://x.com/Claude_Memory"
+          href="https://github.com/shshalom/memsmith"
           target="_blank"
           rel="noopener noreferrer"
           className="icon-link"

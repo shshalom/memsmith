@@ -1,5 +1,5 @@
 {
-  "description": "Claude-mem memory system hooks",
+  "description": "MemSmith memory system hooks",
   "hooks": {
     "Setup": [
       {

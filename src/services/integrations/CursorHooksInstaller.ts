@@ -236,7 +236,7 @@ async function setupProjectContext(targetDir: string, workspaceRoot: string): Pr
     const rulesFile = path.join(rulesDir, 'memsmith-context.mdc');
     const placeholderContent = `---
 alwaysApply: true
-description: "Claude-mem context from past sessions (auto-updated)"
+description: "MemSmith context from past sessions (auto-updated)"
 ---
 
 # Memory Context from Past Sessions
