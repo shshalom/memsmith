@@ -22,11 +22,6 @@ const MCP_SERVER = {
   source: 'src/servers/mcp-server.ts'
 };
 
-const CONTEXT_GENERATOR = {
-  name: 'context-generator',
-  source: 'src/services/context-generator.ts'
-};
-
 const TRANSCRIPT_WATCHER = {
   name: 'transcript-watcher',
   source: 'src/services/transcripts/transcript-watcher-entry.ts'
@@ -483,27 +478,10 @@ async function buildHooks() {
       );
     }
 
-    console.log(`\n🔧 Building context generator...`);
-    await build({
-      entryPoints: [CONTEXT_GENERATOR.source],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'cjs',
-      outfile: `${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`,
-      minify: true,
-      logLevel: 'error',
-      external: ['bun:sqlite', 'zod'],
-      define: {
-        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
-      },
-      // No banner needed: CJS files under Node.js have __dirname/__filename natively
-    });
-
-    stripHardcodedDirname(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
-
-    const contextGenStats = fs.statSync(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
-    console.log(`✓ context-generator built (${(contextGenStats.size / 1024).toFixed(2)} KB)`);
+    // context-generator.ts deleted in Task 14 (worker-retirement Phase 4):
+    // context/ContextBuilder + context/ObservationCompiler were SQLite-backed worker-only
+    // code; now the server path handles context via /v1/context. No hook manifest
+    // references context-generator.cjs, so this build step is simply removed.
 
     console.log(`\n🔧 Building transcript watcher...`);
     await build({
@@ -715,7 +693,6 @@ async function buildHooks() {
     console.log(`   - Worker: worker-service.cjs`);
     console.log(`   - Server: server-service.cjs`);
     console.log(`   - MCP Server: mcp-server.cjs`);
-    console.log(`   - Context Generator: context-generator.cjs`);
     console.log(`   - Transcript Watcher: transcript-watcher.cjs`);
     console.log(`   Output: ${npxCliOutDir}/`);
     console.log(`   - NPX CLI: index.js`);
