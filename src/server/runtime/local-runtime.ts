@@ -48,9 +48,6 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
   const sqlitePath = join(home, 'memsmith.db');
   const markerPath = join(home, '.local-import-done');
 
-  const teamId = (process.env.MEMSMITH_LOCAL_DEV_TEAM_ID ?? '').trim() || 'local';
-  const projectId = (process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID ?? '').trim() || 'local';
-
   const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
   const { bootstrapServerPostgresSchema } = await import('../../storage/postgres/schema.js');
   const { loadServerMode } = await import('./create-server-service.js');
@@ -76,6 +73,12 @@ async function defaultRunImport(_connectionString: string): Promise<void> {
   // here first — it is idempotent (CREATE TABLE IF NOT EXISTS throughout), so
   // createServerService re-running it afterward is a safe no-op.
   await bootstrapServerPostgresSchema(pool);
+
+  // Resolve scope: env > marker > mint (minting needs the pool + schema to exist,
+  // which is why this call is placed AFTER getSharedPostgresPool + bootstrapServerPostgresSchema).
+  const { resolveLocalScope } = await import('./resolve-local-scope.js');
+  const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+  const { teamId, projectId } = await resolveLocalScope({ cwd, pool });
 
   // The observations table requires a team + project (both NOT NULL, FK). Ensure
   // fixed local rows exist so inserts don't violate the FK. Idempotent.
