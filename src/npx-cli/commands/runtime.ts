@@ -164,17 +164,37 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const workerPort = SettingsDefaultsManager.get('MEMSMITH_WORKER_PORT');
-  const searchUrl = `http://127.0.0.1:${workerPort}/api/search?query=${encodeURIComponent(query)}`;
+  // Worker retirement — the old route `/api/search` on the legacy worker is
+  // gone. Repoint to the local/server runtime's POST /v1/search, using the
+  // same credentials pattern as the opencode-plugin (MEMSMITH_SERVER_URL,
+  // MEMSMITH_SERVER_API_KEY, MEMSMITH_SERVER_PROJECT_ID from settings).
+  const serverBaseUrl = SettingsDefaultsManager.get('MEMSMITH_SERVER_URL').replace(/\/+$/, '');
+  const serverApiKey = SettingsDefaultsManager.get('MEMSMITH_SERVER_API_KEY');
+  const serverProjectId = SettingsDefaultsManager.get('MEMSMITH_SERVER_PROJECT_ID');
+
+  if (!serverApiKey || !serverProjectId) {
+    console.error(styleText('red', 'MemSmith runtime is not configured.'));
+    console.error(`Start it with: ${styleText('bold', 'npx memsmith start')}`);
+    process.exit(1);
+  }
+
+  const searchUrl = `${serverBaseUrl}/v1/search`;
 
   let response: Response;
   try {
-    response = await fetch(searchUrl);
+    response = await fetch(searchUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serverApiKey}`,
+      },
+      body: JSON.stringify({ query, projectId: serverProjectId, limit: 20 }),
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const cause = error instanceof Error ? (error as any).cause : undefined;
     if (cause?.code === 'ECONNREFUSED' || message.includes('ECONNREFUSED')) {
-      console.error(styleText('red', 'Worker is not running.'));
+      console.error(styleText('red', 'MemSmith runtime is not running.'));
       console.error(`Start it with: ${styleText('bold', 'npx memsmith start')}`);
       process.exit(1);
     }
@@ -183,8 +203,13 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
   }
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      console.error(styleText('red', `Search failed: authentication error (HTTP ${response.status}).`));
+      console.error('Re-run the installer to refresh credentials: ' + styleText('bold', 'npx memsmith install'));
+      process.exit(1);
+    }
     if (response.status === 404) {
-      console.error(styleText('red', 'Search endpoint not found. Is the worker running?'));
+      console.error(styleText('red', 'Search endpoint not found. Is the MemSmith runtime running?'));
       console.error(`Try: ${styleText('bold', 'npx memsmith start')}`);
       process.exit(1);
     }

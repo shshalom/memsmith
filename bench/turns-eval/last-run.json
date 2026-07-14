@@ -1,0 +1,246 @@
+[
+  {
+    "arm": "single",
+    "label": "bash-ls",
+    "skipped": true,
+    "parsed": true,
+    "text": "<skip_summary />"
+  },
+  {
+    "arm": "single",
+    "label": "edit-auth",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>refactor</type>\n  <title>Edit JWT Verification Function</title>\n  <subtitle>Updated the jwt.ts file to include a clock tolerance parameter in the verifyToken function.</subtitle>\n  <facts><fact>The agent modified the 'src/auth/jwt.ts' file by adding an optional parameter { clockTolerance: 30 } to the verifyToken function call.</fact></facts>\n  <narrative>The agent made a small change to the JWT verification process, introducing a configurable clock tolerance of 30 seconds. This adjustment likely aims to handle minor time discrepancies between systems more gracefully during token validation.</narrative>\n  <concepts><concept>JWT (JSON Web Tokens)</concept></concepts>\n  <files_read><file>src/auth/jwt.ts</file></files_read>\n  <files_modified><file>src/auth/jwt.ts</file></files_modified>\n  <why>To improve the robustness of token verification by allowing for a small time difference between systems.</why>\n  <rejected_alternatives><item>No alternative actions were considered as this was a minor configuration change rather than a decision point.</item></rejected_alternatives>\n  <lifecycle>resolved</lifecycle>\n</observation>",
+    "scores": {
+      "faithfulness": 5,
+      "specificity": 5,
+      "typeCorrectness": 4,
+      "usefulness": 4,
+      "structure": 5,
+      "rationale": "The observation accurately captures the diff with specific detail and well-organized fields; 'refactor' is slightly off since adding clock tolerance is more of a behavioral bugfix/improvement, but overall it is faithful and useful."
+    }
+  },
+  {
+    "arm": "single",
+    "label": "decision-db",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>decision</type>\n  <title>Chose Postgres for server runtime over SQLite and DynamoDB</title>\n  <subtitle>Decision rationale and alternatives considered.</subtitle>\n  <facts><fact>Postgres was chosen due to its support for concurrent multi-writer access and vector search capabilities through pgvector.</fact></facts>\n  <narrative>The agent decided on using Postgres as the server runtime database, rejecting SQLite and DynamoDB based on specific requirements of the project.</narrative>\n  <concepts><concept>Postgres</concept><concept>SQLite</concept><concept>DynamoDB</concept><concept>pgvector</concept></concepts>\n  <why>We need a database that supports concurrent multi-writer access and vector search capabilities.</why>\n  <rejected_alternatives>\n    <item>SQLite (single-writer)</item>\n    <item>DynamoDB (no vector search support)</item>\n  </rejected_alternatives>\n</observation>",
+    "scores": {
+      "faithfulness": 5,
+      "specificity": 5,
+      "typeCorrectness": 5,
+      "usefulness": 5,
+      "structure": 5,
+      "rationale": "The observation accurately captures the decision, rationale, and rejected alternatives with specific detail, uses the correct type, and populates all schema fields well including the dedicated rejected_alternatives section."
+    }
+  },
+  {
+    "arm": "single",
+    "label": "bugfix-race",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>bugfix</type>\n  <title>Race Condition in Connection Pool Fixed</title>\n  <subtitle>Two workers could claim the same queued job due to a race condition.</subtitle>\n  <facts><fact>A race condition was identified and fixed in the connection pool mechanism.</fact></facts>\n  <narrative>The agent addressed an issue where two workers might attempt to process the same queued job simultaneously, leading to potential data inconsistencies or processing errors. The fix involves using SELECT ... FOR UPDATE SKIP LOCKED to ensure mutual exclusion when claiming jobs from the queue.</narrative>\n  <concepts><concept>Connection Pooling</concept><concept>Race Condition</concept></concepts>\n  <files_read/>\n  <files_modified/>\n  <why>To prevent data corruption and ensure consistent job processing in a multi-threaded environment, it was necessary to implement mutual exclusion when claiming jobs from the queue.</why>\n  <rejected_alternatives><item>Adding retries for failed job claims</item></rejected_alternatives>\n  <lifecycle>resolved</lifecycle>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 4,
+      "typeCorrectness": 5,
+      "usefulness": 4,
+      "structure": 4,
+      "rationale": "Accurate bugfix record with correct type and good use of narrative/why, though the facts field is thin and the rejected_alternative (retries) is invented and not supported by the source."
+    }
+  },
+  {
+    "arm": "single",
+    "label": "read-config",
+    "skipped": true,
+    "parsed": true,
+    "text": "<skip_summary />"
+  },
+  {
+    "arm": "single",
+    "label": "grep-search",
+    "skipped": true,
+    "parsed": true,
+    "text": "<skip_summary />"
+  },
+  {
+    "arm": "single",
+    "label": "trivial-noop",
+    "skipped": true,
+    "parsed": true,
+    "text": "<skip_summary />"
+  },
+  {
+    "arm": "single",
+    "label": "blocker",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>decision</type>\n  <title>Proxy Configuration for Model Downloads</title>\n  <subtitle>Addressing Timeout Issues with Corporate Proxy</subtitle>\n  <facts><fact>The embedder model download times out due to the corporate proxy.</fact></facts>\n  <narrative>The agent encountered a timeout issue while attempting to download an embedder model through the corporate proxy. This indicates that either the proxy settings need adjustment or an allowlist entry for huggingface.co is required.</narrative>\n  <concepts><concept>Corporate Proxy</concept><concept>Hugging Face Model Hub</concept></concepts>\n  <why>To ensure smooth operation of the project, a decision must be made to either add an exception in the corporate proxy settings or use pre-baked model caches.</why>\n  <rejected_alternatives><item>No action taken; continue experiencing timeouts and delays.</item></rejected_alternatives>\n  <lifecycle>active</lifecycle>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 4,
+      "typeCorrectness": 2,
+      "usefulness": 4,
+      "structure": 4,
+      "rationale": "The observation captures the timeout issue and proposed remedies faithfully with concrete details, but the type should be 'blocker' rather than 'decision' since the source explicitly states 'Blocked' and no decision was actually made."
+    }
+  },
+  {
+    "arm": "single",
+    "label": "multi-file-refactor",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>refactor</type>\n  <title>Refactoring of v1 Read Endpoints in ServerV1PostgresRoutes.ts</title>\n  <subtitle>Merged three read endpoints into a single helper function to centralize ranking logic.</subtitle>\n  <facts><fact>Three v1 read endpoints were refactored.</fact><fact>A new resolveSearchResults helper was introduced.</fact></facts>\n  <narrative>The agent has refactored the three v1 read endpoints in ServerV1PostgresRoutes.ts to share a common resolveSearchResults helper function. This change aims at centralizing ranking logic, making it easier to maintain and update in one place rather than across multiple paths.</narrative>\n  <concepts><concept>refactoring</concept></concepts>\n  <files_read><file>ServerV1PostgresRoutes.ts</file></files_read>\n  <files_modified><file>ServerV1PostgresRoutes.ts</file></files_modified>\n  <why>To improve maintainability and ease of updates by centralizing ranking logic.</why>\n  <rejected_alternatives><item>Maintaining separate ranking logic for each endpoint.</item></rejected_alternatives>\n  <lifecycle>resolved</lifecycle>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 4,
+      "typeCorrectness": 5,
+      "usefulness": 4,
+      "structure": 4,
+      "rationale": "Accurately captures the refactor with correct type and good structure, though 'merged into a single helper' slightly overstates (endpoints share a helper) and the specific search/context/mcp paths are omitted from facts."
+    }
+  },
+  {
+    "arm": "single",
+    "label": "prompt",
+    "skipped": true,
+    "parsed": true,
+    "text": "<skip_summary />"
+  },
+  {
+    "arm": "multi",
+    "label": "bash-ls",
+    "skipped": true,
+    "parsed": false,
+    "text": "<!-- This operation is routine and does not provide new technical signal -->\n"
+  },
+  {
+    "arm": "multi",
+    "label": "edit-auth",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>change</type>\n  <title>Adjusted JWT Verification Tolerance</title>\n  <subtitle>Increased clock tolerance for token verification.</subtitle>\n  <facts>\n    <fact>Modified jwt.ts to include { clockTolerance: 30 } in verifyToken function call.</fact>\n  </facts>\n  <narrative>The user adjusted the JWT verification process by increasing the clock tolerance from its default value to 30 seconds. This change allows for a more lenient time window during token validation, accommodating slight discrepancies between system clocks.</narrative>\n  <concepts>\n    <concept>how-it-works</concept>\n    <concept>what-changed</concept>\n  </concepts>\n  <files_read>\n    <file>/src/auth/jwt.ts</file>\n  </files_read>\n  <files_modified>\n    <file>/src/auth/jwt.ts</file>\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 5,
+      "typeCorrectness": 5,
+      "usefulness": 4,
+      "structure": 5,
+      "rationale": "Accurately captures the diff with specific values and good structure, though it asserts the previous value was 'default' and attributes the change to 'the user' which aren't strictly supported by the source."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "decision-db",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>decision</type>\n  <title>Selected Postgres for Server Runtime Database</title>\n  <subtitle>Chose PostgreSQL over SQLite and DynamoDB due to requirements.</subtitle>\n  <facts>\n    <fact>PostgreSQL was selected for concurrent multi-writer access needs.</fact>\n    <fact>SQLite was rejected due to its single-writer limitation.</fact>\n    <fact>DynamoDB was excluded as it lacks vector search capabilities.</fact>\n  </facts>\n  <narrative>The decision was made to use PostgreSQL as the database system for the server runtime. This choice was driven by the requirement for concurrent multi-writer access and support for vector search, which are not available in SQLite or DynamoDB respectively.</narrative>\n  <concepts>\n    <concept>why-it-exists</concept>\n    <concept>trade-off</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <!-- No specific files modified -->\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 5,
+      "specificity": 5,
+      "typeCorrectness": 5,
+      "usefulness": 5,
+      "structure": 5,
+      "rationale": "The observation accurately and faithfully captures the decision, its rationale, and the rejected alternatives with correct type and well-structured fields, though it omits the specific pgvector detail in the facts (mentioned generically as vector search)."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "bugfix-race",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>bugfix</type>\n  <title>Resolved Race Condition in Connection Pool</title>\n  <subtitle>Fixed race condition allowing two workers to claim the same job.</subtitle>\n  <facts>\n    <fact>A race condition was identified where multiple workers could claim the same queued job simultaneously.</fact>\n    <fact>The fix involves adding SELECT ... FOR UPDATE SKIP LOCKED to ensure exclusive access to jobs in the queue.</fact>\n  </facts>\n  <narrative>A critical bug was addressed where two or more workers could concurrently claim and process the same job from a shared queue, leading to potential data inconsistencies. The solution implemented uses SQL's SELECT ... FOR UPDATE SKIP LOCKED statement to enforce mutual exclusion when accessing jobs in the queue.</narrative>\n  <concepts>\n    <concept>problem-solution</concept>\n    <concept>how-it-works</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <!-- No specific files modified -->\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 4,
+      "typeCorrectness": 5,
+      "usefulness": 4,
+      "structure": 5,
+      "rationale": "Accurately captures the source with correct bugfix type and good structure, though it adds minor speculation ('data inconsistencies', 'two or more') and lacks concrete file references not present in the source."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "read-config",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>change</type>\n  <title>Updated Dependencies in package.json</title>\n  <subtitle>Dependencies for PostgreSQL and BullMQ updated.</subtitle>\n  <facts>\n    <fact>Dependency \"pg\" version set to \"^8\".</fact>\n    <fact>Dependency \"bullmq\" version set to \"^5\".</fact>\n  </facts>\n  <narrative>The user has updated the dependencies in the package.json file, setting the PostgreSQL client library \"pg\" to version ^8 and BullMQ (a job queue system) to version ^5. This ensures that the project uses compatible and up-to-date versions of these libraries.</narrative>\n  <concepts>\n    <concept>what-changed</concept>\n    <concept>how-it-works</concept>\n  </concepts>\n  <files_read>\n    <file>/package.json</file>\n  </files_read>\n  <files_modified>\n    <file>/package.json</file>\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 2,
+      "specificity": 3,
+      "typeCorrectness": 1,
+      "usefulness": 2,
+      "structure": 3,
+      "rationale": "The source event is a Read (not a write), yet the observation fabricates that the user 'updated'/'modified' dependencies and lists package.json as files_modified, misrepresenting a read as a change and inventing unsupported facts."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "grep-search",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>discovery</type>\n  <title>Found Usage of markGenerationFailed Function</title>\n  <subtitle>Identified three instances of markGenerationFailed function.</subtitle>\n  <facts>\n    <fact>The pattern \"markGenerationFailed\" was found in the codebase 3 times.</fact>\n  </facts>\n  <narrative>A search for occurrences of the function `markGenerationFailed` revealed that it is used in three different places within the project. This discovery aids in understanding where and how this function is being utilized, which can be crucial for debugging or modifying related functionality.</narrative>\n  <concepts>\n    <concept>how-it-works</concept>\n    <concept>what-changed</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <!-- No specific files modified -->\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 2,
+      "typeCorrectness": 4,
+      "usefulness": 2,
+      "structure": 4,
+      "rationale": "The observation accurately reflects the grep result of 3 matches but lacks specificity since it doesn't identify the actual file locations (which weren't in the source event anyway), making it of limited use for future recall beyond the count."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "trivial-noop",
+    "skipped": true,
+    "parsed": false,
+    "text": "<!-- This operation is routine and does not provide new technical signal -->\n"
+  },
+  {
+    "arm": "multi",
+    "label": "blocker",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>discovery</type>\n  <title>Corporate Proxy Blocking Model Downloads</title>\n  <subtitle>Embedder model download times out due to corporate proxy restrictions.</subtitle>\n  <facts>\n    <fact>The embedder model download fails behind the corporate proxy.</fact>\n    <fact>An allowlist entry for huggingface.co or a pre-baked model cache is required.</fact>\n  </facts>\n  <narrative>A debugging attempt revealed that the embedder model download times out when executed behind a corporate proxy. This issue indicates network restrictions imposed by the proxy, necessitating an allowlist entry for huggingface.co or the use of a locally cached pre-baked model to bypass these limitations.</narrative>\n  <concepts>\n    <concept>problem-solution</concept>\n    <concept>how-it-works</concept>\n    <concept>gotcha</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <!-- No specific files modified -->\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 5,
+      "specificity": 5,
+      "typeCorrectness": 3,
+      "usefulness": 5,
+      "structure": 5,
+      "rationale": "The observation accurately and specifically captures the proxy download blocker with useful remediation options, but the type should be 'blocker' rather than 'discovery' given the source explicitly states 'Blocked'; the narrative also invents a 'debugging attempt' not in the source."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "multi-file-refactor",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>refactor</type>\n  <title>Merged Search Result Ranking Logic into Helper Function</title>\n  <subtitle>Refactored v1 read endpoints to share resolveSearchResults.</subtitle>\n  <facts>\n    <fact>Three v1 read endpoints now use a shared resolveSearchResults helper function.</fact>\n    <fact>Ranking logic is centralized in the resolveSearchResults function.</fact>\n    <fact>Touched files include ServerV1PostgresRoutes.ts, search, context, and mcp paths.</fact>\n  </facts>\n  <narrative>The user refactored three v1 read endpoints to share a common `resolveSearchResults` helper function. This change centralizes the ranking logic in one place, improving maintainability and reducing redundancy across different endpoint implementations. The refactor affected several files including ServerV1PostgresRoutes.ts and paths related to search, context, and mcp.</narrative>\n  <concepts>\n    <concept>how-it-works</concept>\n    <concept>what-changed</concept>\n    <concept>pattern</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <file>/ServerV1PostgresRoutes.ts</file>\n    <file>/search/...</file>\n    <file>/context/...</file>\n    <file>/mcp/...</file>\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 4,
+      "typeCorrectness": 5,
+      "usefulness": 4,
+      "structure": 4,
+      "rationale": "Accurately captures the refactor with good structure, but misinterprets search/context/mcp as separate file paths (they're code paths within one file) leading to fabricated file entries."
+    }
+  },
+  {
+    "arm": "multi",
+    "label": "prompt",
+    "skipped": false,
+    "parsed": true,
+    "text": "<observation>\n  <type>discovery</type>\n  <title>User Inquiry About Stale Search Results</title>\n  <subtitle>Questioned why search returns stale results after observation deletion.</subtitle>\n  <facts>\n    <fact>The user noticed that the search still shows deleted observations.</fact>\n    <fact>Inquiry about the cause of stale search results post-deletion.</fact>\n  </facts>\n  <narrative>A user reported encountering stale search results even after deleting an observation. The inquiry aims to understand why the system is returning outdated information despite the deletion action, indicating a potential issue with data freshness or caching mechanisms.</narrative>\n  <concepts>\n    <concept>problem-solution</concept>\n    <concept>how-it-works</concept>\n    <concept>gotcha</concept>\n  </concepts>\n  <files_read>\n    <!-- No specific files read -->\n  </files_read>\n  <files_modified>\n    <!-- No specific files modified -->\n  </files_modified>\n</observation>",
+    "scores": {
+      "faithfulness": 4,
+      "specificity": 2,
+      "typeCorrectness": 2,
+      "usefulness": 2,
+      "structure": 3,
+      "rationale": "The observation faithfully restates the user's question but adds slight speculation (caching/data freshness) not in the source; it's a bare question with no answer, so 'discovery' is a poor type fit and it offers little actionable value for a future session."
+    }
+  }
+]

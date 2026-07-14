@@ -15,11 +15,27 @@ npm run build-and-sync        # Build, sync to marketplace, restart worker
 - **Installed Plugin**: `~/.claude/plugins/marketplaces/shshalom/`
 - **Database**: `~/.memsmith/memsmith.db`
 - **Chroma**: `~/.memsmith/chroma/`
+- **Embedded PG data dir** (local runtime): `~/.memsmith/pgdata`
+- **Embedded PG binaries** (local runtime): `~/.memsmith/pg-binaries`
+
+## Runtimes
+
+The legacy `worker`/SQLite runtime has been retired. There are two runtimes, both
+running the same server engine (Postgres + pgvector + semantic search):
+
+- **Default runtime**: `local` (embedded Postgres, single-user, no Docker). This is
+  the shipped default (`MEMSMITH_RUNTIME=local`); legacy `worker` settings remap to
+  `local` transparently.
+- **`MEMSMITH_RUNTIME=local`**: runs an embedded Postgres in-process (no Docker) so a solo user gets Postgres + semantic search without a container. On first boot it imports any existing SQLite DB (`~/.memsmith/memsmith.db`) into Postgres — taxonomy-aware, idempotent (marker `~/.memsmith/.local-import-done`), with embedding backfill so semantic search works immediately.
+  - Manage it with: the `local start | stop | status` CLI (`src/services/local-runtime-cli.ts`).
+  - Data dir: `~/.memsmith/pgdata`; downloaded binaries: `~/.memsmith/pg-binaries`.
+  - Port: `55433` (override with `MEMSMITH_LOCAL_PG_PORT`). The port is fixed — the manager never wanders to a random port; if the port is held by a foreign process it fails loud.
+- **`MEMSMITH_RUNTIME=server`**: the same engine pointed at a remote Postgres (team mode).
 
 ## Requirements
 
 - **Bun** (all platforms - auto-installed if missing)
-- **uv** (all platforms - auto-installed if missing, provides Python for Chroma)
+- **uv** (all platforms - auto-installed if missing, used by the installer runtime setup)
 - Node.js
 
 ## Documentation

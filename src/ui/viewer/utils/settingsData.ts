@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 import { V1_ENDPOINTS } from '../constants/api.js';
 
+export interface IdentityPayload {
+  teamId: string;
+  projectId: string;
+  keyPresent: boolean;
+  keyMasked: string;
+  keyPlaintext?: string;
+}
+
+export async function fetchIdentity(reveal?: boolean): Promise<IdentityPayload | null> {
+  try {
+    const url = reveal ? `${V1_ENDPOINTS.IDENTITY}?reveal=true` : V1_ENDPOINTS.IDENTITY;
+    const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+    if (!res.ok) return null;
+    return await res.json() as IdentityPayload;
+  } catch {
+    return null;
+  }
+}
+
 export interface SettingField {
   value: unknown;
   source: string;

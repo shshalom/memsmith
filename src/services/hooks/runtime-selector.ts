@@ -17,11 +17,14 @@
 // PROJECT_ID}` are read first and fall back to the legacy
 // `MEMSMITH_SERVER_BETA_*` keys when unset.
 
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
+import { CredentialStore } from '../identity/credential-store.js';
 
-export type SelectedRuntime = 'worker' | 'server';
+export type SelectedRuntime = 'local' | 'server';
 
 export interface ServerRuntimeContext {
   runtime: 'server';
@@ -30,22 +33,48 @@ export interface ServerRuntimeContext {
   serverBaseUrl: string;
 }
 
-export interface WorkerRuntimeContext {
-  runtime: 'worker';
+export interface LocalRuntimeContext {
+  runtime: 'local';
+  // Embedded server not yet reachable (URL/key/project unwritten). Handlers
+  // treat this as "skip this hook cleanly" — there is no worker fallback.
+  reason: 'server_context_unavailable';
 }
 
-export type RuntimeContext = ServerRuntimeContext | WorkerRuntimeContext;
+export type RuntimeContext = ServerRuntimeContext | LocalRuntimeContext;
+
+export function normalizeRuntime(raw: string | undefined): SelectedRuntime {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'server' || v === 'server-beta') return 'server';
+  // Legacy `worker` and anything unset/unknown now resolve to the embedded
+  // local runtime (worker retired). Smooth remap: an existing settings.json
+  // with MEMSMITH_RUNTIME=worker keeps working, pointed at embedded PG.
+  return 'local';
+}
 
 export function selectRuntime(): SelectedRuntime {
   const settings = loadFromFileOnce();
-  const raw = (settings.MEMSMITH_RUNTIME ?? 'worker').trim().toLowerCase();
-  // Accept both the canonical `'server'` (Phase 1a) and the legacy
-  // `'server-beta'` literal for back-compat with installed settings.json.
-  if (raw === 'server' || raw === 'server-beta') return 'server';
-  return 'worker';
+  return normalizeRuntime(settings.MEMSMITH_RUNTIME);
 }
 
-export function buildServerContext(): ServerRuntimeContext | null {
+export interface BuildServerContextOptions {
+  cwd?: string;
+  credentialStore?: CredentialStore;
+  // Test seam: override the server base URL instead of reading it from the
+  // (process-global, mock-pollutable) settings module. Production callers omit
+  // this and the URL resolves from settings as normal.
+  serverBaseUrlOverride?: string;
+}
+
+function readMarkerFor(cwd: string): { teamId: string; projectId: string } | null {
+  const p = join(cwd, '.memsmith', 'project.json');
+  if (!existsSync(p)) return null;
+  try {
+    const m = JSON.parse(readFileSync(p, 'utf-8')) as { teamId?: string; projectId?: string };
+    return m.teamId && m.projectId ? { teamId: m.teamId, projectId: m.projectId } : null;
+  } catch { return null; }
+}
+
+export function buildServerContext(options: BuildServerContextOptions = {}): ServerRuntimeContext | null {
   const settings = loadFromFileOnce();
   // Phase 1a: read new keys first, fall back to legacy `*_BETA_*` keys so
   // existing settings.json files keep resolving the server runtime.
@@ -60,14 +89,15 @@ export function buildServerContext(): ServerRuntimeContext | null {
     return '';
   };
   const serverBaseUrl = pickFirstNonEmpty(
+    options.serverBaseUrlOverride,
     settings.MEMSMITH_SERVER_URL,
     settings.MEMSMITH_SERVER_BETA_URL,
   );
-  const apiKey = pickFirstNonEmpty(
+  let apiKey = pickFirstNonEmpty(
     settings.MEMSMITH_SERVER_API_KEY,
     settings.MEMSMITH_SERVER_BETA_API_KEY,
   );
-  const projectId = pickFirstNonEmpty(
+  let projectId = pickFirstNonEmpty(
     settings.MEMSMITH_SERVER_PROJECT_ID,
     settings.MEMSMITH_SERVER_BETA_PROJECT_ID,
   );
@@ -76,6 +106,24 @@ export function buildServerContext(): ServerRuntimeContext | null {
     logger.warn('HOOK', '[server-fallback] reason=missing_base_url');
     return null;
   }
+
+  // Local-identity path: when no explicit team-mode key is configured, resolve
+  // the project's base key from the marker + CredentialStore (the key-everywhere
+  // seam). This is what makes local injection + MCP recall work without the
+  // keyless bypass.
+  if (!apiKey) {
+    const cwd = options.cwd ?? process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+    const marker = readMarkerFor(cwd);
+    if (marker) {
+      const store = options.credentialStore ?? new CredentialStore();
+      const resolved = store.resolveKeyForTeam(marker.teamId);
+      if (resolved) {
+        apiKey = resolved;
+        if (!projectId) projectId = marker.projectId;
+      }
+    }
+  }
+
   if (!apiKey) {
     logger.warn('HOOK', '[server-fallback] reason=missing_api_key');
     return null;
@@ -98,14 +146,13 @@ export function buildServerContext(): ServerRuntimeContext | null {
 }
 
 export function resolveRuntimeContext(): RuntimeContext {
-  if (selectRuntime() !== 'server') {
-    return { runtime: 'worker' };
-  }
+  // Both `server` and `local` reach the engine over HTTP; in `local` mode the
+  // server runs in-process and MEMSMITH_SERVER_URL points at it. Build a server
+  // context for either. If the context can't be built (missing URL/key/project),
+  // return a local "skip" context — the worker fallback no longer exists.
   const ctx = buildServerContext();
-  if (!ctx) {
-    return { runtime: 'worker' };
-  }
-  return ctx;
+  if (ctx) return ctx;
+  return { runtime: 'local', reason: 'server_context_unavailable' };
 }
 
 export function logServerFallback(reason: string, details?: Record<string, unknown>): void {

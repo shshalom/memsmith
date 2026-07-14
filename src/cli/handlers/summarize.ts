@@ -3,7 +3,6 @@
 // console.* / process.exit. logger.* calls are DIAGNOSTIC; thrown errors are
 // caught by hookCommand and routed through emitBlockingError.
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { executeWithWorkerFallback, isWorkerFallback } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 import { extractLastMessage } from '../../shared/transcript-parser.js';
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
@@ -125,7 +124,7 @@ export const summarizeHandler: EventHandler = {
             message: error.message,
             route: '/v1/sessions/end',
           });
-          // fall through to worker fallback
+          // fall through to clean skip (worker fallback retired)
         } else {
           logger.error('HOOK', 'Server summarize failed (non-recoverable)', {
             error: error instanceof Error ? error.message : String(error),
@@ -135,20 +134,9 @@ export const summarizeHandler: EventHandler = {
       }
     }
 
-    const queueResult = await executeWithWorkerFallback<{ status?: string }>(
-      '/api/sessions/summarize',
-      'POST',
-      {
-        contentSessionId: sessionId,
-        last_assistant_message: lastAssistantMessage,
-        platformSource,
-      },
-    );
-    if (isWorkerFallback(queueResult)) {
-      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
-    }
-
-    logger.debug('HOOK', 'Summary request queued, exiting hook');
-    return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    // No server runtime reachable (embedded not yet available). The worker
+    // fallback has been retired; skip cleanly so the hook never blocks.
+    logger.debug('HOOK', 'No reachable runtime for summarize; skipping', { sessionId });
+    return { continue: true, suppressOutput: true };
   },
 };

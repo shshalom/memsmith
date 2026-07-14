@@ -4,18 +4,18 @@ import { join } from 'path';
 import type { TranscriptSchema, WatchTarget } from '../../src/services/transcripts/types.js';
 import { TranscriptEventProcessor } from '../../src/services/transcripts/processor.js';
 import * as realSessionInit from '../../src/cli/handlers/session-init.js';
-import * as realWorkerUtils from '../../src/shared/worker-utils.js';
+import * as realRecentInjection from '../../src/services/hooks/recent-context-injection.js';
 import * as realAgentsMdUtils from '../../src/utils/agents-md-utils.js';
 import * as realProjectName from '../../src/utils/project-name.js';
 
 const realSessionInitSnapshot = { ...realSessionInit };
-const realWorkerUtilsSnapshot = { ...realWorkerUtils };
+const realRecentInjectionSnapshot = { ...realRecentInjection };
 const realAgentsMdUtilsSnapshot = { ...realAgentsMdUtils };
 const realProjectNameSnapshot = { ...realProjectName };
 
 afterAll(() => {
   mock.module('../../src/cli/handlers/session-init.js', () => realSessionInitSnapshot);
-  mock.module('../../src/shared/worker-utils.js', () => realWorkerUtilsSnapshot);
+  mock.module('../../src/services/hooks/recent-context-injection.js', () => realRecentInjectionSnapshot);
   mock.module('../../src/utils/agents-md-utils.js', () => realAgentsMdUtilsSnapshot);
   mock.module('../../src/utils/project-name.js', () => realProjectNameSnapshot);
 });
@@ -29,16 +29,21 @@ mock.module('../../src/cli/handlers/session-init.js', () => ({
   },
 }));
 
-const workerHttpRequestCalls: string[] = [];
-const writeAgentsCalls: Array<{ agentsPath: string; content: string }> = [];
+// Worker retirement — the AGENTS.md context is now pulled via the shared
+// recent-mode injection helper (server/local runtime + empty-query /v1/search)
+// instead of the deleted worker route `/api/context/inject`. Capture the
+// project id it was asked for and the string it returned.
+const recentInjectionCalls: Array<{ projectId: string; platformSource?: string }> = [];
+let recentInjectionResult = 'injected-context';
 
-mock.module('../../src/shared/worker-utils.js', () => ({
-  ensureWorkerRunning: async () => true,
-  workerHttpRequest: async (apiPath: string) => {
-    workerHttpRequestCalls.push(apiPath);
-    return new Response('injected-context');
+mock.module('../../src/services/hooks/recent-context-injection.js', () => ({
+  fetchRecentContextString: async (args: { projectId: string; platformSource?: string }) => {
+    recentInjectionCalls.push({ projectId: args.projectId, platformSource: args.platformSource });
+    return recentInjectionResult;
   },
 }));
+
+const writeAgentsCalls: Array<{ agentsPath: string; content: string }> = [];
 
 mock.module('../../src/utils/agents-md-utils.js', () => ({
   writeAgentsMd: (agentsPath: string, context: string) => {
@@ -97,12 +102,13 @@ describe('TranscriptEventProcessor AGENTS context', () => {
 
   beforeEach(() => {
     processor = new TranscriptEventProcessor();
-    workerHttpRequestCalls.length = 0;
+    recentInjectionCalls.length = 0;
     writeAgentsCalls.length = 0;
+    recentInjectionResult = 'injected-context';
   });
 
   afterEach(() => {
-    workerHttpRequestCalls.length = 0;
+    recentInjectionCalls.length = 0;
     writeAgentsCalls.length = 0;
     mock.restore();
   });
@@ -117,10 +123,10 @@ describe('TranscriptEventProcessor AGENTS context', () => {
     await processor.processEntry(sessionPayload(cwd), watch, schema);
 
     expect(writeAgentsCalls).toHaveLength(0);
-    expect(workerHttpRequestCalls).toHaveLength(0);
+    expect(recentInjectionCalls).toHaveLength(0);
   });
 
-  it('still writes AGENTS context for non-native Codex transcript watches', async () => {
+  it('writes AGENTS context from recent-mode injection for non-native Codex transcript watches', async () => {
     const cwd = join(tmpdir(), 'non-native-codex-context');
     const agentsPath = join(cwd, 'AGENTS.md');
     const watch = makeWatch({
@@ -137,7 +143,33 @@ describe('TranscriptEventProcessor AGENTS context', () => {
 
     expect(writeAgentsCalls).toHaveLength(1);
     expect(writeAgentsCalls[0].agentsPath).toBe(agentsPath);
-    expect(workerHttpRequestCalls).toContain('/api/context/inject?projects=repo-project&platformSource=codex');
+    // Repointed off the worker: recent-mode injection is queried for the
+    // resolved project scope and its packed string is written verbatim.
+    expect(recentInjectionCalls).toHaveLength(1);
+    expect(recentInjectionCalls[0].projectId).toBe('repo-project');
+    expect(recentInjectionCalls[0].platformSource).toBe('codex');
     expect(writeAgentsCalls[0].content).toBe('injected-context');
+  });
+
+  it('cleanly skips the AGENTS write when recent-mode injection returns empty', async () => {
+    const cwd = join(tmpdir(), 'empty-codex-context');
+    const agentsPath = join(cwd, 'AGENTS.md');
+    const watch = makeWatch({
+      name: 'codex-legacy',
+      path: join(tmpdir(), 'codex-export', '**', '*.jsonl'),
+      context: {
+        mode: 'agents',
+        path: agentsPath,
+        updateOn: ['session_start'],
+      },
+    });
+
+    recentInjectionResult = '';
+
+    await processor.processEntry(sessionPayload(cwd), watch, schema);
+
+    // Injection was attempted but produced nothing — never write an empty file.
+    expect(recentInjectionCalls).toHaveLength(1);
+    expect(writeAgentsCalls).toHaveLength(0);
   });
 });

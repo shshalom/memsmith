@@ -1,9 +1,9 @@
 // #2473 — Plugin MCP server tools were never surfaced to the assistant because
 // Claude Code (host-side) built the fully-qualified name with colons
-// (`plugin:memsmith:mcp-search`), and the deferred-tool pattern
+// (`plugin:memsmith:mem`), and the deferred-tool pattern
 // `mcp__<server>__<tool>` rejected the colons. The root cause is HOST-SIDE and
 // not fixable in our code (and current Claude Code namespaces with underscores:
-// `mcp__plugin_memsmith_mcp-search__*`, which register correctly).
+// `mcp__plugin_memsmith_mem__*`, which register correctly).
 //
 // The one thing under OUR control is the server name we declare in
 // plugin/.mcp.json and the tool names we register. Both must stay within the
@@ -43,7 +43,7 @@ describe('MCP server name safety (#2473)', () => {
     expect(toolNames.length).toBeGreaterThan(5);
 
     // Worst-case qualified prefix the host applies for this plugin's server.
-    const QUALIFIED_PREFIX = 'mcp__plugin_memsmith_mcp-search__';
+    const QUALIFIED_PREFIX = 'mcp__plugin_memsmith_mem__';
     for (const tool of toolNames) {
       expect(tool).not.toContain(':');
       expect(tool).not.toContain('.');

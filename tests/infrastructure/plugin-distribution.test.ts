@@ -26,13 +26,13 @@ function commandHooksFrom(relativePath: string): string[] {
 
 function mcpStartupCommandFrom(relativePath: string): string {
   const parsed = readJson(relativePath);
-  return parsed.mcpServers['mcp-search'].args[1];
+  return parsed.mcpServers['mem'].args[1];
 }
 
 describe('Plugin Distribution - Skills', () => {
-  const skillPath = path.join(projectRoot, 'plugin/skills/mem-search/SKILL.md');
+  const skillPath = path.join(projectRoot, 'plugin/skills/ms-mem-search/SKILL.md');
 
-  it('should include plugin/skills/mem-search/SKILL.md', () => {
+  it('should include plugin/skills/ms-mem-search/SKILL.md', () => {
     expect(existsSync(skillPath)).toBe(true);
   });
 
@@ -64,7 +64,7 @@ describe('Plugin Distribution - Required Files', () => {
     'plugin/.claude-plugin/plugin.json',
     'plugin/.codex-plugin/plugin.json',
     'plugin/.mcp.json',
-    'plugin/skills/mem-search/SKILL.md',
+    'plugin/skills/ms-mem-search/SKILL.md',
     '.agents/plugins/marketplace.json',
   ];
 
@@ -103,7 +103,7 @@ describe('Plugin Distribution - Codex Marketplace', () => {
   it('MCP launcher can recover without plugin root environment variables', () => {
     const mcpPath = path.join(projectRoot, 'plugin/.mcp.json');
     const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-    const command = mcp.mcpServers['mcp-search'].args.join(' ');
+    const command = mcp.mcpServers['mem'].args.join(' ');
 
     expect(command).toContain('.codex/plugins/cache/memsmith-local/memsmith');
     expect(command).toContain('plugins/cache/shshalom/memsmith');
@@ -210,7 +210,7 @@ describe('Plugin Distribution - Build Script Verification', () => {
     const buildScriptPath = path.join(projectRoot, 'scripts/build-hooks.js');
     const content = readFileSync(buildScriptPath, 'utf-8');
 
-    expect(content).toContain('plugin/skills/mem-search/SKILL.md');
+    expect(content).toContain('plugin/skills/ms-mem-search/SKILL.md');
     expect(content).toContain('plugin/hooks/hooks.json');
     expect(content).toContain('plugin/.claude-plugin/plugin.json');
   });
@@ -251,19 +251,19 @@ describe('Plugin Distribution - Setup Hook (#1547)', () => {
 // ---------------------------------------------------------------------------
 
 const ccTrailing = (...tail: string[]) => [
-  'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/worker-service.cjs"', ...tail,
+  'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/server-service.cjs"', ...tail,
 ];
 const claudeHook = (tail: string[], extra: Record<string, unknown> = {}) => buildShellCommand({
-  host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found', ...extra,
 });
 const codexHook = (tail: string[]) => buildShellCommand({
-  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found',
   extraEnv: { MEMSMITH_CODEX_HOOK: '1' },
 });
 const codexStartupHook = () => buildShellCommand({
-  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+  host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
   trailingCommand: [
     '_V=$(MEMSMITH_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
     'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',
@@ -324,9 +324,9 @@ describe('Spawn-Contract Templating - Rule A generator parity', () => {
     }
   }
 
-  it('plugin/.mcp.json mcp-search command equals buildShellCommand output', () => {
+  it('plugin/.mcp.json mem command equals buildShellCommand output', () => {
     const parsed = readJson('plugin/.mcp.json');
-    expect(parsed.mcpServers['mcp-search'].args[1]).toBe(MCP_EXPECTED);
+    expect(parsed.mcpServers['mem'].args[1]).toBe(MCP_EXPECTED);
   });
 
   it('never leaks a raw ${CLAUDE_PLUGIN_ROOT} into the resolved trailing command', () => {
@@ -380,7 +380,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     mkdirSync(path.join(root, 'scripts'), { recursive: true });
     writeFileSync(path.join(root, 'scripts', 'version-check.js'), '');
     writeFileSync(path.join(root, 'scripts', 'bun-runner.js'), '');
-    writeFileSync(path.join(root, 'scripts', 'worker-service.cjs'), '');
+    writeFileSync(path.join(root, 'scripts', 'server-service.cjs'), '');
     try {
       for (const { command } of claudeCommands()) {
         const { stdout } = shellEval(instrument(command), {
@@ -400,7 +400,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     mkdirSync(path.join(cacheRoot, 'scripts'), { recursive: true });
     writeFileSync(path.join(cacheRoot, 'scripts', 'version-check.js'), '');
     writeFileSync(path.join(cacheRoot, 'scripts', 'bun-runner.js'), '');
-    writeFileSync(path.join(cacheRoot, 'scripts', 'worker-service.cjs'), '');
+    writeFileSync(path.join(cacheRoot, 'scripts', 'server-service.cjs'), '');
     try {
       for (const { command } of claudeCommands()) {
         const { stdout } = shellEval(instrument(command), { HOME: home });

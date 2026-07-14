@@ -31,7 +31,7 @@ import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 // back-compat. Plan §1d will handle the literal migration.
 const SERVER_RUNTIME = 'server-beta';
 const DEFAULT_SERVER_HOST = '127.0.0.1';
-const DEFAULT_SERVER_PORT = 37877;
+const DEFAULT_SERVER_PORT = 38877;
 
 export interface ServerServiceOptions {
   graph: ServerServiceGraph;
@@ -203,6 +203,12 @@ export class ServerService {
       pool: this.graph.postgres.pool,
       ingestEvents: v1Routes.getIngestEventsService(),
       authMode: compatAuthMode,
+      // GET /api/observations (viewer list) must honor the same loopback
+      // local-dev bypass as the /v1 + /dashboard reads, else the viewer's
+      // Observations tab 403s in local mode.
+      allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
+      localDevTeamId: this.graph.localDevTeamId ?? null,
+      localDevProjectId: this.graph.localDevProjectId ?? null,
     }));
     server.registerRoutes(new SessionsSummarizeAdapter({
       pool: this.graph.postgres.pool,
@@ -310,6 +316,26 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
   const command = argv[0] ?? '--daemon';
   const port = getServerPort();
   const host = process.env.MEMSMITH_SERVER_HOST ?? DEFAULT_SERVER_HOST;
+
+  // `hook <platform> <event>` — plugin capture hooks (claude-code, codex, etc.)
+  // IO discipline: once hookCommand is invoked, src/shared/hook-io.ts owns all
+  // stdout/stderr/exit. The pre-hookCommand error paths below are CLI-style:
+  // console.error + exit 1 is acceptable because they occur BEFORE the
+  // buffered window opens. argv[0]='hook', argv[1]=platform, argv[2]=event
+  // (argv is process.argv.slice(2) so these map to process.argv[2..4]).
+  if (command === 'hook') {
+    const platform = argv[1];
+    const event = argv[2];
+    if (!platform || !event) {
+      console.error('Usage: memsmith hook <platform> <event>');
+      console.error('Platforms: claude-code, codex, cursor, antigravity-cli, raw');
+      console.error('Events: context, session-init, observation, summarize, user-message');
+      process.exit(1);
+    }
+    const { hookCommand } = await import('../../cli/hook-command.js');
+    const code = await hookCommand(platform, event);
+    process.exit(code);
+  }
 
   // Phase 10: `memsmith server worker [start|--daemon]` runs the BullMQ
   // generation worker as a foregrounded process — no HTTP server, no route
@@ -451,6 +477,14 @@ async function runServerForeground(port: number, host: string): Promise<void> {
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   await service.start();
+}
+
+// Exported for the local runtime, which boots embedded PG then runs the same
+// foreground service loop. Mirrors the `server start` port/host resolution.
+export async function runServerForegroundForLocal(): Promise<void> {
+  const port = getServerPort();
+  const host = process.env.MEMSMITH_SERVER_HOST ?? DEFAULT_SERVER_HOST;
+  await runServerForeground(port, host);
 }
 
 // Phase 10 — Postgres-backed `server api-key create|list|revoke` CLI. The

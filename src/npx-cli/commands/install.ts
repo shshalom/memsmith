@@ -11,7 +11,7 @@ import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { loadMemSmithEnv, saveMemSmithEnv } from '../../shared/EnvManager.js';
-import { ensureWorkerStarted, type WorkerStartResult } from '../../services/worker-spawner.js';
+import { resolveWorkerRuntimePath } from '../../services/infrastructure/ProcessManager.js';
 import {
   ensureBun,
   ensureUv,
@@ -586,7 +586,7 @@ async function promptForIDESelection(): Promise<string[]> {
   const claudeCodeInfo = detectedIDEs.find((ide) => ide.id === 'claude-code');
 
   if (claudeCodeInfo && !claudeCodeInfo.detected) {
-    log.warn('Claude Code is not installed. Claude-mem works best in Claude Code, but also works with the IDEs below.');
+    log.warn('Claude Code is not installed. MemSmith works best in Claude Code, but also works with the IDEs below.');
     const choice = await p.select<'install' | 'skip' | 'cancel'>({
       message: 'Install Claude Code now?',
       options: [
@@ -779,7 +779,7 @@ type ClaudeApiMode = 'direct' | 'gateway';
 // `'server-beta'` settings values, but the installer writes the new canonical
 // form `'server'` going forward (settings keys: MEMSMITH_SERVER_{URL,
 // API_KEY,PROJECT_ID}).
-type RuntimeId = 'worker' | 'server';
+type RuntimeId = 'local' | 'server';
 
 function readRawStoredAuthMethod(): 'subscription' | 'api-key' | 'gateway' | undefined {
   try {
@@ -801,7 +801,7 @@ function resolveClaudeAuthMethod(): 'subscription' | 'api-key' | 'gateway' {
   return 'subscription';
 }
 
-const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:37877';
+const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:38877';
 
 async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   // #2543 — non-interactive runtime selection via `--runtime`. When the flag is
@@ -811,29 +811,33 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   if (options.runtime !== undefined) {
     const requested = normalizeRuntimeFlag(options.runtime);
     if (requested === null) {
-      log.error(`Unknown --runtime: ${options.runtime}. Allowed: worker, server`);
+      log.error(`Unknown --runtime: ${options.runtime}. Allowed: local, worker, server`);
       process.exit(1);
     }
     if (requested === 'server') {
       await setupServerRuntimeNonInteractive(options);
       return 'server';
     }
-    mergeSettings({ MEMSMITH_RUNTIME: 'worker' });
-    return 'worker';
+    // Both 'worker' (legacy alias) and 'local' resolve to the embedded local runtime.
+    mergeSettings({ MEMSMITH_RUNTIME: 'local' });
+    return 'local';
   }
 
   if (!isInteractive) {
-    mergeSettings({ MEMSMITH_RUNTIME: 'worker' });
-    return 'worker';
+    // Non-interactive: inherit the 'local' default (Task 4, SettingsDefaultsManager).
+    // No explicit write needed — the default is already 'local'. Write it anyway
+    // so the settings file reflects the chosen runtime for introspection.
+    mergeSettings({ MEMSMITH_RUNTIME: 'local' });
+    return 'local';
   }
 
   const selected = await p.select<RuntimeId>({
     message: 'Which runtime should memsmith start after install?',
     options: [
-      { value: 'worker', label: 'Worker', hint: 'stable compatibility path' },
+      { value: 'local', label: 'Local (embedded)', hint: 'embedded Postgres in-process, no Docker needed' },
       { value: 'server', label: 'Server (beta)', hint: 'REST V1, API keys, team-ready storage' },
     ],
-    initialValue: 'worker',
+    initialValue: 'local',
   });
 
   if (p.isCancel(selected)) {
@@ -1526,7 +1530,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     await promptClaudeModel(options);
   }
 
-  let workerStartResult: WorkerStartResult = 'dead';
+  let workerStartResult: 'ready' | 'warming' | 'dead' = 'dead';
   // Claude Code consumes the marketplace plugin system directly, so any selection
   // (claude-code or otherwise) needs the marketplace + plugin registration steps.
   // The only time we'd skip is a hypothetical no-IDE install, which the prompt above
@@ -1677,14 +1681,14 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
-  // `memsmith server start`), NOT the worker-service spawner. Skip the
-  // worker-only autostart entirely so the server runtime never invokes the
-  // worker path (#2543).
+  // `memsmith server start`), NOT the local-runtime spawner. Skip the
+  // local autostart entirely so the server runtime never invokes the
+  // local path (#2543).
   const autoStartSkipped = !isInteractive || options.noAutoStart || selectedRuntime === 'server';
 
   await runTasks([
     {
-      title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting worker daemon',
+      title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting local runtime',
       task: async (message) => {
         if (selectedRuntime === 'server') {
           return `Server runtime selected — start it with ${styleText('bold', 'npx memsmith server start')} ${styleText('dim', '(or via Docker compose)')}`;
@@ -1694,22 +1698,36 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
             ? `Skipped (--no-auto-start)`
             : `Skipped (non-TTY)`;
         }
-        const port = Number(getSetting('MEMSMITH_WORKER_PORT'));
         const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
         const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'worker-service.cjs');
         const scriptPath = existsSync(marketplaceScriptPath) ? marketplaceScriptPath : cacheScriptPath;
-        // selectedRuntime is narrowed to 'worker' here: the server case
-        // returned above and never reaches the worker-service spawner.
-        message(`Spawning worker on port ${port}...`);
-        workerStartResult = await ensureWorkerStarted(port, scriptPath);
-        switch (workerStartResult) {
-          case 'ready':
-            return `Worker ready at http://localhost:${port} ${styleText('green', 'OK')}`;
-          case 'warming':
-            return `Worker starting on port ${port} — finishing in background ${styleText('yellow', '⏳')}`;
-          case 'dead':
-            return `Worker did not start — try \`npx memsmith start\` manually ${styleText('yellow', '!')}`;
+        // selectedRuntime is 'local' here: the server case returned above.
+        // startLocalRuntime() BLOCKS in the foreground server loop, so we must
+        // detach it. Mirror spawnDaemon's mechanism exactly: spawnHidden with
+        // detached:true + unref(), but invoke `local start` instead of `--daemon`.
+        message('Spawning embedded local runtime (detached)...');
+        const runtimePath = resolveWorkerRuntimePath();
+        if (!runtimePath) {
+          workerStartResult = 'dead';
+          return `Bun runtime not found — install from https://bun.sh ${styleText('yellow', '!')}`;
         }
+        const setsidPath = '/usr/bin/setsid';
+        const useSetsid = process.platform !== 'win32' && existsSync(setsidPath);
+        const execPath = useSetsid ? setsidPath : runtimePath;
+        const args = useSetsid
+          ? [runtimePath, scriptPath, 'local', 'start']
+          : [scriptPath, 'local', 'start'];
+        const child = spawnHidden(execPath, args, {
+          detached: true,
+          stdio: 'ignore',
+        });
+        if (child.pid === undefined) {
+          workerStartResult = 'dead';
+          return `Local runtime did not start — try \`npx memsmith local start\` manually ${styleText('yellow', '!')}`;
+        }
+        child.unref();
+        workerStartResult = 'warming';
+        return `Local runtime starting in background ${styleText('yellow', '⏳')}`;
       },
     },
   ]);
@@ -1749,19 +1767,23 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // spinners and summary note (a live print would be clobbered by clack).
   flushSummary(summary, (line) => (isInteractive ? p.log.message(line) : console.log(`  ${line}`)));
 
-  const workerPort = getSetting('MEMSMITH_WORKER_PORT');
+  // The health-check block always runs for the local runtime (selectedRuntime === 'local').
+  // The server runtime sets autoStartSkipped=true and never reaches this point.
+  // Use the local runtime's URL (UID-derived port, matches runServerForegroundForLocal).
+  const localRuntimeBaseUrl = getSetting('MEMSMITH_SERVER_URL');
+  const localRuntimePort = new URL(localRuntimeBaseUrl).port || '38877';
 
-  let actualPort: number | string = workerPort;
+  let actualPort: number | string = localRuntimePort;
   let workerReady = false;
-  // Don't poll the worker or imply it's "still starting" when autostart was
+  // Don't poll the local runtime or imply it's "still starting" when autostart was
   // intentionally skipped (--no-auto-start, or non-interactive default). The
-  // user knows they have to start it themselves; lying about a starting worker
+  // user knows they have to start it themselves; lying about a starting runtime
   // is misleading.
   if (!autoStartSkipped) {
     const healthSpinner = isInteractive ? p.spinner() : null;
-    healthSpinner?.start(`Verifying worker on port ${workerPort}…`);
+    healthSpinner?.start(`Verifying local runtime on port ${localRuntimePort}…`);
     try {
-      const healthResponse = await fetch(`http://127.0.0.1:${workerPort}/api/health`, {
+      const healthResponse = await fetch(`${localRuntimeBaseUrl}/api/health`, {
         signal: AbortSignal.timeout(3000),
       });
       if (healthResponse.ok) {
@@ -1777,18 +1799,18 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       }
       healthSpinner?.stop(
         workerReady
-          ? `Worker ready at http://localhost:${actualPort}`
-          : `Worker reachable but not ready on port ${workerPort}`,
+          ? `Local runtime ready at http://localhost:${actualPort}`
+          : `Local runtime reachable but not ready on port ${localRuntimePort}`,
       );
     } catch {
-      healthSpinner?.stop(`Worker not yet responding on port ${workerPort} (still starting)`);
+      healthSpinner?.stop(`Local runtime not yet responding on port ${localRuntimePort} (still starting)`);
     }
   }
 
-  const finalWorkerState = workerStartResult as WorkerStartResult;
+  const finalWorkerState = workerStartResult as 'ready' | 'warming' | 'dead';
   const workerAlive = finalWorkerState !== 'dead' || workerReady;
-  const runtimeLabel = selectedRuntime === 'server' ? 'Server' : 'Worker';
-  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx memsmith server start' : 'npx memsmith start';
+  const runtimeLabel = selectedRuntime === 'server' ? 'Server' : 'Local';
+  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx memsmith server start' : 'npx memsmith local start';
   const workerHeadline = autoStartSkipped
     ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', runtimeStartCommand)}`
     : workerReady || finalWorkerState === 'ready'
@@ -1796,12 +1818,12 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', `http://localhost:${actualPort}`)} — give it ~30s, then refresh`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
-    : `${styleText('yellow', '!')} Worker not yet ready on port ${styleText('cyan', String(workerPort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith start')}`;
+    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith local start')}`;
   const firstSuccessOpener = autoStartSkipped
-    ? `once the worker is running, keep ${styleText('underline', `http://localhost:${workerPort}`)} open in a browser`
+    ? `once the local runtime is running, keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`
     : workerAlive
       ? 'keep that URL open in a browser'
-      : `keep ${styleText('underline', `http://localhost:${workerPort}`)} open in a browser`;
+      : `keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`;
   const nextSteps = [
     nextStepsHeadline,
     ``,

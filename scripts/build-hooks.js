@@ -3,14 +3,6 @@
 import { build } from 'esbuild';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const WORKER_SERVICE = {
-  name: 'worker-service',
-  source: 'src/services/worker-service.ts'
-};
 
 const SERVER_SERVICE = {
   name: 'server-service',
@@ -20,11 +12,6 @@ const SERVER_SERVICE = {
 const MCP_SERVER = {
   name: 'mcp-server',
   source: 'src/servers/mcp-server.ts'
-};
-
-const CONTEXT_GENERATOR = {
-  name: 'context-generator',
-  source: 'src/services/context-generator.ts'
 };
 
 const TRANSCRIPT_WATCHER = {
@@ -64,19 +51,19 @@ function stripHardcodedDirname(filePath) {
  */
 function shellTemplateManifest(buildShellCommand) {
   const ccTrailing = (...tail) => [
-    'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/worker-service.cjs"', ...tail,
+    'node', '"$_P/scripts/bun-runner.js"', '"$_P/scripts/server-service.cjs"', ...tail,
   ];
   const claudeHook = (tail, extra = {}) => buildShellCommand({
-    host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found', ...extra,
   });
   const codexHook = (tail) => buildShellCommand({
-    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: ccTrailing(...tail), notFoundMessage: 'memsmith: plugin scripts not found',
     extraEnv: { MEMSMITH_CODEX_HOOK: '1' },
   });
   const codexStartupHook = () => buildShellCommand({
-    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
+    host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'server-service.cjs',
     trailingCommand: [
       '_V=$(MEMSMITH_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
       'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',
@@ -159,10 +146,10 @@ async function verifyShellTemplateCanonical() {
   for (const [filePath, spec] of Object.entries(manifest)) {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     if (spec.kind === 'mcp') {
-      const actual = parsed.mcpServers?.['mcp-search']?.args?.[1] ?? '';
+      const actual = parsed.mcpServers?.['mem']?.args?.[1] ?? '';
       if (actual !== spec.command) {
         throw new Error(
-          `Hand-edited shell string detected in ${filePath} (mcp-search). It no longer matches src/build/hook-shell-template.ts. ` +
+          `Hand-edited shell string detected in ${filePath} (mem). It no longer matches src/build/hook-shell-template.ts. ` +
           `Update the generator (and this manifest) instead of hand-editing the launcher.`
         );
       }
@@ -204,7 +191,7 @@ async function verifyShellTemplateCanonical() {
 }
 
 async function buildHooks() {
-  console.log('🔨 Building memsmith hooks and worker service...\n');
+  console.log('🔨 Building memsmith hooks...\n');
 
   try {
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
@@ -289,74 +276,6 @@ async function buildHooks() {
         }
       });
     });
-
-    console.log(`\n🔧 Building worker service...`);
-    await build({
-      entryPoints: [WORKER_SERVICE.source],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'cjs',
-      outfile: `${hooksDir}/${WORKER_SERVICE.name}.cjs`,
-      minify: true,
-      logLevel: 'error', // Suppress warnings (import.meta warning is benign)
-      external: [
-        'bun:sqlite',
-        'zod',
-        'cohere-ai',
-        'ollama',
-        '@chroma-core/default-embed',
-        'onnxruntime-node',
-        // Defensive: the worker doesn't currently reach the embedder, but keep
-        // @huggingface/transformers external too so a future transitive import
-        // can't reintroduce the onnxruntime-node .node bundling failure.
-        '@huggingface/transformers',
-        // better-auth (~3.7MB) is only reachable through BetterAuthRoutes' request-time
-        // dynamic import('better-auth/node') / import('./auth.js'). esbuild otherwise
-        // inlines that dynamic-import target into the worker bundle, dragging in the full
-        // better-auth library (kysely, oauth, nanoid, …) even though the worker never
-        // exercises it (the dep isn't in the worker's runtime plugin/package.json deps,
-        // and the route handler already wraps the import in try/catch → graceful 500).
-        // Keeping it external strips the dead weight from worker-service.cjs. See #2584.
-        'better-auth',
-        'better-auth/node',
-        'better-auth/plugins',
-        '@better-auth/api-key',
-      ],
-      define: {
-        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,
-        // Polyfill import.meta.url for ESM deps bundled into CJS output.
-        // @anthropic-ai/claude-agent-sdk's *.mjs files use createRequire(import.meta.url)
-        // and `new URL(rel, import.meta.url)`. We map import.meta.url to a file:// URL
-        // (not the raw __filename path) so URL construction preserves its semantics.
-        'import.meta.url': '__IMPORT_META_URL__'
-      },
-      banner: {
-        js: [
-          '#!/usr/bin/env bun',
-          'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
-          'var __dirname = __dirname || require("node:path").dirname(__filename);',
-          'var __IMPORT_META_URL__ = require("node:url").pathToFileURL(__filename).href;'
-        ].join('\n')
-      }
-    });
-
-    stripHardcodedDirname(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
-
-    fs.chmodSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 0o755);
-    const workerStats = fs.statSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
-    console.log(`✓ worker-service built (${(workerStats.size / 1024).toFixed(2)} KB)`);
-
-    // Advisory only — a sudden jump usually means a heavy server-only dependency
-    // (better-auth, kysely, a database driver) leaked into the worker bundle via a
-    // transitive import (#2584). Never blocks the build.
-    const WORKER_SERVICE_MAX_BYTES = 2900 * 1024;
-    if (workerStats.size > WORKER_SERVICE_MAX_BYTES) {
-      console.warn(
-        `⚠️  worker-service.cjs is ${(workerStats.size / 1024).toFixed(2)} KB (advisory budget ${(WORKER_SERVICE_MAX_BYTES / 1024).toFixed(0)} KB). ` +
-        `If this jumped unexpectedly, check whether a server-only dependency leaked into the worker bundle (see #2584).`
-      );
-    }
 
     console.log(`\n🔧 Building server beta service...`);
     await build({
@@ -478,27 +397,10 @@ async function buildHooks() {
       );
     }
 
-    console.log(`\n🔧 Building context generator...`);
-    await build({
-      entryPoints: [CONTEXT_GENERATOR.source],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'cjs',
-      outfile: `${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`,
-      minify: true,
-      logLevel: 'error',
-      external: ['bun:sqlite', 'zod'],
-      define: {
-        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
-      },
-      // No banner needed: CJS files under Node.js have __dirname/__filename natively
-    });
-
-    stripHardcodedDirname(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
-
-    const contextGenStats = fs.statSync(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
-    console.log(`✓ context-generator built (${(contextGenStats.size / 1024).toFixed(2)} KB)`);
+    // context-generator.ts deleted in Task 14 (worker-retirement Phase 4):
+    // context/ContextBuilder + context/ObservationCompiler were SQLite-backed worker-only
+    // code; now the server path handles context via /v1/context. No hook manifest
+    // references context-generator.cjs, so this build step is simply removed.
 
     console.log(`\n🔧 Building transcript watcher...`);
     await build({
@@ -629,8 +531,8 @@ async function buildHooks() {
     }
 
     console.log('\n📋 Copying onboarding explainer to plugin tree...');
-    const onboardingExplainerSrc = 'src/services/worker/onboarding-explainer.md';
-    const onboardingExplainerDst = 'plugin/skills/how-it-works/onboarding-explainer.md';
+    const onboardingExplainerSrc = 'src/services/onboarding-explainer.md'; // relocated from worker/ in Tasks 12+13
+    const onboardingExplainerDst = 'plugin/skills/ms-how-it-works/onboarding-explainer.md';
     if (!fs.existsSync(onboardingExplainerSrc)) {
       throw new Error(`Missing onboarding explainer source: ${onboardingExplainerSrc}`);
     }
@@ -658,10 +560,10 @@ async function buildHooks() {
       'Stop',
     ]);
     const requiredDistributionFiles = [
-      'plugin/skills/mem-search/SKILL.md',
-      'plugin/skills/smart-explore/SKILL.md',
-      'plugin/skills/how-it-works/SKILL.md',
-      'plugin/skills/how-it-works/onboarding-explainer.md',
+      'plugin/skills/ms-mem-search/SKILL.md',
+      'plugin/skills/ms-smart-explore/SKILL.md',
+      'plugin/skills/ms-how-it-works/SKILL.md',
+      'plugin/skills/ms-how-it-works/onboarding-explainer.md',
       'plugin/hooks/hooks.json',
       'plugin/hooks/codex-hooks.json',
       'plugin/scripts/bun-runner.js',
@@ -694,12 +596,12 @@ async function buildHooks() {
       throw new Error('.agents/plugins/marketplace.json must point memsmith source.path at ./plugin so Codex loads the bundled plugin root');
     }
     const bundledMcp = JSON.parse(fs.readFileSync('plugin/.mcp.json', 'utf-8'));
-    const mcpSearchCommand = bundledMcp.mcpServers?.['mcp-search']?.args?.join(' ') ?? '';
+    const mcpSearchCommand = bundledMcp.mcpServers?.['mem']?.args?.join(' ') ?? '';
     if (!mcpSearchCommand.includes('.codex/plugins/cache/memsmith-local/memsmith')) {
-      throw new Error('plugin/.mcp.json mcp-search launcher must include Codex cache fallback for hosts that do not inject PLUGIN_ROOT');
+      throw new Error('plugin/.mcp.json mem launcher must include Codex cache fallback for hosts that do not inject PLUGIN_ROOT');
     }
     if (!mcpSearchCommand.includes('plugins/cache/shshalom/memsmith')) {
-      throw new Error('plugin/.mcp.json mcp-search launcher must include Claude cache fallback for hosts that do not inject PLUGIN_ROOT');
+      throw new Error('plugin/.mcp.json mem launcher must include Claude cache fallback for hosts that do not inject PLUGIN_ROOT');
     }
     console.log('✓ All required distribution files present');
 
@@ -707,10 +609,8 @@ async function buildHooks() {
 
     console.log('\n✅ All build targets compiled successfully!');
     console.log(`   Output: ${hooksDir}/`);
-    console.log(`   - Worker: worker-service.cjs`);
     console.log(`   - Server: server-service.cjs`);
     console.log(`   - MCP Server: mcp-server.cjs`);
-    console.log(`   - Context Generator: context-generator.cjs`);
     console.log(`   - Transcript Watcher: transcript-watcher.cjs`);
     console.log(`   Output: ${npxCliOutDir}/`);
     console.log(`   - NPX CLI: index.js`);

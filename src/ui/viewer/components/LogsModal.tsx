@@ -70,6 +70,8 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
   const [logs, setLogs] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True when /api/logs 404s (server/local runtime has no worker log stream).
+  const [logsUnavailable, setLogsUnavailable] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [height, setHeight] = useState(350);
   const [isResizing, setIsResizing] = useState(false);
@@ -120,6 +122,15 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
     setError(null);
     try {
       const response = await fetch('/api/logs');
+      if (response.status === 404) {
+        // The worker exposes /api/logs; the server/local runtime does not.
+        // Treat as "no log stream on this runtime" instead of a hard error, and
+        // mark it unavailable so the 2s auto-refresh stops hammering the 404.
+        setLogsUnavailable(true);
+        setLogs('');
+        setError(null);
+        return;
+      }
       if (!response.ok) {
         throw new Error(`Failed to fetch logs: ${response.statusText}`);
       }
@@ -192,13 +203,15 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
   }, [isOpen, fetchLogs]);
 
   useEffect(() => {
-    if (!isOpen || !autoRefresh) {
+    // Don't poll when logs aren't available on this runtime — otherwise the 2s
+    // interval spams 404s to the console.
+    if (!isOpen || !autoRefresh || logsUnavailable) {
       return;
     }
 
     const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
-  }, [isOpen, autoRefresh, fetchLogs]);
+  }, [isOpen, autoRefresh, logsUnavailable, fetchLogs]);
 
   const toggleLevel = useCallback((level: LogLevel) => {
     setActiveLevels(prev => {

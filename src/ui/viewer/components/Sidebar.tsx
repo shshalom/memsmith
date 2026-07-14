@@ -99,19 +99,24 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Footer: project selector + theme toggle */}
+      {/* Footer: project selector + theme toggle. The selector only appears when
+          there is genuinely more than one project to switch between — in
+          single-project (local) mode it's a dead "All Projects" control, so we
+          hide it to avoid implying a multi-project scope that doesn't exist. */}
       <div className="sidebar-footer">
-        <select
-          className="sidebar-project-select"
-          value={currentProject}
-          onChange={e => onProjectChange(e.target.value)}
-          aria-label="Select project"
-        >
-          <option value="">All Projects</option>
-          {projects.map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+        {projects.length > 1 && (
+          <select
+            className="sidebar-project-select"
+            value={currentProject}
+            onChange={e => onProjectChange(e.target.value)}
+            aria-label="Select project"
+          >
+            <option value="">All Projects</option>
+            {projects.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        )}
         <ThemeToggle preference={themePreference} onThemeChange={onThemeChange} />
       </div>
     </nav>

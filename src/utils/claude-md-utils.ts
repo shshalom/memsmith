@@ -4,7 +4,6 @@ import path from 'path';
 import { logger } from './logger.js';
 import { formatDate, groupByDate } from '../shared/timeline-formatting.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
-import { workerHttpRequest } from '../shared/worker-utils.js';
 import { paths } from '../shared/paths.js';
 import { matchesAnyGlob } from './project-filter.js';
 import { toBmpSafe } from './bmp-safe.js';
@@ -312,61 +311,29 @@ export async function updateFolderClaudeMdFiles(
 
   if (folderPaths.size === 0) return;
 
-  logger.debug('FOLDER_INDEX', 'Updating CLAUDE.md files', {
+  // Worker retirement — the per-folder CLAUDE.md timeline was served by the
+  // deleted worker route `/api/search/by-file`, which queried the SQLite
+  // files_read/files_modified columns for a by-FILE observation timeline in the
+  // worker's markdown-table format. The `/v1` Postgres server has NO by-file
+  // route: files live inside observation `metadata` (JSONB) with no path-filter
+  // endpoint, and no `/v1` route emits the `| #id | time | … |` table that
+  // `formatTimelineForClaudeMd` parses. A `/v1/search` text query on the folder
+  // path would return raw observation *content* (by-content, not by-file) that
+  // the timeline formatter cannot parse into rows — it would always format to
+  // '' — so it is not a functional substitute. Rather than emit misleading empty
+  // CLAUDE.md files, the folder-context feature is gracefully disabled until a
+  // by-file `/v1` endpoint exists (same disposition as the PreToolUse by-file
+  // timeline retired in the C1 sweep). All the path-validation, formatting
+  // (`formatTimelineForClaudeMd`), and atomic-write (`writeClaudeMdToFolder`)
+  // helpers stay exported and intact so re-enabling only needs the per-folder
+  // timeline fetch wired back into this loop. `skeletonDenylistPatterns` and
+  // `matchesAnyGlob` remain referenced by that future path; keep them live.
+  void skeletonDenylistPatterns;
+  void matchesAnyGlob;
+  logger.debug('FOLDER_INDEX', 'Folder CLAUDE.md generation disabled (no by-file /v1 endpoint after worker retirement)', {
     project,
-    folderCount: folderPaths.size
+    folderCount: folderPaths.size,
+    targetFilename,
+    contextObservationLimit: limit,
   });
-
-  for (const folderPath of folderPaths) {
-    let response: Response;
-    try {
-      response = await workerHttpRequest(
-        `/api/search/by-file?filePath=${encodeURIComponent(folderPath)}&limit=${limit}&project=${encodeURIComponent(project)}&isFolder=true`
-      );
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      const stack = error instanceof Error ? error.stack : undefined;
-      logger.error('FOLDER_INDEX', `Failed to fetch timeline for ${targetFilename}`, {
-        folderPath,
-        errorMessage: message,
-        errorStack: stack
-      });
-      continue;
-    }
-
-    if (!response.ok) {
-      logger.error('FOLDER_INDEX', 'Failed to fetch timeline', { folderPath, status: response.status });
-      continue;
-    }
-
-    const result = await response.json() as { content?: Array<{ text?: string }> };
-    if (!result.content?.[0]?.text) {
-      logger.debug('FOLDER_INDEX', 'No content for folder', { folderPath });
-      continue;
-    }
-
-    const formatted = formatTimelineForClaudeMd(result.content[0].text);
-
-    const claudeMdPath = path.join(folderPath, targetFilename);
-    const hasNoActivity = formatted.includes('*No recent activity*');
-    const isEmptyOrSkeleton = formatted.trim() === '' || hasNoActivity;
-    const fileExists = existsSync(claudeMdPath);
-
-    // #2400 — when the generated content is empty/skeleton AND the folder
-    // matches the user's deny-list, never inject (skip even if the file exists,
-    // so we don't pollute non-content dirs with empty skeletons).
-    if (isEmptyOrSkeleton && matchesAnyGlob(folderPath, skeletonDenylistPatterns)) {
-      logger.debug('FOLDER_INDEX', 'Skipping skeleton CLAUDE.md in deny-listed folder', { folderPath, targetFilename });
-      continue;
-    }
-
-    if (hasNoActivity && !fileExists) {
-      logger.debug('FOLDER_INDEX', 'Skipping empty context file creation', { folderPath, targetFilename });
-      continue;
-    }
-
-    writeClaudeMdToFolder(folderPath, formatted, targetFilename);
-
-    logger.debug('FOLDER_INDEX', 'Updated context file', { folderPath, targetFilename });
-  }
 }

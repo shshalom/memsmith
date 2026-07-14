@@ -163,6 +163,11 @@ export class PostgresObservationRepository {
     teamId: string;
     serverSessionId?: string | null;
     limit?: number;
+    // Optional taxonomy filters, applied in SQL so a rare type (e.g. a handful
+    // of `decision` rows among thousands) is found across the whole table, not
+    // just within a recent-N window.
+    obsType?: string | null;
+    lifecycleState?: string | null;
   }): Promise<PostgresObservation[]> {
     const result = await this.client.query<ObservationRow>(
       `
@@ -170,10 +175,19 @@ export class PostgresObservationRepository {
         WHERE project_id = $1
           AND team_id = $2
           AND ($3::text IS NULL OR server_session_id = $3)
+          AND ($5::text IS NULL OR obs_type = $5)
+          AND ($6::text IS NULL OR lifecycle_state = $6)
         ORDER BY created_at DESC
         LIMIT $4
       `,
-      [input.projectId, input.teamId, input.serverSessionId ?? null, input.limit ?? 100]
+      [
+        input.projectId,
+        input.teamId,
+        input.serverSessionId ?? null,
+        input.limit ?? 100,
+        input.obsType ?? null,
+        input.lifecycleState ?? null,
+      ]
     );
     return result.rows.map(mapObservationRow);
   }

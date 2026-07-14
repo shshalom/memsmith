@@ -3,6 +3,11 @@ import type { Application, Request, Response } from 'express';
 import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { SETTING_KEYS, getSettingKey, validateSettingValue } from '../../settings/settingKeys.js';
+import { buildIdentityPayload } from './identity-payload.js';
+import { CredentialStore } from '../../../services/identity/credential-store.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { isLocalhost } from '../../middleware/request-auth-helpers.js';
 
 /** Matches the signature of ServerV1PostgresRoutes.auditWrite for injection. */
 export type AuditFn = (
@@ -45,6 +50,47 @@ export interface SettingsRouteDeps {
   // Called only on a successful write; never called on 400/confirmation paths.
   auditFn?: AuditFn;
 }
+
+// ── Identity route ────────────────────────────────────────────────────────────
+
+const MARKER_RELATIVE_PATH = '.memsmith/project.json';
+
+function readProjectMarker(cwd: string): { teamId: string; projectId: string } | null {
+  const p = join(cwd, MARKER_RELATIVE_PATH);
+  if (!existsSync(p)) return null;
+  try {
+    const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<{ teamId: string; projectId: string }>;
+    if (m.teamId && m.projectId) return { teamId: m.teamId, projectId: m.projectId };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface IdentityRouteDeps {
+  credentialStore?: CredentialStore;
+  requireScopes: (req: Request, res: Response, needed: string) => boolean;
+}
+
+export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps): void {
+  app.get('/v1/identity', (req: Request, res: Response) => {
+    if (!deps.requireScopes(req, res, 'memories:read')) return;
+    const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+    const ids = readProjectMarker(cwd);
+    if (!ids) {
+      res.status(404).json({ error: 'NotFound', message: 'no project marker found' });
+      return;
+    }
+    const store = deps.credentialStore ?? new CredentialStore();
+    // reveal is only honored for loopback requests — same trust boundary as the local dashboard
+    const revealParam = req.query.reveal === 'true';
+    const reveal = revealParam && isLocalhost(req);
+    const payload = buildIdentityPayload(ids, store, { reveal });
+    res.status(200).json(payload);
+  });
+}
+
+// ── Settings routes ───────────────────────────────────────────────────────────
 
 export function registerSettingsRoutes(app: Application, deps: SettingsRouteDeps): void {
   app.get('/v1/settings', async (req: Request, res: Response) => {

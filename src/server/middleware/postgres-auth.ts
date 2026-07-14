@@ -3,8 +3,26 @@
 import { createHash } from 'crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+
+// AuthContext was previously in src/server/middleware/auth.ts (deleted in Tasks
+// 12+13 — that file was the SQLite-backed worker auth middleware). AuthContext is
+// a shared type used by all middleware and routes, so it lives here now.
+export interface AuthContext {
+  userId: string | null;
+  organizationId: string | null;
+  teamId: string | null;
+  projectId: string | null;
+  scopes: string[];
+  apiKeyId: string | null;
+  mode: 'api-key' | 'local-dev';
+}
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    authContext?: AuthContext;
+  }
+}
 import type { PostgresApiKey } from '../../storage/postgres/auth.js';
-import type { AuthContext } from './auth.js';
 import {
   hasForwardedClientHeaders,
   hasLoopbackHostHeader,

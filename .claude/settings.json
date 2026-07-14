@@ -1,5 +1,7 @@
 {
-  "env": {},
+  "env": {
+    "MEMSMITH_RUNTIME": "local"
+  },
   "permissions": {
     "deny": [
       "Read(./package-lock.json)",

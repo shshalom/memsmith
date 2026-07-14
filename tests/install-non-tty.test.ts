@@ -129,7 +129,7 @@ describe('Install Non-TTY Support', () => {
       expect(codexInstallerSource).toContain("path.join('plugin', '.codex-plugin', 'plugin.json')");
       expect(codexInstallerSource).toContain("path.join('plugin', '.mcp.json')");
       expect(codexInstallerSource).toContain("path.join('plugin', 'hooks', 'codex-hooks.json')");
-      expect(codexInstallerSource).toContain("path.join('plugin', 'skills', 'mem-search', 'SKILL.md')");
+      expect(codexInstallerSource).toContain("path.join('plugin', 'skills', 'ms-mem-search', 'SKILL.md')");
     });
 
     it('keeps the sync-managed gitignore override mechanism for local marketplace sync', () => {
@@ -274,13 +274,14 @@ describe('Install Non-TTY Support', () => {
   });
 
   describe('runtime selection', () => {
-    it('offers Server (beta) while keeping worker as the default runtime', () => {
-      // Phase 1d: installer writes the new canonical `'server'` runtime value.
-      // The legacy `'server-beta'` value is still accepted by
-      // runtime-selector.ts for existing installs, but new writes use 'server'.
+    it('offers Server (beta) while defaulting to local runtime', () => {
+      // Worker runtime retired: the default is now 'local' (embedded Postgres).
+      // 'server' option remains for team/server installs. New installs write
+      // the canonical 'server' value; runtime-selector.ts accepts legacy 'server-beta'
+      // from existing settings.json files.
       expect(installSource).toContain("value: 'server'");
       expect(installSource).toContain('Server (beta)');
-      expect(installSource).toContain("initialValue: 'worker'");
+      expect(installSource).toContain("initialValue: 'local'");
       expect(installSource).toContain('MEMSMITH_RUNTIME');
     });
   });

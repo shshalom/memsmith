@@ -1,21 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 describe('Hook Lifecycle - Event Handlers', () => {
-  describe('worker fallback failure counter', () => {
-    it('resets stale unreachable state before 429/5xx API fallbacks', () => {
-      const source = readFileSync('src/shared/worker-utils.ts', 'utf-8');
-      const nonOkRegion = source.slice(
-        source.indexOf('if (!response.ok)'),
-        source.indexOf('const text = await response.text();'),
-      );
-
-      expect(nonOkRegion.indexOf('resetWorkerFailureCounter()'))
-        .toBeLessThan(nonOkRegion.indexOf('response.status === 429 || response.status >= 500'));
-    });
-  });
+  // Worker retirement (dead-route sweep) — the `worker fallback failure counter`
+  // assertion here tested the internal ordering of `executeWithWorkerFallback`'s
+  // non-ok branch (resetWorkerFailureCounter before the 429/5xx check). Both
+  // that function and the worker HTTP dispatch it wrapped were deleted once all
+  // consumers were repointed onto the runtime-selector + ServerClient `/v1`
+  // path, so the assertion no longer has code to check. The surviving fail-loud
+  // telemetry (`recordWorkerUnreachable` → emitBlockingError) is covered by
+  // tests/cli/hook-stream-discipline.test.ts.
 
   describe('getEventHandler', () => {
     it('should return handler for all recognized event types', async () => {

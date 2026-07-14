@@ -12,7 +12,7 @@ import {
   getOrCreateInstallId,
 } from './consent.js';
 import { scrubProperties } from './scrub.js';
-import { CHARS_PER_TOKEN_ESTIMATE } from '../context/types.js';
+const CHARS_PER_TOKEN_ESTIMATE = 4; // same constant as context/types.ts (inlined; context dir deleted in Task 14)
 import {
   getTelemetryApiKey,
   getTelemetryHost,

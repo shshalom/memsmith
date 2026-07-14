@@ -46,7 +46,8 @@ export interface SettingsDefaults {
   MEMSMITH_CODEX_TRANSCRIPT_INGESTION: string;
   MEMSMITH_MAX_CONCURRENT_AGENTS: string;  
   MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: string;  
-  MEMSMITH_EXCLUDED_PROJECTS: string;  
+  MEMSMITH_EXCLUDED_PROJECTS: string;
+  MEMSMITH_INCLUDED_PROJECTS: string;  // Allowlist: comma-separated glob patterns; when non-empty, only matching cwds are tracked (exclusions still win)
   MEMSMITH_FOLDER_MD_EXCLUDE: string;
   MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: string;
   MEMSMITH_SEMANTIC_INJECT: string;        
@@ -56,15 +57,6 @@ export interface SettingsDefaults {
   MEMSMITH_TIER_SUMMARY_MODEL: string;
   MEMSMITH_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in MEMSMITH_MODEL
   MEMSMITH_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in MEMSMITH_MODEL
-  MEMSMITH_CHROMA_ENABLED: string;   
-  MEMSMITH_CHROMA_MODE: string;      
-  MEMSMITH_CHROMA_HOST: string;
-  MEMSMITH_CHROMA_PORT: string;
-  MEMSMITH_CHROMA_SSL: string;
-  MEMSMITH_CHROMA_API_KEY: string;
-  MEMSMITH_CHROMA_TENANT: string;
-  MEMSMITH_CHROMA_DATABASE: string;
-  MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: string;
   MEMSMITH_TELEGRAM_ENABLED: string;
   MEMSMITH_TELEGRAM_BOT_TOKEN: string;
   MEMSMITH_TELEGRAM_CHAT_ID: string;
@@ -98,7 +90,7 @@ export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
     MEMSMITH_MODEL: 'claude-haiku-4-5-20251001',
     MEMSMITH_CONTEXT_OBSERVATIONS: '50',
-    MEMSMITH_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
+    MEMSMITH_WORKER_PORT: String(38700 + ((process.getuid?.() ?? 77) % 100)),
     MEMSMITH_WORKER_HOST: '127.0.0.1',
     MEMSMITH_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
     MEMSMITH_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
@@ -138,6 +130,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
     MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
     MEMSMITH_EXCLUDED_PROJECTS: '',  // Comma-separated glob patterns for excluded project paths
+    MEMSMITH_INCLUDED_PROJECTS: '',  // Allowlist: comma-separated glob patterns; empty = capture all (backward compat); non-empty = track only matching cwds (exclusions still win)
     MEMSMITH_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
     MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
     MEMSMITH_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
@@ -147,15 +140,6 @@ export class SettingsDefaultsManager {
     MEMSMITH_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
     MEMSMITH_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
     MEMSMITH_TIER_SMART_MODEL: 'sonnet',            // #2289 — $TIER:smart resolves here (portable alias)
-    MEMSMITH_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
-    MEMSMITH_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
-    MEMSMITH_CHROMA_HOST: '127.0.0.1',
-    MEMSMITH_CHROMA_PORT: '8000',
-    MEMSMITH_CHROMA_SSL: 'false',
-    MEMSMITH_CHROMA_API_KEY: '',
-    MEMSMITH_CHROMA_TENANT: 'default_tenant',
-    MEMSMITH_CHROMA_DATABASE: 'default_database',
-    MEMSMITH_CHROMA_PREWARM_TIMEOUT_MS: '120000',
     MEMSMITH_TELEGRAM_ENABLED: 'true',
     MEMSMITH_TELEGRAM_BOT_TOKEN: '',
     MEMSMITH_TELEGRAM_CHAT_ID: '',
@@ -166,16 +150,16 @@ export class SettingsDefaultsManager {
     MEMSMITH_REDIS_HOST: '127.0.0.1',
     MEMSMITH_REDIS_PORT: '6379',
     MEMSMITH_REDIS_MODE: 'external',
-    MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(37700 + ((process.getuid?.() ?? 77) % 100))}`,
+    MEMSMITH_QUEUE_REDIS_PREFIX: `memsmith_${process.env.MEMSMITH_WORKER_PORT ?? String(38700 + ((process.getuid?.() ?? 77) % 100))}`,
     MEMSMITH_AUTH_MODE: 'api-key',
-    MEMSMITH_RUNTIME: 'worker',
+    MEMSMITH_RUNTIME: 'local',
     // Phase 1a (cmem-sdk rename): canonical server settings keys. Hooks read
     // these first; the legacy `*_BETA_*` defaults below remain so existing
     // settings.json files still resolve correctly.
-    MEMSMITH_SERVER_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(38877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server runtime URL — UID-derived for multi-account isolation
     MEMSMITH_SERVER_API_KEY: '',                          // Local hook API key, populated by installer when runtime=server
     MEMSMITH_SERVER_PROJECT_ID: '',                       // Default Postgres project_id used by hooks when runtime=server
-    MEMSMITH_SERVER_BETA_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
+    MEMSMITH_SERVER_BETA_URL: `http://127.0.0.1:${process.env.MEMSMITH_SERVER_PORT ?? String(38877 + ((process.getuid?.() ?? 77) % 100))}`,  // Legacy server-beta runtime URL — UID-derived for multi-account isolation
     MEMSMITH_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when MEMSMITH_SERVER_API_KEY unset)
     MEMSMITH_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when MEMSMITH_SERVER_PROJECT_ID unset)
     MEMSMITH_TEAM_INJECT: 'false',                        // Sprint 3 — opt-in team-memory injection at SessionStart (default 'false')

@@ -6,7 +6,7 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 import type { SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 
-export type ObservationQueueEngineName = 'sqlite' | 'bullmq';
+export type ObservationQueueEngineName = 'sqlite' | 'bullmq' | 'inline';
 export type RedisMode = 'external' | 'managed' | 'docker';
 
 export interface RedisQueueConfig {
@@ -21,10 +21,10 @@ export interface RedisQueueConfig {
 
 export function getObservationQueueEngineName(): ObservationQueueEngineName {
   const raw = getQueueSetting('MEMSMITH_QUEUE_ENGINE').trim().toLowerCase();
-  if (raw === 'sqlite' || raw === 'bullmq') {
+  if (raw === 'sqlite' || raw === 'bullmq' || raw === 'inline') {
     return raw;
   }
-  throw new Error(`Invalid MEMSMITH_QUEUE_ENGINE=${raw}; expected sqlite or bullmq`);
+  throw new Error(`Invalid MEMSMITH_QUEUE_ENGINE=${raw}; expected sqlite, bullmq, or inline`);
 }
 
 export function getRedisQueueConfig(): RedisQueueConfig {

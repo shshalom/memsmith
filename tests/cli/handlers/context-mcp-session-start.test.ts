@@ -1,26 +1,20 @@
-import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+// Codex SessionStart routes injection through the `session_start_context` MCP
+// tool (see cli/handlers/context.ts). This test covers that Codex path AND the
+// post-worker-retirement fallback: when the MCP call is unavailable, the handler
+// now falls back to DIRECT runtime injection (empty-query recent search via
+// resolveRuntimeContext + ServerClient), NOT the deleted worker route.
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
-import * as realHookSettings from '../../../src/shared/hook-settings.js';
+import {
+  contextHandler,
+  setContextDependenciesForTesting,
+} from '../../../src/cli/handlers/context.js';
 import * as realMcpClient from '../../../src/shared/mcp-client.js';
-import * as realOauthToken from '../../../src/shared/oauth-token.js';
-import * as realProjectName from '../../../src/utils/project-name.js';
-import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
 
-const realHookSettingsSnapshot = { ...realHookSettings };
 const realMcpClientSnapshot = { ...realMcpClient };
-const realOauthTokenSnapshot = { ...realOauthToken };
-const realProjectNameSnapshot = { ...realProjectName };
-const realWorkerUtilsSnapshot = { ...realWorkerUtils };
 
 const mcpCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
-const workerCalls: Array<{ path: string; method: string }> = [];
 let mcpMode: 'success' | 'throw' | 'error' = 'success';
-
-mock.module('../../../src/shared/hook-settings.js', () => ({
-  loadFromFileOnce: () => ({
-    MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT: 'false',
-  }),
-}));
 
 mock.module('../../../src/shared/mcp-client.js', () => ({
   callMcpToolOnce: async (name: string, args: Record<string, unknown>) => {
@@ -35,57 +29,61 @@ mock.module('../../../src/shared/mcp-client.js', () => ({
   },
 }));
 
-mock.module('../../../src/shared/oauth-token.js', () => ({
-  readStaleMarker: () => null,
-}));
-
-mock.module('../../../src/utils/project-name.js', () => ({
-  getProjectContext: () => ({
-    primary: 'repo-project',
-    parent: null,
-    isWorktree: false,
-    allProjects: ['parent-project', 'repo-project'],
-  }),
-}));
-
-mock.module('../../../src/shared/worker-utils.js', () => ({
-  executeWithWorkerFallback: async (apiPath: string, method: 'GET' | 'POST') => {
-    workerCalls.push({ path: apiPath, method });
-    return 'context from worker';
-  },
-  getWorkerPort: () => 37777,
-  isWorkerFallback: () => false,
-}));
-
 import { logger } from '../../../src/utils/logger.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
+const projectContext = {
+  primary: 'repo-project',
+  parent: null,
+  isWorktree: false,
+  allProjects: ['parent-project', 'repo-project'],
+};
+
+const runtimeSearchCalls: unknown[] = [];
+
+function installRuntimeDeps(): void {
+  runtimeSearchCalls.length = 0;
+  setContextDependenciesForTesting({
+    loadFromFileOnce: () => ({}),
+    getProjectContext: () => ({ ...projectContext }),
+    resolveRuntimeContext: () => ({
+      runtime: 'server',
+      projectId: 'repo-project',
+      serverBaseUrl: 'http://server.test',
+      client: {
+        searchObservations: async (input: unknown) => {
+          runtimeSearchCalls.push(input);
+          return {
+            observations: [
+              { id: 'obs-1', projectId: 'repo-project', content: 'context from runtime', metadata: {} },
+            ],
+          };
+        },
+      },
+    }),
+  });
+}
+
 beforeEach(() => {
   mcpCalls.length = 0;
-  workerCalls.length = 0;
   mcpMode = 'success';
-  loggerSpies.forEach(spy => spy.mockRestore());
+  installRuntimeDeps();
   loggerSpies = [
     spyOn(logger, 'debug').mockImplementation(() => {}),
     spyOn(logger, 'warn').mockImplementation(() => {}),
     spyOn(logger, 'error').mockImplementation(() => {}),
+    spyOn(logger, 'info').mockImplementation(() => {}),
   ];
 });
 
-afterAll(() => {
+afterEach(() => {
+  setContextDependenciesForTesting({});
   loggerSpies.forEach(spy => spy.mockRestore());
-  mock.module('../../../src/shared/hook-settings.js', () => realHookSettingsSnapshot);
-  mock.module('../../../src/shared/mcp-client.js', () => realMcpClientSnapshot);
-  mock.module('../../../src/shared/oauth-token.js', () => realOauthTokenSnapshot);
-  mock.module('../../../src/utils/project-name.js', () => realProjectNameSnapshot);
-  mock.module('../../../src/shared/worker-utils.js', () => realWorkerUtilsSnapshot);
 });
 
 describe('contextHandler Codex SessionStart MCP path', () => {
-  it('loads Codex SessionStart context through MCP instead of direct worker HTTP', async () => {
-    const { contextHandler } = await import('../../../src/cli/handlers/context.js');
-
+  it('loads Codex SessionStart context through the MCP tool', async () => {
     const result = await contextHandler.execute({
       sessionId: 'session-mcp-context',
       cwd: '/tmp/repo',
@@ -100,12 +98,12 @@ describe('contextHandler Codex SessionStart MCP path', () => {
         platformSource: 'codex',
       },
     }]);
-    expect(workerCalls).toHaveLength(0);
+    // MCP succeeded → no direct runtime search.
+    expect(runtimeSearchCalls).toHaveLength(0);
   });
 
-  it('falls back to worker HTTP when the MCP call fails', async () => {
+  it('falls back to DIRECT runtime injection when the MCP call fails', async () => {
     mcpMode = 'throw';
-    const { contextHandler } = await import('../../../src/cli/handlers/context.js');
 
     const result = await contextHandler.execute({
       sessionId: 'session-mcp-fallback',
@@ -113,28 +111,30 @@ describe('contextHandler Codex SessionStart MCP path', () => {
       platform: 'codex',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('context from worker');
+    // No worker route anymore — the handler injects real recent context off the
+    // runtime instead.
+    expect(result.hookSpecificOutput?.additionalContext).toBe('context from runtime');
     expect(mcpCalls).toHaveLength(1);
-    expect(workerCalls).toEqual([{
-      path: '/api/context/inject?projects=parent-project%2Crepo-project&platformSource=codex',
-      method: 'GET',
-    }]);
+    expect(runtimeSearchCalls).toHaveLength(1);
+    expect((runtimeSearchCalls[0] as { query: string }).query).toBe('');
   });
 
-  it('keeps non-Codex startup on the existing worker path', async () => {
-    const { contextHandler } = await import('../../../src/cli/handlers/context.js');
-
+  it('injects non-Codex startup via the direct runtime (recent mode)', async () => {
     const result = await contextHandler.execute({
       sessionId: 'session-claude-context',
       cwd: '/tmp/repo',
       platform: 'claude-code',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('context from worker');
+    expect(result.hookSpecificOutput?.additionalContext).toBe('context from runtime');
+    // Non-Codex never touches the MCP session_start_context tool.
     expect(mcpCalls).toHaveLength(0);
-    expect(workerCalls).toEqual([{
-      path: '/api/context/inject?projects=parent-project%2Crepo-project&platformSource=claude',
-      method: 'GET',
-    }]);
+    expect(runtimeSearchCalls).toHaveLength(1);
+    expect((runtimeSearchCalls[0] as { projectId: string }).projectId).toBe('repo-project');
+    expect((runtimeSearchCalls[0] as { platformSource: string }).platformSource).toBe('claude');
   });
+});
+
+afterAll(() => {
+  mock.module('../../../src/shared/mcp-client.js', () => realMcpClientSnapshot);
 });

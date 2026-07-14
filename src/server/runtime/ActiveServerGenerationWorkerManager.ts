@@ -9,9 +9,9 @@ import type { ServerGenerationProvider } from '../generation/providers/shared/ty
 import type { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 import type { SettingsResolver } from '../settings/SettingsResolver.js';
 import type { ServerGenerationJobPayload } from '../jobs/types.js';
-import type { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import type {
   ServerBoundaryHealth,
+  ServerGenerationQueueManager,
   ServerGenerationWorkerManager,
 } from './types.js';
 
@@ -27,7 +27,7 @@ import type {
 
 export interface ActiveServerGenerationWorkerManagerOptions {
   pool: PostgresPool;
-  queueManager: ActiveServerQueueManager;
+  queueManager: ServerGenerationQueueManager;
   provider: ServerGenerationProvider;
   workerId?: string;
   // Task 9: optional provider holder for live hot-swap. Passed through to
@@ -86,12 +86,16 @@ export class ActiveServerGenerationWorkerManager implements ServerGenerationWork
         throw error;
       }
     };
-    this.options.queueManager.start('event', dispatcher);
+    // Cast dispatcher: the shared interface uses the narrower job struct shape;
+    // the concrete Active manager's ServerJobQueue.start() will receive a full
+    // BullMQ Job at runtime, which is a superset of the struct — safe.
+    const dispatcherAsShared = dispatcher as (job: { id: string; data: ServerGenerationJobPayload; attemptsMade: number }) => Promise<unknown>;
+    this.options.queueManager.start('event', dispatcherAsShared);
     // Phase 6: wire the summary lane alongside the event lane. Concurrency
     // defaults to 1 per ServerJobQueue config (per the plan), and the same
     // ProviderObservationGenerator dispatches on job.data.source_type via the
     // outbox row reload inside lockOutbox+process.
-    this.options.queueManager.start('summary', dispatcher);
+    this.options.queueManager.start('summary', dispatcherAsShared);
 
     // Phase 12 — audit stalled events directly. Phase 11's audit chain now
     // covers the operator and provider lifecycle; stalled jobs come from

@@ -14,15 +14,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { getWorkerPort, workerHttpRequest, resolveWorkerScriptPath } from '../shared/worker-utils.js';
-import { ensureWorkerStarted } from '../services/worker-spawner.js';
 import { searchCodebase, formatSearchResults } from '../services/smart-file-read/search.js';
 import { parseFile, formatFoldedView, unfoldSymbol } from '../services/smart-file-read/parser.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import {
   ServerClientError,
   isServerClientError,
@@ -39,94 +36,11 @@ import {
 } from '../services/hooks/runtime-selector.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
 
-let mcpServerDirResolutionFailed = false;
-const mcpServerDir = (() => {
-  if (typeof __dirname !== 'undefined') return __dirname;
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch (error) {
-    mcpServerDirResolutionFailed = true;
-    logger.warn('SYSTEM', 'mcp-server: failed to resolve module directory from import.meta.url, falling back to process.cwd()', undefined, error instanceof Error ? error : new Error(String(error)));
-    return process.cwd();
-  }
-})();
-// Prefer the canonical marketplace copy of the worker bundle (same
-// marketplace-first candidates as the hook launcher) over this server's own
-// directory: an MCP server still running out of a stale plugin cache dir
-// would otherwise auto-spawn a stale worker. The own-dir resolution stays as
-// the fallback for installs without a marketplace copy.
-const WORKER_SCRIPT_PATH = resolveWorkerScriptPath() ?? resolve(mcpServerDir, 'worker-service.cjs');
+// C3 (worker retirement) — the old callWorker helper and its worker-utils HTTP
+// import were removed. Every legit caller now routes through the `/v1` server via
+// ServerClient (see requireServerForObservationTool + handle* below); the relic
+// worker-route tools (search/timeline/get_observations/corpus family) were deleted.
 
-function errorIfWorkerScriptMissing(): void {
-  if (!mcpServerDirResolutionFailed) return;
-  if (existsSync(WORKER_SCRIPT_PATH)) return;
-
-  logger.error(
-    'SYSTEM',
-    'mcp-server: dirname resolution failed (both __dirname and import.meta.url are unavailable). Fell back to process.cwd() and the resolved WORKER_SCRIPT_PATH does not exist. This is the actual problem — the worker bundle is fine, but mcp-server cannot locate it. Worker auto-start will fail until the dirname-resolution path is fixed.',
-    { workerScriptPath: WORKER_SCRIPT_PATH, mcpServerDir }
-  );
-}
-
-async function callWorker(
-  endpoint: string,
-  opts: { query?: Record<string, any>; body?: Record<string, any>; text?: boolean } = {}
-): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-  logger.debug('SYSTEM', '→ Worker API', undefined, { endpoint });
-
-  try {
-    let response: Response;
-    if (opts.body) {
-      response = await workerHttpRequest(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(opts.body)
-      });
-    } else {
-      const searchParams = new URLSearchParams();
-      for (const [key, value] of Object.entries(opts.query ?? {})) {
-        if (value !== undefined && value !== null) {
-          searchParams.append(key, String(value));
-        }
-      }
-      response = await workerHttpRequest(`${endpoint}?${searchParams}`);
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Worker API error (${response.status}): ${errorText}`);
-    }
-
-    logger.debug('SYSTEM', '← Worker API success', undefined, { endpoint });
-
-    if (opts.text) {
-      return { content: [{ type: 'text' as const, text: await response.text() }] };
-    }
-    if (opts.body) {
-      return { content: [{ type: 'text' as const, text: JSON.stringify(await response.json(), null, 2) }] };
-    }
-    return await response.json() as { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
-  } catch (error: unknown) {
-    logger.error('SYSTEM', '← Worker API error', { endpoint }, error instanceof Error ? error : new Error(String(error)));
-    return {
-      content: [{
-        type: 'text' as const,
-        text: `Error calling Worker API: ${error instanceof Error ? error.message : String(error)}`
-      }],
-      isError: true
-    };
-  }
-}
-
-async function verifyWorkerConnection(): Promise<boolean> {
-  try {
-    const response = await workerHttpRequest('/api/health');
-    return response.ok;
-  } catch (error: unknown) {
-    logger.debug('SYSTEM', 'Worker health check failed', {}, error instanceof Error ? error : new Error(String(error)));
-    return false;
-  }
-}
 
 // Phase 8 — runtime selection for MCP tools.
 // In server mode, observation_* tools talk to the server `/v1`
@@ -140,8 +54,9 @@ async function verifyWorkerConnection(): Promise<boolean> {
 type ServerToolContext = ServerRuntimeContext;
 
 interface ServerUnavailable {
-  // Phase 1a (cmem-sdk rename): canonical runtime literal is `'server'`.
-  runtime: 'server';
+  // Task 8: both 'local' and 'server' use the server-context path; the
+  // runtime literal here reflects whichever is active.
+  runtime: SelectedRuntime;
   available: false;
   reason: string;
 }
@@ -152,20 +67,18 @@ interface ServerAvailable extends ServerToolContext {
 
 type ServerResolution = ServerAvailable | ServerUnavailable;
 
-function resolveServerToolContext(): ServerResolution | null {
+function resolveServerToolContext(): ServerResolution {
+  // Task 8: both 'local' and 'server' reach the engine over HTTP.
+  // In 'local' mode the embedded PG server runs in-process and
+  // MEMSMITH_SERVER_URL points at it — so the same buildServerContext()
+  // path works for both.  There is no worker fallback for either runtime.
   const runtime: SelectedRuntime = selectRuntime();
-  // Phase 1a (cmem-sdk rename): canonical runtime literal is `'server'`.
-  // `selectRuntime()` accepts legacy `'server-beta'` settings and returns
-  // `'server'` for either.
-  if (runtime !== 'server') {
-    return null;
-  }
   const ctx = buildServerContext();
   if (!ctx) {
     return {
-      runtime: 'server',
+      runtime,
       available: false,
-      reason: 'server runtime is selected but configuration is incomplete (missing url, api key, or project id)',
+      reason: `${runtime} runtime is selected but configuration is incomplete (missing url, api key, or project id)`,
     };
   }
   return { ...ctx, available: true };
@@ -200,13 +113,11 @@ function formatJsonResult(payload: unknown): { content: Array<{ type: 'text'; te
 }
 
 function requireServerForObservationTool(toolName: string): ServerAvailable {
+  // Task 8: resolveServerToolContext() never returns null — both 'local' and
+  // 'server' use the server-context path.  A missing/incomplete configuration
+  // produces a ServerUnavailable result (available: false) which surfaces the
+  // existing "requires a running runtime" style error below.
   const resolution = resolveServerToolContext();
-  if (!resolution) {
-    throw new ServerClientError(
-      'transport',
-      `${toolName} requires MEMSMITH_RUNTIME=server. Current runtime is "worker"; use the existing search/timeline/get_observations tools for worker-mode memory access.`,
-    );
-  }
   if (!resolution.available) {
     throw new ServerClientError('missing_api_key', `${toolName}: ${resolution.reason}`);
   }
@@ -369,30 +280,39 @@ function normalizeProjectsArg(args: SessionStartContextArgs): string[] {
   return [];
 }
 
-async function handleSessionStartContext(
-  args: SessionStartContextArgs,
-): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+// C2 (worker retirement) — the Codex injection path routes SessionStart context
+// through this MCP tool (see cli/handlers/context.ts). The worker route
+// `/api/context/inject` it used to call was deleted, so this now pulls recent
+// project context off the SAME server/local runtime the observation_* tools use.
+//
+// Injection is NOT query-driven at SessionStart: we request the most recent
+// observations for the project scope via the server's empty-query "list recent"
+// mode (POST /v1/search with query='') and pack their content into a string the
+// same way POST /v1/context does (`content.join('\n\n')`). Returns the joined
+// text (never throws — errors surface as an MCP isError result via wrapHandler).
+const SESSION_START_RECENT_LIMIT = 10;
+
+const handleSessionStartContext = wrapHandler('session_start_context', async (args: SessionStartContextArgs) => {
   const projects = normalizeProjectsArg(args);
   if (projects.length === 0) {
-    return {
-      content: [{
-        type: 'text' as const,
-        text: 'session_start_context: "project" or "projects" is required',
-      }],
-      isError: true,
-    };
+    throw new Error('session_start_context: "project" or "projects" is required');
   }
-
-  return callWorker('/api/context/inject', {
-    query: {
-      projects: projects.join(','),
-      ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
-      ...(args.full !== undefined ? { full: args.full } : {}),
-      ...(args.colors !== undefined ? { colors: args.colors } : {}),
-    },
-    text: true,
+  const ctx = requireServerForObservationTool('session_start_context');
+  // Last project in the chain is the primary scope (matches the hook contract).
+  const projectId = projects[projects.length - 1];
+  const response = await ctx.client.searchObservations({
+    projectId,
+    query: '', // empty query = "list recent" (ServerV1PostgresRoutes /v1/search)
+    limit: SESSION_START_RECENT_LIMIT,
+    ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
   });
-}
+  const observations = Array.isArray(response?.observations) ? response.observations : [];
+  const context = observations
+    .map(observation => observation.content)
+    .filter((text): text is string => typeof text === 'string' && text.length > 0)
+    .join('\n\n');
+  return { content: [{ type: 'text' as const, text: context }] };
+});
 
 const handleObservationGenerationStatus = wrapHandler('observation_generation_status', async (args: ObservationGenerationStatusArgs) => {
   const ctx = requireServerForObservationTool('observation_generation_status');
@@ -404,44 +324,14 @@ const handleObservationGenerationStatus = wrapHandler('observation_generation_st
   return formatJsonResult(response);
 });
 
-async function ensureWorkerConnection(): Promise<boolean> {
-  if (await verifyWorkerConnection()) {
-    return true;
-  }
-
-  logger.warn('SYSTEM', 'Worker not available, attempting auto-start for MCP client');
-
-  errorIfWorkerScriptMissing();
-
-  try {
-    const port = getWorkerPort();
-    const result = await ensureWorkerStarted(port, WORKER_SCRIPT_PATH);
-    if (result === 'dead') {
-      logger.error(
-        'SYSTEM',
-        'Worker auto-start failed — MCP tools that require the worker (search, timeline, get_observations) will fail until the worker is running. Check earlier log lines for the specific failure reason (Bun not found, missing worker bundle, port conflict, etc.).'
-      );
-    }
-    return result !== 'dead';
-  } catch (error: unknown) {
-    logger.error(
-      'SYSTEM',
-      'Worker auto-start threw — MCP tools that require the worker (search, timeline, get_observations) will fail until the worker is running.',
-      undefined,
-      error instanceof Error ? error : new Error(String(error))
-    );
-    return false;
-  }
-}
 
 const tools = [
   {
     name: '__IMPORTANT',
-    description: `3-LAYER WORKFLOW (ALWAYS FOLLOW):
-1. search(query) → Get index with IDs (~50-100 tokens/result)
-2. timeline(anchor=ID) → Get context around interesting results
-3. get_observations([IDs]) → Fetch full details ONLY for filtered IDs
-NEVER fetch full details without filtering first. 10x token savings.`,
+    description: `MEMORY RECALL WORKFLOW (ALWAYS FOLLOW):
+1. observation_search(query) → Full-text index of matching observations
+2. observation_context(query) → Top-N relevant observations + a packed context string ready for injection
+Both are backed by the live server (/v1). Prefer observation_context when you want ready-to-use context.`,
     inputSchema: {
       type: 'object',
       properties: {}
@@ -449,89 +339,30 @@ NEVER fetch full details without filtering first. 10x token savings.`,
     handler: async () => ({
       content: [{
         type: 'text' as const,
-        text: `# Memory Search Workflow
+        text: `# Memory Recall Workflow
 
-**3-Layer Pattern (ALWAYS follow this):**
+**Backed by the live server (/v1). Two tools:**
 
-1. **Search** - Get index of results with IDs
-   \`search(query="...", limit=20, project="...")\`
-   Returns: Table with IDs, titles, dates (~50-100 tokens/result)
+1. **observation_search** - Full-text search across generated observations
+   \`observation_search(query="...", limit=20, projectId="...")\`
+   Returns: matching observations (FTS/hybrid ranked)
 
-2. **Timeline** - Get context around interesting results
-   \`timeline(anchor=<ID>, depth_before=3, depth_after=3)\`
-   Returns: Chronological context showing what was happening
+2. **observation_context** - Top-N relevant observations for injection
+   \`observation_context(query="...", limit=10, projectId="...")\`
+   Returns: matched observations AND a pre-joined context string ready to inject
 
-3. **Fetch** - Get full details ONLY for relevant IDs
-   \`get_observations(ids=[...])\`  # ALWAYS batch for 2+ items
-   Returns: Complete details (~500-1000 tokens/result)
-
-**Why:** 10x token savings. Never fetch full details without filtering first.`
+Use observation_context when you want ready-to-use context; observation_search when you want to browse matches.`
       }]
     })
   },
-  {
-    name: 'search',
-    description: 'Step 1: Search memory. Returns index with IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search query' },
-        limit: { type: 'number', description: 'Max results (default 20)' },
-        project: { type: 'string', description: 'Filter by project name' },
-        platformSource: { type: 'string', description: "Filter by platform source (e.g. claude, codex, cursor) — restricts results to that agent's own memory" },
-        type: { type: 'string', description: 'Filter by observation type' },
-        obs_type: { type: 'string', description: 'Filter by obs_type field' },
-        dateStart: { type: 'string', description: 'Start date filter (ISO)' },
-        dateEnd: { type: 'string', description: 'End date filter (ISO)' },
-        offset: { type: 'number', description: 'Pagination offset' },
-        orderBy: { type: 'string', description: 'Sort order: date_desc or date_asc' }
-      },
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      return await callWorker('/api/search', { query: args });
-    }
-  },
-  {
-    name: 'timeline',
-    description: 'Step 2: Get context around results. Params: anchor (observation ID) OR query (finds anchor automatically), depth_before, depth_after, project',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        anchor: { type: 'number', description: 'Observation ID to center the timeline around' },
-        query: { type: 'string', description: 'Query to find anchor automatically' },
-        depth_before: { type: 'number', description: 'Items before anchor (default 3)' },
-        depth_after: { type: 'number', description: 'Items after anchor (default 3)' },
-        project: { type: 'string', description: 'Filter by project name' }
-      },
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      return await callWorker('/api/timeline', { query: args });
-    }
-  },
-  {
-    name: 'get_observations',
-    description: 'Step 3: Fetch full details for filtered IDs. Params: ids (array of observation IDs, required), orderBy, limit, project',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ids: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Array of observation IDs to fetch (required)'
-        }
-      },
-      required: ['ids'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      return await callWorker('/api/observations/batch', { body: args });
-    }
-  },
+  // C3 (worker retirement) — the `search`, `timeline`, and `get_observations`
+  // tools dispatched to deleted worker routes (/api/search, /api/timeline,
+  // /api/observations/batch) and failed at runtime. They are removed here; their
+  // capability is superseded by observation_search / observation_context, which
+  // are backed by the live `/v1` server. No capability is lost.
   {
     name: 'session_start_context',
-    description: 'Render the exact worker-mode SessionStart context for a project. Calls /api/context/inject and returns the same text hooks inject at startup. Params: project OR projects, platformSource, full, colors.',
+    description: 'Render the SessionStart context for a project. Pulls recent project observations from the server/local runtime (POST /v1/search, recent mode) and returns the packed context string hooks inject at startup. Params: project OR projects, platformSource.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -747,111 +578,11 @@ NEVER fetch full details without filtering first. 10x token savings.`,
       };
     }
   },
-  {
-    name: 'build_corpus',
-    description: 'Build a knowledge corpus from filtered observations. Creates a queryable knowledge agent. Params: name (required), description, project, types (comma-separated), concepts (comma-separated), files (comma-separated), query, dateStart, dateEnd, limit',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Corpus name (used as filename)' },
-        description: { type: 'string', description: 'What this corpus is about' },
-        project: { type: 'string', description: 'Filter by project' },
-        types: { type: 'string', description: 'Comma-separated observation types: decision,bugfix,feature,refactor,discovery,change' },
-        concepts: { type: 'string', description: 'Comma-separated concepts to filter by' },
-        files: { type: 'string', description: 'Comma-separated file paths to filter by' },
-        query: { type: 'string', description: 'Semantic search query' },
-        dateStart: { type: 'string', description: 'Start date (ISO format)' },
-        dateEnd: { type: 'string', description: 'End date (ISO format)' },
-        limit: { type: 'number', description: 'Maximum observations (default 500)' }
-      },
-      required: ['name'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      return await callWorker('/api/corpus', { body: args });
-    }
-  },
-  {
-    name: 'list_corpora',
-    description: 'List all knowledge corpora with their stats and priming status',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      return await callWorker('/api/corpus', { query: args });
-    }
-  },
-  {
-    name: 'prime_corpus',
-    description: 'Prime a knowledge corpus — creates an AI session loaded with the corpus knowledge. Must be called before query_corpus.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name of the corpus to prime' }
-      },
-      required: ['name'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      const { name, ...rest } = args;
-      if (typeof name !== 'string' || name.trim() === '') throw new Error('Missing required argument: name');
-      return await callWorker(`/api/corpus/${encodeURIComponent(name)}/prime`, { body: rest });
-    }
-  },
-  {
-    name: 'query_corpus',
-    description: 'Ask a question to a primed knowledge corpus. The corpus must be primed first with prime_corpus.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name of the corpus to query' },
-        question: { type: 'string', description: 'The question to ask' }
-      },
-      required: ['name', 'question'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      const { name, ...rest } = args;
-      if (typeof name !== 'string' || name.trim() === '') throw new Error('Missing required argument: name');
-      return await callWorker(`/api/corpus/${encodeURIComponent(name)}/query`, { body: rest });
-    }
-  },
-  {
-    name: 'rebuild_corpus',
-    description: 'Rebuild a knowledge corpus from its stored filter — re-runs the search to refresh with new observations. Does not re-prime the session.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name of the corpus to rebuild' }
-      },
-      required: ['name'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      const { name, ...rest } = args;
-      if (typeof name !== 'string' || name.trim() === '') throw new Error('Missing required argument: name');
-      return await callWorker(`/api/corpus/${encodeURIComponent(name)}/rebuild`, { body: rest });
-    }
-  },
-  {
-    name: 'reprime_corpus',
-    description: 'Create a fresh knowledge agent session for a corpus, clearing prior Q&A context. Use when conversation has drifted or after rebuilding.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name of the corpus to reprime' }
-      },
-      required: ['name'],
-      additionalProperties: true
-    },
-    handler: async (args: any) => {
-      const { name, ...rest } = args;
-      if (typeof name !== 'string' || name.trim() === '') throw new Error('Missing required argument: name');
-      return await callWorker(`/api/corpus/${encodeURIComponent(name)}/reprime`, { body: rest });
-    }
-  }
+  // C3 (worker retirement) — the corpus family (build_corpus, list_corpora,
+  // prime_corpus, query_corpus, rebuild_corpus, reprime_corpus) all dispatched to
+  // deleted worker `/api/corpus/*` routes and failed at runtime. Removed per the
+  // approved ledger decision (relic). Knowledge-corpus functionality is not part
+  // of the `/v1` server engine.
 ];
 
 const server = new Server(
@@ -989,31 +720,19 @@ async function main() {
   const transport = new StdioServerTransport();
   attachStdioLifecycle();
   await server.connect(transport);
-  logger.info('SYSTEM', 'Claude-mem search server started');
+  logger.info('SYSTEM', 'MemSmith search server started');
 
   checkMarketplaceMarker();
 
   startParentHeartbeat();
 
-  setTimeout(async () => {
-    // Phase 8 — when MEMSMITH_RUNTIME=server (or legacy `server-beta`,
-    // normalized to `'server'` by selectRuntime), MCP must NOT auto-start
-    // the worker. observation_* tools talk to the server runtime directly;
-    // the legacy worker-backed tools (search/timeline/get_observations)
-    // will simply error with a helpful message until the user switches
-    // runtime.
-    if (selectRuntime() === 'server') {
-      logger.info('SYSTEM', 'MCP runtime=server — skipping worker auto-start', undefined, {});
-      return;
-    }
-    const workerAvailable = await ensureWorkerConnection();
-    if (!workerAvailable) {
-      logger.error('SYSTEM', 'Worker not available', undefined, {});
-      logger.error('SYSTEM', 'Tools will fail until Worker is started');
-      logger.error('SYSTEM', 'Start Worker with: npm run worker:restart');
-    } else {
-      logger.info('SYSTEM', 'Worker available', undefined, {});
-    }
+  setTimeout(() => {
+    // Task 8 — selectRuntime() now returns 'local' | 'server' only; the worker
+    // runtime is retired.  Both 'local' and 'server' talk to the engine over
+    // HTTP (local's embedded PG server runs in-process with MEMSMITH_SERVER_URL
+    // pointing at it), so MCP must NEVER auto-spawn a worker for either.
+    const runtime = selectRuntime();
+    logger.info('SYSTEM', `MCP runtime=${runtime} — skipping worker auto-start`, undefined, {});
   }, 0);
 }
 

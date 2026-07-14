@@ -32,6 +32,7 @@ const EXCLUDED_PATTERNS = [
   /npx-cli\/install\//,  // npx CLI install-time modules (error-reporter/setup-runtime/etc) emit user-visible terminal output during `npx memsmith install`
   /npx-cli\/banner\.ts$/,  // npx CLI banner animation runs only on an interactive TTY; console.warn on frame-decode failure is user-visible terminal output
   /server\/runtime\/ServerService\.ts$/,  // server CLI entry point (status/usage output, process.exit)
+  /services\/local-runtime-cli\.ts$/,  // Local runtime CLI entry point: console.log/error for user-visible terminal output (start/stop/status/restart)
   /integrations\/McpIntegrations\.ts$/,  // CLI installer for MCP integrations (interactive install output)
   /errors\.ts$/,  // Error class/type definitions (pure data, no logic to instrument)
   /worker\/provider-errors\.ts$/,  // Provider error classification (pure data structures)

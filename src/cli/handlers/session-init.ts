@@ -3,16 +3,10 @@
 // console.* / process.exit. logger.* calls are DIAGNOSTIC; thrown errors are
 // caught by hookCommand and routed through emitBlockingError.
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import {
-  executeWithWorkerFallback as defaultExecuteWithWorkerFallback,
-  isWorkerFallback as defaultIsWorkerFallback,
-} from '../../shared/worker-utils.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject as defaultShouldTrackProject } from '../../shared/should-track-project.js';
-import { loadFromFileOnce as defaultLoadFromFileOnce } from '../../shared/hook-settings.js';
-import type { SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { isInternalProtocolPayload } from '../../utils/tag-stripping.js';
 import {
@@ -21,41 +15,12 @@ import {
   type ServerRuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
-import { fetchTeamMemory as defaultFetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
-import { buildInjectionBlock as defaultBuildInjectionBlock } from '../../server/retrieval/inject.js';
-
-interface SessionInitResponse {
-  sessionDbId: number;
-  promptNumber: number;
-  skipped?: boolean;
-  reason?: string;
-  contextInjected?: boolean;
-}
-
-interface SemanticContextResponse {
-  context: string;
-  count: number;
-}
 
 const defaultDependencies = {
-  executeWithWorkerFallback: defaultExecuteWithWorkerFallback,
-  isWorkerFallback: defaultIsWorkerFallback,
-  loadFromFileOnce: defaultLoadFromFileOnce,
   resolveRuntimeContext: defaultResolveRuntimeContext,
   logServerFallback: defaultLogServerFallback,
   shouldTrackProject: defaultShouldTrackProject,
-  fetchTeamMemory: defaultFetchTeamMemory,
-  buildInjectionBlock: defaultBuildInjectionBlock,
 };
-
-function teamServerConfigured(settings: SettingsDefaults): boolean {
-  // Honor the SAME master opt-in as SessionStart (context.ts): team injection
-  // requires MEMSMITH_TEAM_INJECT=true AND a configured server URL + key. This
-  // keeps per-prompt injection consistent with SessionStart — an operator who
-  // left MEMSMITH_TEAM_INJECT off gets no server-path injection on either hook.
-  return settings.MEMSMITH_TEAM_INJECT === 'true'
-    && !!(settings.MEMSMITH_TEAM_SERVER_URL?.trim() && settings.MEMSMITH_TEAM_API_KEY?.trim());
-}
 
 let dependencies = defaultDependencies;
 
@@ -91,9 +56,19 @@ export const sessionInitHandler: EventHandler = {
 
     const project = getProjectContext(cwd).primary;
     const platformSource = normalizePlatformSource(input.platform);
-    const settings = dependencies.loadFromFileOnce();
-    const semanticInject =
-      String(settings.MEMSMITH_SEMANTIC_INJECT).toLowerCase() === 'true';
+
+    // Non-fatal identity mint: ensure the project has a durable identity + base key
+    // in the local embedded PG. Skips silently when the DB is not reachable (e.g.
+    // the hook fires before the local runtime is up). Next session-init retries.
+    try {
+      const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
+      const pool = getSharedPostgresPool({ requireDatabaseUrl: true });
+      const { ensureProjectIdentity, ensureBaseKey } = await import('../../services/identity/project-identity.js');
+      const { teamId, projectId: identityProjectId } = await ensureProjectIdentity(pool, cwd);
+      await ensureBaseKey(pool, teamId, identityProjectId);
+    } catch (err) {
+      logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
+    }
 
     const runtime = dependencies.resolveRuntimeContext();
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
@@ -112,7 +87,7 @@ export const sessionInitHandler: EventHandler = {
             message: error.message,
             route: '/v1/sessions/start',
           });
-          // fall through to worker fallback
+          // fall through to clean skip (worker fallback retired)
         } else {
           logger.error('HOOK', 'Server session-start failed (non-recoverable)', {
             error: error instanceof Error ? error.message : String(error),
@@ -122,101 +97,9 @@ export const sessionInitHandler: EventHandler = {
       }
     }
 
-    logger.debug('HOOK', 'session-init: Calling /api/sessions/init', { contentSessionId: sessionId, project });
-
-    const initResult = await dependencies.executeWithWorkerFallback<SessionInitResponse>(
-      '/api/sessions/init',
-      'POST',
-      {
-        contentSessionId: sessionId,
-        project,
-        prompt,
-        platformSource,
-      },
-    );
-
-    if (dependencies.isWorkerFallback(initResult)) {
-      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
-    }
-
-    if (typeof initResult?.sessionDbId !== 'number') {
-      logger.failure('HOOK', 'Session initialization returned malformed response', { contentSessionId: sessionId, project });
-      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
-    }
-
-    const sessionDbId = initResult.sessionDbId;
-    const promptNumber = initResult.promptNumber;
-
-    logger.debug('HOOK', 'session-init: Received from /api/sessions/init', { sessionDbId, promptNumber, skipped: initResult.skipped, contextInjected: initResult.contextInjected });
-
-    logger.debug('HOOK', `[ALIGNMENT] Hook Entry | contentSessionId=${sessionId} | prompt#=${promptNumber} | sessionDbId=${sessionDbId}`);
-
-    if (initResult.skipped && initResult.reason === 'private') {
-      logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=private`, {
-        sessionId: sessionDbId
-      });
-      return { continue: true, suppressOutput: true };
-    }
-
-    let additionalContext = '';
-
-    if (semanticInject && prompt && prompt.length >= 20 && prompt !== '[media prompt]') {
-      // Server mode (team server configured): hybrid RRF + L0–L3 tiering, query = the
-      // actual prompt (higher signal than SessionStart's project-name query). Mirrors
-      // the SessionStart team-injection block. fetchTeamMemory never throws (returns []),
-      // and buildInjectionBlock returns '' on empty, so a down/misconfigured server
-      // degrades to the worker path below — never an empty injection where the worker
-      // could have served one.
-      if (teamServerConfigured(settings)) {
-        try {
-          const rows = await dependencies.fetchTeamMemory({
-            serverUrl: settings.MEMSMITH_TEAM_SERVER_URL ?? '',
-            apiKey: settings.MEMSMITH_TEAM_API_KEY ?? '',
-            projectId: project,
-            teamId: '',            // resolved server-side from the scoped key
-            query: prompt,         // the signal improvement: query with the prompt
-          });
-          const block = await dependencies.buildInjectionBlock(
-            { hybridSearch: async () => rows },
-            { projectId: project, teamId: '', query: prompt },
-          );
-          if (block) additionalContext = block;
-        } catch (error) {
-          logger.warn('HOOK', 'per-prompt hybrid injection failed; falling back to worker semantic', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      // Worker semantic path — unchanged; runs when no team server, or the server
-      // path produced nothing.
-      if (!additionalContext) {
-        const limit = settings.MEMSMITH_SEMANTIC_INJECT_LIMIT || '5';
-        const semanticResult = await dependencies.executeWithWorkerFallback<SemanticContextResponse>(
-          '/api/context/semantic', 'POST', { q: prompt, project, limit, platformSource },
-        );
-        if (!dependencies.isWorkerFallback(semanticResult) && semanticResult?.context) {
-          logger.debug('HOOK', `Semantic injection: ${semanticResult.count} observations for prompt`, { sessionId: sessionDbId, count: semanticResult.count });
-          additionalContext = semanticResult.context;
-        }
-      }
-    }
-
-    logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | project=${project}`, {
-      sessionId: sessionDbId
-    });
-
-    if (additionalContext) {
-      return {
-        continue: true,
-        suppressOutput: true,
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-          additionalContext
-        }
-      };
-    }
-
+    // No server runtime reachable (embedded not yet available). The worker
+    // fallback has been retired; skip cleanly so the hook never blocks.
+    logger.debug('HOOK', 'session-init: no reachable runtime; skipping', { sessionId, project });
     return { continue: true, suppressOutput: true };
   }
 };
@@ -244,8 +127,3 @@ async function startServerSession(
   });
 }
 
-function parseSemanticInjectLimit(value: string | number): number {
-  const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 5;
-  return parsed;
-}

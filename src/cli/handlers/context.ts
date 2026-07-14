@@ -5,21 +5,84 @@
 // process.stderr.write / process.stdout.write / console.* / process.exit.
 // logger.* calls are DIAGNOSTIC and route through hook-io's stderr path.
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import {
-  executeWithWorkerFallback,
-  isWorkerFallback,
-  getWorkerPort,
-} from '../../shared/worker-utils.js';
+import { getWorkerPort } from '../../shared/worker-utils.js';
 import { appendTeamMemoryInjection } from '../../server/retrieval/inject-append.js';
 import { buildInjectionBlock } from '../../server/retrieval/inject.js';
 import { fetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
-import { getProjectContext } from '../../utils/project-name.js';
-import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
+import { getProjectContext as defaultGetProjectContext } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
-import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { loadFromFileOnce as defaultLoadFromFileOnce } from '../../shared/hook-settings.js';
 import { readStaleMarker } from '../../shared/oauth-token.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { callMcpToolOnce } from '../../shared/mcp-client.js';
+import {
+  resolveRuntimeContext as defaultResolveRuntimeContext,
+  type RuntimeContext,
+} from '../../services/hooks/runtime-selector.js';
+
+// The SessionStart primary-context budget. Injection is NOT query-driven at
+// startup — we pull the most recent observations for the project scope and pack
+// them into a string the same way POST /v1/context does server-side.
+const SESSION_START_RECENT_LIMIT = 10;
+
+const defaultDependencies = {
+  resolveRuntimeContext: defaultResolveRuntimeContext,
+  getProjectContext: defaultGetProjectContext,
+  loadFromFileOnce: defaultLoadFromFileOnce,
+};
+
+let dependencies = defaultDependencies;
+
+export function setContextDependenciesForTesting(
+  overrides: Partial<typeof defaultDependencies> = {},
+): void {
+  dependencies = { ...defaultDependencies, ...overrides };
+}
+
+// C1 (worker retirement) — restore primary SessionStart / UserPromptSubmit
+// injection. The worker route `/api/context/inject` that used to serve this was
+// deleted, so this pulls recent project context off the SAME server/local
+// runtime the capture handlers use (resolveRuntimeContext + ServerClient).
+//
+// Injection is NOT query-driven at SessionStart: we request the most recent
+// observations for the project scope via the server's empty-query "list recent"
+// mode (POST /v1/search with query='') and pack their content into a string the
+// same way POST /v1/context does (`content.join('\n\n')`). This preserves the
+// old "recent + relevant project context, injected as a string" behavior and
+// the plain-string handler contract (additionalContext = <string>).
+//
+// Graceful-empty contract: returns '' (never throws, never blocks the session)
+// when no server runtime is reachable or no observations exist — but it MUST be
+// non-empty when observations DO exist for the project.
+async function fetchPrimaryInjection(
+  runtime: RuntimeContext,
+  args: { projectId: string; platformSource?: string; limit?: number },
+): Promise<string> {
+  if (runtime.runtime !== 'server') {
+    // No server context reachable (embedded PG not yet available). Skip cleanly.
+    return '';
+  }
+  try {
+    const response = await runtime.client.searchObservations({
+      projectId: args.projectId,
+      query: '', // empty query = "list recent" (ServerV1PostgresRoutes /v1/search)
+      limit: args.limit ?? SESSION_START_RECENT_LIMIT,
+      ...(args.platformSource !== undefined ? { platformSource: args.platformSource } : {}),
+    });
+    const observations = Array.isArray(response?.observations) ? response.observations : [];
+    // Same context-packing rule as POST /v1/context: join non-empty contents.
+    return observations
+      .map(observation => observation.content)
+      .filter((text): text is string => typeof text === 'string' && text.length > 0)
+      .join('\n\n');
+  } catch (error: unknown) {
+    // Injection must never break the session — log and inject empty.
+    logger.warn('HOOK', 'primary context injection failed; continuing without it', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return '';
+  }
+}
 
 async function requestSessionStartContext(args: {
   projects: string[];
@@ -32,7 +95,7 @@ async function requestSessionStartContext(args: {
     ...(args.colors !== undefined ? { colors: args.colors } : {}),
   });
   if (result.isError) {
-    logger.warn('HOOK', 'MCP session_start_context returned an error; falling back to worker HTTP', {
+    logger.warn('HOOK', 'MCP session_start_context returned an error; falling back to direct runtime injection', {
       preview: result.text.slice(0, 200),
     });
     return null;
@@ -48,7 +111,7 @@ async function fetchSessionStartContextViaMcp(args: {
   try {
     return await requestSessionStartContext(args);
   } catch (error: unknown) {
-    logger.warn('HOOK', 'MCP session_start_context failed; falling back to worker HTTP', {
+    logger.warn('HOOK', 'MCP session_start_context failed; falling back to direct runtime injection', {
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -58,26 +121,15 @@ async function fetchSessionStartContextViaMcp(args: {
 export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const cwd = input.cwd ?? process.cwd();
-    const context = getProjectContext(cwd);
+    const context = dependencies.getProjectContext(cwd);
     const port = getWorkerPort();
 
-    const settings = loadFromFileOnce();
+    const settings = dependencies.loadFromFileOnce();
     const showTerminalOutput = settings.MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
 
-    const projectsParam = context.allProjects.join(',');
     const normalizedPlatformSource = input.platform
       ? normalizePlatformSource(input.platform)
       : undefined;
-    const platformSourceParam = input.platform
-      ? `&platformSource=${encodeURIComponent(normalizedPlatformSource!)}`
-      : '';
-    const apiPath = `/api/context/inject?projects=${encodeURIComponent(projectsParam)}${platformSourceParam}`;
-    const colorApiPath = input.platform === 'claude-code' ? `${apiPath}&colors=true` : apiPath;
-
-    const emptyResult: HookResult = {
-      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '' },
-      exitCode: HOOK_EXIT_CODES.SUCCESS,
-    };
 
     let additionalContext: string;
     const mcpContextResult = input.platform === 'codex'
@@ -90,19 +142,14 @@ export const contextHandler: EventHandler = {
     if (mcpContextResult !== null) {
       additionalContext = mcpContextResult;
     } else {
-      const contextResult = await executeWithWorkerFallback<string>(apiPath, 'GET');
-      if (isWorkerFallback(contextResult)) {
-        return emptyResult;
-      }
-
-      if (typeof contextResult === 'string') {
-        additionalContext = contextResult.trim();
-      } else if (contextResult === undefined) {
-        additionalContext = '';
-      } else {
-        logger.warn('HOOK', 'Context response was not a string', { type: typeof contextResult });
-        return emptyResult;
-      }
+      // C1 — primary injection now runs off the server/local runtime (the worker
+      // route that served it was retired). Recent-mode (empty query), packed the
+      // same way POST /v1/context packs its context string.
+      const runtime = dependencies.resolveRuntimeContext();
+      additionalContext = (await fetchPrimaryInjection(runtime, {
+        projectId: context.primary,
+        ...(normalizedPlatformSource ? { platformSource: normalizedPlatformSource } : {}),
+      })).trim();
     }
 
     // Issue #2215: surface stale OAuth token marker as a session-start hint.
@@ -118,6 +165,10 @@ export const contextHandler: EventHandler = {
 
     let coloredTimeline = '';
     if (showTerminalOutput) {
+      // Codex fetches a color-formatted variant through the MCP tool. For other
+      // platforms the worker color route was retired; there is no server-side
+      // color renderer, so the plain additionalContext is used for terminal
+      // display below (see displayContent fallback).
       const mcpColorResult = input.platform === 'codex'
         ? await fetchSessionStartContextViaMcp({
             projects: context.allProjects,
@@ -127,21 +178,16 @@ export const contextHandler: EventHandler = {
         : null;
       if (mcpColorResult !== null) {
         coloredTimeline = mcpColorResult;
-      } else {
-        const colorResult = await executeWithWorkerFallback<string>(colorApiPath, 'GET');
-        if (!isWorkerFallback(colorResult) && typeof colorResult === 'string') {
-          coloredTimeline = colorResult.trim();
-        }
       }
     }
 
     const platform = input.platform;
 
-    // Antigravity CLI (like the former Gemini CLI) is hooks-based, not an
-    // MCP-context-fetch platform like Codex — colorApiPath never populates
-    // coloredTimeline for it (colors are claude-code-only above), so fall
-    // back to the plain additionalContext for terminal display.
-    const displayContent = coloredTimeline || (platform === 'antigravity-cli' ? additionalContext : '');
+    // Only Codex can populate `coloredTimeline` now (via its MCP color fetch);
+    // the worker-side color renderer was retired with `/api/context/inject`.
+    // Every other platform falls back to the plain additionalContext for
+    // terminal display when terminal output is enabled.
+    const displayContent = coloredTimeline || (platform === 'codex' ? '' : additionalContext);
 
     const systemMessage = showTerminalOutput && displayContent
       ? `${displayContent}\n\nView Observations Live @ http://localhost:${port}`

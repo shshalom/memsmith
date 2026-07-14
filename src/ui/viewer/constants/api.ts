@@ -11,4 +11,5 @@ export const V1_ENDPOINTS = {
   DASH_BOARD: '/dashboard/board', DASH_DECISIONS: '/dashboard/decisions',
   DASH_BLOCKED: '/dashboard/blocked', DASH_COST: '/dashboard/cost',
   SETTINGS: '/v1/settings',
+  IDENTITY: '/v1/identity',
 } as const;

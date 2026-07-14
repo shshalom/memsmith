@@ -46,7 +46,7 @@ import {
 describe('runtime-selector', () => {
   beforeEach(() => {
     mockSettings = {
-      MEMSMITH_RUNTIME: 'worker',
+      MEMSMITH_RUNTIME: 'local',
       MEMSMITH_SERVER_URL: '',
       MEMSMITH_SERVER_API_KEY: '',
       MEMSMITH_SERVER_PROJECT_ID: '',
@@ -57,8 +57,8 @@ describe('runtime-selector', () => {
     warnLogs.length = 0;
   });
 
-  it('selectRuntime defaults to worker', () => {
-    expect(selectRuntime()).toBe('worker');
+  it('selectRuntime defaults to local', () => {
+    expect(selectRuntime()).toBe('local');
   });
 
   it("selectRuntime returns 'server' when MEMSMITH_RUNTIME='server' (canonical)", () => {
@@ -71,9 +71,9 @@ describe('runtime-selector', () => {
     expect(selectRuntime()).toBe('server');
   });
 
-  it('selectRuntime returns worker for unknown values', () => {
+  it('selectRuntime returns local for unknown values', () => {
     mockSettings.MEMSMITH_RUNTIME = 'something-else';
-    expect(selectRuntime()).toBe('worker');
+    expect(selectRuntime()).toBe('local');
   });
 
   it('selectRuntime accepts mixed case / whitespace', () => {
@@ -83,17 +83,26 @@ describe('runtime-selector', () => {
     expect(selectRuntime()).toBe('server');
   });
 
-  it('resolveRuntimeContext returns worker when runtime=worker', () => {
+  it('resolveRuntimeContext returns local skip context when runtime=local (no server config)', () => {
+    // MEMSMITH_RUNTIME='local' with no server URL/key/project -> local skip context.
+    // The worker fallback no longer exists; hooks skip cleanly via 'local'.
     const ctx = resolveRuntimeContext();
-    expect(ctx.runtime).toBe('worker');
+    expect(ctx.runtime).toBe('local');
+    if (ctx.runtime === 'local') {
+      expect(ctx.reason).toBe('server_context_unavailable');
+    }
   });
 
-  it('resolveRuntimeContext falls back to worker when api key is missing', () => {
+  it('resolveRuntimeContext returns local skip context when api key is missing', () => {
     mockSettings.MEMSMITH_RUNTIME = 'server';
     mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
     mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'p1';
+    // Missing api key -> buildServerContext returns null -> local skip context.
     const ctx = resolveRuntimeContext();
-    expect(ctx.runtime).toBe('worker');
+    expect(ctx.runtime).toBe('local');
+    if (ctx.runtime === 'local') {
+      expect(ctx.reason).toBe('server_context_unavailable');
+    }
     expect(warnLogs.some(l => l.msg.includes('missing_api_key'))).toBe(true);
   });
 
@@ -176,10 +185,11 @@ describe('runtime-selector', () => {
   // dispatch boundary the hooks use (resolveRuntimeContext).
   // Phase 1d: the persisted literal `'server-beta'` is still accepted in
   // settings, but the selector normalizes it to the canonical `'server'`.
-  it('flips worker <-> server when the setting changes (no reinstall)', () => {
-    // Start on worker.
-    mockSettings.MEMSMITH_RUNTIME = 'worker';
-    expect(resolveRuntimeContext().runtime).toBe('worker');
+  it('flips local <-> server when the setting changes (no reinstall)', () => {
+    // Start on local (default). No server config -> local skip context.
+    mockSettings.MEMSMITH_RUNTIME = 'local';
+    const localCtx = resolveRuntimeContext();
+    expect(localCtx.runtime).toBe('local');
 
     // Flip to server-beta (fully configured) — hooks now resolve the server runtime.
     // Persisted setting may still be `'server-beta'`; selector normalizes to `'server'`.
@@ -193,8 +203,11 @@ describe('runtime-selector', () => {
       expect(flipped.serverBaseUrl).toBe('http://localhost:9999');
     }
 
-    // Flip back to worker — hooks resolve the worker runtime again.
-    mockSettings.MEMSMITH_RUNTIME = 'worker';
-    expect(resolveRuntimeContext().runtime).toBe('worker');
+    // Flip back to local — hooks resolve the local skip context (no worker fallback).
+    mockSettings.MEMSMITH_RUNTIME = 'local';
+    mockSettings.MEMSMITH_SERVER_BETA_URL = '';
+    mockSettings.MEMSMITH_SERVER_BETA_API_KEY = '';
+    mockSettings.MEMSMITH_SERVER_BETA_PROJECT_ID = '';
+    expect(resolveRuntimeContext().runtime).toBe('local');
   });
 });

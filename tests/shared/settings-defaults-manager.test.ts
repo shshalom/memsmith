@@ -333,14 +333,14 @@ describe('SettingsDefaultsManager', () => {
   describe('get', () => {
     it('should return default value for key', () => {
       expect(SettingsDefaultsManager.get('MEMSMITH_MODEL')).toBe('claude-haiku-4-5-20251001');
-      const expectedPort = String(37700 + ((process.getuid?.() ?? 77) % 100));
+      const expectedPort = String(38700 + ((process.getuid?.() ?? 77) % 100));
       expect(SettingsDefaultsManager.get('MEMSMITH_WORKER_PORT')).toBe(expectedPort);
     });
   });
 
   describe('getInt', () => {
     it('should return integer value for numeric string', () => {
-      const expectedPort = 37700 + ((process.getuid?.() ?? 77) % 100);
+      const expectedPort = 38700 + ((process.getuid?.() ?? 77) % 100);
       expect(SettingsDefaultsManager.getInt('MEMSMITH_WORKER_PORT')).toBe(expectedPort);
       expect(SettingsDefaultsManager.getInt('MEMSMITH_CONTEXT_OBSERVATIONS')).toBe(50);
     });
@@ -444,7 +444,7 @@ describe('SettingsDefaultsManager', () => {
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      const expectedDefault = String(37700 + ((process.getuid?.() ?? 77) % 100));
+      const expectedDefault = String(38700 + ((process.getuid?.() ?? 77) % 100));
       expect(defaults.MEMSMITH_WORKER_PORT).toBe(expectedDefault); 
       expect(result.MEMSMITH_WORKER_PORT).toBe('33333'); 
     });

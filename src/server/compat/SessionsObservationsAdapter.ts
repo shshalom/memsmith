@@ -49,6 +49,12 @@ export interface SessionsObservationsAdapterOptions {
   ingestEvents: IngestEventsService;
   authMode?: string;
   allowLocalDevBypass?: boolean;
+  // Local-dev fallback team/project — same values the /v1 + /dashboard reads
+  // use. Under the loopback local-dev bypass the auth middleware reads these
+  // (NOT env) to populate authContext.teamId/projectId; without them the
+  // bypassed request has a null team and GET /api/observations 403s.
+  localDevTeamId?: string | null;
+  localDevProjectId?: string | null;
 }
 
 export class SessionsObservationsAdapter implements RouteHandler {
@@ -58,8 +64,92 @@ export class SessionsObservationsAdapter implements RouteHandler {
     const writeAuth = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId ?? null,
+      localDevProjectId: this.options.localDevProjectId ?? null,
       requiredScopes: ['memories:write'],
     });
+    const readAuth = requirePostgresServerAuth(this.options.pool, {
+      authMode: this.options.authMode,
+      allowLocalDevBypass: this.options.allowLocalDevBypass,
+      localDevTeamId: this.options.localDevTeamId ?? null,
+      localDevProjectId: this.options.localDevProjectId ?? null,
+      requiredScopes: ['memories:read'],
+    });
+
+    // GET /api/observations — paginated observation list for the viewer's
+    // "Observations" tab. The viewer's usePagination hook calls this with
+    // ?offset&limit and expects `{ items, hasMore }`, where each item is the
+    // viewer `Observation` shape (id/type/text/lifecycle/created_at/...).
+    // Scoped to the caller's team/project (server runtime is Postgres-backed,
+    // so this reads the same observations table the dashboard board reads).
+    app.get('/api/observations', readAuth, this.asyncHandler(async (req, res) => {
+      const teamId = req.authContext?.teamId ?? null;
+      if (!teamId) {
+        res.status(403).json({ error: 'Forbidden', message: 'API key is not bound to a team' });
+        return;
+      }
+      const projectId = req.authContext?.projectId ?? null;
+
+      const rawLimit = Number.parseInt(String(req.query.limit ?? ''), 10);
+      const rawOffset = Number.parseInt(String(req.query.offset ?? ''), 10);
+      const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+      const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+
+      // Scope: team-only when the key isn't project-bound; team+project otherwise.
+      const where = projectId ? 'team_id=$1 AND project_id=$2' : 'team_id=$1';
+      const scopeArgs: unknown[] = projectId ? [teamId, projectId] : [teamId];
+      // Fetch limit+1 to compute hasMore without a separate COUNT.
+      const sql =
+        `SELECT id, project_id, obs_type, lifecycle_state, content, created_at
+         FROM observations
+         WHERE ${where}
+         ORDER BY created_at DESC, id DESC
+         LIMIT $${scopeArgs.length + 1} OFFSET $${scopeArgs.length + 2}`;
+      const result = await this.options.pool.query(
+        sql,
+        [...scopeArgs, limit + 1, offset],
+      );
+
+      const rows = result.rows as Array<{
+        id: string;
+        project_id: string;
+        obs_type: string | null;
+        lifecycle_state: string | null;
+        content: string | null;
+        created_at: Date | string;
+      }>;
+      const hasMore = rows.length > limit;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+
+      const items = page.map((row) => {
+        const createdIso = row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : new Date(row.created_at).toISOString();
+        return {
+          id: row.id,
+          memory_session_id: '',
+          project: row.project_id,
+          merged_into_project: null,
+          platform_source: '',
+          type: row.obs_type ?? 'change',
+          title: null,
+          subtitle: null,
+          narrative: null,
+          text: row.content ?? '',
+          facts: null,
+          concepts: null,
+          files_read: null,
+          files_modified: null,
+          prompt_number: null,
+          created_at: createdIso,
+          created_at_epoch: Date.parse(createdIso),
+          lifecycle: row.lifecycle_state ?? null,
+          supersededBy: null,
+        };
+      });
+
+      res.status(200).json({ items, hasMore });
+    }));
 
     app.post('/api/sessions/observations', writeAuth, this.asyncHandler(async (req, res) => {
       const parsed = observationsSchema.safeParse(req.body);

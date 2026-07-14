@@ -4,7 +4,6 @@ import { join } from 'path';
 
 const indexSource = readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'index.ts'), 'utf-8');
 const serverSource = readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'commands', 'server.ts'), 'utf-8');
-const workerServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'worker-service.ts'), 'utf-8');
 
 describe('npx CLI server namespace', () => {
   it('routes the server namespace through the server command module', () => {
@@ -35,19 +34,5 @@ describe('npx CLI server namespace', () => {
     expect(serverSource).not.toContain("'logs'");
     expect(serverSource).not.toContain("'doctor'");
     expect(serverSource).not.toContain("'migrate'");
-  });
-
-  it('normalizes direct worker-service server invocations', () => {
-    expect(workerServiceSource).toContain("rawCommand === 'server'");
-    expect(workerServiceSource).toContain('lifecycleCommands.has(maybeSubCommand)');
-    expect(workerServiceSource).toContain('command: `server-${maybeSubCommand}`');
-    expect(workerServiceSource).toContain("case 'server-start'");
-    expect(workerServiceSource).toContain('runServerServiceCli(command.slice');
-    expect(workerServiceSource).toContain('serverCommands.has(maybeSubCommand)');
-    expect(workerServiceSource).toContain("case 'server-api-key'");
-    expect(workerServiceSource).toContain('runServerApiKeyCli(commandArgs)');
-    expect(workerServiceSource).toContain("case 'server-help'");
-    expect(workerServiceSource).toContain("case 'worker-help'");
-    expect(workerServiceSource).not.toContain('command: maybeSubCommand ??');
   });
 });

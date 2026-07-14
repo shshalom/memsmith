@@ -3,9 +3,13 @@ import { Feed } from '../components/Feed';
 import { fetchObservations } from '../utils/serverData';
 import type { Observation } from '../types';
 
+// MemSmith canonical observation taxonomy (the `code` mode's observation_types,
+// see plugin/modes/code.json). These are the types the server runtime actually
+// classifies observations into — NOT the legacy claude-mem set. Filter chips
+// must match the real taxonomy or they filter to nothing.
 const OBS_TYPES = [
-  'decision', 'bug', 'blocker', 'gotcha', 'change',
-  'discussion', 'task', 'knowledge', 'deferred', 'security',
+  'discovery', 'feature', 'bugfix', 'refactor', 'change',
+  'decision', 'security_alert', 'security_note',
 ] as const;
 
 const LIFECYCLES = [
