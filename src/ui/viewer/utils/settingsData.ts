@@ -30,6 +30,8 @@ export interface SettingField {
   max?: number;
   label: string;
   description: string;
+  /** Fuller explanation for the ⓘ tooltip (distinct from the terse description). */
+  help?: string;
 }
 
 export async function fetchSettings(): Promise<Record<string, SettingField>> {

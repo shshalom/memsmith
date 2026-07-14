@@ -9,12 +9,14 @@ const fields: any = {
     key: 'provider', value: 'ollama', type: 'enum',
     label: 'Generation model',
     description: 'Who distills your memory.',
+    help: 'FULLER-PROVIDER-HELP: the provider that distills sessions into observations.',
     options: ['ollama', 'claude'], source: 'default', boot: false,
   },
   searchHybrid: {
     key: 'searchHybrid', value: true, type: 'boolean',
     label: 'Hybrid search',
     description: 'Blend keyword + semantic ranking.',
+    help: 'FULLER-HYBRID-HELP: blends keyword + semantic recall.',
     source: 'default', boot: false,
   },
 };
@@ -27,10 +29,14 @@ describe('SettingsView tabs', () => {
     expect(html).toContain('Identity');
   });
 
-  it('surfaces a System field description as tooltip text on the System tab', () => {
+  it('shows the terse description on the row AND the fuller help in the ⓘ tooltip (distinct text)', () => {
     const html = renderToString(React.createElement(SettingsView, { initialFields: fields } as any));
-    // The InfoTooltip renders the description as aria-label + title attributes
+    // Row keeps the short description (always-visible row-desc line)…
     expect(html).toContain('Who distills your memory.');
+    // …and the ⓘ carries the DISTINCT fuller help (regression guard: the ⓘ
+    // must NOT just echo the description — it uses field.help).
+    expect(html).toContain('FULLER-PROVIDER-HELP');
+    expect(html).toContain('info-tooltip-text');
   });
 
   it('has the System pane active by default and renders field labels', () => {

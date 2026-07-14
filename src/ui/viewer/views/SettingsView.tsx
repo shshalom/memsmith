@@ -133,7 +133,9 @@ function SettingRow({
       <div className="settings-row-meta">
         <span className="settings-row-label">
           {field.label}
-          <InfoTooltip text={field.description} />
+          {/* ⓘ shows the fuller `help` text — NOT the row description (which
+              stays visible below). Falls back to nothing if no help authored. */}
+          <InfoTooltip text={field.help} />
         </span>
         <span className="settings-row-desc">{field.description}</span>
         <div className="settings-row-tags">
@@ -322,7 +324,7 @@ function IdentityPane({
             <div className="settings-row-meta">
               <span className="settings-row-label">
                 Team ID
-                <InfoTooltip text="The durable team this project's memory is scoped to; the base key grants access to it." />
+                <InfoTooltip text="MemSmith scopes all memory to a team. This durable ID identifies the team that owns this project's observations. The base key grants access to exactly this team's memory — when you move from local to team mode, you keep this ID and share it, rather than re-scoping your history." />
               </span>
               <span className="settings-row-desc">Durable team identifier for this installation.</span>
             </div>
@@ -334,7 +336,7 @@ function IdentityPane({
             <div className="settings-row-meta">
               <span className="settings-row-label">
                 Project ID
-                <InfoTooltip text="The isolation boundary — every observation is scoped to this project_id." />
+                <InfoTooltip text="Every observation is tagged with this project ID, and recall filters on it — so this directory's memory stays isolated from other projects on the same team. It's the boundary that keeps project A's context from leaking into project B, even when both share a team and key." />
               </span>
               <span className="settings-row-desc">Durable project identifier for this directory.</span>
             </div>
@@ -346,7 +348,7 @@ function IdentityPane({
             <div className="settings-row-meta">
               <span className="settings-row-label">
                 Base Key
-                <InfoTooltip text="The credential that reaches this memory. Stored locally (0600), never in the repo." />
+                <InfoTooltip text="The API key that authenticates access to this team's memory. Its hash lives in the database; the plaintext is cached only in ~/.memsmith (file mode 0600) and never committed to the repo. Reveal it to copy for a teammate or another machine — anyone holding it can read and write this team's memory." />
               </span>
               <span className="settings-row-desc">
                 {identity.keyPresent ? (revealKey && identity.keyPlaintext ? identity.keyPlaintext : identity.keyMasked) : 'No key stored.'}
