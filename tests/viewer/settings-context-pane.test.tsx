@@ -69,7 +69,6 @@ describe('ContextSettingsPane', () => {
     // Import and call the save handler factory directly — this is the same
     // logic the pane uses when the Save button is clicked.
     const { makeContextPaneSaveHandler } = require('../../src/ui/viewer/components/ContextSettingsPane.js');
-    const handleSave = makeContextPaneSaveHandler(baseSettings, onSave);
 
     // Simulate editing: create modified state as the pane would after the user
     // changes MEMSMITH_CONTEXT_OBSERVATIONS from '50' to '75'

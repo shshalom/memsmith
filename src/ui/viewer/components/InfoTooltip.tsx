@@ -8,7 +8,7 @@ interface InfoTooltipProps {
 // Small ⓘ affordance: explains a setting on hover/focus. Renders nothing when
 // there's no text (so callers can pass an optional description unconditionally).
 // Reuses the existing `tooltip-trigger` CSS + native title attribute — no popover
-// infra, matches ContextSettingsModal's prior idiom.
+// infra needed.
 export function InfoTooltip({ text }: InfoTooltipProps): React.ReactElement | null {
   if (!text) return null;
   return (
