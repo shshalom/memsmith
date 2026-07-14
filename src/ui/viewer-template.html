@@ -1920,12 +1920,49 @@
     }
 
     .info-tooltip {
+      position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       margin: 0 4px;
       font-size: 13px;
       font-weight: 600;
+      outline: none;
+    }
+
+    /* Real hover/focus popover — the native `title` attribute was unreliable
+       (slow, no click, unstyled). The text lives in .info-tooltip-text, hidden
+       until the ⓘ is hovered or keyboard-focused. */
+    .info-tooltip-text {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: 260px;
+      padding: 8px 11px;
+      background: var(--color-bg-elevated, #0d0c0b);
+      color: var(--color-text-primary, #e8e0d6);
+      border: 1px solid var(--color-border-primary, #4a443e);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.45;
+      text-align: left;
+      white-space: normal;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.12s ease;
+      z-index: 50;
+      pointer-events: none;
+    }
+
+    .info-tooltip:hover .info-tooltip-text,
+    .info-tooltip:focus .info-tooltip-text,
+    .info-tooltip:focus-visible .info-tooltip-text {
+      opacity: 1;
+      visibility: visible;
     }
 
     .form-field input[type="number"],

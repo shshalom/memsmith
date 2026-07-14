@@ -12,6 +12,15 @@ describe('InfoTooltip', () => {
     expect(html.toLowerCase()).toContain('info');
   });
 
+  it('renders the text in a real popover element (not just a native title attribute)', () => {
+    // Regression guard: the original relied on `title=`, which the browser
+    // shows unreliably. The text must live in a styleable .info-tooltip-text
+    // child so the CSS hover popover works.
+    const html = renderToString(React.createElement(InfoTooltip, { text: 'Squeeze older memory.' }));
+    expect(html).toContain('info-tooltip-text');
+    expect(html).toContain('>Squeeze older memory.<'); // text is element content, not an attribute value
+  });
+
   it('renders nothing when text is empty', () => {
     expect(renderToString(React.createElement(InfoTooltip, { text: '' }))).toBe('');
   });
