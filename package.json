@@ -87,6 +87,7 @@
     "typecheck:root": "tsc --noEmit",
     "typecheck:viewer": "tsc --noEmit -p src/ui/viewer/tsconfig.json",
     "test": "bun test",
+    "test:ci": "node scripts/test-isolated.cjs",
     "test:sqlite": "bun test tests/sqlite/",
     "test:agents": "bun test tests/worker/agents/",
     "test:search": "bun test tests/worker/search/",

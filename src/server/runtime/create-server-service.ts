@@ -30,6 +30,7 @@ import {
 import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
+import { readLocalScopeFromMarkerOrEnv } from './resolve-local-scope.js';
 
 export interface CreateServerServiceOptions {
   pool?: PostgresPool;
@@ -202,12 +203,11 @@ export async function createServerService(
           'MEMSMITH_GENERATION_DISABLED is set; this server runs HTTP only. A separate `memsmith server worker start` process consumes the BullMQ queues.',
         )
       : buildGenerationWorkerManager(pool, queueManager, options.generationProvider));
-  // Read the local-dev fallback team. Trim + coerce empty string to null so
-  // the downstream middleware receives null (no scoping) when the var is unset.
-  const localDevTeamId = (process.env.MEMSMITH_LOCAL_DEV_TEAM_ID ?? '').trim() || null;
-  // Parallel local-dev fallback project (same rules as the team above): only
-  // applied inside the loopback + local-dev bypass, never production.
-  const localDevProjectId = (process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID ?? '').trim() || null;
+  // Read the local-dev fallback team/project: env > marker (no minting here —
+  // the runtime boot in defaultRunImport already minted, so the marker exists).
+  const _localScope = readLocalScopeFromMarkerOrEnv(process.env.MEMSMITH_PROJECT_CWD ?? process.cwd());
+  const localDevTeamId = _localScope?.teamId ?? null;
+  const localDevProjectId = _localScope?.projectId ?? null;
   const graph: ServerServiceGraph = {
     // Persisted runtime literal — Phase 1d will migrate this value. The TS
     // identifiers above are now `Server*`; the wire/storage value remains

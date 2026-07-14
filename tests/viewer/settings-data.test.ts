@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { fetchSettings, patchSettings } from '../../src/ui/viewer/utils/settingsData.js';
+
+// Snapshot real fetch BEFORE any test mutates globalThis.fetch, and restore
+// after each test. globalThis.fetch replacement is process-global and leaks
+// into subsequent test files (e.g. request-id.test.ts, openclaw/index.test.ts)
+// which make real HTTP calls and break when fetch is still mocked.
+const origFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = origFetch; });
 
 describe('settingsData', () => {
   it('fetchSettings returns the settings map', async () => {

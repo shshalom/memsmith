@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { OBSERVER_SESSIONS_DIR } from '../../src/shared/paths.js';
 import { normalize } from 'path';
+
+// Snapshot real module BEFORE mock.module mutates the live namespace.
+// Bun's mock.module is process-global and survives mock.restore(), so we
+// must re-register the real exports in afterAll to avoid poisoning later
+// test files that import hook-settings.js.
+import * as realHookSettings from '../../src/shared/hook-settings.js';
+const realHookSettingsSnapshot = { ...realHookSettings };
 
 // Mutable settings object — individual tests mutate this to control behavior
 // without re-importing or re-mocking the module.
@@ -13,6 +20,10 @@ const mockSettings = {
 mock.module('../../src/shared/hook-settings.js', () => ({
   loadFromFileOnce: () => mockSettings,
 }));
+
+afterAll(() => {
+  mock.module('../../src/shared/hook-settings.js', () => realHookSettingsSnapshot);
+});
 
 // Import after mock so the module picks up the mocked dependency
 const { shouldTrackProject } = await import('../../src/shared/should-track-project.js');

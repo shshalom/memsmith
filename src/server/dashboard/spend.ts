@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, rmSync, symlinkSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
+import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 
 export interface SpendDay { date: string; costUsd: number; totalTokens: number; }
 export interface SpendReport {
@@ -72,7 +73,7 @@ function runOne(cmd: string, args: string[], timeoutMs: number, extraEnv?: Recor
     let out = ''; let err = '';
     let child;
     try {
-      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...extraEnv } });
+      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...sanitizeEnv(process.env), ...extraEnv } });
     } catch (e) {
       reject(e instanceof Error ? e : new Error(String(e)));
       return;

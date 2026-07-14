@@ -1,9 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { NormalizedHookInput } from '../../src/cli/types.js';
 import type { TranscriptSchema, WatchTarget } from '../../src/services/transcripts/types.js';
+
+// Snapshot real module BEFORE mock.module mutates the live namespace.
+// Bun's mock.module is process-global and survives mock.restore(), so we
+// must re-register the real exports in afterAll to avoid poisoning later
+// test files that import session-init.js.
+import * as realSessionInit from '../../src/cli/handlers/session-init.js';
+const realSessionInitSnapshot = { ...realSessionInit };
 
 const sessionInitCalls: NormalizedHookInput[] = [];
 
@@ -15,6 +22,10 @@ mock.module('../../src/cli/handlers/session-init.js', () => ({
     },
   },
 }));
+
+afterAll(() => {
+  mock.module('../../src/cli/handlers/session-init.js', () => realSessionInitSnapshot);
+});
 
 import { logger } from '../../src/utils/logger.js';
 import { TranscriptWatcher } from '../../src/services/transcripts/watcher.js';
