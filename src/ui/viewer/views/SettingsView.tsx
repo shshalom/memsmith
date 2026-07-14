@@ -3,6 +3,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { fetchSettings, patchSettings, fetchIdentity, IdentityPayload, SettingField } from '../utils/settingsData.js';
 import { V1_ENDPOINTS } from '../constants/api.js';
 import { InfoTooltip } from '../components/InfoTooltip.js';
+import { ContextSettingsPane } from '../components/ContextSettingsPane.js';
+import { useSettings } from '../hooks/useSettings.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -261,10 +263,36 @@ function SystemPane({
   );
 }
 
-function ContextPane({ hidden }: { hidden?: boolean }) {
+// Lazy-mount approach: ContextSettingsPane is only rendered after the user
+// first visits the Context tab. This prevents useContextPreview (and any
+// future live fetch) from running until the tab is actually opened.
+// The pane stays mounted after first activation (hidden via the `hidden`
+// attribute) so state is not lost when the user switches back to System/Identity.
+function ContextPane({
+  hidden,
+  hasBeenActive,
+  settings,
+  onSave,
+  isSaving,
+  saveStatus,
+}: {
+  hidden?: boolean;
+  hasBeenActive: boolean;
+  settings: import('../types.js').Settings;
+  onSave: (s: import('../types.js').Settings) => void;
+  isSaving: boolean;
+  saveStatus: string;
+}) {
   return (
     <div className="settings-pane settings-pane--context" hidden={hidden}>
-      <div data-testid="context-pane-stub" />
+      {hasBeenActive ? (
+        <ContextSettingsPane
+          settings={settings}
+          onSave={onSave}
+          isSaving={isSaving}
+          saveStatus={saveStatus}
+        />
+      ) : null}
     </div>
   );
 }
@@ -357,6 +385,12 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
   const [identity, setIdentity] = useState<IdentityPayload | null>(null);
   const [revealKey, setRevealKey] = useState(false);
   const [tab, setTab] = useState<SettingsTab>('system');
+  // Lazy-mount: track whether the Context tab has ever been visited.
+  // ContextSettingsPane (and useContextPreview) only mounts on first activation.
+  const [contextTabHasBeenActive, setContextTabHasBeenActive] = useState(false);
+
+  // Settings for the context pane — the settings.json save path (not /v1)
+  const { settings: contextSettings, saveSettings: saveContextSettings, isSaving: isContextSaving, saveStatus: contextSaveStatus } = useSettings();
 
   // Fetch on mount unless initialFields provided
   useEffect(() => {
@@ -455,7 +489,13 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
         <p className="settings-subtitle">Live knobs for this MemSmith server. Changes take effect immediately unless noted.</p>
       </div>
 
-      <SettingsTabBar tab={tab} setTab={setTab} />
+      <SettingsTabBar
+        tab={tab}
+        setTab={(t: SettingsTab) => {
+          setTab(t);
+          if (t === 'context') setContextTabHasBeenActive(true);
+        }}
+      />
 
       <SystemPane
         fields={fields}
@@ -468,7 +508,14 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
         handleCancelConfirm={handleCancelConfirm}
         hidden={tab !== 'system'}
       />
-      <ContextPane hidden={tab !== 'context'} />
+      <ContextPane
+        hidden={tab !== 'context'}
+        hasBeenActive={contextTabHasBeenActive}
+        settings={contextSettings}
+        onSave={saveContextSettings}
+        isSaving={isContextSaving}
+        saveStatus={contextSaveStatus}
+      />
       <IdentityPane
         identity={identity}
         revealKey={revealKey}

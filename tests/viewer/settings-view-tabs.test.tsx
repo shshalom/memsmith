@@ -39,8 +39,14 @@ describe('SettingsView tabs', () => {
     expect(html).toContain('Hybrid search');
   });
 
-  it('includes the context-pane stub element', () => {
+  it('shows the Context pane wrapper but NOT the pane content before first tab activation (lazy-mount)', () => {
+    // With lazy-mount, ContextSettingsPane only renders after the Context tab
+    // is first visited. In SSR the default tab is 'system', so the pane body
+    // should be absent from the initial render.
     const html = renderToString(React.createElement(SettingsView, { initialFields: fields } as any));
-    expect(html).toContain('context-pane-stub');
+    // The settings-pane--context wrapper div is always present (for the hidden attr)
+    expect(html).toContain('settings-pane--context');
+    // But the pane's field content should NOT be present yet
+    expect(html).not.toContain('data-testid="context-pane-stub"');
   });
 });
