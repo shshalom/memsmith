@@ -27,7 +27,13 @@ function getGitignoreExcludes(basePath) {
   const gitignorePath = path.join(basePath, '.gitignore');
   if (!existsSync(gitignorePath)) return '';
 
-  const syncManagedFiles = new Set();
+  // Files that are gitignored (generated) but MUST still sync to the
+  // marketplace/cache — otherwise the deployed plugin is missing them. Without
+  // this, `.mcp.json` (gitignored as generated) was rsync-excluded from the
+  // marketplace, so Claude Code registered no MCP server for the plugin.
+  const syncManagedFiles = new Set([
+    '.mcp.json',
+  ]);
 
   const lines = readFileSync(gitignorePath, 'utf-8').split('\n');
   return lines
