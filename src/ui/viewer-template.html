@@ -1681,6 +1681,17 @@
       min-height: 0;
     }
 
+    /* Context pane (Settings > Context tab). Mirrors the retired modal-body's
+       two-column grid (preview + settings side-by-side) now that the pane no
+       longer lives inside .modal-body. */
+    .context-pane-body {
+      display: grid;
+      grid-template-columns: 70fr 30fr;
+      gap: 0;
+      overflow: hidden;
+      min-height: 0;
+    }
+
     .modal-footer {
       display: flex;
       justify-content: flex-end;
@@ -2383,7 +2394,8 @@
 
     /* Responsive Modal */
     @media (max-width: 900px) {
-      .modal-body {
+      .modal-body,
+      .context-pane-body {
         grid-template-columns: 1fr;
       }
 
