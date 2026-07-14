@@ -473,13 +473,6 @@
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
     }
 
-    .settings-btn.active {
-      background: linear-gradient(135deg, var(--color-bg-button) 0%, var(--color-accent-primary) 100%);
-      border-color: var(--color-bg-button);
-      color: var(--color-text-button);
-      box-shadow: 0 2px 8px rgba(194, 65, 12, 0.25);
-    }
-
     /* GitHub Stars Button - Similar to Community Button */
     .github-stars-btn {
       background: var(--color-bg-card);
@@ -558,7 +551,6 @@
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
     }
 
-    .settings-icon,
     .theme-toggle-btn svg {
       width: 18px;
       height: 18px;
@@ -1518,7 +1510,6 @@
         flex-shrink: 0;
       }
 
-      .settings-icon,
       .theme-toggle-btn svg,
       .icon-link svg {
         width: 16px;
@@ -1683,6 +1674,17 @@
 
     .modal-body {
       flex: 1;
+      display: grid;
+      grid-template-columns: 70fr 30fr;
+      gap: 0;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* Context pane (Settings > Context tab). Mirrors the retired modal-body's
+       two-column grid (preview + settings side-by-side) now that the pane no
+       longer lives inside .modal-body. */
+    .context-pane-body {
       display: grid;
       grid-template-columns: 70fr 30fr;
       gap: 0;
@@ -1915,6 +1917,15 @@
 
     .tooltip-trigger:hover {
       color: var(--color-accent-primary);
+    }
+
+    .info-tooltip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 4px;
+      font-size: 13px;
+      font-weight: 600;
     }
 
     .form-field input[type="number"],
@@ -2383,7 +2394,8 @@
 
     /* Responsive Modal */
     @media (max-width: 900px) {
-      .modal-body {
+      .modal-body,
+      .context-pane-body {
         grid-template-columns: 1fr;
       }
 
@@ -3118,6 +3130,54 @@
       text-align: center;
       color: var(--settings-text-muted);
       font-size: 14px;
+    }
+
+    /* Tab bar */
+    .settings-tabs {
+      display: flex;
+      gap: 2px;
+      border-bottom: 1px solid var(--settings-border);
+      padding-bottom: 0;
+      margin-bottom: -4px;
+    }
+
+    .settings-tab {
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--settings-text-secondary);
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      border-radius: 6px 6px 0 0;
+      transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .settings-tab:hover {
+      color: var(--settings-text-primary);
+      background: var(--settings-card-bg);
+    }
+
+    .settings-tab--active {
+      color: var(--settings-coral);
+      border-bottom-color: var(--settings-coral);
+      font-weight: 600;
+    }
+
+    .settings-tab--active:hover {
+      color: var(--settings-coral);
+    }
+
+    /* Pane visibility — hidden attr collapses the pane */
+    .settings-pane[hidden] {
+      display: none;
+    }
+
+    .settings-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
 
     /* Header */

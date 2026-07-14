@@ -1,20 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { ContextSettingsModal } from './components/ContextSettingsModal';
 import { LogsDrawer } from './components/LogsModal';
 import { WelcomeCard, getStoredWelcomeDismissed, setStoredWelcomeDismissed } from './components/WelcomeCard';
 import { ObservationsView } from './views/ObservationsView';
 import { DashboardView } from './views/DashboardView';
 import SettingsView from './views/SettingsView';
 import { useSSE } from './hooks/useSSE';
-import { useSettings } from './hooks/useSettings';
 import { useTheme } from './hooks/useTheme';
 import { getInitialView, ViewId } from './views/viewState';
 
 export function App() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView());
   const [currentFilter, setCurrentFilter] = useState('');
-  const [contextPreviewOpen, setContextPreviewOpen] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   // The Console (worker log stream) is backed by /api/logs, which only exists
   // in the worker runtime. On the local/server runtime that endpoint 404s, so
@@ -33,7 +30,6 @@ export function App() {
   }, []);
 
   const { projects, isProcessing, queueDepth } = useSSE();
-  const { settings, saveSettings, isSaving, saveStatus } = useSettings();
   const { preference, setThemePreference } = useTheme();
 
   useEffect(() => {
@@ -41,10 +37,6 @@ export function App() {
       setCurrentFilter('');
     }
   }, [projects, currentFilter]);
-
-  const toggleContextPreview = useCallback(() => {
-    setContextPreviewOpen(prev => !prev);
-  }, []);
 
   const toggleLogsModal = useCallback(() => {
     setLogsModalOpen(prev => !prev);
@@ -62,7 +54,6 @@ export function App() {
         onThemeChange={setThemePreference}
         isProcessing={isProcessing}
         queueDepth={queueDepth}
-        onContextPreviewToggle={toggleContextPreview}
         onShowHelp={() => {
           setStoredWelcomeDismissed(false);
           setWelcomeDismissed(false);
@@ -77,15 +68,6 @@ export function App() {
         {!welcomeDismissed && (
           <WelcomeCard onDismiss={() => setWelcomeDismissed(true)} />
         )}
-
-        <ContextSettingsModal
-          isOpen={contextPreviewOpen}
-          onClose={toggleContextPreview}
-          settings={settings}
-          onSave={saveSettings}
-          isSaving={isSaving}
-          saveStatus={saveStatus}
-        />
 
         {consoleAvailable && (
           <>

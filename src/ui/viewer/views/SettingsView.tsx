@@ -2,6 +2,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { fetchSettings, patchSettings, fetchIdentity, IdentityPayload, SettingField } from '../utils/settingsData.js';
 import { V1_ENDPOINTS } from '../constants/api.js';
+import { InfoTooltip } from '../components/InfoTooltip.js';
+import { ContextSettingsPane } from '../components/ContextSettingsPane.js';
+import { useSettings } from '../hooks/useSettings.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,6 +23,8 @@ interface CostData {
   pctSmaller?: number;
   preTokens?: number;
 }
+
+type SettingsTab = 'system' | 'context' | 'identity';
 
 // ── Groups ────────────────────────────────────────────────────────────────────
 
@@ -126,7 +131,10 @@ function SettingRow({
   return (
     <div className="settings-row">
       <div className="settings-row-meta">
-        <span className="settings-row-label">{field.label}</span>
+        <span className="settings-row-label">
+          {field.label}
+          <InfoTooltip text={field.description} />
+        </span>
         <span className="settings-row-desc">{field.description}</span>
         <div className="settings-row-tags">
           <ProvenanceTag source={field.source} />
@@ -166,6 +174,204 @@ function SavingsStrip({ cost }: { cost: CostData | null }) {
   );
 }
 
+// ── Tab bar ───────────────────────────────────────────────────────────────────
+
+function SettingsTabBar({
+  tab, setTab,
+}: { tab: SettingsTab; setTab: (t: SettingsTab) => void }) {
+  const tabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: 'system', label: 'System' },
+    { id: 'context', label: 'Context' },
+    { id: 'identity', label: 'Identity' },
+  ];
+  return (
+    <nav className="settings-tabs" aria-label="Settings sections">
+      {tabs.map(t => (
+        <button
+          key={t.id}
+          type="button"
+          className={`settings-tab${tab === t.id ? ' settings-tab--active' : ''}`}
+          aria-current={tab === t.id ? 'page' : undefined}
+          onClick={() => setTab(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// ── Panes ─────────────────────────────────────────────────────────────────────
+
+function SystemPane({
+  fields, cost, confirmKey, confirmMessage, providerError, handleChange, handleConfirm, handleCancelConfirm, hidden,
+}: {
+  fields: SettingsFields;
+  cost: CostData | null;
+  confirmKey: string | null;
+  confirmMessage: string | null;
+  providerError: string | null;
+  handleChange: (key: string, val: unknown) => void;
+  handleConfirm: () => void;
+  handleCancelConfirm: () => void;
+  hidden?: boolean;
+}) {
+  return (
+    <div className="settings-pane settings-pane--system" hidden={hidden}>
+      <SavingsStrip cost={cost} />
+
+      {confirmKey && confirmMessage && (
+        <div className="settings-confirm-banner">
+          <span className="settings-confirm-message">{confirmMessage}</span>
+          <div className="settings-confirm-actions">
+            <button type="button" className="settings-confirm-btn settings-confirm-btn--cancel" onClick={handleCancelConfirm}>
+              Cancel
+            </button>
+            <button type="button" className="settings-confirm-btn settings-confirm-btn--ok" onClick={handleConfirm}>
+              Confirm
+            </button>
+          </div>
+        </div>
+      )}
+
+      {providerError && (
+        <div className="settings-provider-error" role="alert">
+          {providerError}
+        </div>
+      )}
+
+      {GROUP_DEFS.map(group => {
+        const rows = group.keys.filter(k => fields[k]);
+        if (rows.length === 0) return null;
+        return (
+          <section key={group.label} className="settings-card">
+            <h2 className="settings-card-title">{group.label}</h2>
+            <div className="settings-rows">
+              {rows.map(key => (
+                <SettingRow
+                  key={key}
+                  name={key}
+                  field={fields[key]}
+                  onChange={handleChange}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// Lazy-mount approach: ContextSettingsPane is only rendered after the user
+// first visits the Context tab. This prevents useContextPreview (and any
+// future live fetch) from running until the tab is actually opened.
+// The pane stays mounted after first activation (hidden via the `hidden`
+// attribute) so state is not lost when the user switches back to System/Identity.
+function ContextPane({
+  hidden,
+  hasBeenActive,
+  settings,
+  onSave,
+  isSaving,
+  saveStatus,
+}: {
+  hidden?: boolean;
+  hasBeenActive: boolean;
+  settings: import('../types.js').Settings;
+  onSave: (s: import('../types.js').Settings) => void;
+  isSaving: boolean;
+  saveStatus: string;
+}) {
+  return (
+    <div className="settings-pane settings-pane--context" hidden={hidden}>
+      {hasBeenActive ? (
+        <ContextSettingsPane
+          settings={settings}
+          onSave={onSave}
+          isSaving={isSaving}
+          saveStatus={saveStatus}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function IdentityPane({
+  identity, revealKey, handleRevealToggle, hidden,
+}: {
+  identity: IdentityPayload | null;
+  revealKey: boolean;
+  handleRevealToggle: () => void;
+  hidden?: boolean;
+}) {
+  if (!identity) {
+    return (
+      <div className="settings-pane settings-pane--identity" hidden={hidden}>
+        <p className="settings-row-desc">Identity information not available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-pane settings-pane--identity" hidden={hidden}>
+      <section className="settings-card">
+        <h2 className="settings-card-title">Project Identity</h2>
+        <div className="settings-rows">
+          <div className="settings-row">
+            <div className="settings-row-meta">
+              <span className="settings-row-label">
+                Team ID
+                <InfoTooltip text="The durable team this project's memory is scoped to; the base key grants access to it." />
+              </span>
+              <span className="settings-row-desc">Durable team identifier for this installation.</span>
+            </div>
+            <div className="settings-row-control">
+              <span className="settings-row-label">{identity.teamId}</span>
+            </div>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-meta">
+              <span className="settings-row-label">
+                Project ID
+                <InfoTooltip text="The isolation boundary — every observation is scoped to this project_id." />
+              </span>
+              <span className="settings-row-desc">Durable project identifier for this directory.</span>
+            </div>
+            <div className="settings-row-control">
+              <span className="settings-row-label">{identity.projectId}</span>
+            </div>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-meta">
+              <span className="settings-row-label">
+                Base Key
+                <InfoTooltip text="The credential that reaches this memory. Stored locally (0600), never in the repo." />
+              </span>
+              <span className="settings-row-desc">
+                {identity.keyPresent ? (revealKey && identity.keyPlaintext ? identity.keyPlaintext : identity.keyMasked) : 'No key stored.'}
+              </span>
+            </div>
+            <div className="settings-row-control">
+              {identity.keyPresent && (
+                <button
+                  type="button"
+                  className={`settings-toggle${revealKey ? ' settings-toggle--on' : ''}`}
+                  role="switch"
+                  aria-checked={revealKey}
+                  onClick={handleRevealToggle}
+                >
+                  <span className="settings-toggle-thumb" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SettingsView({ initialFields }: SettingsViewProps) {
@@ -178,6 +384,13 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
   const [loading, setLoading] = useState(!initialFields);
   const [identity, setIdentity] = useState<IdentityPayload | null>(null);
   const [revealKey, setRevealKey] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>('system');
+  // Lazy-mount: track whether the Context tab has ever been visited.
+  // ContextSettingsPane (and useContextPreview) only mounts on first activation.
+  const [contextTabHasBeenActive, setContextTabHasBeenActive] = useState(false);
+
+  // Settings for the context pane — the settings.json save path (not /v1)
+  const { settings: contextSettings, saveSettings: saveContextSettings, isSaving: isContextSaving, saveStatus: contextSaveStatus } = useSettings();
 
   // Fetch on mount unless initialFields provided
   useEffect(() => {
@@ -276,96 +489,39 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
         <p className="settings-subtitle">Live knobs for this MemSmith server. Changes take effect immediately unless noted.</p>
       </div>
 
-      <SavingsStrip cost={cost} />
+      <SettingsTabBar
+        tab={tab}
+        setTab={(t: SettingsTab) => {
+          setTab(t);
+          if (t === 'context') setContextTabHasBeenActive(true);
+        }}
+      />
 
-      {/* Confirmation affordance */}
-      {confirmKey && confirmMessage && (
-        <div className="settings-confirm-banner">
-          <span className="settings-confirm-message">{confirmMessage}</span>
-          <div className="settings-confirm-actions">
-            <button type="button" className="settings-confirm-btn settings-confirm-btn--cancel" onClick={handleCancelConfirm}>
-              Cancel
-            </button>
-            <button type="button" className="settings-confirm-btn settings-confirm-btn--ok" onClick={handleConfirm}>
-              Confirm
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Provider error */}
-      {providerError && (
-        <div className="settings-provider-error" role="alert">
-          {providerError}
-        </div>
-      )}
-
-      {GROUP_DEFS.map(group => {
-        const rows = group.keys.filter(k => fields[k]);
-        if (rows.length === 0) return null;
-        return (
-          <section key={group.label} className="settings-card">
-            <h2 className="settings-card-title">{group.label}</h2>
-            <div className="settings-rows">
-              {rows.map(key => (
-                <SettingRow
-                  key={key}
-                  name={key}
-                  field={fields[key]}
-                  onChange={handleChange}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
-
-      {identity && (
-        <section className="settings-card">
-          <h2 className="settings-card-title">Project Identity</h2>
-          <div className="settings-rows">
-            <div className="settings-row">
-              <div className="settings-row-meta">
-                <span className="settings-row-label">Team ID</span>
-                <span className="settings-row-desc">Durable team identifier for this installation.</span>
-              </div>
-              <div className="settings-row-control">
-                <span className="settings-row-label">{identity.teamId}</span>
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-meta">
-                <span className="settings-row-label">Project ID</span>
-                <span className="settings-row-desc">Durable project identifier for this directory.</span>
-              </div>
-              <div className="settings-row-control">
-                <span className="settings-row-label">{identity.projectId}</span>
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-meta">
-                <span className="settings-row-label">Base Key</span>
-                <span className="settings-row-desc">
-                  {identity.keyPresent ? (revealKey && identity.keyPlaintext ? identity.keyPlaintext : identity.keyMasked) : 'No key stored.'}
-                </span>
-              </div>
-              <div className="settings-row-control">
-                {identity.keyPresent && (
-                  <button
-                    type="button"
-                    className={`settings-toggle${revealKey ? ' settings-toggle--on' : ''}`}
-                    role="switch"
-                    aria-checked={revealKey}
-                    onClick={handleRevealToggle}
-                  >
-                    <span className="settings-toggle-thumb" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+      <SystemPane
+        fields={fields}
+        cost={cost}
+        confirmKey={confirmKey}
+        confirmMessage={confirmMessage}
+        providerError={providerError}
+        handleChange={handleChange}
+        handleConfirm={handleConfirm}
+        handleCancelConfirm={handleCancelConfirm}
+        hidden={tab !== 'system'}
+      />
+      <ContextPane
+        hidden={tab !== 'context'}
+        hasBeenActive={contextTabHasBeenActive}
+        settings={contextSettings}
+        onSave={saveContextSettings}
+        isSaving={isContextSaving}
+        saveStatus={contextSaveStatus}
+      />
+      <IdentityPane
+        identity={identity}
+        revealKey={revealKey}
+        handleRevealToggle={handleRevealToggle}
+        hidden={tab !== 'identity'}
+      />
     </div>
   );
 }
