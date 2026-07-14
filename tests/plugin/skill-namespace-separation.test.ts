@@ -11,8 +11,8 @@ describe('skill namespace separation (ms- prefix)', () => {
   const dirs = readdirSync(SKILLS_DIR).filter(d =>
     statSync(join(SKILLS_DIR, d)).isDirectory());
 
-  it('has the expected 17 skills, all ms-prefixed', () => {
-    expect(dirs.length).toBe(17);
+  it('has the expected 18 skills, all ms-prefixed', () => {
+    expect(dirs.length).toBe(18);
     for (const d of dirs) expect(d.startsWith('ms-')).toBe(true);
   });
 
