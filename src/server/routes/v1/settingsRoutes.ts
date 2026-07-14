@@ -36,6 +36,7 @@ async function resolvedPayload(resolver: SettingsResolver, teamId: string) {
     settings[spec.key] = {
       value: r.value, source: r.source, boot: spec.boot, type: spec.type,
       options: spec.options, min: spec.min, max: spec.max, label: spec.label, description: spec.description,
+      help: spec.help,
     };
   }
   return { settings };
