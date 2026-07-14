@@ -107,7 +107,10 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       platform: 'claude-code',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('');
+    // Dashboard line is always prepended — even when no observations exist.
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('📊 MemSmith dashboard:');
+    expect(ctx).not.toContain('SEEDED:');
   });
 
   it('injects empty gracefully when no server runtime is reachable', async () => {
@@ -131,6 +134,8 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       platform: 'claude-code',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('');
+    // Dashboard line is always prepended — even when the runtime is unreachable.
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('📊 MemSmith dashboard:');
   });
 });

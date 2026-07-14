@@ -90,7 +90,10 @@ describe('contextHandler Codex SessionStart MCP path', () => {
       platform: 'codex',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('context from mcp');
+    // Dashboard line is always prepended before the MCP content.
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('📊 MemSmith dashboard:');
+    expect(ctx).toContain('context from mcp');
     expect(mcpCalls).toEqual([{
       name: 'session_start_context',
       args: {
@@ -112,8 +115,10 @@ describe('contextHandler Codex SessionStart MCP path', () => {
     });
 
     // No worker route anymore — the handler injects real recent context off the
-    // runtime instead.
-    expect(result.hookSpecificOutput?.additionalContext).toBe('context from runtime');
+    // runtime instead. Dashboard line is always prepended.
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('📊 MemSmith dashboard:');
+    expect(ctx).toContain('context from runtime');
     expect(mcpCalls).toHaveLength(1);
     expect(runtimeSearchCalls).toHaveLength(1);
     expect((runtimeSearchCalls[0] as { query: string }).query).toBe('');
@@ -126,7 +131,10 @@ describe('contextHandler Codex SessionStart MCP path', () => {
       platform: 'claude-code',
     });
 
-    expect(result.hookSpecificOutput?.additionalContext).toBe('context from runtime');
+    // Dashboard line is always prepended before the runtime content.
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('📊 MemSmith dashboard:');
+    expect(ctx).toContain('context from runtime');
     // Non-Codex never touches the MCP session_start_context tool.
     expect(mcpCalls).toHaveLength(0);
     expect(runtimeSearchCalls).toHaveLength(1);

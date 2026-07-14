@@ -19,6 +19,7 @@ import {
   resolveRuntimeContext as defaultResolveRuntimeContext,
   type RuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
+import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -162,6 +163,14 @@ export const contextHandler: EventHandler = {
         ? `${hint}\n\n${additionalContext}`
         : hint;
     }
+
+    // Always surface the dashboard link at session start — even on an empty
+    // project (buildInjectionBlock returns '' with no memory, but the link is
+    // most useful exactly then). resolveDashboardUrl is pure/total.
+    const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl()}`;
+    additionalContext = additionalContext
+      ? `${dashboardLine}\n\n${additionalContext}`
+      : dashboardLine;
 
     let coloredTimeline = '';
     if (showTerminalOutput) {
