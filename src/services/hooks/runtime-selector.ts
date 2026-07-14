@@ -59,6 +59,10 @@ export function selectRuntime(): SelectedRuntime {
 export interface BuildServerContextOptions {
   cwd?: string;
   credentialStore?: CredentialStore;
+  // Test seam: override the server base URL instead of reading it from the
+  // (process-global, mock-pollutable) settings module. Production callers omit
+  // this and the URL resolves from settings as normal.
+  serverBaseUrlOverride?: string;
 }
 
 function readMarkerFor(cwd: string): { teamId: string; projectId: string } | null {
@@ -85,6 +89,7 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
     return '';
   };
   const serverBaseUrl = pickFirstNonEmpty(
+    options.serverBaseUrlOverride,
     settings.MEMSMITH_SERVER_URL,
     settings.MEMSMITH_SERVER_BETA_URL,
   );
