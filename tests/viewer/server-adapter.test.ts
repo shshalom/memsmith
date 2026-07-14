@@ -23,13 +23,20 @@ describe('adaptObservation', () => {
     expect(o.created_at_epoch).toBe(1783519301000);
     expect((o as any).lifecycle ?? (o as any).lifecycleState).toBe('resolved');
   });
-  test('missing metadata degrades to empty, never throws', () => {
+  test('missing metadata degrades gracefully (derives title from content), never throws', () => {
     const bare = { id: 'x', projectId: 'p', teamId: 't', serverSessionId: null, kind: 'observation',
-      content: 'body', metadata: {}, createdAtEpoch: 1, updatedAtEpoch: 1 };
+      content: 'body line one\nrest', metadata: {}, createdAtEpoch: 1, updatedAtEpoch: 1 };
     expect(() => adaptObservation(bare as any)).not.toThrow();
     const o = adaptObservation(bare as any);
-    expect(o.title === null || o.title === '').toBeTruthy();
-    expect(o.text).toBe('body'); // content preserved
+    expect(o.text).toBe('body line one\nrest');            // content preserved
+    expect(o.title).toBe('body line one');                  // title derived from first line
+  });
+
+  test('empty content with no metadata yields a null/empty title', () => {
+    const empty = { id: 'y', projectId: 'p', teamId: 't', serverSessionId: null, kind: 'observation',
+      content: '', metadata: {}, createdAtEpoch: 1, updatedAtEpoch: 1 };
+    const o = adaptObservation(empty as any);
+    expect(o.title === null || o.title === '').toBeTruthy(); // no content -> no derived title
   });
   test('malformed metadata (wrong types) never throws', () => {
     const bad = { id: 'x', projectId: 'p', teamId: 't', serverSessionId: null, kind: 'observation',
