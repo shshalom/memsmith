@@ -9,7 +9,7 @@ import type { Settings } from '../types';
 // preview in the format the viewer expects).
 //
 // Graceful disable: the hook returns an empty state with an "unavailable" error
-// message so the ContextSettingsModal shows a clean affordance instead of a
+// message so the ContextSettingsPane shows a clean affordance instead of a
 // broken/hung fetch or console errors.
 
 interface UseContextPreviewResult {
