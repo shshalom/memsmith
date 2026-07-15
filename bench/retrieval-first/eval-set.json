@@ -1,0 +1,15 @@
+{
+  "threshold": 0.9,
+  "prompts": [
+    { "text": "why did we choose embedded postgres over docker", "class": "why" },
+    { "text": "what did we decide about the api key scoping", "class": "why" },
+    { "text": "why is capture scoped by team_id and project_id", "class": "why" },
+    { "text": "what's the rationale for the tiering compression setting", "class": "why" },
+    { "text": "why did observation capture go dark on 7/13", "class": "why" },
+    { "text": "where is the file that defines the embedded postgres port", "class": "file" },
+    { "text": "list the functions in runtime-selector.ts", "class": "file" },
+    { "text": "open the settings view component", "class": "file" },
+    { "text": "how many tests are in the identity suite", "class": "file" },
+    { "text": "show me the credential store implementation", "class": "file" }
+  ]
+}
