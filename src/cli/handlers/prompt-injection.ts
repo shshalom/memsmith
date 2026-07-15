@@ -33,7 +33,7 @@ export const promptInjectionHandler: EventHandler = {
       const settings = loadFromFileOnce();
       if (settings.MEMSMITH_SEMANTIC_INJECT !== 'true') return CONTINUE;
       const runtime = resolveRuntimeContext();
-      const broker = new RetrievalBroker({ runtime, settings, sessionId: input.sessionId, nowIso: new Date().toISOString() });
+      const broker = new RetrievalBroker({ runtime, settings: { ...settings }, sessionId: input.sessionId, nowIso: new Date().toISOString() });
       const result = await broker.forPrompt(prompt);
       if (result.isGap) { await persistGap(runtime, prompt); }
       if (!result.additionalContext) return CONTINUE;
