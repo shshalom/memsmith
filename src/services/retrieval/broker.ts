@@ -5,7 +5,7 @@ import { frameMemory, frameGapNote } from './directive.js';
 import type { BrokerDeps, EnforcementMode, ProvenancedMemory, RetrievalResult } from './types.js';
 import { logger } from '../../utils/logger.js';
 
-const EMPTY: RetrievalResult = { additionalContext: '', block: false, hitCount: 0, isGap: false };
+const EMPTY: RetrievalResult = Object.freeze({ additionalContext: '', block: false, hitCount: 0, isGap: false });
 
 /** Sentinel to distinguish a server error/unavailable (fail-open) from a genuine empty result. */
 const FAILED = Symbol('FAILED');
@@ -26,16 +26,21 @@ export class RetrievalBroker {
     const rt = this.deps.runtime;
     if (rt.runtime !== 'server') return FAILED;
     try {
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
         rt.client.contextObservations({ projectId: rt.projectId, query: q, limit: this.limit() }),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('retrieval timeout')), this.timeoutMs())),
-      ]);
+        new Promise<never>((_, rej) => { timeoutHandle = setTimeout(() => rej(new Error('retrieval timeout')), this.timeoutMs()); }),
+      ]).finally(() => { if (timeoutHandle !== undefined) clearTimeout(timeoutHandle); });
       const obs = Array.isArray(result?.observations) ? result.observations : [];
       return obs.map(o => ({
         id: String(o.id),
         content: typeof o.content === 'string' ? o.content : '',
         obsType: typeof (o as any).obs_type === 'string' ? (o as any).obs_type : (typeof (o as any).obsType === 'string' ? (o as any).obsType : null),
-        capturedAt: typeof (o as any).created_at === 'string' ? (o as any).created_at : (typeof (o as any).createdAt === 'string' ? (o as any).createdAt : null),
+        capturedAt:
+          typeof (o as any).createdAtEpoch === 'number'
+            ? new Date((o as any).createdAtEpoch).toISOString()
+            : (typeof (o as any).created_at === 'string' ? (o as any).created_at
+               : (typeof (o as any).createdAt === 'string' ? (o as any).createdAt : null)),
       })).filter(m => m.content.length > 0);
     } catch (err) {
       logger.debug('HOOK', 'retrieval query failed (fail-open)', { error: err instanceof Error ? err.message : String(err) });

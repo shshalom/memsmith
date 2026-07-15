@@ -7,11 +7,11 @@ import { logger } from '../../utils/logger.js';
 
 /** PreToolUse must default to allowing the tool through — retrieval-first never
  *  blocks the agent due to its own failure. */
-const ALLOW: HookResult = {
+const ALLOW: HookResult = Object.freeze({
   continue: true,
   suppressOutput: true,
-  hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: '', permissionDecision: 'allow' },
-};
+  hookSpecificOutput: Object.freeze({ hookEventName: 'PreToolUse', additionalContext: '', permissionDecision: 'allow' }),
+});
 
 export const toolIntentHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {

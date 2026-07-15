@@ -6,7 +6,7 @@ import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-function fakeRuntime(observations: Array<{ id: string; content: string; metadata?: any; obs_type?: string; created_at?: string }>, opts: { throws?: boolean } = {}) {
+function fakeRuntime(observations: Array<{ id: string; content: string; metadata?: any; obs_type?: string; obsType?: string; created_at?: string; createdAtEpoch?: number }>, opts: { throws?: boolean } = {}) {
   return {
     runtime: 'server' as const,
     projectId: 'proj-1',
@@ -25,10 +25,14 @@ function freshStore() { return new SessionShownStore('sess-x', mkdtempSync(join(
 
 describe('RetrievalBroker.forPrompt', () => {
   it('injects provenance-tagged memory on a strong hit', async () => {
-    const b = new RetrievalBroker(deps(fakeRuntime([{ id: 'o1', content: 'chose X because Y', obs_type: 'decision', created_at: '2026-07-10T00:00:00Z' }])), freshStore());
+    // Use the real server response shape: createdAtEpoch (number) + obsType (camelCase)
+    const epochMs = new Date('2026-07-10T00:00:00Z').getTime();
+    const b = new RetrievalBroker(deps(fakeRuntime([{ id: 'o1', content: 'chose X because Y', obsType: 'decision', createdAtEpoch: epochMs }])), freshStore());
     const r = await b.forPrompt('why did we choose X?');
     expect(r.additionalContext).toContain('chose X because Y');
     expect(r.additionalContext).toContain('decision');
+    expect(r.additionalContext).toContain('2026'); // capturedAt derived from createdAtEpoch, not unknown-date
+    expect(r.additionalContext).not.toContain('unknown-date');
     expect(r.isGap).toBe(false);
     expect(r.block).toBe(false); // soft
   });
