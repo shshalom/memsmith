@@ -20,6 +20,7 @@ import {
   type RuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
+import { MEMORY_FIRST_DIRECTIVE } from '../../services/retrieval/directive.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -171,6 +172,10 @@ export const contextHandler: EventHandler = {
     additionalContext = additionalContext
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;
+
+    // Always prepend the memory-first directive — it is a static standing
+    // instruction and must be present unconditionally (even on empty projects).
+    additionalContext = `${MEMORY_FIRST_DIRECTIVE}\n\n${additionalContext}`;
 
     let coloredTimeline = '';
     if (showTerminalOutput) {
