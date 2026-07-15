@@ -1,0 +1,35 @@
+import type { ProvenancedMemory } from './types.js';
+
+/** The standing retrieval-first directive. Injected at SessionStart (main agent),
+ *  propagated into Task framing (sub-agents), and mirrored in CLAUDE.md. */
+export const MEMORY_FIRST_DIRECTIVE = [
+  'MEMORY-FIRST (MemSmith core behavior):',
+  'For any question about WHY something was done, WHAT was decided, or the RATIONALE',
+  'behind existing code — whether the user asks it or you ask it of yourself — consult',
+  'MemSmith memory FIRST, before grepping or reading files. These answers usually already',
+  'exist in memory and are not fully recoverable from code. Use the ms-mem-search tools',
+  '(memory_search / observation_search / observation_context).',
+  'Reference order: (1) MemSmith memory, (2) CLAUDE.md, (3) project specs, (4) raw file/code search.',
+  'Only fall through to file search when memory genuinely lacks the answer.',
+  'Treat recalled memory as authoritative-but-verifiable: it was true when captured; verify',
+  'any load-bearing claim against current code before relying on it.',
+].join('\n');
+
+/** Pack provenance-tagged memory into an injection block. Empty when no memory. */
+export function frameMemory(memories: ProvenancedMemory[]): string {
+  if (memories.length === 0) return '';
+  const lines = memories.map(m => {
+    const date = m.capturedAt ? m.capturedAt.slice(0, 10) : 'unknown-date';
+    const type = m.obsType ?? 'observation';
+    return `- [${type} · captured ${date} · ${m.id}] ${m.content}`;
+  });
+  return [
+    'Relevant MemSmith memory (authoritative-but-verifiable — verify load-bearing claims against current code):',
+    ...lines,
+  ].join('\n');
+}
+
+/** On-miss note: memory had nothing for this query. */
+export function frameGapNote(): string {
+  return '⚠ No MemSmith memory found for this — the rationale may not have been captured. Proceeding to files/specs.';
+}

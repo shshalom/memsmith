@@ -32,8 +32,13 @@ export async function resolveLocalScope(
   if (fromEnvOrMarker) return fromEnvOrMarker;
 
   if (opts.pool) {
+    // Pass a CredentialStore so the mint ALSO guarantees a resolvable base key.
+    // Without this, cold-boot could write a keyless marker and every hook would
+    // fall back with `missing_api_key`, dropping observations (the "dark
+    // capture" regression). ensureProjectIdentity is idempotent on re-runs.
     const { ensureProjectIdentity } = await import('../../services/identity/project-identity.js');
-    return ensureProjectIdentity(opts.pool as any, opts.cwd);
+    const { CredentialStore } = await import('../../services/identity/credential-store.js');
+    return ensureProjectIdentity(opts.pool as any, opts.cwd, new CredentialStore());
   }
 
   // Last resort (no pool, no env, no marker): preserve legacy 'local' behavior.

@@ -68,6 +68,33 @@ describe('ensureProjectIdentity', () => {
     expect(pool2.calls.some((c: any) => /insert into teams/i.test(c.text))).toBe(true);
     expect(pool2.calls.some((c: any) => /insert into projects/i.test(c.text))).toBe(true);
   });
+
+  // REGRESSION GUARD for the "dark capture" incident: a mint that writes a
+  // marker but leaves NO resolvable key in the store causes every hook to hit
+  // `missing_api_key` and silently drop observations. ensureProjectIdentity
+  // must guarantee a resolvable key whenever a store is provided — no caller
+  // should be able to produce a keyless marker.
+  it('mints a resolvable base key when a store is provided (no keyless marker)', async () => {
+    const store = new CredentialStore(join(cwd, 'credentials.json'));
+    const pool = fakePool();
+    const { teamId } = await ensureProjectIdentity(pool, cwd, store);
+    // A key must now be resolvable for the freshly minted team.
+    expect(store.resolveKeyForTeam(teamId)).toBeTruthy();
+    // …and its hash persisted to api_keys.
+    expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(true);
+  });
+
+  it('recognizing an existing marker still guarantees a key when a store is provided', async () => {
+    // First call mints marker + key.
+    const store1 = new CredentialStore(join(cwd, 'credentials.json'));
+    await ensureProjectIdentity(fakePool(), cwd, store1);
+    // Second call recognizes the marker but with a FRESH (empty) store —
+    // it must re-establish a resolvable key, not leave the store empty.
+    const store2 = new CredentialStore(join(cwd, 'credentials2.json'));
+    const pool2 = fakePool();
+    const { teamId } = await ensureProjectIdentity(pool2, cwd, store2);
+    expect(store2.resolveKeyForTeam(teamId)).toBeTruthy();
+  });
 });
 
 describe('ensureBaseKey', () => {

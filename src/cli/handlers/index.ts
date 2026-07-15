@@ -10,6 +10,9 @@ import { userMessageHandler } from './user-message.js';
 import { fileEditHandler } from './file-edit.js';
 import { fileContextHandler } from './file-context.js';
 import { discoveryGateHandler } from './discovery-gate.js';
+import { promptInjectionHandler } from './prompt-injection.js';
+import { toolIntentHandler } from './tool-intent.js';
+import { agentDirectiveHandler } from './agent-directive.js';
 
 export type EventType =
   | 'context'
@@ -19,7 +22,10 @@ export type EventType =
   | 'user-message'
   | 'file-edit'
   | 'file-context'
-  | 'discovery-gate';
+  | 'discovery-gate'
+  | 'prompt-injection'
+  | 'tool-intent'
+  | 'agent-directive';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -29,7 +35,10 @@ const handlers: Record<EventType, EventHandler> = {
   'user-message': userMessageHandler,
   'file-edit': fileEditHandler,
   'file-context': fileContextHandler,
-  'discovery-gate': discoveryGateHandler
+  'discovery-gate': discoveryGateHandler,
+  'prompt-injection': promptInjectionHandler,
+  'tool-intent': toolIntentHandler,
+  'agent-directive': agentDirectiveHandler,
 };
 
 export function getEventHandler(eventType: string): EventHandler {
@@ -53,3 +62,6 @@ export { userMessageHandler } from './user-message.js';
 export { fileEditHandler } from './file-edit.js';
 export { fileContextHandler } from './file-context.js';
 export { discoveryGateHandler } from './discovery-gate.js';
+export { promptInjectionHandler } from './prompt-injection.js';
+export { toolIntentHandler } from './tool-intent.js';
+export { agentDirectiveHandler } from './agent-directive.js';

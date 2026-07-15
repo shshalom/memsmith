@@ -50,8 +50,11 @@ export interface SettingsDefaults {
   MEMSMITH_INCLUDED_PROJECTS: string;  // Allowlist: comma-separated glob patterns; when non-empty, only matching cwds are tracked (exclusions still win)
   MEMSMITH_FOLDER_MD_EXCLUDE: string;
   MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: string;
-  MEMSMITH_SEMANTIC_INJECT: string;        
-  MEMSMITH_SEMANTIC_INJECT_LIMIT: string;  
+  MEMSMITH_SEMANTIC_INJECT: string;
+  MEMSMITH_SEMANTIC_INJECT_LIMIT: string;
+  MEMSMITH_RETRIEVAL_MIN_HITS: string;
+  MEMSMITH_RETRIEVAL_TIMEOUT_MS: string;
+  MEMSMITH_RETRIEVAL_ENFORCEMENT: string;  // 'soft' | 'hard'
   MEMSMITH_TIER_ROUTING_ENABLED: string;
   MEMSMITH_TIER_SIMPLE_MODEL: string;
   MEMSMITH_TIER_SUMMARY_MODEL: string;
@@ -133,8 +136,11 @@ export class SettingsDefaultsManager {
     MEMSMITH_INCLUDED_PROJECTS: '',  // Allowlist: comma-separated glob patterns; empty = capture all (backward compat); non-empty = track only matching cwds (exclusions still win)
     MEMSMITH_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
     MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
-    MEMSMITH_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
+    MEMSMITH_SEMANTIC_INJECT: 'true',              // Retrieval-first is core: inject relevant memory on every UserPromptSubmit
     MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
+    MEMSMITH_RETRIEVAL_MIN_HITS: '1',              // Min /v1/context results to count as a "strong hit" (else gap)
+    MEMSMITH_RETRIEVAL_TIMEOUT_MS: '2000',         // Hot-path timeout; on timeout, proceed with no injection
+    MEMSMITH_RETRIEVAL_ENFORCEMENT: 'soft',        // 'soft' = inject-only; 'hard' = block-eligible on strong hit
     MEMSMITH_TIER_ROUTING_ENABLED: 'true',         // Route observations to models by complexity
     MEMSMITH_TIER_SIMPLE_MODEL: 'haiku', // Portable tier alias — works across Direct API, Bedrock, Vertex, Azure (see #1463)
     MEMSMITH_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries

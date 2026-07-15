@@ -54,3 +54,6 @@ reports/
 bench/longmemeval/data/
 bench/quality-eval/last-run.json
 .superpowers/
+
+# Per-checkout MemSmith identity pointer (env>marker>mint; each checkout recognizes or mints its own — never commit one machine's identity)
+.memsmith/
