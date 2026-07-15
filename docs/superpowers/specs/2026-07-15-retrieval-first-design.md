@@ -43,7 +43,7 @@ This spec covers three mechanisms as one coherent system:
 **Core, not aftermarket.** All three are **on by default, always** — installing MemSmith
 makes the agent retrieval-first out of the box, with no flag to discover and enable. The
 existing `MEMSMITH_SEMANTIC_INJECT` default flips from `'false'` to `'true'` (retrieval-first
-is what MemSmith *is*). Behavior is tunable (depth, directive strength, relevance floor,
+is what MemSmith *is*). Behavior is tunable (depth, directive strength, hit threshold,
 enforcement mode) but the discipline itself is the product's default posture.
 
 ### Out of scope (deferred to their own specs)
@@ -141,7 +141,7 @@ UserPromptSubmit(prompt) → broker.forPrompt(prompt)
   → results ranked hybrid (RRF + tiering)
   → dedup against session-shown set
   → provenance-tag each result (obs_type, captured-date, id)
-  → if results (≥ relevance floor): inject as additionalContext, framed
+  → if strong hit (≥ MEMSMITH_RETRIEVAL_MIN_HITS results): inject as additionalContext, framed
         "relevant recorded memory — authoritative-but-verifiable"
   → if empty/weak: gap-flag per on-miss policy
 ```
@@ -152,8 +152,8 @@ PreToolUse(tool, args) → tool ∈ SEARCH_INTENT_TOOLS ? → broker.forToolInte
   → derive query from args (search pattern / file path / command substring)
   → same /v1/context path as (A)
   → soft: inject "MemSmith memory has X — consult before this search"
-  → hard (variant): block once when hit ≥ floor AND not-yet-consulted this turn
-  → gap-flag on miss (no hit ≥ floor) → ALWAYS allow the tool through
+  → hard (variant): block once when strong hit (≥ MIN_HITS results) AND not-yet-consulted this turn
+  → gap-flag on miss (fewer than MIN_HITS results) → ALWAYS allow the tool through
 ```
 `SEARCH_INTENT_TOOLS` and query-derivation are specified under **Trigger Definitions** below.
 
@@ -196,9 +196,9 @@ interception, because a hook handler cannot linguistically judge a query the way
 
 - **(A)/(C) code path — operationalized as "a strong memory hit exists."** `forPrompt` and
   `forToolIntent` do NOT attempt linguistic why-class classification. They always query
-  `/v1/context` and let the **relevance floor** decide: a result at/above
-  `MEMSMITH_RETRIEVAL_MIN_SCORE` means memory *has* a relevant recorded answer → inject
-  (soft) or block-eligible (hard). Below the floor → treat as a miss → gap-flag → proceed.
+  `/v1/context` and let the **hit count** decide: `≥ MEMSMITH_RETRIEVAL_MIN_HITS`
+  results means memory *has* a relevant recorded answer → inject (soft) or block-eligible
+  (hard). Fewer → treat as a miss → gap-flag → proceed.
   This is the honest, implementable definition: the code does not guess whether a grep is a
   "why" question — it asks memory, and a strong hit *is* the signal that this search has a
   recorded answer worth surfacing first. Hard-mode blocking therefore keys on
@@ -219,10 +219,21 @@ Non-search tools (Edit, Write, Task-side-effects, etc.) never trigger (C).
 - `Read`: the file path (basename + dir as query terms).
 The derived string is the `/v1/context` query.
 
-### Relevance floor
-`MEMSMITH_RETRIEVAL_MIN_SCORE` (tunable). `/v1/context` results carry ranking scores. A
-result at/above the floor is a "strong hit" (eligible for injection and hard-mode blocking);
-below the floor is treated as a miss (→ gap-flag). One knob, not scattered magic numbers.
+### "Strong hit" — count-based, not score-based (corrected during planning)
+The hybrid read path fuses FTS + vector rankings via **RRF** (`combineRanks`), which yields a
+relative **rank ordering**, not a calibrated absolute similarity score — and the
+`/v1/context` response does **not** expose any per-result score to the client. A numeric
+floor would therefore threshold against an uncalibrated, query-dependent number: a design
+trap. So "strong hit" is defined by **result presence**, not a score:
+
+- `MEMSMITH_RETRIEVAL_MIN_HITS` (tunable, default `1`) — the minimum number of results
+  `/v1/context` must return for the derived query to count as a strong hit. `≥ MIN_HITS`
+  results → strong hit (inject / hard-mode block-eligible). Fewer → miss (→ gap-flag).
+
+The server already ranks by hybrid relevance and caps by `limit`, so "it returned results at
+all" is a meaningful signal that recorded memory relates to the query. If the server later
+exposes calibrated scores, a numeric floor can replace this without changing the broker's
+public shape. One knob, not scattered magic numbers.
 
 ---
 
@@ -236,7 +247,7 @@ Memory is made impossible to miss; the model retains final control. Zero frictio
 wedge the agent. Relies on the model heeding the injection (hence the reliability harness).
 
 ### Hard (block-eligible, PreToolUse only)
-On a search where memory returns a **strong hit** (≥ `MEMSMITH_RETRIEVAL_MIN_SCORE`) AND the
+On a search where memory returns a **strong hit** (≥ `MEMSMITH_RETRIEVAL_MIN_HITS` results) AND the
 agent has NOT yet consulted memory this turn, `PreToolUse` returns a single deny with a
 message: "Consult MemSmith memory first — relevant recorded context exists. Query
 ms-mem-search, then re-run." The agent does the memory step; the tool is then allowed. The
@@ -255,11 +266,12 @@ a strong hit the agent is about to bypass. **Fail open:** if enforcement cannot 
 ## On-Miss / Gap Handling
 
 Decision: **flag the gap, then fall through.** When memory is consulted for a why/decision
-question and returns nothing at/above the floor:
+question and returns fewer than MEMSMITH_RETRIEVAL_MIN_HITS results:
 ```
 → inject a short note: "⚠ No MemSmith memory found for this — the rationale may not have
    been captured. Proceeding to files/specs."
-→ persist a lightweight gap record (obs_type: 'memory_gap') so missing rationale becomes
+→ persist a lightweight gap record (kind: 'memory_gap', via the direct-insert /v1/memories
+   path — obs_type is a generation-time field, so the write uses `kind`) so missing rationale becomes
    visible (dashboard can surface "N un-captured rationales") and could later be backfilled
 → ALWAYS allow the tool / proceed (never block on a miss)
 ```
@@ -298,10 +310,10 @@ latency and completeness conflict, latency wins (also why verification is deferr
 - `forToolIntent`: query derived correctly from Grep/Glob/Read/Bash args; non-search tools
   ignored; `SEARCH_INTENT_TOOLS` gate correct.
 - Enforcement: soft → always injects, never blocks. Hard → blocks ONLY when (why-class AND
-  not-yet-consulted AND score ≥ floor); fail-open when query errors; never blocks on miss.
+  not-yet-consulted AND ≥ MIN_HITS results); fail-open when query errors; never blocks on miss.
 - Fail-open: every failure path (server down, timeout, corrupt dedup file, missing key) →
   returns empty/allow, never throws.
-- Relevance floor separates hit from gap at `MEMSMITH_RETRIEVAL_MIN_SCORE`.
+- MIN_HITS count separates hit from gap.
 
 ### Integration (live embedded PG)
 - Seed observations → `forPrompt` returns real, hybrid-ranked relevant memory.
@@ -330,7 +342,7 @@ Determines directive-based (keep) vs. always-memory-first (fallback), per surfac
 ## New / changed settings
 - `MEMSMITH_SEMANTIC_INJECT` — default flips `'false'` → `'true'` (core-on).
 - `MEMSMITH_SEMANTIC_INJECT_LIMIT` — existing (default `5`), reused as (A)/(C) result cap.
-- `MEMSMITH_RETRIEVAL_MIN_SCORE` — new, relevance floor for hit-vs-gap and hard-mode.
+- `MEMSMITH_RETRIEVAL_MIN_HITS` — new, min result count for hit-vs-gap and hard-mode (default 1).
 - `MEMSMITH_RETRIEVAL_TIMEOUT_MS` — new, hot-path timeout (default ~2000).
 - Enforcement mode per mechanism (soft/hard) — new, chosen at review.
 
