@@ -63,9 +63,12 @@ export const sessionInitHandler: EventHandler = {
     try {
       const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
       const pool = getSharedPostgresPool({ requireDatabaseUrl: true });
-      const { ensureProjectIdentity, ensureBaseKey } = await import('../../services/identity/project-identity.js');
-      const { teamId, projectId: identityProjectId } = await ensureProjectIdentity(pool, cwd);
-      await ensureBaseKey(pool, teamId, identityProjectId);
+      const { ensureProjectIdentity } = await import('../../services/identity/project-identity.js');
+      const { CredentialStore } = await import('../../services/identity/credential-store.js');
+      // ensureProjectIdentity now guarantees a resolvable base key when given a
+      // store (folds in the former separate ensureBaseKey call), so a marker is
+      // never written without its key.
+      await ensureProjectIdentity(pool, cwd, new CredentialStore());
     } catch (err) {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }

@@ -55,10 +55,20 @@ async function upsertTeamAndProject(pool: QueryablePool, teamId: string, project
  * Resolve the current project's durable identity. Recognizes an existing
  * committed marker; otherwise mints uuids + a marker. Always (idempotently)
  * upserts the PG teams/projects rows so a fresh DB / cloned repo self-heals.
+ *
+ * When a `store` is provided, this ALSO guarantees a resolvable base key for
+ * the identity (via ensureBaseKey). This closes the "dark capture" hole: a
+ * marker written without a corresponding key makes every hook fall back with
+ * `missing_api_key` and silently drop observations. By folding the key
+ * guarantee in here, no caller (cold-boot scope resolver, session-init, seed)
+ * can leave a keyless marker behind. The store is optional so pool-less /
+ * read-only callers still work — but any path that MINTS an identity should
+ * pass one.
  */
 export async function ensureProjectIdentity(
   pool: QueryablePool,
   cwd: string,
+  store?: CredentialStore,
 ): Promise<{ teamId: string; projectId: string }> {
   const existing = readMarker(cwd);
   const teamId = existing?.teamId ?? randomUUID();
@@ -68,6 +78,11 @@ export async function ensureProjectIdentity(
     logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
   }
   await upsertTeamAndProject(pool, teamId, projectId);
+  if (store) {
+    // Guarantee a resolvable key for this identity. ensureBaseKey is idempotent:
+    // it returns the cached key (repairing DB drift if needed) or mints one.
+    await ensureBaseKey(pool, teamId, projectId, store);
+  }
   return { teamId, projectId };
 }
 
