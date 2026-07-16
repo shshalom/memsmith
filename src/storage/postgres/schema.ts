@@ -3,7 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import type { PostgresQueryable } from './utils.js';
 
-export const SERVER_POSTGRES_SCHEMA_VERSION = 4;
+export const SERVER_POSTGRES_SCHEMA_VERSION = 5;
 
 // Phase 1b (cmem-sdk rename): the TS constant is renamed but the table-name
 // strings remain on `server_beta_*` since they are persisted DDL identifiers.
@@ -103,6 +103,24 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
       ON CONFLICT (version) DO NOTHING
     `,
     [4, 'team-agent-memory: per-team server_settings overrides']
+  );
+  // Migration 005: content-idempotency key for manual record-intent writes.
+  // Two detection layers + retries collapse to one row via partial unique index.
+  await client.query(
+    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS idempotency_key TEXT`
+  );
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_observations_idempotency
+       ON observations (team_id, project_id, idempotency_key)
+       WHERE idempotency_key IS NOT NULL`
+  );
+  await client.query(
+    `
+      INSERT INTO server_beta_schema_migrations (version, description)
+      VALUES ($1, $2)
+      ON CONFLICT (version) DO NOTHING
+    `,
+    [5, 'team-agent-memory: idempotency_key column + partial unique index on observations']
   );
 }
 

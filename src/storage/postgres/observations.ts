@@ -26,6 +26,7 @@ export interface PostgresObservation {
   kind: string;
   content: string;
   generationKey: string | null;
+  idempotencyKey: string | null;
   metadata: JsonObject;
   embedding: JsonValue | null;
   createdByJobId: string | null;
@@ -59,6 +60,7 @@ export interface ObservationRow {
   kind: string;
   content: string;
   generation_key: string | null;
+  idempotency_key: string | null;
   metadata: unknown;
   embedding: unknown | null;
   created_by_job_id: string | null;
@@ -93,6 +95,7 @@ export class PostgresObservationRepository {
     kind?: string;
     content: string;
     generationKey?: string | null;
+    idempotencyKey?: string | null;
     metadata?: JsonObject;
     embedding?: JsonValue | null;
     createdByJobId?: string | null;
@@ -110,38 +113,76 @@ export class PostgresObservationRepository {
       await assertJobOwnership(this.client, input.createdByJobId, input.projectId, input.teamId);
     }
 
-    const row = await queryOne<ObservationRow>(
-      this.client,
-      `
-        INSERT INTO observations (
-          id, project_id, team_id, server_session_id, kind, content,
-          generation_key, metadata, embedding, created_by_job_id,
-          obs_type, lifecycle_state, supersedes, quality, embedding_vec
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10,
-                $11, COALESCE($12, 'open'), $13, $14, $15::public.vector)
-        ON CONFLICT (team_id, project_id, generation_key) WHERE generation_key IS NOT NULL DO UPDATE SET
-          updated_at = observations.updated_at
-        RETURNING *
-      `,
-      [
-        input.id ?? newId(),
-        input.projectId,
-        input.teamId,
-        input.serverSessionId ?? null,
-        input.kind ?? 'observation',
-        input.content,
-        input.generationKey ?? null,
-        JSON.stringify(input.metadata ?? {}),
-        input.embedding == null ? null : JSON.stringify(input.embedding),
-        input.createdByJobId ?? null,
-        input.obsType ?? (input.metadata?.type as string | undefined) ?? null,
-        input.lifecycleState ?? null,
-        input.supersedes ?? null,
-        input.quality ?? null,
-        input.embeddingVec == null ? null : '[' + input.embeddingVec.join(',') + ']'
-      ]
-    );
+    const idempotencyKey = input.idempotencyKey ?? null;
+    const commonValues = [
+      input.id ?? newId(),
+      input.projectId,
+      input.teamId,
+      input.serverSessionId ?? null,
+      input.kind ?? 'observation',
+      input.content,
+      input.generationKey ?? null,
+      idempotencyKey,
+      JSON.stringify(input.metadata ?? {}),
+      input.embedding == null ? null : JSON.stringify(input.embedding),
+      input.createdByJobId ?? null,
+      input.obsType ?? (input.metadata?.type as string | undefined) ?? null,
+      input.lifecycleState ?? null,
+      input.supersedes ?? null,
+      input.quality ?? null,
+      input.embeddingVec == null ? null : '[' + input.embeddingVec.join(',') + ']'
+    ];
+
+    let row: ObservationRow | null;
+
+    if (idempotencyKey != null) {
+      // Idempotent manual write path: INSERT ... DO NOTHING, then SELECT on conflict.
+      // Postgres allows only ONE ON CONFLICT per INSERT, so we branch here instead
+      // of combining with the generation_key conflict clause.
+      row = await queryOne<ObservationRow>(
+        this.client,
+        `
+          INSERT INTO observations (
+            id, project_id, team_id, server_session_id, kind, content,
+            generation_key, idempotency_key, metadata, embedding, created_by_job_id,
+            obs_type, lifecycle_state, supersedes, quality, embedding_vec
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11,
+                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector)
+          ON CONFLICT (team_id, project_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+          DO NOTHING
+          RETURNING *
+        `,
+        commonValues
+      );
+      if (row == null) {
+        // Conflict: row already exists — fetch the existing row.
+        row = await queryOne<ObservationRow>(
+          this.client,
+          `SELECT * FROM observations WHERE team_id = $1 AND project_id = $2 AND idempotency_key = $3`,
+          [input.teamId, input.projectId, idempotencyKey]
+        );
+      }
+    } else {
+      // Generation-key path (or no key at all): keep existing conflict clause byte-for-byte.
+      row = await queryOne<ObservationRow>(
+        this.client,
+        `
+          INSERT INTO observations (
+            id, project_id, team_id, server_session_id, kind, content,
+            generation_key, idempotency_key, metadata, embedding, created_by_job_id,
+            obs_type, lifecycle_state, supersedes, quality, embedding_vec
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11,
+                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector)
+          ON CONFLICT (team_id, project_id, generation_key) WHERE generation_key IS NOT NULL DO UPDATE SET
+            updated_at = observations.updated_at
+          RETURNING *
+        `,
+        commonValues
+      );
+    }
+
     return mapObservationRow(row!);
   }
 
@@ -529,6 +570,7 @@ export function mapObservationRow(row: ObservationRow): PostgresObservation {
     kind: row.kind,
     content: row.content,
     generationKey: row.generation_key,
+    idempotencyKey: row.idempotency_key,
     metadata: toJsonObject(row.metadata),
     embedding: row.embedding,
     createdByJobId: row.created_by_job_id,
