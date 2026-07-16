@@ -65,7 +65,7 @@ describe('observation embedding_vec round-trip', () => {
 
     // And it is semantically retrievable via the hybrid search path.
     const hits = await repo.hybridSearch({
-      projectId, teamId, query: 'why did we pick postgres for local', limit: 5,
+      projectId, teamId, query: 'which data store did we select to avoid containers', limit: 5,
     });
     expect(hits.some(o => o.id === obs.id)).toBe(true);
   });
