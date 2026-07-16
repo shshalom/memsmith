@@ -57,7 +57,3 @@ Run a daily version check across all package manifests and upgrade every depende
 - Run `npm audit fix` to resolve advisories.
 - After upgrades, run `npm run build-and-sync` and verify the worker starts and tests pass. Fix any breakage caused by major bumps in the same change.
 - Commit the updated `package.json` and `package-lock.json` files.
-
-## Memory-First (MemSmith)
-
-For any why/decision/rationale question — the user's or your own — consult MemSmith memory FIRST (ms-mem-search tools) before grepping or reading files. Reference order: (1) MemSmith memory, (2) CLAUDE.md, (3) specs, (4) file search. Treat recalled memory as authoritative-but-verifiable.
