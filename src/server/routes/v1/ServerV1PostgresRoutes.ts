@@ -43,6 +43,9 @@ import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes
 import { CredentialStore } from '../../../services/identity/credential-store.js';
 import { embedForPersist } from '../../generation/embed-for-persist.js';
 import { boostUserDirected } from './user-note-boost.js';
+import { classifyAndComposeRecordIntent } from './record-intent.js';
+import { providerComplete } from '../../generation/provider-complete.js';
+import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -87,6 +90,11 @@ export interface ServerV1PostgresRoutesOptions {
   // Task 4 — identity surface. Optional so existing tests compile without it;
   // when absent, /v1/identity still registers but uses the default CredentialStore.
   credentialStore?: CredentialStore;
+  // Task 8 (record-intent) — generation provider holder for the record-intent
+  // backstop endpoint. Optional: when absent the endpoint is still registered
+  // but the classify+compose call will receive a null provider and fail-open
+  // (recorded: false) without a 500.
+  generationProviderHolder?: GenerationProviderHolder;
 }
 
 interface BatchPreValidationFailure {
@@ -934,6 +942,51 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const err = error instanceof Error ? error : new Error(String(error));
           logger.warn('SYSTEM', 'memory.write failed', { requestId: req.requestId ?? null }, err);
           this.handleDbError(err, res, 'memory.write');
+        }
+      },
+    ));
+
+    // Task 8 — POST /v1/record-intent: Layer 2 server-provider backstop.
+    // Asks the generation provider "is this a record request? compose the note
+    // if so," and writes a marked user_note on a positive classification with a
+    // deterministic idempotency key (deduplicates vs the agent layer).
+    // Fail-open: provider unavailable / null / NONE reply → {recorded:false},
+    // 200. Never 500 the hot path.
+    app.post('/v1/record-intent', writeAuth, this.handleCreate(
+      z.object({
+        prompt: z.string().min(1),
+        projectId: z.string().min(1).optional(),
+      }),
+      async (req, res, body) => {
+        try {
+          const teamId = this.requireTeamId(req, res);
+          if (!teamId) return;
+          const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+          if (!projectId) {
+            res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+            return;
+          }
+          if (!this.ensureProjectAllowed(req, res, projectId)) return;
+          const provider = this.options.generationProviderHolder
+            ? await this.options.generationProviderHolder.current(teamId)
+            : null;
+          const repo = new PostgresObservationRepository(this.options.pool);
+          const deps = {
+            complete: (system: string, user: string) =>
+              provider ? providerComplete({ provider, system, user }) : Promise.resolve(null),
+            write: (o: { projectId: string; teamId: string; kind: string; content: string; metadata: Record<string, unknown>; idempotencyKey: string }) =>
+              repo.create({ projectId: o.projectId, teamId: o.teamId, kind: o.kind, content: o.content, metadata: o.metadata, idempotencyKey: o.idempotencyKey }),
+            teamId,
+            projectId,
+          };
+          const result = await classifyAndComposeRecordIntent(body.prompt, deps);
+          res.json(result);
+        } catch (error) {
+          logger.warn('SYSTEM', 'record-intent backstop failed (fail-open)', {
+            requestId: req.requestId ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          res.json({ recorded: false });
         }
       },
     ));

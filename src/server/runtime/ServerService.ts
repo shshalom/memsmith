@@ -19,6 +19,7 @@ import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
 import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
+import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapter.js';
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
@@ -181,6 +182,9 @@ export class ServerService {
     server.registerRoutes(new ServerRuntimeInfoRoutes(this.graph));
     const settingsStore = new SettingsStore(this.graph.postgres.pool);
     const settingsResolver = new SettingsResolver(settingsStore);
+    // Task 8: build a GenerationProviderHolder from the settings resolver so
+    // POST /v1/record-intent can resolve the live provider per request.
+    const generationProviderHolder = new GenerationProviderHolder(settingsResolver);
     const v1Routes = new ServerV1PostgresRoutes({
       pool: this.graph.postgres.pool,
       queueManager: this.graph.queueManager,
@@ -190,6 +194,7 @@ export class ServerService {
       localDevProjectId: this.graph.localDevProjectId,
       settingsStore,
       settingsResolver,
+      generationProviderHolder,
     });
     server.registerRoutes(v1Routes);
 
