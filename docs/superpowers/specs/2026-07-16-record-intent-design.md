@@ -32,7 +32,8 @@ User-directed memory is qualitatively different from ambient capture: it's the u
 
 ## Global Constraints
 
-- **Determinism where it can be, model-judgment where it must be.** The *understanding* of natural-language record-intent is the agent (an LLM reading with full context — the one thing only an LLM can do). The *rule* (a standing directive) and the *capture* (enforced embedded write) are MemSmith machinery. This mirrors retrieval-first exactly.
+- **Determinism where it can be, model-judgment where it must be — with a machinery backstop.** The *understanding* of natural-language record-intent needs an LLM (only an LLM catches "park it"). Layer 1 uses the agent (free, full context, zero latency). Layer 2 uses the server's generation provider via an always-runs `UserPromptSubmit` → `/v1/record-intent` classification — the deterministic backstop so a missed detection is still captured. The *rule* (directive), the *backstop* (always-runs server classification), and the *capture* (enforced embedded write) are all MemSmith machinery. This is STRICTLY STRONGER than pure agent-side detection: retrieval-first has a hook backstop (memory injected regardless of the agent); this gives record-intent the equivalent, which the earlier agent-only draft lacked.
+- **Manual-write content-idempotency is REQUIRED** (not optional): the two detection layers + retries must collapse to one row via a deterministic content key. The manual `/v1/memories` path currently has NO content dedup — this spec closes that.
 - **The directive lives in MemSmith code, NOT CLAUDE.md.** Memory-behavior rules are hook/MCP-delivered machinery; a CLAUDE.md suggestion regresses to model discretion (the removed Memory-First CLAUDE.md section is precedent).
 - **Write failures are LOUD; read failures are QUIET (fail-open).** A requested save that fails must be surfaced to the user (they asked). A boost/filter error degrades silently to normal recall (invisible-and-fine).
 - **The user-directed mark is first-class and MUST survive ranking into result rows** (`kind`/`metadata` present on results) — the basis for filter, boost, and both UI surfaces. Already true in code; this spec locks it as a constraint so no refactor drops it.
@@ -44,13 +45,39 @@ User-directed memory is qualitatively different from ambient capture: it's the u
 ## Architecture & Components
 
 ```
-CAPTURE (write side)
-  Directive  → src/services/retrieval/directive.ts        [rule, MemSmith code]
-             → delivered by SessionStart + UserPromptSubmit hooks  [machinery]
-  Understanding → the agent, at inference (free, full context, natural language)
-  Write      → observation_add → POST /v1/memories         [existing; embeds via embed-on-write fix]
-                 kind:'user_note', metadata.userDirected:true
-  Confirm    → agent echoes "📝 Recorded to memory: …"      [directive-instructed]
+CAPTURE (write side) — TWO-LAYER DETECTION (fast path + machinery backstop)
+  Layer 1 — AGENT (fast path, zero latency):
+    Directive  → src/services/retrieval/directive.ts        [rule, MemSmith code]
+               → delivered by SessionStart + UserPromptSubmit hooks  [machinery]
+    Understanding → the agent, at inference (free, full context, natural language)
+    Write      → observation_add → POST /v1/memories         [embeds via embed-on-write fix]
+                   kind:'user_note', metadata.userDirected:true
+    Confirm    → agent echoes "📝 Recorded to memory: …"     [directive-instructed]
+
+  Layer 2 — SERVER-PROVIDER BACKSTOP (the machinery guarantee, always-runs):
+    UserPromptSubmit hook → POST /v1/record-intent           [NEW endpoint]
+      → server asks the GENERATION PROVIDER (Ollama/Claude, same one observations use):
+          "Is this prompt a request to record something? If yes, compose the note."
+      → on yes: server writes the marked observation (same /v1/memories write path)
+    This is NOT agent discretion — it always runs, so a record request the agent
+    missed is still captured. This is the backstop retrieval-first has (hooks inject
+    regardless of the agent) that pure agent-side detection lacks.
+
+  IDEMPOTENCY (required — makes the two layers safe):
+    Both layers write the same note via the same path. Manual /v1/memories inserts
+    currently have NO content dedup (the ON CONFLICT clause only covers
+    generation_key, which is null for manual writes) — so without this, agent +
+    backstop would DOUBLE-write. Manual record-intent writes MUST carry a
+    deterministic idempotency key = hash(teamId, projectId, kind, normalized-content)
+    (mirroring buildObservationGenerationKey), so agent+backstop (and retries)
+    collapse to one row. Also closes a pre-existing latent gap: manual inserts never
+    deduped at all (the 2541-duplicate incident is the scar). CONSTRAINT: Postgres
+    allows one ON CONFLICT clause per INSERT, and the existing clause targets
+    generation_key — so the manual dedup mechanism (dedicated idempotency_key column
+    + manual-specific insert path, OR a deterministic pre-insert existence check on
+    the low-concurrency manual path) is an implementation choice for the PLAN to
+    resolve with exact SQL. The spec REQUIRES content-idempotency for manual writes;
+    the plan picks the mechanism.
 
 SEARCH (read side) — via the one chokepoint resolveSearchResults
   ├─ rank (hybrid RRF)                                      [unchanged]
@@ -67,11 +94,12 @@ DASHBOARD / VIEWER (two surfaces)
 ### Components (new/changed)
 
 1. **Record-intent directive** — a new string constant in `src/services/retrieval/directive.ts` (alongside the memory-first directive), delivered by the existing `SessionStart`/`UserPromptSubmit` injection hooks. Instructs: on any user intent to record/remember/log/park/mark/save something, compose a self-contained observation from context and call `observation_add` with `kind:'user_note'` + `metadata.userDirected:true`, then echo a one-line confirmation. On write failure, surface it.
-2. **Capture mark** — the `observation_add` MCP tool → `/v1/memories` handler already accept `kind` and `metadata`; the directive supplies `kind:'user_note'` + `metadata.userDirected:true`. No new write plumbing.
-3. **`userDirected` search filter** — a new optional boolean param on the `/v1/search` and `/v1/context` request schemas, threaded to `repo.search`/`repo.hybridSearch`. Implemented as a parameterized optional predicate on **`kind`** — `AND ($N::text IS NULL OR kind = 'user_note')` — following the exact `obsType`/`lifecycle_state` optional-filter idiom already in `search` (lines 178-179). `kind` is the primary/canonical filter key (simple column predicate, indexable); `metadata.userDirected` is redundant belt-and-suspenders on the row, not the query key. When the param is true, results are restricted to `kind='user_note'`.
-4. **`userDirected` boost transform** — a pure post-ranking reorder inside `resolveSearchResults`, applied after RRF ranking (and composable with supersession): among the ranked results, stable-reorder user-directed observations ahead of ambient ones **without pulling in irrelevant notes** (boost-within-relevant). Strength governed by a new tunable setting (see Settings). Fail-open: any error → return the un-boosted ranked list.
-5. **Dashboard "Notes" panel** — a `userNotes()` query in `src/server/dashboard/queries.ts` (`WHERE <scope> AND kind='user_note' ORDER BY created_at DESC`, mirroring the decision-log query) + a card in `DashboardView.tsx` (mirrors the Decision-log panel).
-6. **Observations "My notes" filter chip** — a new chip in the Observations view's existing filter UI that adds the `userDirected` filter to `fetchObservations`.
+2. **Capture mark + idempotency** — the `observation_add` MCP tool → `/v1/memories` handler already accept `kind` and `metadata`; the directive supplies `kind:'user_note'` + `metadata.userDirected:true`. NEW: manual record-intent writes carry a deterministic content-idempotency key so agent-layer + backstop + retries collapse to one row (mechanism per the plan; see Idempotency note above).
+3. **Server-provider record-intent backstop** — a NEW `POST /v1/record-intent` endpoint + a `UserPromptSubmit` hook that calls it. The endpoint asks the configured generation provider (via the existing provider abstraction — same Ollama/Claude used for observation generation) to classify "is this record-intent? compose the note if so," then writes the marked observation on a positive classification. Always-runs (the machinery backstop). Fail-open: any classification/provider error → no capture from this layer, agent layer still covers it, session never blocked. Note this is the same `UserPromptSubmit` hot-path slot retrieval-first already uses (latency budget shared, not new-in-kind).
+4. **`userDirected` search filter** — a new optional boolean param on the `/v1/search` and `/v1/context` request schemas, threaded to `repo.search`/`repo.hybridSearch`. Implemented as a parameterized optional predicate on **`kind`** — `AND ($N::text IS NULL OR kind = 'user_note')` — following the exact `obsType`/`lifecycle_state` optional-filter idiom already in `search` (lines 178-179). `kind` is the primary/canonical filter key (simple column predicate, indexable); `metadata.userDirected` is redundant belt-and-suspenders on the row, not the query key. When the param is true, results are restricted to `kind='user_note'`.
+5. **`userDirected` boost transform** — a pure post-ranking reorder inside `resolveSearchResults`, applied after RRF ranking (and composable with supersession): among the ranked results, stable-reorder user-directed observations ahead of ambient ones **without pulling in irrelevant notes** (boost-within-relevant). Strength governed by a new tunable setting (see Settings). Fail-open: any error → return the un-boosted ranked list.
+6. **Dashboard "Notes" panel** — a `userNotes()` query in `src/server/dashboard/queries.ts` (`WHERE <scope> AND kind='user_note' ORDER BY created_at DESC`, mirroring the decision-log query) + a card in `DashboardView.tsx` (mirrors the Decision-log panel).
+7. **Observations "My notes" filter chip** — a new chip in the Observations view's existing filter UI that adds the `userDirected` filter to `fetchObservations`.
 
 ### Placement / boundary decisions
 - No new write endpoint — a user note IS an observation, written through the existing marked `observation_add`.
@@ -82,20 +110,27 @@ DASHBOARD / VIEWER (two surfaces)
 
 ## Data Flow
 
-### Capture
+### Capture (two layers, converging on one idempotent write)
 ```
 User: "park that for later" | "remember we chose X because Y" | "log this" | "mark it"
-  → Agent (directive in context + full conversation):
-      1. recognizes record-intent (understanding — free, natural-language-complete)
-      2. composes a SELF-CONTAINED observation:
-           - inline content present → use it
-           - referential ("that"/"it") → resolve from conversation into a standalone note
-      3. observation_add({ content: <composed>, kind:'user_note',
-                           metadata:{ userDirected:true }, projectId:<scope> })
-  → Server /v1/memories:
-      4. embedForPersist(content) → embedding_vec   [embed-on-write]
-      5. repo.create({... kind:'user_note', metadata, embeddingVec})  [persisted, recallable]
-  → Agent echoes: "📝 Recorded to memory: <one-line summary>"   [never silent]
+
+  LAYER 1 (agent, fast path):
+    → Agent (directive in context + full conversation):
+        1. recognizes record-intent (free, natural-language-complete)
+        2. composes a SELF-CONTAINED observation (inline → use it; referential → resolve from convo)
+        3. observation_add({ content, kind:'user_note', metadata:{userDirected:true},
+                             idempotencyKey: hash(team,project,kind,normalized-content), projectId })
+        4. echoes "📝 Recorded to memory: <one-line>"   [never silent]
+
+  LAYER 2 (server-provider backstop, always-runs):
+    → UserPromptSubmit hook → POST /v1/record-intent { prompt, (recent context?) }
+        → provider classifies: record-intent? → compose note
+        → on yes: same marked write with the SAME deterministic idempotencyKey
+
+  WRITE (shared, idempotent):
+    → /v1/memories: embedForPersist(content) → embedding_vec  [embed-on-write]
+    → insert with idempotencyKey → ON CONFLICT DO NOTHING (or pre-insert check)
+        → if Layer 1 already wrote this note, Layer 2's identical key is a no-op (ONE row)
 ```
 
 ### Recall — filter (explicit "my notes")
@@ -131,7 +166,9 @@ Guiding rule: a record-intent failure loses at worst one note, never breaks the 
 |---|---|
 | Embedder fails at write | `embedForPersist` → null (best-effort); note persists WITHOUT embedding → still FTS-findable + on dashboard, not semantically-ranked until a backfill. Confirmation still shows "recorded." Never blocks the write. |
 | `observation_add` / server unreachable | Write fails → agent surfaces it VISIBLY ("⚠ Couldn't record to memory — say it again / retry"). Never silent — this is the one case the user MUST know. |
-| Agent misses intent (false negative) | No confirmation echo appears → the ABSENCE is the signal; user restates. Residual reliability gap of agent-side detection, mitigated by making success visible. |
+| Agent (Layer 1) misses intent | The server-provider backstop (Layer 2) still classifies + captures — this is the whole point of the backstop. If BOTH miss (rare), no confirmation echo appears → absence is the signal; user restates. Two independent detectors make a total miss much less likely than agent-only. |
+| Backstop (Layer 2) provider error/timeout | Fail-open: no capture from Layer 2, Layer 1 (agent) still covers it, session never blocked. Logged. (The backstop is additive insurance; its failure just reverts to agent-only for that turn.) |
+| Both layers fire on the same note | Idempotency key collapses them to ONE row (no duplicate). This is the required content-idempotency; without it they'd double-write. |
 | Agent over-records (false positive) | Low harm (an extra user_note), visible via confirmation, deletable via `DELETE /v1/memories/:id` (exists). Preferred failure direction over silent misses. |
 | Wrong referent composed | Confirmation shows the note → user corrects ("no, I meant X") → re-record. |
 | Boost/filter query error (read) | Fail-open: return normal ranked results without boost/filter — never 500, never blocks recall. |
@@ -142,10 +179,13 @@ Guiding rule: a record-intent failure loses at worst one note, never breaks the 
 ## Testing
 
 **Unit (deterministic, no DB/model):**
-- Directive content: names the record verbs, instructs compose→`observation_add`(kind/metadata)→confirm→surface-failure; MemSmith-native (no "claude-mem").
+- Directive content: names the record verbs, instructs compose→`observation_add`(kind/metadata/idempotencyKey)→confirm→surface-failure; MemSmith-native (no "claude-mem").
 - Capture mark shape: `/v1/memories` given `kind:'user_note'` + `metadata.userDirected:true` persists exactly those (round-trip; extends the embed-on-write test — mark survives too).
+- Idempotency key: `hash(team,project,kind,normalized-content)` is deterministic (same inputs → same key) and normalizes trivial whitespace/case differences so agent + backstop compositions of the same note collapse.
+- Backstop classification handler (with a stubbed provider): "remember X" → records; "what's the weather" → no record; provider-throws → no record, no throw (fail-open).
 
 **Integration (live embedded PG, isolated schema — existing pattern):**
+- Idempotent write: two `/v1/memories` inserts of the same note with the same idempotencyKey → ONE row (the two-layer/​retry duplication guard — would fail on the current no-dedup manual path).
 - Filter: user_note + ambient seeded → `userDirected:true` search returns ONLY the note; unfiltered returns both.
 - Boost: user_note + ambient both relevant → boost-on ranks the note above ambient; boost-off (knob=0) → original ranking (knob works + off-safe).
 - Boost fail-open: force the boost transform to throw → normal ranked results, no 500.
@@ -156,7 +196,7 @@ Guiding rule: a record-intent failure loses at worst one note, never breaks the 
 - Real capture path: marked `observation_add` → embedded (no backfill) → appears in Dashboard "Notes" panel AND Observations "My notes" filter.
 - Behavioral proof (the honest one, like retrieval-first's clean-session test): in a real/clean session, a natural record request ("park that…") → agent records it marked, confirmation echo appears, it's recallable. This validates the agent-side *detection* on natural phrasing.
 
-**Not unit-tested:** the agent's natural-language detection itself (that "park it" ⇒ record-intent) — model behavior, validated by the behavioral test + visible-confirmation safety net (same stance as retrieval-first directive reliability).
+**Not unit-tested:** the *quality* of natural-language detection itself (that "park it" ⇒ record-intent) in Layer 1 (agent) and Layer 2 (provider) — model behavior, validated by the behavioral test + the two-layer redundancy + visible-confirmation safety net. (The backstop's *wiring* IS unit-tested with a stubbed provider; the provider's *judgment* is not, same stance as retrieval-first directive reliability.)
 
 **Settings/knob:** the boost-strength setting has a conservative default, is read by `resolveSearchResults`, and is tested like the existing `ftsWeight`/`vecWeight`/`rrfK` knobs.
 
@@ -164,9 +204,11 @@ Guiding rule: a record-intent failure loses at worst one note, never breaks the 
 
 ## New / changed settings
 - `MEMSMITH_USER_NOTE_BOOST` — new; boost strength for user-directed notes in ranked recall. Conservative default (boost-within-relevant, not aggressive surfacing). `0` = off (original ranking). Read by `resolveSearchResults`, mirroring the existing ranking knobs.
+- `MEMSMITH_RECORD_INTENT_BACKSTOP` — new; enables the Layer-2 server-provider backstop (`UserPromptSubmit` → `/v1/record-intent`). Default on (it's the determinism guarantee), but a knob so it can be disabled if provider latency/cost is a concern on a given deployment (Layer 1 agent detection still works when off). The `/v1/record-intent` endpoint itself always exists; this gates whether the hook calls it.
 
 ## Acceptance Criteria
-1. A natural-language record request results in an embedded observation marked `kind:'user_note'` + `metadata.userDirected:true`, with a visible confirmation echo.
+1. A natural-language record request results in an embedded observation marked `kind:'user_note'` + `metadata.userDirected:true`, with a visible confirmation echo (Layer 1). A record request the agent misses is still captured by the Layer-2 server-provider backstop.
+1b. Agent-layer and backstop firing on the same note produce exactly ONE row (deterministic content-idempotency); the manual write path no longer double-writes on retries either.
 2. Recall can filter to user-directed notes (explicit "my notes" queries return only them).
 3. In general recall, user-directed notes are boosted above ambient captures within the relevant set; strength is tunable via `MEMSMITH_USER_NOTE_BOOST` and `0` restores original ranking.
 4. The user-directed mark survives ranking into result rows (filter/boost/UI all have the signal).
