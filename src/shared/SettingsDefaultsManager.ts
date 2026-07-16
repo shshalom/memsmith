@@ -88,6 +88,7 @@ export interface SettingsDefaults {
   MEMSMITH_GATE_TOOLS: string;  // Hook-activation — comma-separated tools the discovery gate injects before (default '' = gate off; 'none' also disables)
   MEMSMITH_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
   MEMSMITH_USER_NOTE_BOOST: string;  // Post-rank boost: floats user_note observations ahead of ambient within the relevant result set (0 = off)
+  MEMSMITH_RECORD_INTENT_BACKSTOP: string;  // Task 9 — enable /v1/record-intent Layer-2 backstop on UserPromptSubmit (default 'true')
 }
 
 export class SettingsDefaultsManager {
@@ -175,6 +176,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_GATE_TOOLS: '',                              // Hook-activation — discovery-gate tool list (default '' = gate off)
     MEMSMITH_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
     MEMSMITH_USER_NOTE_BOOST: '1',                        // Post-rank boost: floats user_note observations ahead of ambient (0 = off)
+    MEMSMITH_RECORD_INTENT_BACKSTOP: 'true',              // Task 9 — Layer-2 backstop: POST prompt to /v1/record-intent on UserPromptSubmit (default 'true')
   };
 
   static getAllDefaults(): SettingsDefaults {

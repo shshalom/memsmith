@@ -196,6 +196,17 @@ export interface ServerJobStatusResponse {
   };
 }
 
+// Task 9 — record-intent backstop: classify+capture prompt intent server-side.
+export interface ServerRecordIntentRequest {
+  projectId: string;
+  prompt: string;
+}
+
+export interface ServerRecordIntentResponse {
+  recorded: boolean;
+  content?: string;
+}
+
 export class ServerClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
@@ -264,6 +275,20 @@ export class ServerClient {
       'POST',
       '/v1/context',
       this.buildSearchPayload(input),
+    );
+  }
+
+  // Task 9 — Layer-2 backstop: POST the user prompt to /v1/record-intent so
+  // the server provider can classify and capture intent the agent may have
+  // missed. Mirrors the existing POST-based methods (searchObservations /
+  // contextObservations).
+  async recordIntent(
+    input: ServerRecordIntentRequest,
+  ): Promise<ServerRecordIntentResponse> {
+    return this.request<ServerRecordIntentResponse>(
+      'POST',
+      '/v1/record-intent',
+      { projectId: input.projectId, prompt: input.prompt },
     );
   }
 

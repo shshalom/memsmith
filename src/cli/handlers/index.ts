@@ -13,6 +13,7 @@ import { discoveryGateHandler } from './discovery-gate.js';
 import { promptInjectionHandler } from './prompt-injection.js';
 import { toolIntentHandler } from './tool-intent.js';
 import { agentDirectiveHandler } from './agent-directive.js';
+import { recordIntentHandler } from './record-intent.js';
 
 export type EventType =
   | 'context'
@@ -25,7 +26,8 @@ export type EventType =
   | 'discovery-gate'
   | 'prompt-injection'
   | 'tool-intent'
-  | 'agent-directive';
+  | 'agent-directive'
+  | 'record-intent';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -39,6 +41,7 @@ const handlers: Record<EventType, EventHandler> = {
   'prompt-injection': promptInjectionHandler,
   'tool-intent': toolIntentHandler,
   'agent-directive': agentDirectiveHandler,
+  'record-intent': recordIntentHandler,
 };
 
 export function getEventHandler(eventType: string): EventHandler {
@@ -65,3 +68,4 @@ export { discoveryGateHandler } from './discovery-gate.js';
 export { promptInjectionHandler } from './prompt-injection.js';
 export { toolIntentHandler } from './tool-intent.js';
 export { agentDirectiveHandler } from './agent-directive.js';
+export { recordIntentHandler } from './record-intent.js';
