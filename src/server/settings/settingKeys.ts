@@ -78,6 +78,10 @@ export const SETTING_KEYS: readonly SettingKey[] = [
     boot: true, min: 0, max: 100_000, label: 'Rate limit / min',
     description: 'Requests per minute per key (0 = off). Applies after restart.',
     help: 'Caps how many requests a single API key may make per minute — protects a shared/team server from being overwhelmed by one client and smooths provider rate-limit pressure. 0 disables throttling. Takes effect after a server restart.' },
+  { key: 'userNoteBoost', type: 'number', env: 'MEMSMITH_USER_NOTE_BOOST', default: 1,
+    boot: false, min: 0, max: 10, label: 'User-note boost',
+    description: 'How strongly explicitly-saved notes are floated up in recall (0 = off).',
+    help: 'After ranking, any user_note observations in the result set are moved to the top, ahead of ambient observations, while preserving relative order within each group. Set to 0 to disable and keep the raw ranked order. Values above 0 all produce the same stable-partition reorder (the magnitude is reserved for a future graded blend). Default 1 = notes first.' },
 ];
 
 const BY_KEY: Map<string, SettingKey> = new Map(SETTING_KEYS.map(k => [k.key, k]));

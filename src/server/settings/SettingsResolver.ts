@@ -86,4 +86,5 @@ export class SettingsResolver {
   qualityFloor(teamId: string) { return this.num(teamId, 'qualityFloor'); }
   reformatRetries(teamId: string) { return this.num(teamId, 'reformatRetries'); }
   inputRatePerMtok(teamId: string) { return this.num(teamId, 'inputRatePerMtok'); }
+  userNoteBoost(teamId: string) { return this.num(teamId, 'userNoteBoost'); }
 }

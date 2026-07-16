@@ -42,6 +42,7 @@ import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
 import { embedForPersist } from '../../generation/embed-for-persist.js';
+import { boostUserDirected } from './user-note-boost.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1478,11 +1479,16 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       searchInput = { ...input, ftsWeight: w.fts, vecWeight: w.vec, rrfK };
     }
     const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(searchInput);
+    const boost = this.options.settingsResolver
+      ? await this.options.settingsResolver.userNoteBoost(input.teamId)
+      : Number(process.env.MEMSMITH_USER_NOTE_BOOST ?? '1');
+    let boosted = ranked;
+    try { boosted = boostUserDirected(ranked, boost); } catch { boosted = ranked; }  // fail-open
     try {
-      return await this.applySupersession(ranked, input.mode, { teamId: input.teamId, projectId: input.projectId });
+      return await this.applySupersession(boosted, input.mode, { teamId: input.teamId, projectId: input.projectId });
     } catch (err) {
       logger.warn('SYSTEM', 'supersession resolution failed; returning ranked results', {}, err instanceof Error ? err : new Error(String(err)));
-      return ranked;
+      return boosted;
     }
   }
 

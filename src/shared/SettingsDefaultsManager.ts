@@ -87,6 +87,7 @@ export interface SettingsDefaults {
   MEMSMITH_TEAM_API_KEY: string;  // Sprint 3 follow-up — scoped memories:read key for the team-inject bridge (default '' = bridge off)
   MEMSMITH_GATE_TOOLS: string;  // Hook-activation — comma-separated tools the discovery gate injects before (default '' = gate off; 'none' also disables)
   MEMSMITH_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
+  MEMSMITH_USER_NOTE_BOOST: string;  // Post-rank boost: floats user_note observations ahead of ambient within the relevant result set (0 = off)
 }
 
 export class SettingsDefaultsManager {
@@ -173,6 +174,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_TEAM_API_KEY: '',                            // Sprint 3 follow-up — team-inject bridge scoped key (default '' = bridge off)
     MEMSMITH_GATE_TOOLS: '',                              // Hook-activation — discovery-gate tool list (default '' = gate off)
     MEMSMITH_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
+    MEMSMITH_USER_NOTE_BOOST: '1',                        // Post-rank boost: floats user_note observations ahead of ambient (0 = off)
   };
 
   static getAllDefaults(): SettingsDefaults {
