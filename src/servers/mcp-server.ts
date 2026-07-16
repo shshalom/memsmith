@@ -145,6 +145,7 @@ interface ObservationAddArgs {
   kind?: string;
   content: string;
   metadata?: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 const handleObservationAdd = wrapHandler('observation_add', async (args: ObservationAddArgs) => {
@@ -159,6 +160,7 @@ const handleObservationAdd = wrapHandler('observation_add', async (args: Observa
     ...(args.serverSessionId !== undefined ? { serverSessionId: args.serverSessionId } : {}),
     ...(args.kind !== undefined ? { kind: args.kind } : {}),
     ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
+    ...(args.idempotencyKey !== undefined ? { idempotencyKey: args.idempotencyKey } : {}),
   };
   const response = await ctx.client.addObservation(request);
   return formatJsonResult(response);
@@ -385,7 +387,7 @@ Use observation_context when you want ready-to-use context; observation_search w
   // Phase 8 — observation_* tools backed by server REST core.
   {
     name: 'observation_add',
-    description: 'Insert a manual observation directly into server storage. Calls /v1/memories — does NOT enqueue generation. Server runtime only. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata.',
+    description: 'Insert a manual observation directly into server storage. Calls /v1/memories — does NOT enqueue generation. Server runtime only. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata, idempotencyKey.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -394,6 +396,7 @@ Use observation_context when you want ready-to-use context; observation_search w
         kind: { type: 'string', description: 'Observation kind (default: manual)' },
         content: { type: 'string', description: 'Observation content (required)' },
         metadata: { type: 'object', description: 'Free-form metadata object', additionalProperties: true },
+        idempotencyKey: { type: 'string', description: 'Optional idempotency key for deduplication' },
       },
       required: ['content'],
       additionalProperties: false,

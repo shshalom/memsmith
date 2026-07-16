@@ -135,6 +135,7 @@ export interface ServerAddObservationRequest {
   kind?: string;
   content: string;
   metadata?: Record<string, unknown>;
+  idempotencyKey?: string | null;
 }
 
 export interface ServerAddObservationResponse {
@@ -297,6 +298,7 @@ export class ServerClient {
       content: input.content,
       ...(input.serverSessionId !== undefined ? { serverSessionId: input.serverSessionId } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
     };
   }
 

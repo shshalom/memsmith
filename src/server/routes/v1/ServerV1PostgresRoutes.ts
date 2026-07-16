@@ -904,6 +904,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         kind: z.string().min(1).optional(),
         content: z.string().min(1),
         metadata: z.record(z.string(), z.unknown()).optional(),
+        idempotencyKey: z.string().min(1).optional(),
       }),
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
@@ -921,6 +922,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           content: body.content,
           metadata: body.metadata ?? {},
           embeddingVec,
+          idempotencyKey: body.idempotencyKey ?? null,
         };
         try {
           const repo = new PostgresObservationRepository(this.options.pool);

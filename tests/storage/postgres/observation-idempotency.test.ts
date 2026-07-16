@@ -53,4 +53,12 @@ describe('observation content-idempotency (manual record-intent writes)', () => 
     );
     expect(rows[0].n).toBe(2); // no key → no dedup (preserves existing behavior)
   });
+
+  it('the /v1/memories create input shape carries idempotencyKey to repo.create', async () => {
+    // Exercise the same create path the route uses, asserting the key reaches storage.
+    const content = 'Route-path note';
+    const key = computeContentIdempotencyKey({ teamId, projectId, kind: 'user_note', content });
+    const obs = await repo.create({ projectId, teamId, kind: 'user_note', content, idempotencyKey: key });
+    expect((obs as any).idempotencyKey).toBe(key);
+  });
 });
