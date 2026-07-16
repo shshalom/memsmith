@@ -41,6 +41,7 @@ import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
+import { embedForPersist } from '../../generation/embed-for-persist.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -908,6 +909,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
         if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Embed on write so manual/direct inserts are semantically searchable,
+        // same as the generation path. Best-effort (never throws); computed
+        // BEFORE repo.create so a cold-start model load never holds the insert.
+        const embeddingVec = await embedForPersist(body.content);
         const createInput = {
           projectId: body.projectId,
           teamId,
@@ -915,6 +920,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           kind: body.kind ?? 'manual',
           content: body.content,
           metadata: body.metadata ?? {},
+          embeddingVec,
         };
         try {
           const repo = new PostgresObservationRepository(this.options.pool);
