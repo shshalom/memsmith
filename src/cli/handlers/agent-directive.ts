@@ -4,11 +4,12 @@
 // This handler is PURE: it returns a HookResult and MUST NOT call
 // process.stderr.write / process.stdout.write / console.* / process.exit.
 import type { EventHandler, HookResult, NormalizedHookInput } from '../types.js';
-import { MEMORY_FIRST_DIRECTIVE } from '../../services/retrieval/directive.js';
+import { INJECTED_DIRECTIVES } from '../../services/retrieval/directive.js';
 
 /** PreToolUse:Agent — when the parent spawns a sub-agent (Task/Agent tool),
- *  inject the memory-first directive so it rides into the sub-agent's task
- *  framing (sub-agents get no SessionStart). Never blocks the spawn. */
+ *  inject the combined directives (memory-first + record-intent) so they ride
+ *  into the sub-agent's task framing (sub-agents get no SessionStart).
+ *  Never blocks the spawn. */
 export const agentDirectiveHandler: EventHandler = {
   async execute(_input: NormalizedHookInput): Promise<HookResult> {
     return {
@@ -16,7 +17,7 @@ export const agentDirectiveHandler: EventHandler = {
       suppressOutput: true,
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        additionalContext: MEMORY_FIRST_DIRECTIVE,
+        additionalContext: INJECTED_DIRECTIVES,
         permissionDecision: 'allow',
       },
     };

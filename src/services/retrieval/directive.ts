@@ -15,6 +15,25 @@ export const MEMORY_FIRST_DIRECTIVE = [
   'any load-bearing claim against current code before relying on it.',
 ].join('\n');
 
+/** The record-intent directive (Layer 1 — agent detection). Injected at SessionStart
+ *  and in PreToolUse:Agent contexts to instruct the agent to recognize user requests
+ *  for recording/remembering and automatically capture them as observations. */
+export const RECORD_INTENT_DIRECTIVE = [
+  'RECORD-INTENT (MemSmith core behavior):',
+  'When the user asks you to record/remember/log/park/mark/save something to memory —',
+  'in any natural phrasing — you MUST capture it: compose a SELF-CONTAINED observation',
+  'from the conversation (resolve "that"/"it" into a standalone note), then call the',
+  'observation_add tool with kind:"user_note" and metadata.userDirected:true. Then echo',
+  'a one-line confirmation: "📝 Recorded to memory: <summary>". If the write fails,',
+  'say so plainly ("⚠ Couldn\'t record to memory — say it again / I\'ll retry"); never',
+  'record the note to a file (TODO.md, CLAUDE.md, etc.) unless the user explicitly asks',
+  'for a file. Memory is the record.',
+].join('\n');
+
+/** Combined injected directives: memory-first + record-intent.
+ *  Used by SessionStart context handler and PreToolUse:Agent handler. */
+export const INJECTED_DIRECTIVES = [MEMORY_FIRST_DIRECTIVE, RECORD_INTENT_DIRECTIVE].join('\n\n');
+
 /** Pack provenance-tagged memory into an injection block. Empty when no memory. */
 export function frameMemory(memories: ProvenancedMemory[]): string {
   if (memories.length === 0) return '';
