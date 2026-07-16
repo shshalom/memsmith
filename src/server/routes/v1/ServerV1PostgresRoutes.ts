@@ -974,8 +974,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const deps = {
             complete: (system: string, user: string) =>
               provider ? providerComplete({ provider, system, user }) : Promise.resolve(null),
-            write: (o: { projectId: string; teamId: string; kind: string; content: string; metadata: Record<string, unknown>; idempotencyKey: string }) =>
-              repo.create({ projectId: o.projectId, teamId: o.teamId, kind: o.kind, content: o.content, metadata: o.metadata, idempotencyKey: o.idempotencyKey }),
+            write: async (o: { projectId: string; teamId: string; kind: string; content: string; metadata: Record<string, unknown>; idempotencyKey: string; embeddingVec?: number[] | null }) => {
+              // Embed on write so record-intent notes are semantically searchable.
+              // Best-effort (embedForPersist never throws); matches /v1/memories path.
+              const embeddingVec = await embedForPersist(o.content);
+              return repo.create({ projectId: o.projectId, teamId: o.teamId, kind: o.kind, content: o.content, metadata: o.metadata, idempotencyKey: o.idempotencyKey, embeddingVec });
+            },
             teamId,
             projectId,
           };
