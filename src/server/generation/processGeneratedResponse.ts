@@ -22,27 +22,7 @@ import {
 } from '../../storage/postgres/pool.js';
 import { stripTags } from '../../utils/tag-stripping.js';
 import { ObservationStream } from '../routes/v1/ObservationStream.js';
-import { embed } from './embedder.js';
-
-// Embed observation content for semantic search. Best-effort: a failure returns
-// null (the row persists without a vector; a later backfill can fill it) and
-// NEVER throws into the generation pipeline — generation correctness is
-// paramount. Empty/blank content skips embedding.
-async function embedForPersist(content: string): Promise<number[] | null> {
-  const text = content.trim();
-  if (!text) return null;
-  try {
-    return await embed(text);
-  } catch (error) {
-    logger.warn(
-      'SYSTEM',
-      'generation: embedding failed; persisting observation without embedding_vec',
-      {},
-      error instanceof Error ? error : new Error(String(error)),
-    );
-    return null;
-  }
-}
+import { embedForPersist } from './embed-for-persist.js';
 
 function qualityFloorEnv(): number {
   return Number(process.env.MEMSMITH_QUALITY_FLOOR ?? 20);
