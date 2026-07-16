@@ -52,4 +52,21 @@ describe('observation embedding_vec round-trip', () => {
     const obs = await repo.create({ projectId, teamId, content: 'no embedding' });
     expect(obs.embeddingVec).toBeNull();
   });
+
+  it('embed-on-write: manual insert path persists a non-null embedding_vec (regression for /v1/memories)', async () => {
+    // Mirror the /v1/memories handler's create semantics: embed the content
+    // via the shared helper, then repo.create with embeddingVec.
+    const { embedForPersist } = await import('../../../src/server/generation/embed-for-persist.js');
+    const content = 'We chose embedded Postgres over Docker for a frictionless local runtime.';
+    const embeddingVec = await embedForPersist(content);
+    expect(embeddingVec).not.toBeNull();          // content is embeddable
+    const obs = await repo.create({ projectId, teamId, kind: 'manual', content, embeddingVec });
+    expect(obs.embeddingVec).toHaveLength(384);    // persisted + round-tripped
+
+    // And it is semantically retrievable via the hybrid search path.
+    const hits = await repo.hybridSearch({
+      projectId, teamId, query: 'why did we pick postgres for local', limit: 5,
+    });
+    expect(hits.some(o => o.id === obs.id)).toBe(true);
+  });
 });
