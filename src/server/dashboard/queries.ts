@@ -144,6 +144,14 @@ export async function decisionLog(db: PostgresQueryable, s: Scope) {
   out.sort((a, b) => new Date(b.head.created_at).getTime() - new Date(a.head.created_at).getTime());
   return out;
 }
+export async function userNotes(db: PostgresQueryable, scope: Scope): Promise<Array<{ id: string; content: string; created_at: string; obs_type: string | null; lifecycle_state: string | null }>> {
+  const w = scopeWhere(scope);
+  const { rows } = await db.query(
+    `SELECT id, content, created_at, obs_type, lifecycle_state
+       FROM observations WHERE ${w.sql} AND kind = 'user_note'
+       ORDER BY created_at DESC LIMIT 100`, w.args);
+  return rows as any;
+}
 export async function blockedOnWhom(db: PostgresQueryable, s: Scope) {
   const w = scopeWhere(s);
   const { rows } = await db.query(`SELECT * FROM observations WHERE ${w.sql} AND lifecycle_state='blocked'`, w.args);

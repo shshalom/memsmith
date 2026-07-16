@@ -21,6 +21,7 @@ export function ObservationsView() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeType, setActiveType] = useState<string>('');
   const [activeLifecycle, setActiveLifecycle] = useState<string>('');
+  const [myNotesActive, setMyNotesActive] = useState(false);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
@@ -30,7 +31,7 @@ export function ObservationsView() {
     return () => clearTimeout(t);
   }, [query]);
 
-  const load = useCallback(async (opts: { query?: string; type?: string; lifecycle?: string }) => {
+  const load = useCallback(async (opts: { query?: string; type?: string; lifecycle?: string; userDirected?: boolean }) => {
     setIsLoading(true);
     try {
       const result = await fetchObservations(opts);
@@ -46,8 +47,9 @@ export function ObservationsView() {
       query: debouncedQuery || undefined,
       type: activeType || undefined,
       lifecycle: activeLifecycle || undefined,
+      userDirected: myNotesActive || undefined,
     });
-  }, [debouncedQuery, activeType, activeLifecycle, load]);
+  }, [debouncedQuery, activeType, activeLifecycle, myNotesActive, load]);
 
   const handleTypeChip = (t: string) => {
     setActiveType(prev => (prev === t ? '' : t));
@@ -55,6 +57,10 @@ export function ObservationsView() {
 
   const handleLifecycleChip = (lc: string) => {
     setActiveLifecycle(prev => (prev === lc ? '' : lc));
+  };
+
+  const handleMyNotesChip = () => {
+    setMyNotesActive(prev => !prev);
   };
 
   return (
@@ -93,6 +99,13 @@ export function ObservationsView() {
               {lc}
             </button>
           ))}
+          <button
+            className={`obs-chip obs-chip--user-note${myNotesActive ? ' obs-chip--active' : ''}`}
+            onClick={handleMyNotesChip}
+            aria-pressed={myNotesActive}
+          >
+            My notes
+          </button>
         </div>
       </div>
       <Feed

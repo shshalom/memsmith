@@ -18,6 +18,7 @@ interface Metrics {
 interface Cost {
   savedTokens?: number; pctSmaller?: number; estUsdSaved?: number; activeProvider?: string; localGeneration?: boolean;
 }
+interface UserNote { id: string; content: string; created_at: string; obs_type: string | null; lifecycle_state: string | null; }
 interface Spend {
   available: boolean; scoped: boolean; totalCostUsd: number; totalTokens: number;
   days: Array<{ date: string; costUsd: number; totalTokens: number }>; agentsDetected: string[]; reason?: string;
@@ -282,6 +283,44 @@ function DecisionLog({ chains }: { chains: DecisionChain[] }) {
   );
 }
 
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function NotesPanel({ notes }: { notes: UserNote[] }) {
+  if (notes.length === 0) return (
+    <div className="dash-card">
+      <h2 className="dash-h2">Notes</h2>
+      <p className="dash-cap">Your saved notes — observations you directed to memory.</p>
+      <p className="dash-empty">No notes yet.</p>
+    </div>
+  );
+  return (
+    <div className="dash-card">
+      <h2 className="dash-h2">Notes</h2>
+      <p className="dash-cap">Your saved notes — observations you directed to memory.</p>
+      <ul className="dash-decisions">
+        {notes.map(n => (
+          <li key={n.id} className="dash-decision-chain">
+            <div className="dash-decision-head">
+              <span className="dash-decision-title">{n.content}</span>
+              <span className="dash-attn-meta">{relTime(n.created_at)}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ── Main DashboardView ───────────────────────────────────────────────────────
 
 export function DashboardView() {
@@ -289,19 +328,22 @@ export function DashboardView() {
   const [cost, setCost] = useState<Cost | null>(null);
   const [spend, setSpend] = useState<Spend | null>(null);
   const [chains, setChains] = useState<DecisionChain[]>([]);
+  const [notes, setNotes] = useState<UserNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
-    Promise.all([fetchDashboard('metrics'), fetchDashboard('cost'), fetchDashboard('decisions')])
-      .then(([m, c, d]) => {
+    Promise.all([fetchDashboard('metrics'), fetchDashboard('cost'), fetchDashboard('decisions'), fetchDashboard('notes')])
+      .then(([m, c, d, n]) => {
         if (cancelled) return;
         if (!m) { setError('metrics unavailable'); return; }
         setMetrics(m as Metrics);
         setCost((c ?? null) as Cost | null);
         setChains(toDecisionChains(d));
+        const notesPayload = n as { notes?: UserNote[] } | null;
+        setNotes(notesPayload?.notes ?? []);
       })
       .catch(err => { if (!cancelled) setError(String(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -325,6 +367,7 @@ export function DashboardView() {
       <SpendPanel spend={spend} />
       <NeedsAttention items={metrics.attention} />
       <DecisionLog chains={chains} />
+      <NotesPanel notes={notes} />
       <CompressionNote cost={cost} />
     </div>
   );

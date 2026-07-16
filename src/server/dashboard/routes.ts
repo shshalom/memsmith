@@ -8,7 +8,7 @@ import type { PostgresQueryable } from '../../storage/postgres/utils.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { getPackageRoot } from '../../shared/paths.js';
-import { lifecycleBoard, decisionLog, blockedOnWhom, costPanel, metricsOverview } from './queries.js';
+import { lifecycleBoard, decisionLog, blockedOnWhom, costPanel, metricsOverview, userNotes } from './queries.js';
 import { getSpendReport } from './spend.js';
 
 // Resolve ui.html via getPackageRoot() (bundle-safe) rather than
@@ -105,6 +105,14 @@ export function registerDashboardRoutes(
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
     const metrics = await metricsOverview(db, scope);
     res.status(200).json(metrics);
+  }));
+
+  // GET /dashboard/notes — user-directed notes (kind='user_note').
+  app.get('/dashboard/notes', ...mw, asyncHandler(async (req, res) => {
+    const scope = buildScope(req);
+    if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
+    const notes = await userNotes(db, scope);
+    res.status(200).json({ notes });
   }));
 
   // GET /dashboard/spend — real AI-coding spend for THIS project, read from
