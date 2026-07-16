@@ -953,6 +953,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         // Optional filter chips from the viewer (type / lifecycle).
         obsType: z.string().min(1).nullable().optional(),
         lifecycleState: z.string().min(1).nullable().optional(),
+        // When true, restrict results to user-directed notes (kind='user_note').
+        userDirected: z.boolean().optional(),
       }),
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
@@ -971,6 +973,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         const limit = body.limit ?? 20;
         const obsType = body.obsType ?? null;
         const lifecycleState = body.lifecycleState ?? null;
+        const userDirected = body.userDirected;
         let results;
         try {
           if (query.length === 0) {
@@ -997,6 +1000,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               limit,
               platformSource,
               mode: 'search',
+              userDirected,
             });
             if (obsType) results = results.filter(o => o.obsType === obsType);
             if (lifecycleState) results = results.filter(o => o.lifecycleState === lifecycleState);
@@ -1034,6 +1038,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         query: z.string().min(1),
         limit: z.number().int().positive().max(50).optional(),
         platformSource: z.string().min(1).nullable().optional(),
+        // When true, restrict results to user-directed notes (kind='user_note').
+        userDirected: z.boolean().optional(),
       }),
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
@@ -1057,6 +1063,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             limit: body.limit ?? 10,
             platformSource,
             mode: 'context',
+            userDirected: body.userDirected,
           });
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
@@ -1460,6 +1467,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     limit: number;
     platformSource: string | null;
     mode: 'search' | 'context';
+    userDirected?: boolean;
   }): Promise<PostgresObservation[]> {
     const repo = new PostgresObservationRepository(this.options.pool);
     const hybrid = await this.searchHybridEnabledFor(input.teamId);
@@ -1469,7 +1477,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const rrfK = await this.options.settingsResolver.rrfK(input.teamId);
       searchInput = { ...input, ftsWeight: w.fts, vecWeight: w.vec, rrfK };
     }
-    const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(input);
+    const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(searchInput);
     try {
       return await this.applySupersession(ranked, input.mode, { teamId: input.teamId, projectId: input.projectId });
     } catch (err) {
