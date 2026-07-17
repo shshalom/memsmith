@@ -1,6 +1,7 @@
 // src/server/routes/v1/record-intent.ts
 // SPDX-License-Identifier: Apache-2.0
 import { computeContentIdempotencyKey } from '../../../services/retrieval/record-intent-key.js';
+import { buildUserNoteRequest } from '../../../services/retrieval/user-note-write.js';
 
 export const RECORD_INTENT_SYSTEM = [
   'You decide whether the user is asking to SAVE/RECORD something to memory',
@@ -32,6 +33,14 @@ export async function classifyAndComposeRecordIntent(prompt: string, deps: Recor
   // guaranteed — the agent composes its own note without a prompt-derived key.
   // This fix addresses backstop-vs-itself duplication (retries / duplicate fires).
   const idempotencyKey = computeContentIdempotencyKey({ teamId: deps.teamId, projectId: deps.projectId, kind: 'user_note', content: prompt });
-  await deps.write({ projectId: deps.projectId, teamId: deps.teamId, kind: 'user_note', content, metadata: { userDirected: true }, idempotencyKey });
+  const noteReq = buildUserNoteRequest(content, { projectId: deps.projectId, idempotencyKey });
+  await deps.write({
+    projectId: deps.projectId,
+    teamId: deps.teamId,
+    kind: noteReq.kind as string,
+    content: noteReq.content,
+    metadata: noteReq.metadata as Record<string, unknown>,
+    idempotencyKey: idempotencyKey,
+  });
   return { recorded: true, content };
 }
