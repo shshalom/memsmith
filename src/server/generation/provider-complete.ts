@@ -1,4 +1,5 @@
 // src/server/generation/provider-complete.ts
+// SPDX-License-Identifier: Apache-2.0
 import type { ServerGenerationProvider } from './providers/shared/types.js';
 import { logger } from '../../utils/logger.js';
 
