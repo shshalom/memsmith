@@ -14,6 +14,7 @@ import { promptInjectionHandler } from './prompt-injection.js';
 import { toolIntentHandler } from './tool-intent.js';
 import { agentDirectiveHandler } from './agent-directive.js';
 import { recordIntentHandler } from './record-intent.js';
+import { recordIntentInterceptHandler } from './record-intent-intercept.js';
 
 export type EventType =
   | 'context'
@@ -27,7 +28,8 @@ export type EventType =
   | 'prompt-injection'
   | 'tool-intent'
   | 'agent-directive'
-  | 'record-intent';
+  | 'record-intent'
+  | 'record-intent-intercept';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -42,6 +44,7 @@ const handlers: Record<EventType, EventHandler> = {
   'tool-intent': toolIntentHandler,
   'agent-directive': agentDirectiveHandler,
   'record-intent': recordIntentHandler,
+  'record-intent-intercept': recordIntentInterceptHandler,
 };
 
 export function getEventHandler(eventType: string): EventHandler {
@@ -69,3 +72,4 @@ export { promptInjectionHandler } from './prompt-injection.js';
 export { toolIntentHandler } from './tool-intent.js';
 export { agentDirectiveHandler } from './agent-directive.js';
 export { recordIntentHandler } from './record-intent.js';
+export { recordIntentInterceptHandler } from './record-intent-intercept.js';
