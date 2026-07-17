@@ -23,11 +23,12 @@ export const RECORD_INTENT_DIRECTIVE = [
   'When the user asks you to record/remember/log/park/mark/save something to memory —',
   'in any natural phrasing — you MUST capture it: compose a SELF-CONTAINED observation',
   'from the conversation (resolve "that"/"it" into a standalone note), then call the',
-  'observation_add tool with kind:"user_note" and metadata.userDirected:true. Then echo',
-  'a one-line confirmation: "📝 Recorded to memory: <summary>". If the write fails,',
-  'say so plainly ("⚠ Couldn\'t record to memory — say it again / I\'ll retry"); never',
-  'record the note to a file (TODO.md, CLAUDE.md, etc.) unless the user explicitly asks',
-  'for a file. Memory is the record.',
+  'note_add tool with that note as `content`. (note_add records it as a findable user',
+  'note automatically — you do not set kind or metadata.) Then echo a one-line',
+  'confirmation: "📝 Recorded to memory: <summary>". If the write fails, say so plainly',
+  '("⚠ Couldn\'t record to memory — say it again / I\'ll retry"); never record the note',
+  'to a file (TODO.md, CLAUDE.md, etc.) unless the user explicitly asks for a file.',
+  'Memory is the record.',
 ].join('\n');
 
 /** Combined injected directives: memory-first + record-intent.
