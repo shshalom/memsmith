@@ -1545,7 +1545,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const ranked = hybrid ? await repo.hybridSearch(searchInput) : await repo.search(searchInput);
     const boost = this.options.settingsResolver
       ? await this.options.settingsResolver.userNoteBoost(input.teamId)
-      : Number(process.env.MEMSMITH_USER_NOTE_BOOST ?? '1');
+      : process.env.MEMSMITH_USER_NOTE_BOOST !== '0' && process.env.MEMSMITH_USER_NOTE_BOOST?.toLowerCase() !== 'false' && process.env.MEMSMITH_USER_NOTE_BOOST?.toLowerCase() !== 'off';
     let boosted = ranked;
     try { boosted = boostUserDirected(ranked, boost); } catch { boosted = ranked; }  // fail-open
     try {
