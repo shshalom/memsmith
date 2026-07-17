@@ -366,8 +366,8 @@ export function DashboardView() {
       <ActivityChart activity={metrics.activity} />
       <SpendPanel spend={spend} />
       <NeedsAttention items={metrics.attention} />
-      <DecisionLog chains={chains} />
       <NotesPanel notes={notes} />
+      <DecisionLog chains={chains} />
       <CompressionNote cost={cost} />
     </div>
   );
