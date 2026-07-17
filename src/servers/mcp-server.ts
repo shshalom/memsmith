@@ -404,7 +404,7 @@ Use observation_context when you want ready-to-use context; observation_search w
   // Phase 8 — observation_* tools backed by server REST core.
   {
     name: 'observation_add',
-    description: 'Insert a manual observation directly into server storage. Calls /v1/memories — does NOT enqueue generation. Server runtime only. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata, idempotencyKey.',
+    description: 'Insert a typed/pipeline observation directly into server storage (generic capture with an explicit kind). Calls /v1/memories — does NOT enqueue generation. Server runtime only. NOTE: for a user-directed "remember/record/save/note this" request, use note_add instead — this tool does NOT mark the row as a user note, so it will not surface in the user\'s notes. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata, idempotencyKey.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -20,15 +20,24 @@ export const MEMORY_FIRST_DIRECTIVE = [
  *  for recording/remembering and automatically capture them as observations. */
 export const RECORD_INTENT_DIRECTIVE = [
   'RECORD-INTENT (MemSmith core behavior):',
-  'When the user asks you to record/remember/log/park/mark/save something to memory —',
-  'in any natural phrasing — you MUST capture it: compose a SELF-CONTAINED observation',
-  'from the conversation (resolve "that"/"it" into a standalone note), then call the',
-  'note_add tool with that note as `content`. (note_add records it as a findable user',
-  'note automatically — you do not set kind or metadata.) Then echo a one-line',
-  'confirmation: "📝 Recorded to memory: <summary>". If the write fails, say so plainly',
-  '("⚠ Couldn\'t record to memory — say it again / I\'ll retry"); never record the note',
-  'to a file (TODO.md, CLAUDE.md, etc.) unless the user explicitly asks for a file.',
-  'Memory is the record.',
+  'When the user directs you to record/remember/log/park/mark/save/note something to',
+  'memory — in ANY natural phrasing — you MUST capture it by calling the note_add tool.',
+  'This is the ONLY correct tool for a user-directed note. Do NOT use observation_add',
+  'for these; observation_add produces a generic, non-user-directed observation that',
+  'will NOT surface in the user\'s notes.',
+  'Route ALL of these to note_add (the verb form does not matter — imperative OR',
+  'declarative both count):',
+  '  • "Save this / park this / mark this / note this: …"',
+  '  • "Remember that … / keep in mind that … / don\'t forget that …"',
+  '  • "Log that … / note for later that … / record that …"',
+  'If in doubt whether the user is directing you to remember something, use note_add.',
+  'To capture: compose a SELF-CONTAINED note (resolve "that"/"it" into a standalone',
+  'statement), then call note_add with it as `content`. (note_add hard-tags it as a',
+  'findable user note automatically — you do not set kind or metadata.) Then echo a',
+  'one-line confirmation: "📝 Recorded to memory: <summary>". If the write fails, say',
+  'so plainly ("⚠ Couldn\'t record to memory — say it again / I\'ll retry"); never record',
+  'the note to a file (TODO.md, CLAUDE.md, etc.) unless the user explicitly asks for a',
+  'file. Memory is the record.',
 ].join('\n');
 
 /** Combined injected directives: memory-first + record-intent.
