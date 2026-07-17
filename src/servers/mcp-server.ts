@@ -35,6 +35,7 @@ import {
   type ServerRuntimeContext,
 } from '../services/hooks/runtime-selector.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
+import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
 
 // C3 (worker retirement) — the old callWorker helper and its worker-utils HTTP
 // import were removed. Every legit caller now routes through the `/v1` server via
@@ -162,6 +163,22 @@ const handleObservationAdd = wrapHandler('observation_add', async (args: Observa
     ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
     ...(args.idempotencyKey !== undefined ? { idempotencyKey: args.idempotencyKey } : {}),
   };
+  const response = await ctx.client.addObservation(request);
+  return formatJsonResult(response);
+});
+
+interface NoteAddArgs {
+  projectId?: string;
+  content: string;
+}
+
+export const handleNoteAdd = wrapHandler('note_add', async (args: NoteAddArgs) => {
+  const ctx = requireServerForObservationTool('note_add');
+  if (typeof args?.content !== 'string' || args.content.trim().length === 0) {
+    throw new Error('note_add: "content" is required');
+  }
+  const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+  const request = buildUserNoteRequest(args.content, { projectId });
   const response = await ctx.client.addObservation(request);
   return formatJsonResult(response);
 });
@@ -402,6 +419,20 @@ Use observation_context when you want ready-to-use context; observation_search w
       additionalProperties: false,
     },
     handler: async (args: any) => handleObservationAdd(args ?? {}),
+  },
+  {
+    name: 'note_add',
+    description: 'Record a user-directed note to memory. Use this whenever the user asks to record / remember / note / save / park / log something, in any phrasing. Hard-tags the note as a findable user note (kind=user_note, userDirected). Server runtime only. Params: content (required), projectId (optional, falls back to settings).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project id (falls back to MEMSMITH_SERVER_PROJECT_ID)' },
+        content: { type: 'string', description: 'The self-contained note to record (required)' },
+      },
+      required: ['content'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => handleNoteAdd(args ?? {}),
   },
   {
     name: 'observation_record_event',
