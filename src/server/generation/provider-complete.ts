@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ServerGenerationProvider } from './providers/shared/types.js';
 import { logger } from '../../utils/logger.js';
+// Reuse each provider's real default model (single source of truth) — do NOT
+// duplicate literals here. A guessed 'claude-3-5-haiku-latest' 404'd live
+// against the Anthropic API (same class as prior fix #2554); importing the
+// constants keeps this branch in lockstep with the provider classes.
+import { DEFAULT_SERVER_CLAUDE_MODEL } from './providers/ClaudeObservationProvider.js';
+import { DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from './providers/GeminiObservationProvider.js';
+import { DEFAULT_MODEL as OPENROUTER_DEFAULT_MODEL } from './providers/OpenRouterObservationProvider.js';
+import { DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL } from './providers/OllamaObservationProvider.js';
 
 interface Deps { fetchImpl?: typeof fetch }
 
@@ -23,7 +31,7 @@ export async function providerComplete(
         const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY;
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-        return await openaiChat(fetchImpl, url, headers, model ?? 'llama3.1:8b', input.system, input.user);
+        return await openaiChat(fetchImpl, url, headers, model ?? OLLAMA_DEFAULT_MODEL, input.system, input.user);
       }
       case 'openrouter': {
         const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.MEMSMITH_OPENROUTER_API_KEY ?? '';
@@ -31,7 +39,7 @@ export async function providerComplete(
         const rawBase = process.env.MEMSMITH_OPENROUTER_BASE_URL ?? process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
         const base = rawBase.replace(/\/$/, '');
         const url = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
-        return await openaiChat(fetchImpl, url, { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, model ?? 'anthropic/claude-3.5-sonnet', input.system, input.user);
+        return await openaiChat(fetchImpl, url, { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, model ?? OPENROUTER_DEFAULT_MODEL, input.system, input.user);
       }
       case 'claude': {
         const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.MEMSMITH_ANTHROPIC_API_KEY ?? '';
@@ -40,7 +48,7 @@ export async function providerComplete(
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({
-            model: model ?? 'claude-3-5-haiku-latest',
+            model: model ?? DEFAULT_SERVER_CLAUDE_MODEL,
             max_tokens: 1024,
             system: input.system,
             messages: [{ role: 'user', content: input.user }],
@@ -54,7 +62,7 @@ export async function providerComplete(
       case 'gemini': {
         const apiKey = process.env.GEMINI_API_KEY ?? process.env.MEMSMITH_GEMINI_API_KEY ?? '';
         if (!apiKey) return null;
-        const m = model ?? 'gemini-2.5-flash';
+        const m = model ?? GEMINI_DEFAULT_MODEL;
         const url = `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const res = await fetchImpl(url, {
           method: 'POST',

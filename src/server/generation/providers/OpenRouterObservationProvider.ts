@@ -13,7 +13,7 @@ import type {
   ServerGenerationResult,
 } from './shared/types.js';
 
-const DEFAULT_MODEL = 'anthropic/claude-3.5-sonnet';
+export const DEFAULT_MODEL = 'anthropic/claude-3.5-sonnet';
 
 export interface OpenRouterObservationProviderOptions {
   apiKey: string;

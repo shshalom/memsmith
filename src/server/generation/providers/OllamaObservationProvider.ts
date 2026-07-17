@@ -13,7 +13,7 @@ import type {
   ServerGenerationResult,
 } from './shared/types.js';
 
-const DEFAULT_MODEL = 'llama3.1:8b';
+export const DEFAULT_MODEL = 'llama3.1:8b';
 const DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 
 export interface OllamaObservationProviderOptions {

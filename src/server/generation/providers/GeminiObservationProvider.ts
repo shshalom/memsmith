@@ -14,7 +14,7 @@ import type {
 } from './shared/types.js';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 export interface GeminiObservationProviderOptions {
   apiKey: string;
