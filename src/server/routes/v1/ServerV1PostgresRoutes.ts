@@ -984,7 +984,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             projectId,
           };
           const result = await classifyAndComposeRecordIntent(body.prompt, deps);
-          res.json(result);
+          if (result.recorded && result.id) {
+            try {
+              await this.auditWrite(req, 'memory.write', result.id, projectId);
+            } catch (auditErr) {
+              logger.debug('SYSTEM', 'record-intent audit write failed (non-fatal)', { error: auditErr instanceof Error ? auditErr.message : String(auditErr) });
+            }
+          }
+          res.json({ recorded: result.recorded, content: result.content });
         } catch (error) {
           logger.warn('SYSTEM', 'record-intent backstop failed (fail-open)', {
             requestId: req.requestId ?? null,

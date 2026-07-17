@@ -20,6 +20,9 @@ describe('classifyAndComposeRecordIntent', () => {
     expect(writes[0].metadata.userDirected).toBe(true);
     expect(typeof writes[0].idempotencyKey).toBe('string');
     expect(writes[0].content).toContain('Postgres');
+    const result = await classifyAndComposeRecordIntent('please remember X', deps('RECORD: X should be remembered.') as any);
+    expect(result.recorded).toBe(true);
+    expect(result.id).toBe('x'); // id threaded from deps.write for audit
   });
   it('NONE reply records nothing', async () => {
     writes.length = 0;

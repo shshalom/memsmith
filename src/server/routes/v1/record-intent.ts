@@ -18,7 +18,7 @@ export interface RecordIntentDeps {
   projectId: string;
 }
 
-export async function classifyAndComposeRecordIntent(prompt: string, deps: RecordIntentDeps): Promise<{ recorded: boolean; content?: string }> {
+export async function classifyAndComposeRecordIntent(prompt: string, deps: RecordIntentDeps): Promise<{ recorded: boolean; content?: string; id?: string }> {
   const reply = await deps.complete(RECORD_INTENT_SYSTEM, prompt);
   if (!reply) return { recorded: false };
   const m = reply.trim().match(/^RECORD:\s*([\s\S]+)$/i);
@@ -34,7 +34,7 @@ export async function classifyAndComposeRecordIntent(prompt: string, deps: Recor
   // This fix addresses backstop-vs-itself duplication (retries / duplicate fires).
   const idempotencyKey = computeContentIdempotencyKey({ teamId: deps.teamId, projectId: deps.projectId, kind: 'user_note', content: prompt });
   const noteReq = buildUserNoteRequest(content, { projectId: deps.projectId, idempotencyKey });
-  await deps.write({
+  const written = await deps.write({
     projectId: deps.projectId,
     teamId: deps.teamId,
     kind: noteReq.kind as string,
@@ -42,5 +42,5 @@ export async function classifyAndComposeRecordIntent(prompt: string, deps: Recor
     metadata: noteReq.metadata as Record<string, unknown>,
     idempotencyKey: idempotencyKey,
   });
-  return { recorded: true, content };
+  return { recorded: true, content, id: written.id };
 }
