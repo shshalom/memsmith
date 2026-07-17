@@ -1,8 +1,5 @@
 // tests/cli/handlers/record-intent-arm.test.ts
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { recordIntentHandler } from '../../../src/cli/handlers/record-intent';
 import { RecordArmedStore } from '../../../src/services/retrieval/record-armed-store';
 
