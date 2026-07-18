@@ -1,77 +1,65 @@
 # MemSmith — Outstanding Work
 
 > Durable project memory of what's left. Lives in the repo (git-tracked), independent of
-> any memory plugin, so switching claude-mem ↔ MemSmith never loses this. Last updated: 2026-07 session.
+> any memory plugin, so switching claude-mem ↔ MemSmith never loses this. Last updated: 2026-07-18.
 
 ## State of the project
-- **Local `main` @ 80aba0c5+** (restyle 54375797 on top). **Nothing pushed** — local clone only.
-- Two features shipped & merged: (1) unified viewer+dashboard UI on `/v1`, (2) Settings/Control panel + real cost story.
-- Whole UI restyled to "Warm Signal" (Plus Jakarta Sans + terracotta `#c2410c`, cream `#faf6f0`), from the pitch deck.
-- **Dogfood server** runs on `:37900` (Ollama qwen2.5:14b, local-dev bypass, `MEMSMITH_USAGE_METERING=1`).
-  Docker deps: `tam-test-pg` :55432, `memsmith-valkey` :6399. Log: `/tmp/memsmith-dogfood.log`.
-- Test state: all feature tests pass; full parallel `bun test` has ~31 PRE-EXISTING flaky failures
-  (CORS/SSE/request-id/worker-IO) that pass in isolation — not ours (branch base had 109).
+- **Local `main` @ b5c8a9b3.** **Nothing pushed** — local clone only (356 commits ahead of origin/main).
+- **Two runtimes, one engine** (worker/SQLite is RETIRED):
+  - `local` (default, `MEMSMITH_RUNTIME=local`): embedded Postgres in-process on **:55433**, no Docker. First boot imports any legacy SQLite DB with embedding backfill. This is the dogfood + validation runtime.
+  - `server` (`MEMSMITH_RUNTIME=server`): same engine against a remote Postgres (team mode).
+  - Dogfood server for THIS project runs on **:38879** (embedded PG :55433, Ollama qwen2.5:14b, local-dev bypass). Connection: `postgres://memsmith:memsmith-local@127.0.0.1:55433/postgres`.
+- **Shipped & merged features:** unified viewer+dashboard UI; Settings/Control panel + cost story; "Warm Signal" restyle; embedded-PG local runtime; retrieval-first (memory-first consult); **deterministic record-intent** (see below).
+- **Local mode is complete & reliable as a solo memory system** — capture, semantic recall, retrieval-first, and deterministic record are all live-proven on the local runtime. No known local-mode bugs.
+- Test state: all feature tests pass in isolation; full parallel `bun test` has known PRE-EXISTING flaky failures (CORS/SSE/request-id) that pass in isolation — not ours.
+
+## Recently completed (2026-07-16 → 07-18)
+
+### Retrieval-first + Deterministic record-intent — ✅ COMPLETE & LIVE-PROVEN
+The full "consult memory first, and when the user says record/remember keep it in memory (never a file)" capability, in four merged pieces:
+- **Retrieval-first** (memory-first directive + hooks; soft enforcement on by default). Hard mode built but over-blocks — see OPEN item 1.
+- **record-intent plumbing** (`ecac70ee`): `/v1/record-intent` Layer-2 backstop, content-idempotency (prompt-derived key + partial unique index, migration 005, schema v4→5), embed-on-write on both write paths, `userDirected` search filter + boost, dashboard Notes panel.
+- **enforced-user-note-write** (`note_add` MCP tool + `buildUserNoteRequest` enforcer): tagging (`kind='user_note'`, `metadata.userDirected=true`) is machinery the agent can't get wrong. Notes panel moved above Decisions.
+- **record-intent interceptor** (`d883a222`): PreToolUse hook rewrites `observation_add` args in-flight (`updatedInput`) to force user-note tags during a record turn — so a note lands correctly REGARDLESS of which tool the agent picks. Live-proven end-to-end (armed session → generic `observation_add` came back `user_note`). A strengthened directive alone failed (1/6); the interceptor is the deterministic fix.
+- **record-intent follow-ups** (`e166b182`): (a) audit-write parity on `/v1/record-intent`; (b) provider-agnostic backstop — `providerComplete` honors the user's configured provider (claude/gemini/openrouter/ollama), not Ollama-only; (c) `MEMSMITH_USER_NOTE_BOOST` is now an honest boolean on/off.
+- **provider model-defaults fix** (`b5c8a9b3`): `providerComplete` imports each provider's real `DEFAULT_MODEL` (claude→`claude-sonnet-4-6`) instead of guessed literals. LIVE-VALIDATED against real Anthropic API + Ollama (both classify RECORD/NONE correctly). Caught because a guessed `claude-3-5-haiku-latest` 404'd — invisible to unit tests (stubbed fetch), masked by fail-open.
+
+**Known NON-GOAL (deliberate):** subagent-session arming for record-intent. A subagent never hears "remember X" from the user directly; its own writes are agent observations that should NOT be user-notes (would pollute the Notes panel). Revisit only if a concrete case surfaces.
+
+### Data migration + embeddings — ✅ (2026-07-10)
+- claude-mem `team-agent-memory` history migrated into the store (`scripts/migrate-claude-mem.ts`, idempotent). Embeddings backfilled (`scripts/backfill-embeddings.ts`, local ONNX all-MiniLM-L6-v2, 384-dim). Semantic search live (hybrid FTS+vector RRF).
+- Embed-on-write closed for generation (`713c8330`) AND for manual/record-intent inserts (embed-for-persist shared helper). New memory gets `embedding_vec` automatically.
 
 ## Open items (prioritized)
 
-### 0. DATA MIGRATED + EMBEDDED ✅ (2026-07-10)
-- claude-mem's `team-agent-memory` history (2,378 obs — decisions/features/changes/bugfixes/discovery/refactor) migrated into the MemSmith dogfood Postgres store via `scripts/migrate-claude-mem.ts` (idempotent, dry-run-first, read-only source). So MemSmith now HAS this project's full decision/reasoning history — searchable via `/v1/search` (pass `platformSource: null`, since migrated rows have no live-agent platform attribution).
-- **Embeddings backfilled** via `scripts/backfill-embeddings.ts` (local ONNX all-MiniLM-L6-v2, 384-dim; idempotent, only null rows). All 2,380 rows now have `embedding_vec` → SEMANTIC search works (`/v1/search` hybrid FTS+vector RRF fusion verified: "why did we pick the database engine" returns storage-architecture obs w/o keyword overlap).
-- **Embed-on-write gap CLOSED** (713c8330): `processGeneratedResponse` now embeds new observations on write (pre-computed before the DB txn; best-effort/never-breaks-generation). New MemSmith memory gets `embedding_vec` automatically. `backfill-embeddings.ts` remains for any historical/failed-embed rows.
-- Backup of pre-migration target table: `/tmp/memsmith-observations-backup-*.sql`. Rollback = `DELETE FROM observations WHERE id LIKE 'cmem-%'`.
-- Re-runnable safely: `bun scripts/migrate-claude-mem.ts --execute` only inserts genuinely-new source rows (claude-mem keeps capturing this live session).
+### 1. Hard-mode retrieval enforcement over-blocks — NEEDS NARROW SCOPING (OPEN, 2026-07-16)
+- **Status:** retrieval-first shipped in **soft** mode (on by default, delivers the core value). Hard mode (`MEMSMITH_RETRIEVAL_ENFORCEMENT=hard`) is BUILT + proven to work, but OVER-BLOCKS: it gates `Grep|Glob|Read|Bash` and blocks whenever the broker finds ≥1 hit (`MIN_HITS=1`); with a rich corpus nearly every command blocks. Reverted to `soft`.
+- **What "handle it" requires** (its own design/tune cycle, not a one-liner): which tools to gate (likely exclude `Bash`); what "strong hit" means (RRF gives ranks, not a calibrated score — needs score exposure or a count/margin heuristic); gate only why-phrased queries; or reconsider whether blanket `PreToolUse` blocking beats soft + strong directive (the agent obeys the directive voluntarily).
+- **Refs:** `docs/superpowers/specs/2026-07-15-retrieval-first-design.md`, `docs/superpowers/plans/2026-07-15-retrieval-first.md`.
+- **Operational note:** to disable hard mode while it's on, edit `~/.memsmith/settings.json` via a NON-gated path (Node `fs` write) — a gated tool call gets blocked.
 
-### 1. Decide + execute: dogfood MemSmith as THIS project's plugin (IN DISCUSSION)
-- This Claude Code session currently uses UPSTREAM `claude-mem` (thedotmack v13.6.1), NOT MemSmith. (The DATA is now migrated — item 0 — so switching loses no history.)
-- `shshalom` marketplace dir is empty and NOT in `~/.claude/plugins/known_marketplaces.json`.
-- `sync-marketplace.cjs` targets `~/.claude/plugins/marketplaces/shshalom` — likely STALE (written before repo moved to root); verify before running.
-- Switch = build-and-sync + register shshalom marketplace + install MemSmith plugin + (optionally) disable claude-mem@thedotmack + RESTART Claude Code.
-- Risks: edits GLOBAL config (`installed_plugins.json`, `known_marketplaces.json` — affects all projects); replaces a working memory tool; first live plugin capture may surface bugs.
-- Rollback: back up the two JSONs first; MemSmith data → `~/.memsmith/` (separate store, no mixing).
-- CLAUDE.md rule: install-active hooks must be safe-by-default; don't merge install-active work without explicit consent.
+### 2. qwen Layer-2 backstop precision/compose-quality — DEFERRED (own spec)
+- The local Ollama backstop (qwen2.5:14b) over-fires as a classifier (measured ~3 false positives / 8 negatives) and sometimes composes garbled/wrong notes. Model-bound, not code. This is Layer 2 only — Layer 1 (the agent + note_add) and the interceptor are the primary, reliable path. Tighten `RECORD_INTENT_SYSTEM` and/or the detection prompt; needs its own live re-test loop (no binary pass/fail).
 
-### 2. Wire `MEMSMITH_LOCAL_DEV_PROJECT_ID` ✅ CLOSED (2026-07-10)
-- Wired parallel to `MEMSMITH_LOCAL_DEV_TEAM_ID` across all 11 hops; bypass now sets authContext.projectId. VERIFIED live: keyless `/v1/search` (no projectId) returns migrated data (was 400), `/dashboard/board` 200 keyless. Dogfood server now launched with `MEMSMITH_LOCAL_DEV_PROJECT_ID=4af1b61f-6299-4234-ae74-9228fdc09a73`. So the Observations view fills keyless.
-
-### 3. Cost panel ✅ VERIFIED CORRECT (2026-07-10)
-- The panel works: proved end-to-end (recordServedCompression → usage_events → costPanel) returns real numbers (savedTokens 372, 89% smaller, $0.0019) when compression ACTUALLY occurs (forced tight budget on real rows).
-- It reads $0 in normal dogfood browsing NOT because of a bug: migrated rows are small (avg 674 chars, max 1666), so `/v1/context`'s 10,000-char budget never needs to compress them — nothing to save. Truthful behavior; populates naturally with larger memory sets that overflow the injection budget.
-
-### 4. Design follow-ups (user said "work on design later")
-- Restyle applied globally, but user hasn't approved the final look yet. Open question: sidebar is a dark rail w/ terracotta accent — user may want it cream/light to match the deck's light-first feel.
-- General polish pass on Observations/Dashboard spacing & typography in the new Warm Signal system.
-
-### 5. Hard-mode retrieval enforcement over-blocks — NEEDS NARROW SCOPING (OPEN, 2026-07-16)
-- **Status:** Retrieval-first shipped & merged (soft mode, on by default). Hard mode (`MEMSMITH_RETRIEVAL_ENFORCEMENT=hard`) is BUILT, unit-tested, and PROVEN to work live — the `PreToolUse` [tool-intent] hook denies a search tool and forces a memory consult ("Consult MemSmith memory first…"). Verified end-to-end this session (it blocked the agent's own tool calls).
-- **Problem found by live test:** as scoped, hard mode OVER-BLOCKS. It gates `Grep|Glob|Read|Bash` and blocks whenever the broker finds ≥1 hit (`MEMSMITH_RETRIEVAL_MIN_HITS=1`) for the query derived from the tool call. With a rich dogfood corpus, nearly EVERY command finds some related memory → near-universal blocking, including routine `Bash` commands that aren't why/decision searches. Makes the agent nearly unable to work.
-- **Reverted to `soft` for now** (in `~/.memsmith/settings.json`) so work isn't blocked. Soft still delivers the core value: per-prompt injection + pre-search injection + the directive (which the clean-session test proved the agent voluntarily obeys).
-- **What "handle it" requires (its own design/tune cycle, NOT a one-liner):**
-  - Which tools to gate — almost certainly EXCLUDE `Bash` (sweeps in routine commands); maybe only `Grep`/`Glob`.
-  - What "strong hit" should mean — `MIN_HITS=1` is too loose. But note: RRF fusion yields ranks, NOT a calibrated similarity score, and `/v1/context` exposes no score — so a numeric relevance floor isn't directly available. Needs either server-side score exposure or a count/margin heuristic.
-  - Gate only WHY-PHRASED queries (rationale/decision questions), not every search — likely a model-judged or keyword signal, since the code path can't linguistically classify today.
-  - Consider whether blanket `PreToolUse` blocking is even the right UX vs. soft + strong directive (the clean-session test showed the agent searches memory voluntarily under the directive — arguably better, lower-friction "forced retrieval").
-- **Spec/plan refs:** `docs/superpowers/specs/2026-07-15-retrieval-first-design.md` (§ enforcement variants + "strong hit is count-based" note), `docs/superpowers/plans/2026-07-15-retrieval-first.md`.
-- **Operational note:** while hard mode is on, editing settings to turn it off must use a NON-gated path (Node `fs` write to `~/.memsmith/settings.json`) — a gated tool call gets blocked, including the one you'd use to disable it.
+### 3. Design follow-ups (user deferred — "work on design later")
+- "Warm Signal" restyle applied globally but final look not yet approved. Open question: sidebar dark rail vs. cream/light to match the deck. General spacing/typography polish on Observations/Dashboard.
 
 ## Deferred / tracked (not started, larger)
-- **⭐ UNIFY ON ONE DB (Postgres everywhere) — architecture north star (user-raised 2026-07-10).** Today there are TWO runtimes: worker/SQLite (local, single-user, FTS-only, no team features) and server/Postgres (team, semantic search, all the settings/cost work). This is a historical artifact (SQLite inherited from claude-mem; Postgres added for team), NOT principled — and it costs us: every feature built twice (settings panel is server-only; Ollama had to be added to both), and "going team" requires a SQLite→Postgres migration (we did it manually). User's vision: **local should ALSO be Postgres, so any project can become a team at any time with no migration** — solo memory already in the shape a team needs. KEY FEASIBILITY QUESTION for the brainstorm: can an EMBEDDED Postgres (pglite / embedded-pg, no Docker, in-process) be as frictionless locally as SQLite? If yes → one runtime, worker/SQLite becomes legacy, semantic search everywhere, team-at-any-time is free. If embedded-PG too heavy → two DBs stay pragmatic.
-  - **Subsystem #1 (embedded-PG local runtime) — ✅ SHIPPED** via the `embedded-pg-local-runtime` plan (spec/plan/tasks under `.git/sdd/`). `MEMSMITH_RUNTIME=local` boots an embedded Postgres (no Docker) on port 55433, and first boot runs a taxonomy-aware, idempotent import of the SQLite worker DB into Postgres with embedding backfill so semantic search works immediately. This answers the feasibility question YES: embedded Postgres is frictionless locally. See `CLAUDE.md` → "Runtimes" for operator commands.
-  - **Subsystem #2 (private ↔ team unification / migration-free "team at any time")** — OPEN. Not yet started.
-  - **Subsystem #3 (team identity)** — OPEN. Tracked in the "Team identity & access" bullet below.
-- **Team identity & access**: owners, members, self-serve API keys, real multi-user auth, attribution DATA. The UI + settings resolver leave SEAMS (user tier in the resolution chain is dormant; attribution slots exist) but no identity subsystem is built. (Closely related to the unify-on-Postgres item above — "team at any time" needs this too.)
-- ~~**Embedding gap**: server-mode generation does NOT populate `embedding_vec`~~ **CLOSED 2026-07-10 (713c8330)** — generation now embeds on write; migrated history backfilled. Semantic search fully live.
-- **Quota/rate-limit live-reload**: `monthlyTokenCap`/`monthlyRequestCap`/`rateLimitPerMin` are `boot:true` (middleware wired at setupRoutes); changing them needs a restart. Deliberately deferred (YAGNI — caps change rarely).
+- **⭐ UNIFY ON ONE DB — north star (mostly delivered).** The two-runtime split (worker/SQLite vs server/Postgres) is resolved on the local side: worker/SQLite is RETIRED; both runtimes now run the same Postgres engine.
+  - **Subsystem #1 (embedded-PG local runtime) — ✅ SHIPPED.** `MEMSMITH_RUNTIME=local` = embedded Postgres, no Docker, semantic search everywhere. Answered the feasibility question YES.
+  - **Subsystem #2 (private ↔ team unification / migration-free "team at any time")** — OPEN, not started. Because local is already Postgres, "going team" should no longer need a data migration — but the seamless switch is not built/proven.
+  - **Subsystem #3 (team identity)** — OPEN. See below.
+- **Team identity & access** — OPEN. Owners, members, self-serve API keys, real multi-user auth, attribution DATA. UI + resolver leave SEAMS (dormant user tier, attribution slots) but no identity subsystem exists. Needed for "team at any time."
+- **Quota/rate-limit live-reload** — `monthlyTokenCap`/`monthlyRequestCap`/`rateLimitPerMin` are `boot:true` (need a restart to change). Deliberately deferred (YAGNI).
 
-## Minor review findings accepted (not blocking, from SDD reviews)
-- Enum validate uses `String(value)` (null→'null', rejected by options check anyway).
-- `generatorFactory` test-seam doesn't forward `providerHolder`/`settingsResolver` (test-only path).
-- `/v1/settings` unhandled HTTP methods → 404 not 405 (no auth reached, no data written — fine).
-- Full detail lives in `.git/sdd/progress.md` (the SDD ledger).
+## Minor / test-quality follow-ups (not blocking)
+- provider-complete fail-open test: the non-ok test for openrouter/claude/gemini exits via the `!apiKey` gate, so those branches' actual HTTP-error path isn't exercised (test coverage gap; production path is correct + live-proven).
+- record-intent endpoint test invokes the classifier twice within one `it` with a shared `writes` array (functional, awkward).
+- Enum validate uses `String(value)` (null→'null', rejected anyway); `generatorFactory` test-seam doesn't forward providerHolder/settingsResolver; `/v1/settings` unhandled HTTP methods → 404 not 405. Full detail in `.git/sdd/progress.md`.
 
 ## Where the durable memory lives (so we never lose it)
 - **This file** — outstanding work.
-- `.git/sdd/progress.md` — per-task SDD ledger (every task, review, deviation).
-- `docs/superpowers/specs/2026-07-09-settings-control-panel-design.md` — design.
-- `docs/superpowers/plans/2026-07-09-settings-control-panel.md` — full task plan (incl. Phase-2 wiring).
-- `docs/superpowers/specs|plans/2026-07-08-unified-memsmith-ui*` — the earlier UI feature.
-- Git history — 140+ commits, descriptive messages.
+- **MemSmith memory itself** — the dogfood store now holds the full decision trail for record-intent (search `userDirected:true` or by feature). This is the primary living record.
+- `.git/sdd/progress.md` — per-task SDD ledger (every task, review, deviation) incl. record-intent, enforced-user-note-write, interceptor, follow-ups.
+- `docs/superpowers/specs|plans/2026-07-16-*` (record-intent, enforced-user-note-write), `2026-07-17-record-intent-interceptor*`, `2026-07-17-record-intent-followups*`, `2026-07-15-retrieval-first*`.
+- Git history — descriptive messages; `main` @ b5c8a9b3.
