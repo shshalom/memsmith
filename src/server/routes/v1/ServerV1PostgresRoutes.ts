@@ -42,6 +42,7 @@ import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
+import { scrubEventPayload } from '../../services/event-payload-scrub.js';
 import { embedForPersist } from '../../generation/embed-for-persist.js';
 import { boostUserDirected } from './user-note-boost.js';
 import { classifyAndComposeRecordIntent } from './record-intent.js';
@@ -805,7 +806,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             agentId: body.agentId ?? null,
             agentType: body.agentType ?? null,
             platformSource,
-            metadata: (body.metadata ?? {}) as Record<string, unknown>,
+            // Strip <private> from session metadata (the client sends the raw
+            // prompt here) before it lands in server_sessions.
+            metadata: scrubEventPayload(body.metadata ?? {}) as Record<string, unknown>,
           };
           let session;
           try {
