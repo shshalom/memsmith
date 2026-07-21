@@ -48,6 +48,14 @@ import { classifyAndComposeRecordIntent } from './record-intent.js';
 import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
+import { registerConvertRoutes } from './ConvertRoutes.js';
+import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
+import { runConvert } from '../../convert/convert-service.js';
+import { writeServerModeSettings } from '../../convert/settings-writer.js';
+import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
+import { parsePostgresConfig } from '../../../storage/postgres/config.js';
+import { createPostgresPool } from '../../../storage/postgres/pool.js';
+import type { CopyDeps } from '../../convert/copy-engine.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1520,6 +1528,71 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       await teamsRepo.removeMember(teamId, targetUserId);
       res.status(200).json({ removed: true, userId: targetUserId });
     }));
+
+    // Task 5 — Go Team Wizard: /v1/convert/test-connection + /v1/convert/migrate.
+    // Both routes are owner-gated (writeAuth + requireRole('owner')).
+    // probe: stateless connection check (no local DB writes).
+    // convert: bootstraps remote schema, copies local data, writes settings flip.
+    registerConvertRoutes(app, {
+      authMiddleware: [...writeAuth, requireRole('owner')],
+      probe: (url) => probeConnection(url, makeRealProbeDeps()),
+      convert: (input) => runConvert(
+        {
+          copyDeps: this.buildConvertCopyDeps(input.databaseUrl),
+          flip: (u) => writeServerModeSettings({ MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_DATABASE_URL: u }),
+        },
+        input,
+      ),
+    });
+  }
+
+  // Build parameterized CopyDeps for the Go Team conversion:
+  // - readRows/countRows('local') use this.options.pool (the embedded/local PG, read-only side).
+  // - upsertRows/countRows('remote') use a fresh pool for the remote URL.
+  // Table names come from the COPY_TABLES constant (a fixed safe list — never user input).
+  // The remote schema is bootstrapped before returning so INSERTs have all tables + pgvector.
+  private buildConvertCopyDeps(remoteUrl: string): CopyDeps {
+    const remoteConfig = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: remoteUrl } as NodeJS.ProcessEnv });
+    if (!remoteConfig) throw new Error('invalid remote databaseUrl');
+    const remotePool = createPostgresPool(remoteConfig);
+
+    // Bootstrap the remote schema synchronously from the caller's perspective by
+    // returning a CopyDeps whose upsertRows lazily ensures bootstrap ran first.
+    let bootstrapped = false;
+    const ensureBootstrapped = async (): Promise<void> => {
+      if (bootstrapped) return;
+      await bootstrapServerPostgresSchema(remotePool);
+      bootstrapped = true;
+    };
+
+    const localPool = this.options.pool;
+
+    return {
+      readRows: async (table: string) => {
+        const result = await localPool.query(`SELECT * FROM ${table}`);
+        return result.rows as Array<Record<string, unknown>>;
+      },
+      upsertRows: async (table: string, rows: Array<Record<string, unknown>>) => {
+        if (rows.length === 0) return;
+        await ensureBootstrapped();
+        // Build column list from the first row's keys (all rows in a batch share the same schema).
+        const cols = Object.keys(rows[0]!);
+        const colList = cols.map(c => `"${c}"`).join(', ');
+        for (const row of rows) {
+          const values = cols.map(c => row[c]);
+          const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+          await remotePool.query(
+            `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`,
+            values,
+          );
+        }
+      },
+      countRows: async (which: 'local' | 'remote', table: string) => {
+        const pool = which === 'local' ? localPool : remotePool;
+        const result = await pool.query(`SELECT count(*) FROM ${table}`);
+        return Number((result.rows[0] as { count: string }).count);
+      },
+    };
   }
 
   // Phase 11 — resolve actor identity for audit. We look up the api_keys row
