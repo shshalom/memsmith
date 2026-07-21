@@ -9,6 +9,7 @@ export interface PostgresApiKey {
   teamId: string | null;
   projectId: string | null;
   actorId: string;
+  userId: string | null;
   scopes: unknown[];
   revokedAtEpoch: number | null;
   expiresAtEpoch: number | null;
@@ -35,6 +36,7 @@ interface ApiKeyRow {
   team_id: string | null;
   project_id: string | null;
   actor_id: string;
+  user_id: string | null;
   scopes: unknown;
   revoked_at: Date | null;
   expires_at: Date | null;
@@ -64,6 +66,7 @@ export class PostgresAuthRepository {
     teamId?: string | null;
     projectId?: string | null;
     actorId: string;
+    userId?: string | null;
     scopes?: unknown[];
     expiresAt?: Date | null;
   }): Promise<PostgresApiKey> {
@@ -74,8 +77,8 @@ export class PostgresAuthRepository {
     const row = await queryOne<ApiKeyRow>(
       this.client,
       `
-        INSERT INTO api_keys (id, key_hash, team_id, project_id, actor_id, scopes, expires_at)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+        INSERT INTO api_keys (id, key_hash, team_id, project_id, actor_id, scopes, expires_at, user_id)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
         RETURNING *
       `,
       [
@@ -85,7 +88,8 @@ export class PostgresAuthRepository {
         input.projectId ?? null,
         input.actorId,
         JSON.stringify(input.scopes ?? []),
-        input.expiresAt ?? null
+        input.expiresAt ?? null,
+        input.userId ?? null
       ]
     );
     return mapApiKeyRow(row!);
@@ -144,6 +148,7 @@ function mapApiKeyRow(row: ApiKeyRow): PostgresApiKey {
     teamId: row.team_id,
     projectId: row.project_id,
     actorId: row.actor_id,
+    userId: row.user_id ?? null,
     scopes: toJsonArray(row.scopes),
     revokedAtEpoch: toDate(row.revoked_at)?.getTime() ?? null,
     expiresAtEpoch: toDate(row.expires_at)?.getTime() ?? null,
