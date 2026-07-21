@@ -94,6 +94,23 @@ export class PostgresTeamsRepository {
     );
     return row ? mapTeamRow(row) : null;
   }
+
+  /**
+   * Returns the role of `userId` in `teamId`, or null if they have no membership row.
+   * Used by the auth middleware to resolve role on authenticated requests.
+   */
+  async getMemberRole(teamId: string, userId: string): Promise<PostgresTeamRole | null> {
+    const row = await queryOne<Pick<TeamMemberRow, 'role'>>(
+      this.client,
+      `
+        SELECT role
+        FROM team_members
+        WHERE team_id = $1 AND user_id = $2
+      `,
+      [teamId, userId]
+    );
+    return row?.role ?? null;
+  }
 }
 
 function mapTeamRow(row: TeamRow): PostgresTeam {
