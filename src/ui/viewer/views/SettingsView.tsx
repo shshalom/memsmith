@@ -5,6 +5,7 @@ import { V1_ENDPOINTS } from '../constants/api.js';
 import { InfoTooltip } from '../components/InfoTooltip.js';
 import { ContextSettingsPane } from '../components/ContextSettingsPane.js';
 import { useSettings } from '../hooks/useSettings.js';
+import GoTeamWizard from './wizard/GoTeamWizard.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,6 +308,8 @@ function IdentityPane({
   handleRevealToggle: () => void;
   hidden?: boolean;
 }) {
+  const [wizardOpen, setWizardOpen] = useState(false);
+
   if (!identity) {
     return (
       <div className="settings-pane settings-pane--identity" hidden={hidden}>
@@ -314,6 +317,9 @@ function IdentityPane({
       </div>
     );
   }
+
+  // Extract the plaintext key (if revealed) for the InviteCard, or null otherwise.
+  const baseKey = revealKey && identity.keyPlaintext ? identity.keyPlaintext : null;
 
   return (
     <div className="settings-pane settings-pane--identity" hidden={hidden}>
@@ -370,6 +376,38 @@ function IdentityPane({
           </div>
         </div>
       </section>
+
+      <section className="settings-card settings-card--go-team">
+        <h2 className="settings-card-title">Team Mode</h2>
+        <div className="settings-rows">
+          <div className="settings-row">
+            <div className="settings-row-meta">
+              <span className="settings-row-label">Switch to Team</span>
+              <span className="settings-row-desc">
+                Move your memory to a shared remote workspace so teammates can
+                collaborate. Your local data stays intact as a backup.
+              </span>
+            </div>
+            <div className="settings-row-control">
+              <button
+                type="button"
+                className="settings-go-team-btn"
+                onClick={() => setWizardOpen(true)}
+              >
+                GO TEAM
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {wizardOpen && (
+        <GoTeamWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          baseKey={baseKey}
+        />
+      )}
     </div>
   );
 }

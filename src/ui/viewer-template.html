@@ -3127,6 +3127,11 @@
       --settings-confirm-bg: #fdf7ed;
       --settings-confirm-border: rgba(194, 65, 12, 0.25);
       --settings-confirm-text: #8a5a10;
+      --settings-teal: #0d9488;
+      --settings-teal-hover: #0f766e;
+      --settings-teal-light: rgba(13, 148, 136, 0.12);
+      --settings-success-bg: #ecfdf5;
+      --settings-success-text: #15803d;
     }
 
     [data-theme="dark"] {
@@ -3149,6 +3154,11 @@
       --settings-confirm-bg: #2a2416;
       --settings-confirm-border: rgba(232, 93, 42, 0.25);
       --settings-confirm-text: #d4a858;
+      --settings-teal: #2dd4bf;
+      --settings-teal-hover: #14b8a6;
+      --settings-teal-light: rgba(45, 212, 191, 0.15);
+      --settings-success-bg: #0d2a1f;
+      --settings-success-text: #4ade80;
     }
 
     .settings-view {
@@ -3520,6 +3530,423 @@
 
       .settings-row-control {
         align-self: flex-start;
+      }
+    }
+
+    /* ── GO TEAM entry button (Identity pane) ─────────────────────────────── */
+
+    .settings-go-team-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 20px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      background: var(--settings-teal);
+      color: #ffffff;
+      transition: background 150ms ease;
+    }
+
+    .settings-go-team-btn:hover {
+      background: var(--settings-teal-hover);
+    }
+
+    /* ── Wizard overlay ───────────────────────────────────────────────────── */
+
+    .wizard-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(30, 24, 18, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .wizard-container {
+      background: var(--settings-bg);
+      border-radius: 12px;
+      border: 1px solid var(--settings-border);
+      box-shadow: 0 8px 32px rgba(30, 24, 18, 0.22);
+      width: 100%;
+      max-width: 520px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    /* ── Wizard card (common layout) ─────────────────────────────────────── */
+
+    .wizard-card {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 32px 28px 28px;
+    }
+
+    .wizard-logo-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: var(--settings-coral-light);
+      margin-bottom: 4px;
+    }
+
+    .wizard-logo-mark {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--settings-coral);
+    }
+
+    .wizard-card-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--settings-text-primary);
+      line-height: 1.3;
+    }
+
+    .wizard-card-body {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--settings-text-secondary);
+    }
+
+    .wizard-card-body--muted {
+      color: var(--settings-text-muted);
+      font-size: 13px;
+    }
+
+    /* ── Wizard actions row ───────────────────────────────────────────────── */
+
+    .wizard-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+
+    .wizard-actions--single {
+      justify-content: flex-end;
+    }
+
+    /* ── Wizard buttons ───────────────────────────────────────────────────── */
+
+    .wizard-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 150ms ease, opacity 150ms ease;
+    }
+
+    .wizard-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    /* Teal = secondary/utility: Begin, Test Connection */
+    .wizard-btn--teal {
+      background: var(--settings-teal);
+      color: #ffffff;
+    }
+
+    .wizard-btn--teal:hover {
+      background: var(--settings-teal-hover);
+    }
+
+    /* Terracotta = primary/forward: Next, Convert All, Done */
+    .wizard-btn--terracotta {
+      background: var(--settings-coral);
+      color: #ffffff;
+    }
+
+    .wizard-btn--terracotta:hover {
+      background: var(--settings-coral-text);
+    }
+
+    /* Ghost = back/cancel */
+    .wizard-btn--ghost {
+      background: transparent;
+      color: var(--settings-text-secondary);
+      border: 1px solid var(--settings-border);
+    }
+
+    .wizard-btn--ghost:hover {
+      background: var(--settings-coral-light);
+    }
+
+    .wizard-btn--small {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    /* Link-styled button (still an <a>) */
+    .wizard-btn--link {
+      display: inline-flex;
+    }
+
+    /* ── Field row ────────────────────────────────────────────────────────── */
+
+    .wizard-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .wizard-field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--settings-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .wizard-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--settings-border);
+      background: var(--settings-input-bg);
+      color: var(--settings-text-primary);
+      font-size: 13px;
+      font-family: var(--font-terminal, monospace);
+    }
+
+    .wizard-input:focus {
+      outline: none;
+      border-color: var(--settings-teal);
+      box-shadow: 0 0 0 2px var(--settings-teal-light);
+    }
+
+    /* ── Checklist ────────────────────────────────────────────────────────── */
+
+    .wizard-checklist {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--settings-card-bg);
+      border: 1px solid var(--settings-border);
+    }
+
+    .wizard-check-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .wizard-check-icon {
+      flex-shrink: 0;
+      font-size: 12px;
+      width: 14px;
+    }
+
+    .wizard-check-row--ok .wizard-check-icon {
+      color: var(--settings-savings-text);
+    }
+
+    .wizard-check-row--fail .wizard-check-icon {
+      color: var(--settings-error-text);
+    }
+
+    .wizard-check-label {
+      color: var(--settings-text-primary);
+    }
+
+    .wizard-check-hint {
+      color: var(--settings-text-muted);
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    /* ── Progress stepper ─────────────────────────────────────────────────── */
+
+    .wizard-progress {
+      display: flex;
+      gap: 0;
+      margin: 4px 0;
+    }
+
+    .wizard-progress-step {
+      flex: 1;
+      text-align: center;
+      padding: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--settings-text-muted);
+      border-bottom: 2px solid var(--settings-border);
+      transition: color 200ms ease, border-color 200ms ease;
+    }
+
+    .wizard-progress-step--active {
+      color: var(--settings-teal);
+      border-bottom-color: var(--settings-teal);
+    }
+
+    .wizard-phase-label {
+      margin: 0;
+      font-size: 13px;
+      color: var(--settings-text-muted);
+      font-style: italic;
+    }
+
+    /* ── Warning / restart notice ─────────────────────────────────────────── */
+
+    .wizard-warning {
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: var(--settings-confirm-bg);
+      border: 1px solid var(--settings-confirm-border);
+      color: var(--settings-confirm-text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .wizard-restart-notice {
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: var(--settings-error-bg);
+      border: 1px solid rgba(185, 28, 28, 0.2);
+      color: var(--settings-error-text);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .wizard-restart-notice code {
+      display: block;
+      margin-top: 8px;
+      font-family: var(--font-terminal, monospace);
+      font-size: 12px;
+    }
+
+    /* ── Error banner ─────────────────────────────────────────────────────── */
+
+    .wizard-error {
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: var(--settings-error-bg);
+      color: var(--settings-error-text);
+      font-size: 13px;
+      border: 1px solid rgba(185, 28, 28, 0.18);
+    }
+
+    /* ── Success banner ───────────────────────────────────────────────────── */
+
+    .wizard-success {
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: var(--settings-success-bg);
+      color: var(--settings-success-text);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ── Confirm checkbox ─────────────────────────────────────────────────── */
+
+    .wizard-confirm-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--settings-text-secondary);
+      cursor: pointer;
+    }
+
+    /* ── Done card icon ───────────────────────────────────────────────────── */
+
+    .wizard-done-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--settings-savings-bg, #eef3ec);
+      color: var(--settings-savings-text);
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    /* ── Invite card ──────────────────────────────────────────────────────── */
+
+    .wizard-key-block {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: var(--settings-card-bg);
+      border: 1px solid var(--settings-border);
+    }
+
+    .wizard-key-value {
+      flex: 1;
+      font-family: var(--font-terminal, monospace);
+      font-size: 12px;
+      color: var(--settings-text-primary);
+      word-break: break-all;
+    }
+
+    .wizard-invite-steps {
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: var(--settings-card-bg);
+      border: 1px solid var(--settings-border);
+    }
+
+    .wizard-invite-steps-title {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--settings-text-muted);
+    }
+
+    .wizard-invite-list {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--settings-text-secondary);
+    }
+
+    .wizard-link {
+      color: var(--settings-teal);
+      text-decoration: underline;
+    }
+
+    @media (max-width: 600px) {
+      .wizard-container {
+        max-width: 100%;
+        border-radius: 8px;
+      }
+
+      .wizard-card {
+        padding: 24px 18px 20px;
       }
     }
   </style>
