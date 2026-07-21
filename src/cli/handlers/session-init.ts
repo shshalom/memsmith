@@ -16,6 +16,7 @@ import {
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
 import { isIncognito, bumpTurn } from '../incognito.js';
+import { handleIncognitoCommand } from './incognito-command.js';
 
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
@@ -55,6 +56,23 @@ export const sessionInitHandler: EventHandler = {
     if (!dependencies.shouldTrackProject(cwd)) {
       logger.info('HOOK', 'Project excluded from tracking', { cwd });
       return { continue: true, suppressOutput: true };
+    }
+
+    // /incognito [on|off] — intercept before any other processing so the toggle
+    // is always reachable regardless of the tracking or runtime state.
+    const trimmedPrompt = (rawPrompt ?? '').trim();
+    if (/^\/incognito(\s|$)/i.test(trimmedPrompt) || trimmedPrompt.toLowerCase() === '/incognito') {
+      const arg = trimmedPrompt.slice('/incognito'.length).trim() || undefined;
+      const { message } = handleIncognitoCommand(sessionId, arg);
+      logger.info('HOOK', 'session-init: incognito command handled', { arg, message });
+      return {
+        continue: true,
+        suppressOutput: false,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: message,
+        },
+      };
     }
 
     const heartbeat = incognitoHeartbeat(sessionId);
