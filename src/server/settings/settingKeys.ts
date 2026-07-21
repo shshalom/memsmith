@@ -82,6 +82,11 @@ export const SETTING_KEYS: readonly SettingKey[] = [
     boot: false, label: 'User-note boost',
     description: 'Float user-directed notes ahead of ambient results in retrieval (on/off).',
     help: 'After ranking, any user_note observations in the result set are moved to the top, ahead of ambient observations, while preserving relative order within each group. Off = keep the raw ranked order. Default on = notes first.' },
+  { key: 'identityProvider', type: 'enum', env: 'MEMSMITH_IDENTITY_PROVIDER', default: 'local',
+    boot: true, options: ['local', 'better-auth'],
+    label: 'Identity provider',
+    description: 'Authentication provider for human sessions (local = no login; better-auth = session auth).',
+    help: 'Controls how human (non-API-key) requests are authenticated. "local" is the single-user default — any loopback request is treated as the local owner with no login required. "better-auth" enables session-based authentication via better-auth; requires better-auth to be initialised at server startup. Takes effect after a server restart.' },
 ];
 
 const BY_KEY: Map<string, SettingKey> = new Map(SETTING_KEYS.map(k => [k.key, k]));

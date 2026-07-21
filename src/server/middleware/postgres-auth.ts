@@ -17,7 +17,7 @@ export interface AuthContext {
   projectId: string | null;
   scopes: string[];
   apiKeyId: string | null;
-  mode: 'api-key' | 'local-dev';
+  mode: 'api-key' | 'local-dev' | 'session';
   role: PostgresTeamRole | null;
 }
 
@@ -56,6 +56,7 @@ import {
   parseBearerToken,
 } from './request-auth-helpers.js';
 import { logger } from '../../utils/logger.js';
+import { resolveIdentityProvider } from '../identity/provider-factory.js';
 
 // Postgres-backed auth middleware for the server-beta runtime.
 //
@@ -136,10 +137,47 @@ async function authenticatePostgresRequest(
   }
 
   if (!rawKey) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Missing API key (Authorization: Bearer <key> or X-Api-Key: <key>)',
-    });
+    // No API key. In 'api-key' mode, a missing key is always a hard 401 —
+    // the identity provider is never consulted so the security boundary is
+    // preserved. In other modes, try the configured identity provider for
+    // session-based auth (e.g. better-auth cookie sessions).
+    //
+    // FAIL-SAFE: provider.authenticate throwing or returning null → 401, never crash.
+    const provider = authMode !== 'api-key' ? resolveIdentityProvider(process.env) : null;
+    let authnResult: import('../identity/identity-provider.js').AuthnResult | null = null;
+    if (provider) {
+      try {
+        authnResult = await provider.authenticate(req);
+      } catch {
+        // Provider threw — treat as unauthenticated (fail-safe deny).
+        authnResult = null;
+      }
+    }
+    if (!authnResult) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing API key (Authorization: Bearer <key> or X-Api-Key: <key>)',
+      });
+      return;
+    }
+    // Provider resolved a user — role resolution requires a teamId which is not
+    // available from session auth alone. Role stays null (fail-safe: deny
+    // role-gated routes; a future extension can derive teamId from authnResult
+    // and call getMemberRole here).
+    const sessionUserId = authnResult.userId;
+    const sessionRole: PostgresTeamRole | null = null;
+    const sessionCtx: AuthContext = {
+      userId: sessionUserId,
+      organizationId: null,
+      teamId: null,
+      projectId: null,
+      scopes: ['memories:read', 'memories:write'],
+      apiKeyId: null,
+      mode: 'session',
+      role: sessionRole,
+    };
+    req.authContext = sessionCtx;
+    next();
     return;
   }
 
