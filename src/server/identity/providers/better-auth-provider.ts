@@ -82,6 +82,12 @@ export function initBetterAuthProvider(authApi: BetterAuthLike): void {
 export const betterAuthProvider: IdentityProvider = {
   id: 'better-auth',
   async authenticate(req: Request): Promise<AuthnResult | null> {
-    return getBetterAuthProvider().authenticate(req);
+    try {
+      return await getBetterAuthProvider().authenticate(req);
+    } catch {
+      // Provider not yet initialised (or delegate threw). Fail safe — never
+      // propagate; a throw on the auth path can crash an in-flight request.
+      return null;
+    }
   },
 };
