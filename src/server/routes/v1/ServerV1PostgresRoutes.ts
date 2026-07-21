@@ -1536,13 +1536,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
-      convert: (input) => runConvert(
-        {
-          copyDeps: this.buildConvertCopyDeps(input.databaseUrl),
-          flip: (u) => writeServerModeSettings({ MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_DATABASE_URL: u }),
-        },
-        input,
-      ),
+      convert: async (input) => {
+        const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl);
+        try {
+          return await runConvert(
+            {
+              copyDeps: deps,
+              flip: (u) => writeServerModeSettings({ MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_DATABASE_URL: u }),
+            },
+            input,
+          );
+        } finally {
+          await dispose();
+        }
+      },
     });
   }
 
@@ -1551,7 +1558,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // - upsertRows/countRows('remote') use a fresh pool for the remote URL.
   // Table names come from the COPY_TABLES constant (a fixed safe list — never user input).
   // The remote schema is bootstrapped before returning so INSERTs have all tables + pgvector.
-  private buildConvertCopyDeps(remoteUrl: string): CopyDeps {
+  private buildConvertCopyDeps(remoteUrl: string): { deps: CopyDeps; dispose: () => Promise<void> } {
     const remoteConfig = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: remoteUrl } as NodeJS.ProcessEnv });
     if (!remoteConfig) throw new Error('invalid remote databaseUrl');
     const remotePool = createPostgresPool(remoteConfig);
@@ -1567,7 +1574,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     const localPool = this.options.pool;
 
-    return {
+    const deps: CopyDeps = {
       readRows: async (table: string) => {
         const result = await localPool.query(`SELECT * FROM ${table}`);
         return result.rows as Array<Record<string, unknown>>;
@@ -1593,6 +1600,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         return Number((result.rows[0] as { count: string }).count);
       },
     };
+
+    return { deps, dispose: () => remotePool.end() };
   }
 
   // Phase 11 — resolve actor identity for audit. We look up the api_keys row
