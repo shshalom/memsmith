@@ -8,6 +8,8 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
+import { isIncognito } from '../incognito.js';
+import { scrubEventPayload } from '../../server/services/event-payload-scrub.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
 import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
 import { detectRediscovery } from '../../server/retrieval/rediscovery.js';
@@ -58,6 +60,11 @@ export const observationHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
+    if (isIncognito(sessionId)) {
+      logger.debug('HOOK', 'Incognito session — suppressing capture', { toolName });
+      return { continue: true, suppressOutput: true };
+    }
+
     const runtime = resolveRuntimeContext();
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. `runtime-selector.selectRuntime()` continues to accept the legacy
@@ -72,8 +79,8 @@ export const observationHandler: EventHandler = {
         occurredAtEpoch: Date.now(),
         payload: {
           tool_name: toolName,
-          tool_input: toolInput,
-          tool_response: toolResponse,
+          tool_input: scrubEventPayload(toolInput),
+          tool_response: scrubEventPayload(toolResponse),
           cwd,
           agentId: input.agentId,
           agentType: input.agentType,
