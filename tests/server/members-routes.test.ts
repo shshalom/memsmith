@@ -255,6 +255,48 @@ describe('GET|POST|PATCH|DELETE /v1/members', () => {
     expect(listRes.status).toBe(200);
   });
 
+  // ── Security: admin PATCH on an owner → 403 (no-modify-above-self) ─────────────
+  it('admin cannot PATCH a member whose current role is owner (guard 1: no-modify-above-self)', async () => {
+    // secondUser is an admin; ownerUser is an owner. Admin must not be able to
+    // demote the owner at all — even to a role the admin could otherwise assign.
+    await storage.teams.addMember({ teamId: ownerTeamId, userId: secondUserId, role: 'admin' });
+
+    const adminKey = newApiKey();
+    await storage.auth.createApiKey({
+      keyHash: adminKey.hash,
+      teamId: ownerTeamId,
+      userId: secondUserId,
+      actorId: 'test-admin-guard1',
+      scopes: ['memories:read', 'memories:write'],
+    });
+
+    // Admin tries to demote the owner to 'member' (new role is below admin, so
+    // guard 2 would pass — guard 1 must fire first and block it).
+    const patchRes = await fetch(url(`/v1/members/${ownerUserId}`), {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${adminKey.raw}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'member' }),
+    });
+    expect(patchRes.status).toBe(403);
+    const body = await patchRes.json() as { error: string; message: string };
+    expect(body.error).toBe('Forbidden');
+    expect(body.message).toContain('above your own');
+  });
+
+  // ── Security: owner PATCH-demoting self as last owner → 403 (last-owner guard) ─
+  it('owner cannot demote themselves when they are the last owner (guard 3: last-owner on PATCH)', async () => {
+    // ownerUserId is the sole owner. Attempting to demote themselves must fail.
+    const patchRes = await fetch(url(`/v1/members/${ownerUserId}`), {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${ownerWriteKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    });
+    expect(patchRes.status).toBe(403);
+    const body = await patchRes.json() as { error: string; message: string };
+    expect(body.error).toBe('Forbidden');
+    expect(body.message).toContain('last owner');
+  });
+
   // ── Additional: cannot assign role above caller's own (admin cannot make owner) ──
   it('admin cannot promote a user to owner (above own role)', async () => {
     // Promote secondUser to admin first (using owner key)

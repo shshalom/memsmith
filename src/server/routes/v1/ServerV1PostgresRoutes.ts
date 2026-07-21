@@ -1430,7 +1430,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     }));
 
     // PATCH /v1/members/:userId — change role. Requires ≥admin.
-    // Forbids assigning a role above the caller's own role.
+    // Guard 1 (no-modify-above-self): forbid PATCH when the TARGET's CURRENT
+    //   role is above the caller's own role → admin cannot touch an owner at all.
+    // Guard 2 (new-role-not-above-self): forbid assigning a role above caller's own.
+    // Guard 3 (last-owner on demotion): if target is currently owner and the
+    //   change would leave zero owners, 403. Covers the owner-demoting-themselves
+    //   case that guard 1 cannot block (owner's role == caller's role, not above).
     app.patch('/v1/members/:userId', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
@@ -1441,18 +1446,34 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         res.status(400).json({ error: 'ValidationError', message: `role must be one of: ${validRoles.join(', ')}` });
         return;
       }
-      // Forbid elevating to a role above the caller's own role.
       const callerRole = req.authContext?.role ?? null;
+      // Guard 2: forbid elevating to a role above the caller's own role.
       if (!roleSatisfies(callerRole, role as PostgresTeamRole)) {
         res.status(403).json({ error: 'Forbidden', message: 'cannot assign a role above your own' });
         return;
       }
       const teamsRepo = new PostgresTeamsRepository(this.options.pool);
       // Verify the member exists in this team before updating.
-      const existing = await teamsRepo.getMemberRole(teamId, targetUserId);
-      if (!existing) {
+      const existingRole = await teamsRepo.getMemberRole(teamId, targetUserId);
+      if (!existingRole) {
         res.status(404).json({ error: 'NotFound', message: 'Member not found' });
         return;
+      }
+      // Guard 1: forbid modifying a member whose current role is above the caller's.
+      // e.g. admin (rank 2) cannot modify owner (rank 3).
+      if (!roleSatisfies(callerRole, existingRole)) {
+        res.status(403).json({ error: 'Forbidden', message: 'cannot modify a member whose role is above your own' });
+        return;
+      }
+      // Guard 3: last-owner guard on demotion. If the target is currently an owner
+      // and the new role is not owner, ensure at least one other owner remains.
+      if (existingRole === 'owner' && role !== 'owner') {
+        const members = await teamsRepo.listMembers(teamId);
+        const ownerCount = members.filter(m => m.role === 'owner').length;
+        if (ownerCount <= 1) {
+          res.status(403).json({ error: 'Forbidden', message: 'cannot demote the last owner' });
+          return;
+        }
       }
       const member = await teamsRepo.setMemberRole(teamId, targetUserId, role as PostgresTeamRole);
       res.status(200).json({ member: {
