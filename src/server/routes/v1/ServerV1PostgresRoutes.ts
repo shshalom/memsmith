@@ -45,6 +45,7 @@ import { CredentialStore } from '../../../services/identity/credential-store.js'
 import { embedForPersist } from '../../generation/embed-for-persist.js';
 import { boostUserDirected } from './user-note-boost.js';
 import { classifyAndComposeRecordIntent } from './record-intent.js';
+import { stripMemoryTags } from '../../../utils/tag-stripping.js';
 import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
@@ -994,7 +995,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             teamId,
             projectId,
           };
-          const result = await classifyAndComposeRecordIntent(body.prompt, deps);
+          // Strip <private> before classify so the LLM classifier, the
+          // idempotency hash, and the stored content all receive stripped text
+          // (moderation invariant: private content never reaches the LLM or DB).
+          const prompt = stripMemoryTags(body.prompt);
+          const result = await classifyAndComposeRecordIntent(prompt, deps);
           if (result.recorded && result.id) {
             try {
               await this.auditWrite(req, 'memory.write', result.id, projectId);
