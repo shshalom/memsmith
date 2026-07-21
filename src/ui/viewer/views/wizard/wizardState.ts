@@ -1,5 +1,5 @@
 export type WizardStep = 'welcome' | 'destination' | 'convert' | 'signin' | 'invite' | 'done';
-export const WIZARD_ORDER: WizardStep[] = ['welcome', 'destination', 'convert', 'signin', 'invite', 'done'];
+export const WIZARD_ORDER: WizardStep[] = ['welcome', 'destination', 'signin', 'convert', 'invite', 'done'];
 
 export function nextStep(cur: WizardStep): WizardStep {
   const i = WIZARD_ORDER.indexOf(cur);

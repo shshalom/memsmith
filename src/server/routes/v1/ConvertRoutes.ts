@@ -13,7 +13,11 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
   app.post('/v1/convert/test-connection', ...deps.authMiddleware, async (req: any, res: any) => {
     const url = String(req.body?.databaseUrl ?? '');
     if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
-    res.json(await deps.probe(url));
+    try {
+      res.json(await deps.probe(url));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'probe failed' });
+    }
   });
 
   app.post('/v1/convert/migrate', ...deps.authMiddleware, async (req: any, res: any) => {
@@ -21,6 +25,10 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
     const ownerUserId = req.authContext?.userId;
     if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
     if (!ownerUserId) { res.status(403).json({ error: 'no owner identity' }); return; }
-    res.json(await deps.convert({ databaseUrl: url, ownerUserId }));
+    try {
+      res.json(await deps.convert({ databaseUrl: url, ownerUserId }));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'convert failed' });
+    }
   });
 }

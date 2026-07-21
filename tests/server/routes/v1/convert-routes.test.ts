@@ -40,4 +40,30 @@ describe('convert routes', () => {
     expect(r.body.status).toBe('converted');
     expect(r.body.restartRequired).toBe(true);
   });
+
+  it('POST /v1/convert/test-connection returns 500 JSON when probe rejects', async () => {
+    const { app, routes } = makeApp();
+    registerConvertRoutes(app as never, {
+      authMiddleware: [],
+      probe: async () => { throw new Error('connection refused'); },
+      convert: async () => ({ status: 'converted', restartRequired: false, copiedByTable: {} }),
+    } as never);
+    const r = res();
+    await routes['/v1/convert/test-connection']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    expect(r.code).toBe(500);
+    expect(r.body.error).toBe('connection refused');
+  });
+
+  it('POST /v1/convert/migrate returns 500 JSON when convert rejects', async () => {
+    const { app, routes } = makeApp();
+    registerConvertRoutes(app as never, {
+      authMiddleware: [],
+      probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
+      convert: async () => { throw new Error('copy engine failed'); },
+    } as never);
+    const r = res();
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    expect(r.code).toBe(500);
+    expect(r.body.error).toBe('copy engine failed');
+  });
 });
