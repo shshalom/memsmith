@@ -87,4 +87,5 @@ export class SettingsResolver {
   reformatRetries(teamId: string) { return this.num(teamId, 'reformatRetries'); }
   inputRatePerMtok(teamId: string) { return this.num(teamId, 'inputRatePerMtok'); }
   userNoteBoost(teamId: string) { return this.bool(teamId, 'userNoteBoost'); }
+  identityProvider(teamId: string) { return this.str(teamId, 'identityProvider'); }
 }

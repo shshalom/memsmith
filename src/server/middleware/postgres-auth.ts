@@ -3,6 +3,9 @@
 import { createHash } from 'crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+import type { PostgresTeamRole } from '../../storage/postgres/teams.js';
+import { PostgresTeamsRepository } from '../../storage/postgres/teams.js';
+import { LOCAL_OWNER_USER_ID } from '../identity/providers/local-provider.js';
 
 // AuthContext was previously in src/server/middleware/auth.ts (deleted in Tasks
 // 12+13 — that file was the SQLite-backed worker auth middleware). AuthContext is
@@ -14,7 +17,35 @@ export interface AuthContext {
   projectId: string | null;
   scopes: string[];
   apiKeyId: string | null;
-  mode: 'api-key' | 'local-dev';
+  mode: 'api-key' | 'local-dev' | 'session';
+  role: PostgresTeamRole | null;
+}
+
+// Role ordering: viewer < member < admin < owner
+const ROLE_ORDER: Record<PostgresTeamRole, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
+
+/**
+ * Returns true iff `role` meets or exceeds `min`.
+ * Fail-safe: null (no membership) always returns false.
+ */
+export function roleSatisfies(role: PostgresTeamRole | null, min: PostgresTeamRole): boolean {
+  return role != null && ROLE_ORDER[role] >= ROLE_ORDER[min];
+}
+
+/**
+ * Route guard: calls next() when the authenticated principal's role satisfies
+ * `min`; otherwise responds 403 Forbidden.
+ *
+ * ORDERING: MUST run after requirePostgresServerAuth (which populates
+ * req.authContext). If authContext is absent, role is undefined → roleSatisfies
+ * returns false → 403 (fail-closed). The ordering dependency must be enforced
+ * by route registration, not relied on implicitly.
+ */
+export function requireRole(min: PostgresTeamRole): RequestHandler {
+  return (req, res, next) => {
+    if (roleSatisfies(req.authContext?.role ?? null, min)) return next();
+    res.status(403).json({ error: 'Forbidden', message: `requires role ${min}` });
+  };
 }
 
 declare module 'express-serve-static-core' {
@@ -30,6 +61,7 @@ import {
   parseBearerToken,
 } from './request-auth-helpers.js';
 import { logger } from '../../utils/logger.js';
+import { resolveIdentityProvider } from '../identity/provider-factory.js';
 
 // Postgres-backed auth middleware for the server-beta runtime.
 //
@@ -95,13 +127,14 @@ async function authenticatePostgresRequest(
     && !hasForwardedClientHeaders(req)
   ) {
     const ctx: AuthContext = {
-      userId: null,
+      userId: LOCAL_OWNER_USER_ID,
       organizationId: null,
       teamId: options.localDevTeamId ?? null,
       projectId: options.localDevProjectId ?? null,
       scopes: ['local-dev', 'memories:read', 'memories:write', 'settings:admin'],
       apiKeyId: null,
       mode: 'local-dev',
+      role: 'owner',
     };
     req.authContext = ctx;
     next();
@@ -109,10 +142,65 @@ async function authenticatePostgresRequest(
   }
 
   if (!rawKey) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Missing API key (Authorization: Bearer <key> or X-Api-Key: <key>)',
-    });
+    // No API key. In 'api-key' mode, a missing key is always a hard 401 —
+    // the identity provider is never consulted so the security boundary is
+    // preserved. In other modes, try the configured identity provider for
+    // session-based auth (e.g. better-auth cookie sessions).
+    //
+    // For 'local-dev' mode without the bypass (e.g. allowLocalDevBypass=false
+    // or loopback checks not satisfied), a keyless request still reaches this
+    // branch. The local identity provider resolves it as an implicit local owner
+    // (single-user local mode). That is intentional: local mode is not
+    // multi-tenant, so any request from the local UI gets owner identity.
+    //
+    // FAIL-SAFE: provider.authenticate throwing or returning null → 401, never crash.
+    const provider = authMode !== 'api-key' ? resolveIdentityProvider(process.env) : null;
+    let authnResult: import('../identity/identity-provider.js').AuthnResult | null = null;
+    if (provider) {
+      try {
+        authnResult = await provider.authenticate(req);
+      } catch {
+        // Provider threw — treat as unauthenticated (fail-safe deny).
+        authnResult = null;
+      }
+    }
+    if (!authnResult) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing API key (Authorization: Bearer <key> or X-Api-Key: <key>)',
+      });
+      return;
+    }
+    // Provider resolved a user — role resolution requires a teamId which is not
+    // available from session auth alone. Role stays null (fail-safe: deny
+    // role-gated routes; a future extension can derive teamId from authnResult
+    // and call getMemberRole here).
+    //
+    // Scope gate: symmetric with the api-key path. The session is granted a
+    // conservative fixed set of scopes. Check them against requiredScopes using
+    // the same hasRequiredScopes helper the api-key path uses. On mismatch →
+    // deny (403, consistent with api-key insufficient-scope response). If
+    // requiredScopes is empty/undefined → allow (matches api-key semantics).
+    const sessionScopes = ['memories:read', 'memories:write'];
+    const requiredScopes = options.requiredScopes ?? [];
+    if (!hasRequiredScopes(sessionScopes, requiredScopes)) {
+      res.status(403).json({ error: 'Forbidden', message: 'Invalid API key or insufficient scope' });
+      return;
+    }
+    const sessionUserId = authnResult.userId;
+    const sessionRole: PostgresTeamRole | null = null;
+    const sessionCtx: AuthContext = {
+      userId: sessionUserId,
+      organizationId: null,
+      teamId: null,
+      projectId: null,
+      scopes: sessionScopes,
+      apiKeyId: null,
+      mode: 'session',
+      role: sessionRole,
+    };
+    req.authContext = sessionCtx;
+    next();
     return;
   }
 
@@ -122,14 +210,30 @@ async function authenticatePostgresRequest(
     return;
   }
 
+  // Resolve role from team_members. Fail-safe: any error → role=null (deny).
+  // Legacy null-owner keys (userId=null) get role=null but scope-based behavior is unchanged.
+  let role: PostgresTeamRole | null = null;
+  const userId = verified.userId;
+  const teamId = verified.teamId;
+  if (userId != null && teamId != null) {
+    try {
+      const teamsRepo = new PostgresTeamsRepository(pool);
+      role = await teamsRepo.getMemberRole(teamId, userId);
+    } catch {
+      // Fail-safe: DB error → deny (role stays null). Never throw out of middleware.
+      role = null;
+    }
+  }
+
   const ctx: AuthContext = {
-    userId: null,
+    userId,
     organizationId: null,
     teamId: verified.teamId,
     projectId: verified.projectId,
     scopes: verified.scopes,
     apiKeyId: verified.apiKeyId,
     mode: 'api-key',
+    role,
   };
   req.authContext = ctx;
   next();
@@ -139,6 +243,7 @@ interface VerifiedPostgresApiKey {
   apiKeyId: string;
   teamId: string | null;
   projectId: string | null;
+  userId: string | null;
   scopes: string[];
 }
 
@@ -150,7 +255,7 @@ export async function verifyPostgresApiKey(
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
   const result = await pool.query(
     `
-      SELECT id, team_id, project_id, scopes, revoked_at, expires_at
+      SELECT id, team_id, project_id, user_id, scopes, revoked_at, expires_at
       FROM api_keys
       WHERE key_hash = $1
     `,
@@ -158,11 +263,12 @@ export async function verifyPostgresApiKey(
   );
   const row = result.rows[0] as Pick<
     PostgresApiKey,
-    'id' | 'teamId' | 'projectId'
+    'id' | 'teamId' | 'projectId' | 'userId'
   > & {
     id: string;
     team_id: string | null;
     project_id: string | null;
+    user_id: string | null;
     scopes: unknown;
     revoked_at: Date | null;
     expires_at: Date | null;
@@ -184,6 +290,7 @@ export async function verifyPostgresApiKey(
     apiKeyId: row.id,
     teamId: row.team_id,
     projectId: row.project_id,
+    userId: row.user_id ?? null,
     scopes,
   };
 }

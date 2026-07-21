@@ -3,7 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import type { PostgresQueryable } from './utils.js';
 
-export const SERVER_POSTGRES_SCHEMA_VERSION = 5;
+export const SERVER_POSTGRES_SCHEMA_VERSION = 6;
 
 // Phase 1b (cmem-sdk rename): the TS constant is renamed but the table-name
 // strings remain on `server_beta_*` since they are persisted DDL identifiers.
@@ -121,6 +121,20 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
       ON CONFLICT (version) DO NOTHING
     `,
     [5, 'team-agent-memory: idempotency_key column + partial unique index on observations']
+  );
+  // Migration 006: nullable user_id on api_keys — owning user linkage.
+  // Back-compat: column is nullable so legacy null-owner keys behave exactly
+  // as before; migration is additive + idempotent (ADD COLUMN IF NOT EXISTS).
+  await client.query(
+    `ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id TEXT`
+  );
+  await client.query(
+    `
+      INSERT INTO server_beta_schema_migrations (version, description)
+      VALUES ($1, $2)
+      ON CONFLICT (version) DO NOTHING
+    `,
+    [6, 'identity-core: api_keys.user_id nullable owning-user column']
   );
 }
 

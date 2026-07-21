@@ -94,6 +94,64 @@ export class PostgresTeamsRepository {
     );
     return row ? mapTeamRow(row) : null;
   }
+
+  /**
+   * Returns the role of `userId` in `teamId`, or null if they have no membership row.
+   * Used by the auth middleware to resolve role on authenticated requests.
+   */
+  async getMemberRole(teamId: string, userId: string): Promise<PostgresTeamRole | null> {
+    const row = await queryOne<Pick<TeamMemberRow, 'role'>>(
+      this.client,
+      `
+        SELECT role
+        FROM team_members
+        WHERE team_id = $1 AND user_id = $2
+      `,
+      [teamId, userId]
+    );
+    return row?.role ?? null;
+  }
+
+  /**
+   * Lists all members of `teamId`, ordered by created_at ascending.
+   */
+  async listMembers(teamId: string): Promise<PostgresTeamMember[]> {
+    const result = await this.client.query<TeamMemberRow>(
+      `
+        SELECT team_id, user_id, role, metadata, created_at, updated_at
+        FROM team_members
+        WHERE team_id = $1
+        ORDER BY created_at ASC
+      `,
+      [teamId]
+    );
+    return result.rows.map(mapTeamMemberRow);
+  }
+
+  /**
+   * Removes the membership row for `userId` in `teamId`.
+   * Returns true if a row was deleted, false if none existed.
+   */
+  async removeMember(teamId: string, userId: string): Promise<boolean> {
+    const result = await this.client.query(
+      `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      [teamId, userId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Sets the role of `userId` in `teamId`. Reuses the addMember upsert so it
+   * works for both adding a new member (with a role) and changing an existing
+   * member's role. Returns the updated/inserted row.
+   */
+  async setMemberRole(
+    teamId: string,
+    userId: string,
+    role: PostgresTeamRole
+  ): Promise<PostgresTeamMember> {
+    return this.addMember({ teamId, userId, role });
+  }
 }
 
 function mapTeamRow(row: TeamRow): PostgresTeam {

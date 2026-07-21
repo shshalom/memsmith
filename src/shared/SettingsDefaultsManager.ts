@@ -89,6 +89,7 @@ export interface SettingsDefaults {
   MEMSMITH_REDISCOVERY_LOG: string;  // Hook-activation — log when memory already held an answer for a discovery query (default 'false')
   MEMSMITH_USER_NOTE_BOOST: string;  // Post-rank boost: floats user_note observations ahead of ambient within the relevant result set (on/off toggle)
   MEMSMITH_RECORD_INTENT_BACKSTOP: string;  // Task 9 — enable /v1/record-intent Layer-2 backstop on UserPromptSubmit (default 'true')
+  MEMSMITH_IDENTITY_PROVIDER: string;       // Task 8 (identity-core) — identity provider for human sessions: 'local' | 'better-auth' (default 'local')
 }
 
 export class SettingsDefaultsManager {
@@ -177,6 +178,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_REDISCOVERY_LOG: 'false',                    // Hook-activation — re-discovery logging (default 'false')
     MEMSMITH_USER_NOTE_BOOST: 'true',                     // Post-rank boost: floats user_note observations ahead of ambient (on/off toggle)
     MEMSMITH_RECORD_INTENT_BACKSTOP: 'true',              // Task 9 — Layer-2 backstop: POST prompt to /v1/record-intent on UserPromptSubmit (default 'true')
+    MEMSMITH_IDENTITY_PROVIDER: 'local',                  // Task 8 (identity-core) — identity provider for human sessions (default 'local')
   };
 
   static getAllDefaults(): SettingsDefaults {

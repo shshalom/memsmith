@@ -15,11 +15,19 @@ async function getBetterAuthHandler(database: Database): Promise<NodeHandler> {
     return cachedHandler;
   }
 
-  const [{ toNodeHandler }, { createAuth }] = await Promise.all([
+  const [{ toNodeHandler }, { createAuth }, { initBetterAuthProvider }] = await Promise.all([
     import('better-auth/node'),
     import('./auth.js'),
+    import('../identity/providers/better-auth-provider.js'),
   ]);
-  const handler = toNodeHandler(createAuth(database));
+  const auth = createAuth(database);
+  // Task 8 (identity-core): initialise the singleton betterAuthProvider so it
+  // can validate sessions when MEMSMITH_IDENTITY_PROVIDER=better-auth. Called
+  // here because this is the only site where a real auth instance is built;
+  // calling it unconditionally is safe — the provider's fail-safe returns null
+  // if invoked before init (but this fires on the first auth request anyway).
+  initBetterAuthProvider(auth.api as Parameters<typeof initBetterAuthProvider>[0]);
+  const handler = toNodeHandler(auth);
   cachedHandlers.set(database, handler);
   return handler;
 }
