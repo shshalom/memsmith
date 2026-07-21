@@ -8,7 +8,7 @@ import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject as defaultShouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import { isInternalProtocolPayload } from '../../utils/tag-stripping.js';
+import { isInternalProtocolPayload, stripMemoryTags } from '../../utils/tag-stripping.js';
 import {
   resolveRuntimeContext as defaultResolveRuntimeContext,
   logServerFallback as defaultLogServerFallback,
@@ -41,6 +41,10 @@ export function setSessionInitDependenciesForTesting(
   overrides: Partial<typeof defaultDependencies> = {},
 ): void {
   dependencies = { ...defaultDependencies, ...overrides };
+}
+
+export function buildSessionMetadata(project: string, prompt: string): { project: string; prompt: string } {
+  return { project, prompt: stripMemoryTags(prompt) };
 }
 
 export const sessionInitHandler: EventHandler = {
@@ -164,7 +168,7 @@ async function startServerSession(
     agentId: input.agentId ?? null,
     agentType: input.agentType ?? null,
     platformSource,
-    metadata: { project, prompt },
+    metadata: buildSessionMetadata(project, prompt),
   });
   logger.info('HOOK', 'session-init: server session started', {
     contentSessionId: sessionId,
