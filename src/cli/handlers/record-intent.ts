@@ -6,8 +6,13 @@ import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { isRecordIntent } from '../../services/retrieval/record-intent-detect.js';
 import { RecordArmedStore } from '../../services/retrieval/record-armed-store.js';
+import { stripMemoryTags } from '../../utils/tag-stripping.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
+
+export function stripRecordIntentPrompt(prompt: string): string {
+  return stripMemoryTags(prompt);
+}
 
 // Layer-2 backstop trigger: POST the prompt to /v1/record-intent so the server
 // provider can classify+compose+capture a record request the agent may have
@@ -33,7 +38,7 @@ export const recordIntentHandler: EventHandler = {
       const runtime = resolveRuntimeContext();
       if (runtime.runtime !== 'server') return CONTINUE;
       // Best-effort fire; the server writes on a positive classification.
-      await runtime.client.recordIntent({ projectId: runtime.projectId, prompt });
+      await runtime.client.recordIntent({ projectId: runtime.projectId, prompt: stripRecordIntentPrompt(prompt) });
     } catch (err) {
       logger.debug('HOOK', 'record-intent backstop failed (fail-open)', { error: err instanceof Error ? err.message : String(err) });
     }
