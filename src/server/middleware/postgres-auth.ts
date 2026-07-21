@@ -35,6 +35,11 @@ export function roleSatisfies(role: PostgresTeamRole | null, min: PostgresTeamRo
 /**
  * Route guard: calls next() when the authenticated principal's role satisfies
  * `min`; otherwise responds 403 Forbidden.
+ *
+ * ORDERING: MUST run after requirePostgresServerAuth (which populates
+ * req.authContext). If authContext is absent, role is undefined → roleSatisfies
+ * returns false → 403 (fail-closed). The ordering dependency must be enforced
+ * by route registration, not relied on implicitly.
  */
 export function requireRole(min: PostgresTeamRole): RequestHandler {
   return (req, res, next) => {
@@ -142,6 +147,12 @@ async function authenticatePostgresRequest(
     // preserved. In other modes, try the configured identity provider for
     // session-based auth (e.g. better-auth cookie sessions).
     //
+    // For 'local-dev' mode without the bypass (e.g. allowLocalDevBypass=false
+    // or loopback checks not satisfied), a keyless request still reaches this
+    // branch. The local identity provider resolves it as an implicit local owner
+    // (single-user local mode). That is intentional: local mode is not
+    // multi-tenant, so any request from the local UI gets owner identity.
+    //
     // FAIL-SAFE: provider.authenticate throwing or returning null → 401, never crash.
     const provider = authMode !== 'api-key' ? resolveIdentityProvider(process.env) : null;
     let authnResult: import('../identity/identity-provider.js').AuthnResult | null = null;
@@ -164,6 +175,18 @@ async function authenticatePostgresRequest(
     // available from session auth alone. Role stays null (fail-safe: deny
     // role-gated routes; a future extension can derive teamId from authnResult
     // and call getMemberRole here).
+    //
+    // Scope gate: symmetric with the api-key path. The session is granted a
+    // conservative fixed set of scopes. Check them against requiredScopes using
+    // the same hasRequiredScopes helper the api-key path uses. On mismatch →
+    // deny (403, consistent with api-key insufficient-scope response). If
+    // requiredScopes is empty/undefined → allow (matches api-key semantics).
+    const sessionScopes = ['memories:read', 'memories:write'];
+    const requiredScopes = options.requiredScopes ?? [];
+    if (!hasRequiredScopes(sessionScopes, requiredScopes)) {
+      res.status(403).json({ error: 'Forbidden', message: 'Invalid API key or insufficient scope' });
+      return;
+    }
     const sessionUserId = authnResult.userId;
     const sessionRole: PostgresTeamRole | null = null;
     const sessionCtx: AuthContext = {
@@ -171,7 +194,7 @@ async function authenticatePostgresRequest(
       organizationId: null,
       teamId: null,
       projectId: null,
-      scopes: ['memories:read', 'memories:write'],
+      scopes: sessionScopes,
       apiKeyId: null,
       mode: 'session',
       role: sessionRole,

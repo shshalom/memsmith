@@ -212,3 +212,84 @@ describe('DashboardRoutes — localDevTeamId integration', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Finding 2 regression: local-dev mode WITHOUT bypass (allowLocalDevBypass=false)
+// — keyless request goes through the identity provider (local → implicit owner).
+// Documents the CURRENT intended behavior so future changes can't silently break it.
+//
+// With allowLocalDevBypass=false the bypass gate never fires, so the request
+// falls into the identity-provider branch. The local provider always resolves
+// LOCAL_OWNER_USER_ID as the implicit owner — that is intentional for single-user
+// local mode where any UI request should succeed. Mode on the resulting context
+// is 'session' (not 'local-dev'), because the provider-resolved path sets that.
+// ---------------------------------------------------------------------------
+describe('requirePostgresServerAuth — local-dev without bypass resolves via provider', () => {
+  let closeServer: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    if (closeServer) { await closeServer(); closeServer = null; }
+  });
+
+  async function startLocalDevNoBypassApp(requiredScopes: string[]): Promise<number> {
+    const app = express();
+    const fakePool = {} as Parameters<typeof requirePostgresServerAuth>[0];
+    const mw = requirePostgresServerAuth(fakePool, {
+      authMode: 'local-dev',
+      allowLocalDevBypass: false, // bypass gate disabled — falls through to provider
+      requiredScopes,
+    });
+    app.get('/probe', mw, (req, res) => {
+      res.json({
+        userId: req.authContext?.userId ?? null,
+        mode: req.authContext?.mode ?? null,
+        scopes: req.authContext?.scopes ?? null,
+      });
+    });
+    return new Promise((resolve, reject) => {
+      const srv = app.listen(0, '127.0.0.1', () => {
+        const addr = srv.address();
+        if (!addr || typeof addr === 'string') { reject(new Error('no port')); return; }
+        closeServer = () => new Promise<void>((res, rej) => srv.close(err => err ? rej(err) : res()));
+        resolve((addr as { port: number }).port);
+      });
+    });
+  }
+
+  it('resolves keyless request as local owner (mode=session) when bypass is disabled', async () => {
+    // authMode=local-dev, allowLocalDevBypass=false, no key →
+    // identity provider (local) resolves request as LOCAL_OWNER_USER_ID.
+    // Mode is 'session' (the provider-resolved path); userId is 'local-owner'.
+    const p = await startLocalDevNoBypassApp(['memories:read']);
+    const res = await fetch(`http://127.0.0.1:${p}/probe`, {
+      headers: { Host: 'localhost' },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { userId: string | null; mode: string | null; scopes: string[] | null };
+    expect(body.userId).toBe('local-owner');
+    expect(body.mode).toBe('session');
+    expect(body.scopes).toContain('memories:read');
+  });
+
+  it('returns 403 when session scopes do not satisfy requiredScopes', async () => {
+    // Finding 1 regression: session path must now enforce requiredScopes.
+    // Session grants ['memories:read','memories:write']. Requiring 'settings:admin'
+    // (not in session grant) must produce 403, not call next().
+    const p = await startLocalDevNoBypassApp(['settings:admin']);
+    const res = await fetch(`http://127.0.0.1:${p}/probe`, {
+      headers: { Host: 'localhost' },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('Forbidden');
+  });
+
+  it('allows when requiredScopes is empty (matches api-key semantics)', async () => {
+    // Empty requiredScopes → always allow regardless of session scopes.
+    const p = await startLocalDevNoBypassApp([]);
+    const res = await fetch(`http://127.0.0.1:${p}/probe`, {
+      headers: { Host: 'localhost' },
+    });
+    expect(res.status).toBe(200);
+  });
+});
