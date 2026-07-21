@@ -23,6 +23,7 @@ import { logger } from '../../utils/logger.js';
 import { buildServerJobId } from '../jobs/job-id.js';
 import type { GenerateObservationsForEventJob } from '../jobs/types.js';
 import { newId } from '../../storage/postgres/utils.js';
+import { scrubEventPayload } from './event-payload-scrub.js';
 
 function buildEventBullmqPayload(input: {
   outboxId: string;
@@ -93,9 +94,14 @@ export class IngestEventsService {
     const generate = opts.generate ?? true;
     const source = opts.source ?? 'http_post_v1_events';
 
+    // Server-side backstop: strip <private> before anything is stored, so the
+    // raw agent_events table never holds private content (closes the leak for
+    // every client, including non-hook adapters).
+    const scrubbedInput = { ...input, payload: scrubEventPayload(input.payload ?? {}) };
+
     const txResult = await withPostgresTransaction(this.options.pool, async (client) => {
       const eventsRepo = new PostgresAgentEventsRepository(client);
-      const inserted = await eventsRepo.create(input);
+      const inserted = await eventsRepo.create(scrubbedInput);
 
       if (!generate) {
         return { event: inserted, outbox: null as PostgresObservationGenerationJob | null };
@@ -166,7 +172,8 @@ export class IngestEventsService {
       const eventsLogRepo = new PostgresObservationGenerationJobEventsRepository(client);
       const acc: { event: PostgresAgentEvent; outbox: PostgresObservationGenerationJob | null }[] = [];
       for (const input of inputs) {
-        const event = await eventsRepo.create(input);
+        const scrubbedInput = { ...input, payload: scrubEventPayload(input.payload ?? {}) };
+        const event = await eventsRepo.create(scrubbedInput);
         if (!generate) {
           acc.push({ event, outbox: null });
           continue;

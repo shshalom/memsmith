@@ -15,6 +15,8 @@ import {
   type ServerRuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { isIncognito, bumpTurn } from '../incognito.js';
+import { handleIncognitoCommand } from './incognito-command.js';
 
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
@@ -23,6 +25,17 @@ const defaultDependencies = {
 };
 
 let dependencies = defaultDependencies;
+
+export function incognitoHeartbeat(
+  sessionId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (!isIncognito(sessionId)) return null;
+  const raw = Number.parseInt(env.MEMSMITH_INCOGNITO_REMINDER_TURNS ?? '', 10);
+  const n = Number.isFinite(raw) && raw > 0 ? raw : 10;
+  const turn = bumpTurn(sessionId);
+  return turn % n === 0 ? '🔒 still incognito — not recording' : null;
+}
 
 export function setSessionInitDependenciesForTesting(
   overrides: Partial<typeof defaultDependencies> = {},
@@ -43,6 +56,35 @@ export const sessionInitHandler: EventHandler = {
     if (!dependencies.shouldTrackProject(cwd)) {
       logger.info('HOOK', 'Project excluded from tracking', { cwd });
       return { continue: true, suppressOutput: true };
+    }
+
+    // /incognito [on|off] — intercept before any other processing so the toggle
+    // is always reachable regardless of the tracking or runtime state.
+    const trimmedPrompt = (rawPrompt ?? '').trim();
+    if (/^\/incognito(\s|$)/i.test(trimmedPrompt) || trimmedPrompt.toLowerCase() === '/incognito') {
+      const arg = trimmedPrompt.slice('/incognito'.length).trim() || undefined;
+      const { message } = handleIncognitoCommand(sessionId, arg);
+      logger.info('HOOK', 'session-init: incognito command handled', { arg, message });
+      return {
+        continue: true,
+        suppressOutput: false,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: message,
+        },
+      };
+    }
+
+    const heartbeat = incognitoHeartbeat(sessionId);
+    if (heartbeat) {
+      return {
+        continue: true,
+        suppressOutput: false,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: heartbeat,
+        },
+      };
     }
 
     if (rawPrompt && isInternalProtocolPayload(rawPrompt)) {
