@@ -87,6 +87,11 @@ export const SETTING_KEYS: readonly SettingKey[] = [
     label: 'Identity provider',
     description: 'Authentication provider for human sessions (local = no login; better-auth = session auth).',
     help: 'Controls how human (non-API-key) requests are authenticated. "local" is the single-user default — any loopback request is treated as the local owner with no login required. "better-auth" enables session-based authentication via better-auth; requires better-auth to be initialised at server startup. Takes effect after a server restart.' },
+  { key: 'incognitoReminderTurns', type: 'number', env: 'MEMSMITH_INCOGNITO_REMINDER_TURNS', default: 10,
+    boot: false,
+    label: 'Incognito reminder cadence',
+    description: 'How many turns between "still incognito" reminders while an incognito session is active.',
+    help: 'While incognito is ON (no capture), MemSmith re-surfaces a short "still incognito — not recording" reminder every N turns so you do not forget it is on and silently lose memory. Default 10. Only affects the reminder cadence; it does not change what is recorded.' },
 ];
 
 const BY_KEY: Map<string, SettingKey> = new Map(SETTING_KEYS.map(k => [k.key, k]));
