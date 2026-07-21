@@ -47,6 +47,7 @@ import { boostUserDirected } from './user-note-boost.js';
 import { classifyAndComposeRecordIntent } from './record-intent.js';
 import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
+import { stampAttribution } from './attribution.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -930,7 +931,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           serverSessionId: body.serverSessionId ?? null,
           kind: body.kind ?? 'manual',
           content: body.content,
-          metadata: body.metadata ?? {},
+          metadata: stampAttribution(body.metadata ?? {}, req.authContext ?? { userId: null }),
           embeddingVec,
           idempotencyKey: body.idempotencyKey ?? null,
         };
@@ -979,7 +980,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               // Embed on write so record-intent notes are semantically searchable.
               // Best-effort (embedForPersist never throws); matches /v1/memories path.
               const embeddingVec = await embedForPersist(o.content);
-              return repo.create({ projectId: o.projectId, teamId: o.teamId, kind: o.kind, content: o.content, metadata: o.metadata, idempotencyKey: o.idempotencyKey, embeddingVec });
+              const metadata = stampAttribution(o.metadata, req.authContext ?? { userId: null });
+              return repo.create({ projectId: o.projectId, teamId: o.teamId, kind: o.kind, content: o.content, metadata, idempotencyKey: o.idempotencyKey, embeddingVec });
             },
             teamId,
             projectId,
