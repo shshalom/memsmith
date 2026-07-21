@@ -15,6 +15,7 @@ import {
   type ServerRuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { isIncognito, bumpTurn } from '../incognito.js';
 
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
@@ -23,6 +24,17 @@ const defaultDependencies = {
 };
 
 let dependencies = defaultDependencies;
+
+export function incognitoHeartbeat(
+  sessionId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (!isIncognito(sessionId)) return null;
+  const raw = Number.parseInt(env.MEMSMITH_INCOGNITO_REMINDER_TURNS ?? '', 10);
+  const n = Number.isFinite(raw) && raw > 0 ? raw : 10;
+  const turn = bumpTurn(sessionId);
+  return turn % n === 0 ? '🔒 still incognito — not recording' : null;
+}
 
 export function setSessionInitDependenciesForTesting(
   overrides: Partial<typeof defaultDependencies> = {},
@@ -43,6 +55,18 @@ export const sessionInitHandler: EventHandler = {
     if (!dependencies.shouldTrackProject(cwd)) {
       logger.info('HOOK', 'Project excluded from tracking', { cwd });
       return { continue: true, suppressOutput: true };
+    }
+
+    const heartbeat = incognitoHeartbeat(sessionId);
+    if (heartbeat) {
+      return {
+        continue: true,
+        suppressOutput: false,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: heartbeat,
+        },
+      };
     }
 
     if (rawPrompt && isInternalProtocolPayload(rawPrompt)) {
