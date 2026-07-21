@@ -19,7 +19,8 @@ import { PostgresAuthRepository } from '../../../storage/postgres/auth.js';
 import { PostgresObservationRepository, mapObservationRow, type ObservationRow, type PostgresObservation } from '../../../storage/postgres/observations.js';
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
-import { requirePostgresServerAuth } from '../../middleware/postgres-auth.js';
+import { requirePostgresServerAuth, requireRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
 import { requestIdMiddleware } from '../../middleware/request-id.js';
 import type { ActiveServerQueueManager } from '../../runtime/ActiveServerQueueManager.js';
@@ -1370,6 +1371,132 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         return false;
       },
     });
+
+    // Task 6 — /v1/members management routes.
+    // GET  /v1/members         — readAuth + ≥member: list team members
+    // POST /v1/members         — writeAuth + ≥admin: add/upsert a member (role)
+    // PATCH /v1/members/:userId — writeAuth + ≥admin: change a member's role
+    // DELETE /v1/members/:userId — writeAuth + ≥admin: remove member + revoke their keys
+    //
+    // Every query is scoped to req.authContext.teamId. Role gating is enforced
+    // both by requireRole middleware (admits/rejects before the handler body)
+    // and by an additional elevation check inside POST/PATCH (no-role-above-self).
+    // DELETE also guards the last-owner invariant (403 if removing would leave
+    // zero owners).
+
+    // GET /v1/members — list all members of the caller's team. Requires ≥member.
+    app.get('/v1/members', readAuth, requireRole('member'), this.asyncHandler(async (req, res) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      const teamsRepo = new PostgresTeamsRepository(this.options.pool);
+      const members = await teamsRepo.listMembers(teamId);
+      res.status(200).json({ members: members.map(m => ({
+        userId: m.userId,
+        role: m.role,
+        createdAt: new Date(m.createdAtEpoch).toISOString(),
+        updatedAt: new Date(m.updatedAtEpoch).toISOString(),
+      })) });
+    }));
+
+    // POST /v1/members — add (upsert) an existing user with a role.
+    // Requires ≥admin. Forbids assigning a role above the caller's own role.
+    app.post('/v1/members', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      const { userId, role } = req.body as { userId?: unknown; role?: unknown };
+      if (typeof userId !== 'string' || !userId) {
+        res.status(400).json({ error: 'ValidationError', message: 'userId is required' });
+        return;
+      }
+      const validRoles = ['owner', 'admin', 'member', 'viewer'];
+      if (typeof role !== 'string' || !validRoles.includes(role)) {
+        res.status(400).json({ error: 'ValidationError', message: `role must be one of: ${validRoles.join(', ')}` });
+        return;
+      }
+      // Forbid assigning a role above the caller's own role (no privilege escalation).
+      const callerRole = req.authContext?.role ?? null;
+      if (!roleSatisfies(callerRole, role as PostgresTeamRole)) {
+        res.status(403).json({ error: 'Forbidden', message: 'cannot assign a role above your own' });
+        return;
+      }
+      const teamsRepo = new PostgresTeamsRepository(this.options.pool);
+      const member = await teamsRepo.addMember({ teamId, userId, role: role as PostgresTeamRole });
+      res.status(200).json({ member: {
+        userId: member.userId,
+        role: member.role,
+        createdAt: new Date(member.createdAtEpoch).toISOString(),
+        updatedAt: new Date(member.updatedAtEpoch).toISOString(),
+      } });
+    }));
+
+    // PATCH /v1/members/:userId — change role. Requires ≥admin.
+    // Forbids assigning a role above the caller's own role.
+    app.patch('/v1/members/:userId', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      const targetUserId = String(req.params.userId);
+      const { role } = req.body as { role?: unknown };
+      const validRoles = ['owner', 'admin', 'member', 'viewer'];
+      if (typeof role !== 'string' || !validRoles.includes(role)) {
+        res.status(400).json({ error: 'ValidationError', message: `role must be one of: ${validRoles.join(', ')}` });
+        return;
+      }
+      // Forbid elevating to a role above the caller's own role.
+      const callerRole = req.authContext?.role ?? null;
+      if (!roleSatisfies(callerRole, role as PostgresTeamRole)) {
+        res.status(403).json({ error: 'Forbidden', message: 'cannot assign a role above your own' });
+        return;
+      }
+      const teamsRepo = new PostgresTeamsRepository(this.options.pool);
+      // Verify the member exists in this team before updating.
+      const existing = await teamsRepo.getMemberRole(teamId, targetUserId);
+      if (!existing) {
+        res.status(404).json({ error: 'NotFound', message: 'Member not found' });
+        return;
+      }
+      const member = await teamsRepo.setMemberRole(teamId, targetUserId, role as PostgresTeamRole);
+      res.status(200).json({ member: {
+        userId: member.userId,
+        role: member.role,
+        createdAt: new Date(member.createdAtEpoch).toISOString(),
+        updatedAt: new Date(member.updatedAtEpoch).toISOString(),
+      } });
+    }));
+
+    // DELETE /v1/members/:userId — remove member and revoke their keys.
+    // Requires ≥admin. Forbids removing the last owner (403).
+    app.delete('/v1/members/:userId', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
+      const teamId = this.requireTeamId(req, res);
+      if (!teamId) return;
+      const targetUserId = String(req.params.userId);
+      const teamsRepo = new PostgresTeamsRepository(this.options.pool);
+
+      // Load all current members to enforce last-owner invariant.
+      const members = await teamsRepo.listMembers(teamId);
+      const target = members.find(m => m.userId === targetUserId);
+      if (!target) {
+        res.status(404).json({ error: 'NotFound', message: 'Member not found' });
+        return;
+      }
+      // Guard: if the target is an owner and they are the only owner, refuse.
+      if (target.role === 'owner') {
+        const ownerCount = members.filter(m => m.role === 'owner').length;
+        if (ownerCount <= 1) {
+          res.status(403).json({ error: 'Forbidden', message: 'cannot remove the last owner' });
+          return;
+        }
+      }
+
+      // Revoke the removed user's api_keys scoped to this team.
+      await this.options.pool.query(
+        `UPDATE api_keys SET revoked_at = now()
+         WHERE team_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+        [teamId, targetUserId],
+      );
+
+      await teamsRepo.removeMember(teamId, targetUserId);
+      res.status(200).json({ removed: true, userId: targetUserId });
+    }));
   }
 
   // Phase 11 — resolve actor identity for audit. We look up the api_keys row
