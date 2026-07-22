@@ -20,6 +20,7 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { authorizeObservationDelete } from './delete-authorization.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
 import { requestIdMiddleware } from '../../middleware/request-id.js';
@@ -1268,11 +1269,23 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const id = String(req.params.id);
       const projectScope = req.authContext?.projectId ?? null;
       try {
-        const deleted = await this.deleteObservationForScope(id, teamId, projectScope);
-        if (!deleted) {
-          res.status(404).json({ error: 'not_found' });
+        const row = await this.getObservationForDelete(id, teamId, projectScope);
+        if (!row) { res.status(404).json({ error: 'not_found' }); return; }
+
+        const decision = authorizeObservationDelete(
+          req.authContext ?? { role: null, userId: null },
+          row,
+        );
+        if (!decision.allow) {
+          const message = decision.reason === 'wrong_kind'
+            ? 'members may delete only their own notes; deleting a generated observation requires admin'
+            : 'members may delete only their own notes; this note belongs to another member';
+          res.status(403).json({ error: 'Forbidden', message });
           return;
         }
+
+        const deleted = await this.deleteObservationForScope(id, teamId, projectScope);
+        if (!deleted) { res.status(404).json({ error: 'not_found' }); return; }
         await this.auditWrite(req, 'observation.deleted', id, projectScope, { via: 'api' });
         res.status(200).json({ deleted: true, id });
       } catch (error) {
