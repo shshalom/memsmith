@@ -20,6 +20,7 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { authorizeObservationDelete } from './delete-authorization.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
 import { requestIdMiddleware } from '../../middleware/request-id.js';
@@ -1268,11 +1269,23 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const id = String(req.params.id);
       const projectScope = req.authContext?.projectId ?? null;
       try {
-        const deleted = await this.deleteObservationForScope(id, teamId, projectScope);
-        if (!deleted) {
-          res.status(404).json({ error: 'not_found' });
+        const row = await this.getObservationForDelete(id, teamId, projectScope);
+        if (!row) { res.status(404).json({ error: 'not_found' }); return; }
+
+        const decision = authorizeObservationDelete(
+          req.authContext ?? { role: null, userId: null },
+          row,
+        );
+        if (!decision.allow) {
+          const message = decision.reason === 'wrong_kind'
+            ? 'members may delete only their own notes; deleting a generated observation requires admin'
+            : 'members may delete only their own notes; this note belongs to another member';
+          res.status(403).json({ error: 'Forbidden', message });
           return;
         }
+
+        const deleted = await this.deleteObservationForScope(id, teamId, projectScope);
+        if (!deleted) { res.status(404).json({ error: 'not_found' }); return; }
         await this.auditWrite(req, 'observation.deleted', id, projectScope, { via: 'api' });
         res.status(200).json({ deleted: true, id });
       } catch (error) {
@@ -1284,7 +1297,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     // DELETE /v1/projects/:projectId/memory — forget EVERYTHING captured for a
     // project (observations, raw events, sessions, jobs). Keeps the project shell.
-    app.delete('/v1/projects/:projectId/memory', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
+    app.delete('/v1/projects/:projectId/memory', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const projectId = String(req.params.projectId);
@@ -1891,6 +1904,28 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       return null;
     }
     return loaded;
+  }
+
+  // Scoped row fetch for DELETE /v1/memories/:id authorization: returns the
+  // row's kind + createdByUserId within the caller's scope, or null if absent.
+  // Mirrors deleteObservationForScope's scoping exactly (project-scoped key
+  // restricted to its project; team-scoped key to the team) so authorization
+  // never sees a row the caller couldn't target.
+  private async getObservationForDelete(
+    id: string,
+    teamId: string,
+    projectScope: string | null,
+  ): Promise<{ kind: string; createdByUserId: string | null } | null> {
+    const sql = projectScope != null
+      ? `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
+           FROM observations WHERE id = $1 AND team_id = $2 AND project_id = $3`
+      : `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
+           FROM observations WHERE id = $1 AND team_id = $2`;
+    const params = projectScope != null ? [id, teamId, projectScope] : [id, teamId];
+    const result = await this.options.pool.query(sql, params);
+    const row = result.rows[0] as { kind: string; created_by_user_id: string | null } | undefined;
+    if (!row) return null;
+    return { kind: row.kind, createdByUserId: row.created_by_user_id };
   }
 
   // Scoped single-observation delete for DELETE /v1/memories/:id.
