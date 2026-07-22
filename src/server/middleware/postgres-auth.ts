@@ -48,6 +48,30 @@ export function requireRole(min: PostgresTeamRole): RequestHandler {
   };
 }
 
+/**
+ * Route guard for content-mutating routes (observation write/delete).
+ * Requires a >= member role, BUT treats a null role (legacy/scope-only key:
+ * no user_id, or user not in team_members) as member-equivalent so existing
+ * scope-only keys keep working. Only an explicit role strictly below member
+ * (viewer) is denied. Fail-safe: absent authContext → 403.
+ *
+ * ORDERING: MUST run after requirePostgresServerAuth (which populates
+ * req.authContext incl. role). Enforced by route-registration order.
+ */
+export function requireWriteRole(): RequestHandler {
+  return (req, res, next) => {
+    const ctx = req.authContext;
+    if (!ctx) {
+      res.status(403).json({ error: 'Forbidden', message: 'requires role member or higher' });
+      return;
+    }
+    const role = ctx.role; // PostgresTeamRole | null
+    const allow = role == null || roleSatisfies(role, 'member');
+    if (allow) return next();
+    res.status(403).json({ error: 'Forbidden', message: 'requires role member or higher' });
+  };
+}
+
 declare module 'express-serve-static-core' {
   interface Request {
     authContext?: AuthContext;
