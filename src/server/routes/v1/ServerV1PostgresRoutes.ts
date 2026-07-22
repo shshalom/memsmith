@@ -1893,6 +1893,28 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     return loaded;
   }
 
+  // Scoped row fetch for DELETE /v1/memories/:id authorization: returns the
+  // row's kind + createdByUserId within the caller's scope, or null if absent.
+  // Mirrors deleteObservationForScope's scoping exactly (project-scoped key
+  // restricted to its project; team-scoped key to the team) so authorization
+  // never sees a row the caller couldn't target.
+  private async getObservationForDelete(
+    id: string,
+    teamId: string,
+    projectScope: string | null,
+  ): Promise<{ kind: string; createdByUserId: string | null } | null> {
+    const sql = projectScope != null
+      ? `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
+           FROM observations WHERE id = $1 AND team_id = $2 AND project_id = $3`
+      : `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
+           FROM observations WHERE id = $1 AND team_id = $2`;
+    const params = projectScope != null ? [id, teamId, projectScope] : [id, teamId];
+    const result = await this.options.pool.query(sql, params);
+    const row = result.rows[0] as { kind: string; created_by_user_id: string | null } | undefined;
+    if (!row) return null;
+    return { kind: row.kind, createdByUserId: row.created_by_user_id };
+  }
+
   // Scoped single-observation delete for DELETE /v1/memories/:id.
   // Project-scoped key deletes within its project; a team-scoped key
   // matches by id + team across the team's projects.
