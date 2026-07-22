@@ -19,7 +19,7 @@ import { PostgresAuthRepository } from '../../../storage/postgres/auth.js';
 import { PostgresObservationRepository, mapObservationRow, type ObservationRow, type PostgresObservation } from '../../../storage/postgres/observations.js';
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
-import { requirePostgresServerAuth, requireRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
 import { requestIdMiddleware } from '../../middleware/request-id.js';
@@ -289,7 +289,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     }));
 
     // POST /v1/events — single event with optional async generation
-    app.post('/v1/events', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/events', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const parsedQuery = EVENT_QUERY_SCHEMA.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({ error: 'ValidationError', issues: parsedQuery.error.issues });
@@ -367,7 +367,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     }));
 
     // POST /v1/events/batch — pre-validate, atomic insert, then enqueue
-    app.post('/v1/events/batch', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/events/batch', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const parsedQuery = EVENT_QUERY_SCHEMA.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({ error: 'ValidationError', issues: parsedQuery.error.issues });
@@ -769,7 +769,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // on platform-scoped external session identity when platformSource is set.
     // Body matches the worker
     // /v1/sessions/start payload but stores into Postgres server_sessions.
-    app.post('/v1/sessions/start', writeAuth, this.handleCreate(
+    app.post('/v1/sessions/start', writeAuth, requireWriteRole(), this.handleCreate(
       z.object({
         projectId: z.string().min(1),
         externalSessionId: z.string().min(1).optional(),
@@ -866,7 +866,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // because the (team_id, project_id, source_type='session_summary',
     // source_id) UNIQUE constraint on observation_generation_jobs prevents
     // duplicate rows; the existing row is returned.
-    app.post('/v1/sessions/:id/end', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/sessions/:id/end', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
@@ -920,7 +920,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     // POST /v1/memories — direct/manual observation insertion (compat alias).
     // MUST NOT call generator and MUST NOT create outbox rows.
-    app.post('/v1/memories', writeAuth, this.handleCreate(
+    app.post('/v1/memories', writeAuth, requireWriteRole(), this.handleCreate(
       z.object({
         projectId: z.string().min(1),
         serverSessionId: z.string().min(1).nullable().optional(),
@@ -966,7 +966,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // deterministic idempotency key (deduplicates vs the agent layer).
     // Fail-open: provider unavailable / null / NONE reply → {recorded:false},
     // 200. Never 500 the hot path.
-    app.post('/v1/record-intent', writeAuth, this.handleCreate(
+    app.post('/v1/record-intent', writeAuth, requireWriteRole(), this.handleCreate(
       z.object({
         prompt: z.string().min(1),
         projectId: z.string().min(1).optional(),
@@ -1262,7 +1262,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     app.get('/v1/mcp', readAuth, mcpHandler);
 
     // DELETE /v1/memories/:id — forget a single observation (sources cascade).
-    app.delete('/v1/memories/:id', writeAuth, this.asyncHandler(async (req, res) => {
+    app.delete('/v1/memories/:id', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = String(req.params.id);
@@ -1284,7 +1284,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     // DELETE /v1/projects/:projectId/memory — forget EVERYTHING captured for a
     // project (observations, raw events, sessions, jobs). Keeps the project shell.
-    app.delete('/v1/projects/:projectId/memory', writeAuth, this.asyncHandler(async (req, res) => {
+    app.delete('/v1/projects/:projectId/memory', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const projectId = String(req.params.projectId);
