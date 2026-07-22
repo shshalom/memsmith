@@ -1297,7 +1297,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     // DELETE /v1/projects/:projectId/memory — forget EVERYTHING captured for a
     // project (observations, raw events, sessions, jobs). Keeps the project shell.
-    app.delete('/v1/projects/:projectId/memory', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
+    app.delete('/v1/projects/:projectId/memory', writeAuth, requireRole('admin'), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const projectId = String(req.params.projectId);
