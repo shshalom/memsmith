@@ -14,7 +14,7 @@ Identity Core (Spec #1) introduced the 4-tier role model (`owner > admin > membe
 
 **In:**
 - A new guard `requireWriteRole` in `postgres-auth.ts` that enforces a `≥ member` role floor **with a back-compat rule for null-role (legacy/scope-only) keys**.
-- Applying `requireWriteRole` to the 7 content-mutating routes currently on `writeAuth`-only.
+- Applying `requireWriteRole` to the 8 content-mutating routes currently on `writeAuth`-only.
 - Tests: unit for the guard, a regression reproducing the exact C4 scenario, and a live re-validation.
 
 **Out (explicitly, deferred to their own specs):**
@@ -74,7 +74,7 @@ export function requireWriteRole(): RequestHandler {
 - Placed beside `requireRole` / `roleSatisfies`. No change to those.
 - No parameter needed — the floor is always `member` for content mutation (per the design decision). A parameterized variant is YAGNI here.
 
-### 2. Apply to the 7 content-mutating routes (`src/server/routes/v1/ServerV1PostgresRoutes.ts`)
+### 2. Apply to the 8 content-mutating routes (`src/server/routes/v1/ServerV1PostgresRoutes.ts`)
 Insert `requireWriteRole()` into the middleware chain, after `writeAuth`, for:
 | Route | Line (approx) |
 |---|---|
@@ -83,6 +83,7 @@ Insert `requireWriteRole()` into the middleware chain, after `writeAuth`, for:
 | `POST /v1/events/batch` | 370 |
 | `POST /v1/record-intent` | 969 |
 | `POST /v1/sessions/start` | 772 |
+| `POST /v1/sessions/:id/end` | 869 |
 | `DELETE /v1/memories/:id` | 1265 |
 | `DELETE /v1/projects/:projectId/memory` | 1287 |
 
@@ -119,7 +120,7 @@ Composition mirrors `/v1/members` (`app.post('/v1/members', writeAuth, requireRo
 ## Acceptance Criteria
 
 1. `requireWriteRole` denies an explicit `viewer` (role below member) and allows `null` role (legacy) + `member`/`admin`/`owner`; fail-safe denies when `authContext` is absent.
-2. All 7 content-mutating routes (`/v1/memories`, `/v1/events`, `/v1/events/batch`, `/v1/record-intent`, `/v1/sessions/start`, both DELETEs) enforce `requireWriteRole` after `writeAuth`.
+2. All 8 content-mutating routes (`/v1/memories`, `/v1/events`, `/v1/events/batch`, `/v1/record-intent`, `/v1/sessions/start`, `/v1/sessions/:id/end`, both DELETEs) enforce `requireWriteRole` after `writeAuth`.
 3. Read routes are unaffected (a viewer can still read).
 4. The C4 scenario is closed (viewer write → 403) and no legacy scope-only key is locked out (null-role write → still succeeds), both proven by test.
 5. `src` typecheck clean; touched/added test files green; nothing pushed; work on a branch.

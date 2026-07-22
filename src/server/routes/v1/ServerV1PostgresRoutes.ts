@@ -866,7 +866,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // because the (team_id, project_id, source_type='session_summary',
     // source_id) UNIQUE constraint on observation_generation_jobs prevents
     // duplicate rows; the existing row is returned.
-    app.post('/v1/sessions/:id/end', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/sessions/:id/end', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);

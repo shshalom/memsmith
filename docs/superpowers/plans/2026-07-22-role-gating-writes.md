@@ -4,7 +4,7 @@
 
 **Goal:** Close the C4 security hole — a `viewer` with a write-scoped API key can write/delete team memory — by adding a role floor (`≥ member`, null-role treated as member-equivalent) to the observation write/delete routes.
 
-**Architecture:** Add one guard `requireWriteRole()` in `postgres-auth.ts` beside the existing `requireRole`/`roleSatisfies`, then insert it after `writeAuth` on the 7 content-mutating routes in `ServerV1PostgresRoutes.ts`. Scope check (writeAuth) is unchanged; the role check is added on top. Read routes untouched.
+**Architecture:** Add one guard `requireWriteRole()` in `postgres-auth.ts` beside the existing `requireRole`/`roleSatisfies`, then insert it after `writeAuth` on the 8 content-mutating routes in `ServerV1PostgresRoutes.ts`. Scope check (writeAuth) is unchanged; the role check is added on top. Read routes untouched.
 
 **Tech Stack:** TypeScript, `bun:test`, Express `RequestHandler` middleware, existing `AuthContext.role` / `roleSatisfies` / `PostgresTeamRole` machinery (`src/server/middleware/postgres-auth.ts`).
 
@@ -143,10 +143,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Apply `requireWriteRole` to the 7 content-mutating routes + regression
+### Task 2: Apply `requireWriteRole` to the 8 content-mutating routes + regression
 
 **Files:**
-- Modify: `src/server/routes/v1/ServerV1PostgresRoutes.ts` (import line 22 + 7 route registrations)
+- Modify: `src/server/routes/v1/ServerV1PostgresRoutes.ts` (import line 22 + 8 route registrations)
 - Test: `tests/server/routes/v1/write-role-gating.test.ts`
 
 **Interfaces:**
@@ -238,6 +238,8 @@ app.post('/v1/events', writeAuth, requireWriteRole(), this.asyncHandler(async (r
 app.post('/v1/events/batch', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
 // line 772
 app.post('/v1/sessions/start', writeAuth, requireWriteRole(), this.handleCreate(
+// line 869
+app.post('/v1/sessions/:id/end', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
 // line 923
 app.post('/v1/memories', writeAuth, requireWriteRole(), this.handleCreate(
 // line 969
@@ -275,7 +277,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **1. Spec coverage** (against `2026-07-22-role-gating-writes-design.md`):
 - `requireWriteRole` guard with the null-role=member-equiv rule → Task 1. ✓
-- Applied to all 7 content-mutating routes after writeAuth → Task 2 Step 4. ✓
+- Applied to all 8 content-mutating routes after writeAuth → Task 2 Step 4. ✓
 - Read routes untouched → Task 2 Step 4 (explicit "do NOT add to /v1/search") + the test asserts absence on /v1/search. ✓
 - C4 closed (viewer→deny) + legacy null-role not locked out → Task 1 unit tests (viewer→403, null→allow) + live re-validation (acceptance note). ✓
 - Fail-safe deny on absent authContext → Task 1 unit test. ✓

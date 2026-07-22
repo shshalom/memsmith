@@ -1,7 +1,7 @@
 // tests/server/routes/v1/write-role-gating.test.ts
 //
 // Wiring regression test: assert requireWriteRole() is composed into each of
-// the 7 content-mutating routes and ABSENT on the /v1/search read route.
+// the 8 content-mutating routes and ABSENT on the /v1/search read route.
 //
 // Approach: drive setupRoutes() against a fake express app that records the
 // middleware chain per (method, path), then identify the requireWriteRole
@@ -87,7 +87,7 @@ function isWriteRoleGuard(fn: RequestHandler): boolean {
 // ---------------------------------------------------------------------------
 
 describe('write-role gating wiring', () => {
-  it('requireWriteRole is applied to all 7 content-mutating routes and not to /v1/search', () => {
+  it('requireWriteRole is applied to all 8 content-mutating routes and not to /v1/search', () => {
     const { app, registered } = makeFakeApp();
 
     const routes = new ServerV1PostgresRoutes({
@@ -102,6 +102,7 @@ describe('write-role gating wiring', () => {
       { method: 'post', path: '/v1/events' },
       { method: 'post', path: '/v1/events/batch' },
       { method: 'post', path: '/v1/sessions/start' },
+      { method: 'post', path: '/v1/sessions/:id/end' },
       { method: 'post', path: '/v1/memories' },
       { method: 'post', path: '/v1/record-intent' },
       { method: 'delete', path: '/v1/memories/:id' },
