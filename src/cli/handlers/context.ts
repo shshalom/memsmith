@@ -5,7 +5,6 @@
 // process.stderr.write / process.stdout.write / console.* / process.exit.
 // logger.* calls are DIAGNOSTIC and route through hook-io's stderr path.
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { getWorkerPort } from '../../shared/worker-utils.js';
 import { appendTeamMemoryInjection } from '../../server/retrieval/inject-append.js';
 import { buildInjectionBlock } from '../../server/retrieval/inject.js';
 import { fetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
@@ -124,7 +123,6 @@ export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const cwd = input.cwd ?? process.cwd();
     const context = dependencies.getProjectContext(cwd);
-    const port = getWorkerPort();
 
     const settings = dependencies.loadFromFileOnce();
     const showTerminalOutput = settings.MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
@@ -204,8 +202,11 @@ export const contextHandler: EventHandler = {
     // terminal display when terminal output is enabled.
     const displayContent = coloredTimeline || (platform === 'codex' ? '' : additionalContext);
 
+    // The live dashboard link is already surfaced above (📊 MemSmith dashboard,
+    // via resolveDashboardUrl). The old "View Observations Live @ :<workerPort>"
+    // line pointed at the retired SQLite worker and is dead — dropped.
     const systemMessage = showTerminalOutput && displayContent
-      ? `${displayContent}\n\nView Observations Live @ http://localhost:${port}`
+      ? displayContent
       : undefined;
 
     // Sprint 3: opt-in team-memory injection (default OFF — default path is byte-identical to pre-sprint3).
