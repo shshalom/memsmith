@@ -54,7 +54,6 @@ import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { runConvert } from '../../convert/convert-service.js';
-import { writeServerModeSettings } from '../../convert/settings-writer.js';
 import { flipToTeam } from '../../convert/flip-to-team.js';
 import { writeProjectRuntime } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
