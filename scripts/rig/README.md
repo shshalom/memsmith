@@ -15,7 +15,7 @@ The rig is **completely isolated** from the dogfood (your local development inst
 - **Data Directory**: Throwaway server stores data in `/tmp/ms-team-server` (override with `RIG_DATA_DIR`), never in `~/.memsmith` (the dogfood).
 - **Database**: Throwaway Postgres runs on port `:55440` (override with `RIG_PG_PORT`), never `:55433` (the dogfood embedded PG).
 - **HTTP Port**: Throwaway server listens on `:38890` (override with `RIG_HTTP_PORT`), never `:38879` (the dogfood server).
-- **Preflight Guard**: Both `team-up.sh` and `team-down.sh` call `preflight.mjs` to verify these constraints before proceeding. If any env var would target the dogfood, the script refuses and exits with status 1.
+- **Preflight Guard**: `team-up.sh` calls `preflight.mjs` to verify these constraints before bringing anything up. If any env var would target the dogfood, the script refuses and exits with status 1. `team-down.sh` does not run the preflight — it only calls `docker compose down -v`, which drops the throwaway compose volume and never touches the dogfood.
 
 ## Full Run Order
 

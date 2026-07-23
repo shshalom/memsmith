@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { checkRigSafe } from '../../../scripts/rig/preflight.mjs';
+import { checkRigSafe, assertRigSafe } from '../../../scripts/rig/preflight.mjs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -27,5 +27,15 @@ describe('checkRigSafe', () => {
   });
   it('accepts a clean /tmp + :55440 + :38890 target', () => {
     expect(checkRigSafe(OK)).toEqual({ safe: true });
+  });
+});
+
+describe('assertRigSafe', () => {
+  it('throws when given an unsafe input (dogfood data dir)', () => {
+    const unsafe = { ...OK, dataDir: join(homedir(), '.memsmith') };
+    expect(() => assertRigSafe(unsafe)).toThrow();
+  });
+  it('does not throw for a clean /tmp + :55440 + :38890 input', () => {
+    expect(() => assertRigSafe(OK)).not.toThrow();
   });
 });

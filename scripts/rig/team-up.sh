@@ -24,7 +24,23 @@ POSTGRES_USER="$RIG_PG_USER" POSTGRES_PASSWORD="$RIG_PG_PASSWORD" POSTGRES_DB="$
   docker compose up -d postgres
 
 echo "[team-up] waiting for postgres on :${RIG_PG_PORT} ..."
-# (health-check loop via pg_isready or a `pg` ping — see README; kept short here.)
+_pg_ready=0
+for _i in $(seq 1 30); do
+  if command -v pg_isready >/dev/null 2>&1; then
+    pg_isready -h 127.0.0.1 -p "${RIG_PG_PORT}" -U "${RIG_PG_USER}" -q && _pg_ready=1 && break
+  else
+    node -e "
+      const net = require('net');
+      const s = net.createConnection(${RIG_PG_PORT}, '127.0.0.1');
+      s.on('connect', () => { s.destroy(); process.exit(0); });
+      s.on('error', () => { s.destroy(); process.exit(1); });
+    " 2>/dev/null && _pg_ready=1 && break
+  fi
+  sleep 1
+done
+if [ "${_pg_ready}" -eq 0 ]; then
+  echo "[team-up] WARNING: postgres did not become ready within 30s — proceeding anyway." >&2
+fi
 
 cat <<EOF
 
