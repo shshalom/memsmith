@@ -20,6 +20,21 @@ function makeFakeDeps(): { deps: CopyDeps; remote: Record<string, Array<Record<s
 }
 
 describe('copy-engine', () => {
+  it('COPY_TABLES excludes team-account tables and is FK-safe ordered', () => {
+    expect(COPY_TABLES).toEqual([
+      'projects',
+      'server_sessions',
+      'agent_events',
+      'observation_generation_jobs',
+      'observations',
+      'observation_sources',
+      'observation_generation_job_events',
+    ]);
+    for (const t of ['teams', 'team_members', 'api_keys', 'server_settings']) {
+      expect(COPY_TABLES).not.toContain(t);
+    }
+  });
+
   it('re-stamps observation attribution to the owner during copy', async () => {
     const { deps, remote } = makeFakeDeps();
     await runCopy(deps, 'user-42');
