@@ -85,10 +85,17 @@ async function main() {
       return;
     }
     const updateParams = hasProject ? [cfg.ownerUserId, cfg.teamId, cfg.projectId] : [cfg.ownerUserId, cfg.teamId];
-    const res = await client.query(buildUpdateSql(hasProject), updateParams);
-    const after = await client.query(buildCountSql(hasProject), countParams);
-    const remaining = after.rows.reduce((s, r) => s + r.n, 0);
-    console.log(`[backfill] bound ${res.rowCount} rows to owner=${cfg.ownerUserId}; null-owner remaining: ${remaining}`);
+    await client.query('BEGIN');
+    try {
+      const res = await client.query(buildUpdateSql(hasProject), updateParams);
+      const after = await client.query(buildCountSql(hasProject), countParams);
+      await client.query('COMMIT');
+      const remaining = after.rows.reduce((s, r) => s + r.n, 0);
+      console.log(`[backfill] bound ${res.rowCount} rows to owner=${cfg.ownerUserId}; null-owner remaining: ${remaining}`);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    }
   } finally {
     await client.end();
   }

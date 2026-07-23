@@ -242,7 +242,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // writeAuth: minting a lesser (read) key requires you can already write the
     // team's memory, which avoids a read key escalating into more keys. The raw
     // key is shown exactly once.
-    app.post('/v1/keys', writeAuth, this.handleCreate(
+    app.post('/v1/keys', writeAuth, requireRole('admin'), this.handleCreate(
       z.object({
         label: z.string().max(120).optional(),
         expiresInDays: z.number().int().positive().max(365).optional(),
@@ -734,7 +734,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // retried_count metadata field for audit, and re-enqueue. The Phase 11
     // outbox idempotency key (team_id, project_id, source_type, source_id,
     // job_type) prevents observation duplication on the generator side.
-    app.post('/v1/jobs/:id/retry', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/jobs/:id/retry', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
@@ -753,7 +753,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // remove the BullMQ job if still in flight. Future generator runs check
     // the Postgres status FIRST (Phase 11 lockOutbox guard) so a cancelled
     // job will never produce side effects even if BullMQ delivered it.
-    app.post('/v1/jobs/:id/cancel', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/jobs/:id/cancel', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
@@ -1906,6 +1906,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     return loaded;
   }
 
+  // Single source of the scoped-observation predicate shared by the scoped delete
+  // and its authorization read: a project-scoped key is confined to its project;
+  // a team-scoped key spans the team. Positional WHERE + params so a SELECT and a
+  // DELETE build on it identically.
+  private observationScope(
+    id: string, teamId: string, projectScope: string | null,
+  ): { where: string; params: unknown[] } {
+    return projectScope != null
+      ? { where: 'id = $1 AND team_id = $2 AND project_id = $3', params: [id, teamId, projectScope] }
+      : { where: 'id = $1 AND team_id = $2', params: [id, teamId] };
+  }
+
   // Scoped row fetch for DELETE /v1/memories/:id authorization: returns the
   // row's kind + createdByUserId within the caller's scope, or null if absent.
   // Mirrors deleteObservationForScope's scoping exactly (project-scoped key
@@ -1916,13 +1928,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     teamId: string,
     projectScope: string | null,
   ): Promise<{ kind: string; createdByUserId: string | null } | null> {
-    const sql = projectScope != null
-      ? `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
-           FROM observations WHERE id = $1 AND team_id = $2 AND project_id = $3`
-      : `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id
-           FROM observations WHERE id = $1 AND team_id = $2`;
-    const params = projectScope != null ? [id, teamId, projectScope] : [id, teamId];
-    const result = await this.options.pool.query(sql, params);
+    const { where, params } = this.observationScope(id, teamId, projectScope);
+    const result = await this.options.pool.query(
+      `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id FROM observations WHERE ${where}`,
+      params,
+    );
     const row = result.rows[0] as { kind: string; created_by_user_id: string | null } | undefined;
     if (!row) return null;
     return { kind: row.kind, createdByUserId: row.created_by_user_id };
@@ -1938,12 +1948,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   ): Promise<boolean> {
     const deletion = new PostgresDataDeletionRepository(this.options.pool);
     if (projectScope) {
+      // project branch scopes id + project + team inside the repository — aligned
+      // with observationScope's project case by construction.
       return deletion.deleteObservation({ id, projectId: projectScope, teamId });
     }
-    const byTeam = await this.options.pool.query(
-      `DELETE FROM observations WHERE id = $1 AND team_id = $2`,
-      [id, teamId],
-    );
+    const { where, params } = this.observationScope(id, teamId, null);
+    const byTeam = await this.options.pool.query(`DELETE FROM observations WHERE ${where}`, params);
     return (byTeam.rowCount ?? 0) > 0;
   }
 
