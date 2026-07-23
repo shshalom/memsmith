@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Tear down the throwaway rig. Drops the Docker PG + volume. Prints the team
-# server PID for the USER to stop it. Dogfood untouched.
+# Tear down the throwaway rig. Removes the throwaway pgvector container (and its
+# anonymous data — no named volume is used). Prints the team server PID for the
+# USER to stop it. Dogfood untouched.
 set -euo pipefail
 RIG_DATA_DIR="${RIG_DATA_DIR:-/tmp/ms-team-server}"
+RIG_PG_CONTAINER="${RIG_PG_CONTAINER:-ms-team-pg}"
 
-docker compose -f docker-compose.yml -f docker-compose.rig.yml down -v || true   # -v drops the throwaway volume
+# -f removes the running container + its anonymous volume (throwaway data).
+docker rm -f "$RIG_PG_CONTAINER" >/dev/null 2>&1 || true
 PIDFILE="${RIG_DATA_DIR}/.server-beta.pid"
 if [ -f "$PIDFILE" ]; then
   PID=$(node -e "try{process.stdout.write(String(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).pid))}catch{process.exit(1)}" "$PIDFILE" 2>/dev/null) || true
@@ -17,4 +20,4 @@ if [ -f "$PIDFILE" ]; then
 else
   echo "[team-down] no team-server pid file under ${RIG_DATA_DIR} (already stopped?)"
 fi
-echo "[team-down] Docker PG + volume dropped. Dogfood was never touched."
+echo "[team-down] throwaway pgvector container '${RIG_PG_CONTAINER}' removed. Dogfood was never touched."
