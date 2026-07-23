@@ -15,6 +15,11 @@ function res() {
   return r;
 }
 
+const fakeResolve = async (_databaseUrl: string) => ({
+  cwd: '/proj', teamId: 't1', projectId: 'p1',
+  serverUrl: 'http://localhost:38879', apiKey: 'cmem_k',
+});
+
 describe('convert routes', () => {
   it('POST /v1/convert/test-connection returns the probe result', async () => {
     const { app, routes } = makeApp();
@@ -22,6 +27,7 @@ describe('convert routes', () => {
       authMiddleware: [],
       probe: async (url) => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
       convert: async () => ({ status: 'converted', restartRequired: true, copiedByTable: {} }),
+      resolveConvertContext: fakeResolve,
     } as never);
     const r = res();
     await routes['/v1/convert/test-connection']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
@@ -34,9 +40,10 @@ describe('convert routes', () => {
       authMiddleware: [],
       probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
       convert: async () => ({ status: 'converted', restartRequired: true, copiedByTable: { observations: 3 } }),
+      resolveConvertContext: fakeResolve,
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key', projectId: 'p1' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
     expect(r.body.status).toBe('converted');
     expect(r.body.restartRequired).toBe(true);
   });
@@ -47,6 +54,7 @@ describe('convert routes', () => {
       authMiddleware: [],
       probe: async () => { throw new Error('connection refused'); },
       convert: async () => ({ status: 'converted', restartRequired: false, copiedByTable: {} }),
+      resolveConvertContext: fakeResolve,
     } as never);
     const r = res();
     await routes['/v1/convert/test-connection']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
@@ -60,37 +68,44 @@ describe('convert routes', () => {
       authMiddleware: [],
       probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
       convert: async () => { throw new Error('copy engine failed'); },
+      resolveConvertContext: fakeResolve,
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key', projectId: 'p1' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
     expect(r.code).toBe(500);
     expect(r.body.error).toBe('copy engine failed');
   });
 
-  it('POST /v1/convert/migrate returns 400 when required body fields are missing', async () => {
+  it('POST /v1/convert/migrate returns 400 when databaseUrl is missing', async () => {
     const { app, routes } = makeApp();
     registerConvertRoutes(app as never, {
       authMiddleware: [],
       probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
       convert: async () => ({ status: 'converted', restartRequired: false, copiedByTable: {} }),
+      resolveConvertContext: fakeResolve,
     } as never);
 
-    // Missing cwd, serverUrl, apiKey — old body shape → 400
-    const r1 = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r1);
-    expect(r1.code).toBe(400);
-    expect(r1.body.error).toBe('cwd required');
-
     // Missing databaseUrl entirely → 400
-    const r2 = res();
-    await routes['/v1/convert/migrate']({ body: { cwd: '/proj', serverUrl: 'https://s', apiKey: 'k' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r2);
-    expect(r2.code).toBe(400);
-    expect(r2.body.error).toBe('databaseUrl required');
+    const r = res();
+    await routes['/v1/convert/migrate']({ body: {}, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    expect(r.code).toBe(400);
+    expect(r.body.error).toBe('databaseUrl required');
+  });
 
-    // Missing projectId (all else present) → 400
-    const r3 = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/proj', serverUrl: 'https://s', apiKey: 'k' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r3);
-    expect(r3.code).toBe(400);
-    expect(r3.body.error).toBe('projectId required');
+  it('POST /v1/convert/migrate returns 400 with error when resolveConvertContext cannot resolve scope', async () => {
+    const { app, routes } = makeApp();
+    let convertCalled = false;
+    registerConvertRoutes(app as never, {
+      authMiddleware: [],
+      probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
+      convert: async () => { convertCalled = true; return { status: 'converted', restartRequired: false, copiedByTable: {} }; },
+      resolveConvertContext: async () => ({ error: 'no local project identity — run inside a MemSmith project' }),
+    } as never);
+
+    const r = res();
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    expect(r.code).toBe(400);
+    expect(r.body.error).toBe('no local project identity — run inside a MemSmith project');
+    expect(convertCalled).toBe(false);
   });
 });

@@ -55,12 +55,14 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { runConvert } from '../../convert/convert-service.js';
 import { flipToTeam } from '../../convert/flip-to-team.js';
-import { writeProjectRuntime } from '../../../services/identity/project-identity.js';
+import { writeProjectRuntime, readProjectMarker, ensureBaseKey } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
 import type { CopyDeps } from '../../convert/copy-engine.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
+import { makeResolveConvertContext } from '../../convert/convert-context.js';
+import { readLocalScopeFromMarkerOrEnv } from '../../runtime/resolve-local-scope.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1560,9 +1562,30 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     //   via flipToTeam — the wizard client (running in the project) supplies cwd,
     //   serverUrl, and apiKey in the request body; teamId comes from authContext.
     const credStore = new CredentialStore();
+    const convertCwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
+      resolveConvertContext: makeResolveConvertContext({
+        cwd: convertCwd,
+        readScope: readLocalScopeFromMarkerOrEnv,
+        resolveKey: (teamId) => credStore.resolveKeyForTeam(teamId),
+        mintKey: async (teamId, projectId, databaseUrl) => {
+          const cfg = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: databaseUrl } as NodeJS.ProcessEnv });
+          if (!cfg) throw new Error('invalid databaseUrl for key mint');
+          const remotePool = createPostgresPool(cfg);
+          try {
+            await bootstrapServerPostgresSchema(remotePool);
+            await ensureBaseKey(remotePool as any, teamId, projectId, credStore);
+          } finally {
+            await remotePool.end();
+          }
+          const key = credStore.resolveKeyForTeam(teamId);
+          if (!key) throw new Error('ensureBaseKey did not cache the key');
+          return key;
+        },
+        existingServerUrl: (cwd) => readProjectMarker(cwd)?.serverUrl,
+      }),
       convert: async (input) => {
         const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl, {
           projectId: input.projectId,
