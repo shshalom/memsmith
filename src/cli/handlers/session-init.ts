@@ -10,7 +10,6 @@ import { shouldTrackProject as defaultShouldTrackProject } from '../../shared/sh
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { isInternalProtocolPayload, stripMemoryTags } from '../../utils/tag-stripping.js';
 import {
-  selectRuntime,
   resolveRuntimeContext as defaultResolveRuntimeContext,
   logServerFallback as defaultLogServerFallback,
   type ServerRuntimeContext,
@@ -120,11 +119,7 @@ export const sessionInitHandler: EventHandler = {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
 
-    if (selectRuntime(cwd) !== 'server') {
-      logger.debug('HOOK', 'session-init: no server runtime for this project; skipping', { sessionId, project });
-      return { continue: true, suppressOutput: true };
-    }
-    const runtime = dependencies.resolveRuntimeContext();
+    const runtime = dependencies.resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {

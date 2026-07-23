@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import { selectRuntime, resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isIncognito } from '../incognito.js';
 import { scrubEventPayload } from '../../server/services/event-payload-scrub.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
@@ -65,11 +65,7 @@ export const observationHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    if (selectRuntime(cwd) !== 'server') {
-      logger.debug('HOOK', 'No server runtime for this project; skipping observation', { cwd, toolName });
-      return { continue: true, suppressOutput: true };
-    }
-    const runtime = resolveRuntimeContext();
+    const runtime = resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. `runtime-selector.selectRuntime()` continues to accept the legacy
     // `'server-beta'` literal in settings.json and normalizes it to `'server'`.

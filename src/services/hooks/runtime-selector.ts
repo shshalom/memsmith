@@ -147,12 +147,14 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
   };
 }
 
-export function resolveRuntimeContext(): RuntimeContext {
+export function resolveRuntimeContext(cwd?: string): RuntimeContext {
   // Both `server` and `local` reach the engine over HTTP; in `local` mode the
   // server runs in-process and MEMSMITH_SERVER_URL points at it. Build a server
   // context for either. If the context can't be built (missing URL/key/project),
   // return a local "skip" context — the worker fallback no longer exists.
-  const ctx = buildServerContext();
+  // The optional `cwd` is forwarded to buildServerContext so per-project marker
+  // resolution uses the RIGHT project (not process.cwd()).
+  const ctx = buildServerContext(cwd !== undefined ? { cwd } : {});
   if (ctx) return ctx;
   return { runtime: 'local', reason: 'server_context_unavailable' };
 }

@@ -9,7 +9,7 @@ import { stripMemoryTags } from '../../utils/tag-stripping.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
-import { selectRuntime, resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import type { ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
 
@@ -112,11 +112,7 @@ export const summarizeHandler: EventHandler = {
     const platformSource = normalizePlatformSource(input.platform);
     const cwd = input.cwd ?? process.cwd();
 
-    if (selectRuntime(cwd) !== 'server') {
-      logger.debug('HOOK', 'No server runtime for this project; skipping summary', { cwd, sessionId });
-      return { continue: true, suppressOutput: true };
-    }
-    const runtime = resolveRuntimeContext();
+    const runtime = resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {
