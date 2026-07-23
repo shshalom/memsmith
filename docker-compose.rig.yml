@@ -1,7 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# Rig port-publish override — layer via: docker compose -f docker-compose.yml -f docker-compose.rig.yml
-# Publishes the postgres port to the host so the rig scripts can reach it at 127.0.0.1:${RIG_PG_PORT}.
-services:
-  postgres:
-    ports:
-      - "${RIG_PG_PORT:-55440}:5432"

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Bring up the throwaway team-mode rig (Colima + Docker pgvector PG). Prints the
-# exact command for the USER to !-launch the team server (agent can't; mise shim).
-# Dogfood is never targeted — preflight enforces it.
+# Bring up the throwaway team-mode rig (Colima + a single pgvector container via
+# `docker run`). Prints the exact command for the USER to !-launch the team server
+# (agent can't; mise shim). Dogfood is never targeted — preflight enforces it.
+#
+# NOTE: uses raw `docker run` (not `docker compose`) — this environment's Docker
+# ships no Compose v2 plugin, and a single throwaway PG container needs no Compose.
 set -euo pipefail
 
 RIG_DATA_DIR="${RIG_DATA_DIR:-/tmp/ms-team-server}"
@@ -12,6 +15,8 @@ RIG_HTTP_PORT="${RIG_HTTP_PORT:-38890}"
 RIG_PG_USER="${RIG_PG_USER:-memsmith}"
 RIG_PG_PASSWORD="${RIG_PG_PASSWORD:-rig-throwaway}"
 RIG_PG_DB="${RIG_PG_DB:-memsmith}"
+RIG_PG_CONTAINER="${RIG_PG_CONTAINER:-ms-team-pg}"
+RIG_PG_IMAGE="${RIG_PG_IMAGE:-pgvector/pgvector:pg17}"
 RIG_DB_URL="postgres://${RIG_PG_USER}:${RIG_PG_PASSWORD}@127.0.0.1:${RIG_PG_PORT}/${RIG_PG_DB}"
 
 # Hard preflight — refuse if this would touch the dogfood.
@@ -20,9 +25,15 @@ node "$(dirname "$0")/preflight.mjs" --data-dir "$RIG_DATA_DIR" --db-url "$RIG_D
 # Colima up (idempotent).
 if ! colima status >/dev/null 2>&1; then colima start; fi
 
-# Bring up ONLY the pgvector postgres service on the throwaway port.
-POSTGRES_USER="$RIG_PG_USER" POSTGRES_PASSWORD="$RIG_PG_PASSWORD" POSTGRES_DB="$RIG_PG_DB" \
-  docker compose -f docker-compose.yml -f docker-compose.rig.yml up -d postgres
+# Bring up ONLY a single throwaway pgvector container on the throwaway port.
+# Idempotent: remove any prior container of the same name first (throwaway data).
+docker rm -f "$RIG_PG_CONTAINER" >/dev/null 2>&1 || true
+docker run -d --name "$RIG_PG_CONTAINER" \
+  -e POSTGRES_USER="$RIG_PG_USER" \
+  -e POSTGRES_PASSWORD="$RIG_PG_PASSWORD" \
+  -e POSTGRES_DB="$RIG_PG_DB" \
+  -p "127.0.0.1:${RIG_PG_PORT}:5432" \
+  "$RIG_PG_IMAGE" >/dev/null
 
 echo "[team-up] waiting for postgres on :${RIG_PG_PORT} ..."
 _pg_ready=0
