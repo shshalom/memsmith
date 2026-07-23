@@ -110,8 +110,9 @@ export const summarizeHandler: EventHandler = {
     });
 
     const platformSource = normalizePlatformSource(input.platform);
+    const cwd = input.cwd ?? process.cwd();
 
-    const runtime = resolveRuntimeContext();
+    const runtime = resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {

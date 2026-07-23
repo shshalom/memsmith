@@ -17,12 +17,11 @@
 // PROJECT_ID}` are read first and fall back to the legacy
 // `MEMSMITH_SERVER_BETA_*` keys when unset.
 
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
 import { CredentialStore } from '../identity/credential-store.js';
+import { readProjectMarker } from '../identity/project-identity.js';
 
 export type SelectedRuntime = 'local' | 'server';
 
@@ -51,7 +50,9 @@ export function normalizeRuntime(raw: string | undefined): SelectedRuntime {
   return 'local';
 }
 
-export function selectRuntime(): SelectedRuntime {
+export function selectRuntime(cwd: string = process.cwd()): SelectedRuntime {
+  const marker = readProjectMarker(cwd);
+  if (marker?.runtime === 'server') return 'server';
   const settings = loadFromFileOnce();
   return normalizeRuntime(settings.MEMSMITH_RUNTIME);
 }
@@ -63,15 +64,6 @@ export interface BuildServerContextOptions {
   // (process-global, mock-pollutable) settings module. Production callers omit
   // this and the URL resolves from settings as normal.
   serverBaseUrlOverride?: string;
-}
-
-function readMarkerFor(cwd: string): { teamId: string; projectId: string } | null {
-  const p = join(cwd, '.memsmith', 'project.json');
-  if (!existsSync(p)) return null;
-  try {
-    const m = JSON.parse(readFileSync(p, 'utf-8')) as { teamId?: string; projectId?: string };
-    return m.teamId && m.projectId ? { teamId: m.teamId, projectId: m.projectId } : null;
-  } catch { return null; }
 }
 
 export function buildServerContext(options: BuildServerContextOptions = {}): ServerRuntimeContext | null {
@@ -88,8 +80,18 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
     }
     return '';
   };
+
+  // Per-project marker: read from options.cwd (the project cwd passed by the
+  // caller). Fall back to the process-level env/cwd only when options.cwd is
+  // absent. This ensures per-project resolution uses the RIGHT project's marker.
+  const markerCwd = options.cwd ?? process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+  const projectMarker = readProjectMarker(markerCwd);
+
+  // Marker serverUrl takes highest precedence (after the explicit test seam
+  // override), so a project that has gone team reads/writes ITS team server.
   const serverBaseUrl = pickFirstNonEmpty(
     options.serverBaseUrlOverride,
+    projectMarker?.serverUrl,
     settings.MEMSMITH_SERVER_URL,
     settings.MEMSMITH_SERVER_BETA_URL,
   );
@@ -107,19 +109,19 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
     return null;
   }
 
-  // Local-identity path: when no explicit team-mode key is configured, resolve
-  // the project's base key from the marker + CredentialStore (the key-everywhere
-  // seam). This is what makes local injection + MCP recall work without the
-  // keyless bypass.
+  // Local-identity / per-project path: when no explicit team-mode key is
+  // configured in global settings, resolve the project's key from the marker +
+  // CredentialStore (the key-everywhere seam). When a project marker exists,
+  // its teamId drives the key lookup — this is what makes per-project team
+  // mode work (each project reads its own team's key). Also covers the
+  // local-injection + MCP recall path for non-team projects.
   if (!apiKey) {
-    const cwd = options.cwd ?? process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
-    const marker = readMarkerFor(cwd);
-    if (marker) {
+    if (projectMarker) {
       const store = options.credentialStore ?? new CredentialStore();
-      const resolved = store.resolveKeyForTeam(marker.teamId);
+      const resolved = store.resolveKeyForTeam(projectMarker.teamId);
       if (resolved) {
         apiKey = resolved;
-        if (!projectId) projectId = marker.projectId;
+        if (!projectId) projectId = projectMarker.projectId;
       }
     }
   }
@@ -145,12 +147,14 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
   };
 }
 
-export function resolveRuntimeContext(): RuntimeContext {
+export function resolveRuntimeContext(cwd?: string): RuntimeContext {
   // Both `server` and `local` reach the engine over HTTP; in `local` mode the
   // server runs in-process and MEMSMITH_SERVER_URL points at it. Build a server
   // context for either. If the context can't be built (missing URL/key/project),
   // return a local "skip" context — the worker fallback no longer exists.
-  const ctx = buildServerContext();
+  // The optional `cwd` is forwarded to buildServerContext so per-project marker
+  // resolution uses the RIGHT project (not process.cwd()).
+  const ctx = buildServerContext(cwd !== undefined ? { cwd } : {});
   if (ctx) return ctx;
   return { runtime: 'local', reason: 'server_context_unavailable' };
 }

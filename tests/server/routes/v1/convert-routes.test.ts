@@ -36,7 +36,7 @@ describe('convert routes', () => {
       convert: async () => ({ status: 'converted', restartRequired: true, copiedByTable: { observations: 3 } }),
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
     expect(r.body.status).toBe('converted');
     expect(r.body.restartRequired).toBe(true);
   });
@@ -62,8 +62,29 @@ describe('convert routes', () => {
       convert: async () => { throw new Error('copy engine failed'); },
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
     expect(r.code).toBe(500);
     expect(r.body.error).toBe('copy engine failed');
+  });
+
+  it('POST /v1/convert/migrate returns 400 when required body fields are missing', async () => {
+    const { app, routes } = makeApp();
+    registerConvertRoutes(app as never, {
+      authMiddleware: [],
+      probe: async () => ({ connectivity: { reachable: true, authenticates: true }, fitness: { writable: true, pgvector: true, versionOk: true, schemaReady: true }, allGreen: true, fixable: [] }),
+      convert: async () => ({ status: 'converted', restartRequired: false, copiedByTable: {} }),
+    } as never);
+
+    // Missing cwd, serverUrl, apiKey — old body shape → 400
+    const r1 = res();
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r1);
+    expect(r1.code).toBe(400);
+    expect(r1.body.error).toBe('cwd required');
+
+    // Missing databaseUrl entirely → 400
+    const r2 = res();
+    await routes['/v1/convert/migrate']({ body: { cwd: '/proj', serverUrl: 'https://s', apiKey: 'k' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r2);
+    expect(r2.code).toBe(400);
+    expect(r2.body.error).toBe('databaseUrl required');
   });
 });

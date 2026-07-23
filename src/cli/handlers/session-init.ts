@@ -119,7 +119,7 @@ export const sessionInitHandler: EventHandler = {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
 
-    const runtime = dependencies.resolveRuntimeContext();
+    const runtime = dependencies.resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {
