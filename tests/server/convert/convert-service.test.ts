@@ -20,6 +20,7 @@ const baseInput = {
   teamId: 'team-a',
   serverUrl: 'http://team-a:38890',
   apiKey: 'cmem_test',
+  projectId: 'p1',
 };
 
 describe('runConvert', () => {

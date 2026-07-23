@@ -36,7 +36,7 @@ describe('convert routes', () => {
       convert: async () => ({ status: 'converted', restartRequired: true, copiedByTable: { observations: 3 } }),
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1', projectId: 'p1' } }, r);
     expect(r.body.status).toBe('converted');
     expect(r.body.restartRequired).toBe(true);
   });
@@ -62,7 +62,7 @@ describe('convert routes', () => {
       convert: async () => { throw new Error('copy engine failed'); },
     } as never);
     const r = res();
-    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1' } }, r);
+    await routes['/v1/convert/migrate']({ body: { databaseUrl: 'postgres://x', cwd: '/home/user/project', serverUrl: 'https://memsmith.example.com', apiKey: 'sk-test-key' }, authContext: { userId: 'u1', role: 'owner', teamId: 't1', projectId: 'p1' } }, r);
     expect(r.code).toBe(500);
     expect(r.body.error).toBe('copy engine failed');
   });

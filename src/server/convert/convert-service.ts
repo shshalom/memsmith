@@ -24,7 +24,7 @@ export interface ConvertResult {
 
 export async function runConvert(
   deps: ConvertDeps,
-  input: { databaseUrl: string; ownerUserId: string; cwd: string; teamId: string; serverUrl: string; apiKey: string },
+  input: { databaseUrl: string; ownerUserId: string; cwd: string; teamId: string; serverUrl: string; apiKey: string; projectId: string },
   onProgress?: (p: { phase: 'copying' | 'verifying' | 'switching'; table?: string; copied?: number }) => void,
 ): Promise<ConvertResult> {
   onProgress?.({ phase: 'copying' });

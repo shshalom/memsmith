@@ -60,6 +60,7 @@ import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
 import type { CopyDeps } from '../../convert/copy-engine.js';
+import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1563,7 +1564,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
       convert: async (input) => {
-        const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl);
+        const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl, {
+          projectId: input.projectId,
+          teamId: input.teamId,
+        });
         try {
           return await runConvert(
             {
@@ -1590,13 +1594,14 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // - upsertRows/countRows('remote') use a fresh pool for the remote URL.
   // Table names come from the COPY_TABLES constant (a fixed safe list — never user input).
   // The remote schema is bootstrapped before returning so INSERTs have all tables + pgvector.
-  private buildConvertCopyDeps(remoteUrl: string): { deps: CopyDeps; dispose: () => Promise<void> } {
+  private buildConvertCopyDeps(
+    remoteUrl: string,
+    scope: { projectId: string; teamId: string },
+  ): { deps: CopyDeps; dispose: () => Promise<void> } {
     const remoteConfig = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: remoteUrl } as NodeJS.ProcessEnv });
     if (!remoteConfig) throw new Error('invalid remote databaseUrl');
     const remotePool = createPostgresPool(remoteConfig);
 
-    // Bootstrap the remote schema synchronously from the caller's perspective by
-    // returning a CopyDeps whose upsertRows lazily ensures bootstrap ran first.
     let bootstrapped = false;
     const ensureBootstrapped = async (): Promise<void> => {
       if (bootstrapped) return;
@@ -1608,13 +1613,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
     const deps: CopyDeps = {
       readRows: async (table: string) => {
-        const result = await localPool.query(`SELECT * FROM ${table}`);
-        return result.rows as Array<Record<string, unknown>>;
+        const { text } = buildScopedReadQuery(table, scope.projectId);
+        const result = await localPool.query(text, [scope.projectId]);
+        return restampTeamId(table, result.rows as Array<Record<string, unknown>>, scope.teamId);
       },
       upsertRows: async (table: string, rows: Array<Record<string, unknown>>) => {
         if (rows.length === 0) return;
         await ensureBootstrapped();
-        // Build column list from the first row's keys (all rows in a batch share the same schema).
         const cols = Object.keys(rows[0]!);
         const colList = cols.map(c => `"${c}"`).join(', ');
         for (const row of rows) {
@@ -1628,7 +1633,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       },
       countRows: async (which: 'local' | 'remote', table: string) => {
         const pool = which === 'local' ? localPool : remotePool;
-        const result = await pool.query(`SELECT count(*) FROM ${table}`);
+        const { text, params } = buildScopedCountQuery(table, which);
+        const result = await pool.query(text, params(scope));
         return Number((result.rows[0] as { count: string }).count);
       },
     };
