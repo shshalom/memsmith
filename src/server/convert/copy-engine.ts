@@ -11,19 +11,17 @@ export interface CopyDeps {
 }
 export interface CopyProgress { table: string; copied: number; }
 
-// FK-safe order: parents before children.
+// FK-safe order: parents before children. Team-account tables (teams,
+// team_members, api_keys, server_settings) are intentionally NOT copied —
+// the destination team already exists (see scoped-convert-copy spec, D2).
 export const COPY_TABLES: string[] = [
-  'teams',
   'projects',
-  'team_members',
-  'api_keys',
   'server_sessions',
   'agent_events',
   'observation_generation_jobs',
   'observations',
   'observation_sources',
   'observation_generation_job_events',
-  'server_settings',
 ];
 
 export const COPY_BATCH_SIZE = 200;
