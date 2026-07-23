@@ -19,7 +19,13 @@ const IDENTITY_KEY_SCOPES = [
 // MUST match LOCAL_HOOK_ACTOR_ID in src/services/hooks/server-bootstrap.ts (not exported, so duplicated here).
 const IDENTITY_ACTOR_ID = 'system:local-hook-bootstrap';
 
-interface ProjectMarker { projectId: string; teamId: string; note: string; }
+interface ProjectMarker {
+  projectId: string;
+  teamId: string;
+  note: string;
+  runtime?: 'local' | 'server';
+  serverUrl?: string;
+}
 
 const MARKER_NOTE =
   'Non-secret MemSmith identity pointer. The access credential lives in ~/.memsmith, never here.';
@@ -32,11 +38,40 @@ function readMarker(cwd: string): ProjectMarker | null {
   if (!existsSync(p)) return null;
   try {
     const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProjectMarker>;
-    if (m.teamId && m.projectId) return { teamId: m.teamId, projectId: m.projectId, note: m.note ?? MARKER_NOTE };
+    if (m.teamId && m.projectId) {
+      const out: ProjectMarker = { teamId: m.teamId, projectId: m.projectId, note: m.note ?? MARKER_NOTE };
+      if (m.runtime === 'local' || m.runtime === 'server') out.runtime = m.runtime;
+      if (typeof m.serverUrl === 'string' && m.serverUrl.length > 0) out.serverUrl = m.serverUrl;
+      return out;
+    }
     return null;
   } catch {
     return null;
   }
+}
+
+// Public reader (the internal readMarker stays private; expose a stable read for other modules).
+export function readProjectMarker(cwd: string): ProjectMarker | null {
+  return readMarker(cwd);
+}
+
+// Merge runtime fields into an EXISTING marker. Requires the identity marker to
+// already exist (throws otherwise — never writes an identity-less partial).
+// NEVER writes a key/secret: the team credential lives in CredentialStore.
+export function writeProjectRuntime(
+  cwd: string,
+  runtime: { runtime: 'local' | 'server'; serverUrl?: string },
+): void {
+  const existing = readMarker(cwd);
+  if (!existing) {
+    throw new Error(`writeProjectRuntime: no project marker at ${join(cwd, MARKER_RELATIVE_PATH)} — mint identity first`);
+  }
+  const merged: ProjectMarker = {
+    ...existing,
+    runtime: runtime.runtime,
+    ...(runtime.serverUrl ? { serverUrl: runtime.serverUrl } : {}),
+  };
+  writeMarker(cwd, merged);
 }
 
 function writeMarker(cwd: string, marker: ProjectMarker): void {
