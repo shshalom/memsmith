@@ -242,7 +242,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // writeAuth: minting a lesser (read) key requires you can already write the
     // team's memory, which avoids a read key escalating into more keys. The raw
     // key is shown exactly once.
-    app.post('/v1/keys', writeAuth, this.handleCreate(
+    app.post('/v1/keys', writeAuth, requireRole('admin'), this.handleCreate(
       z.object({
         label: z.string().max(120).optional(),
         expiresInDays: z.number().int().positive().max(365).optional(),
