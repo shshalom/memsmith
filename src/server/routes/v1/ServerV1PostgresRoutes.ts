@@ -734,7 +734,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // retried_count metadata field for audit, and re-enqueue. The Phase 11
     // outbox idempotency key (team_id, project_id, source_type, source_id,
     // job_type) prevents observation duplication on the generator side.
-    app.post('/v1/jobs/:id/retry', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/jobs/:id/retry', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
@@ -753,7 +753,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // remove the BullMQ job if still in flight. Future generator runs check
     // the Postgres status FIRST (Phase 11 lockOutbox guard) so a cancelled
     // job will never produce side effects even if BullMQ delivered it.
-    app.post('/v1/jobs/:id/cancel', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/v1/jobs/:id/cancel', writeAuth, requireWriteRole(), this.asyncHandler(async (req, res) => {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
