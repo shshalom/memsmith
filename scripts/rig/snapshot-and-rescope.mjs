@@ -43,7 +43,18 @@ async function main() {
     let inserted = 0;
     await dst.query('BEGIN');
     try {
+      // Idempotently ensure the target team and project rows exist so FK constraints
+      // on observations(team_id) and observations(project_id, team_id) are satisfied.
+      await dst.query(
+        `INSERT INTO teams (id, name) VALUES ($1, 'rig-temp') ON CONFLICT (id) DO NOTHING`,
+        [target.teamId],
+      );
+      await dst.query(
+        `INSERT INTO projects (id, team_id, name) VALUES ($1, $2, 'rig-temp') ON CONFLICT (id) DO NOTHING`,
+        [target.projectId, target.teamId],
+      );
       for (const r of rescoped) {
+        // metadata is copied verbatim and may carry the source author's createdByUserId; this is fine because the attribution proof (P2) mints its own identities.
         const res = await dst.query(
           `INSERT INTO observations (id, team_id, project_id, kind, content, metadata, obs_type, lifecycle_state)
              VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,COALESCE($8,'open'))

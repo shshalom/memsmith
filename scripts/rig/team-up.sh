@@ -7,6 +7,7 @@ set -euo pipefail
 
 RIG_DATA_DIR="${RIG_DATA_DIR:-/tmp/ms-team-server}"
 RIG_PG_PORT="${RIG_PG_PORT:-55440}"
+export RIG_PG_PORT
 RIG_HTTP_PORT="${RIG_HTTP_PORT:-38890}"
 RIG_PG_USER="${RIG_PG_USER:-memsmith}"
 RIG_PG_PASSWORD="${RIG_PG_PASSWORD:-rig-throwaway}"
@@ -21,7 +22,7 @@ if ! colima status >/dev/null 2>&1; then colima start; fi
 
 # Bring up ONLY the pgvector postgres service on the throwaway port.
 POSTGRES_USER="$RIG_PG_USER" POSTGRES_PASSWORD="$RIG_PG_PASSWORD" POSTGRES_DB="$RIG_PG_DB" \
-  docker compose up -d postgres
+  docker compose -f docker-compose.yml -f docker-compose.rig.yml up -d postgres
 
 echo "[team-up] waiting for postgres on :${RIG_PG_PORT} ..."
 _pg_ready=0
