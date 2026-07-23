@@ -25,16 +25,16 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
     const cwd = String(req.body?.cwd ?? '');
     const serverUrl = String(req.body?.serverUrl ?? '');
     const apiKey = String(req.body?.apiKey ?? '');
+    const projectId = String(req.body?.projectId ?? '');
     const ownerUserId = req.authContext?.userId;
     const teamId = req.authContext?.teamId ?? '';
-    const projectId = req.authContext?.projectId ?? '';
     if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
     if (!cwd) { res.status(400).json({ error: 'cwd required' }); return; }
     if (!serverUrl) { res.status(400).json({ error: 'serverUrl required' }); return; }
     if (!apiKey) { res.status(400).json({ error: 'apiKey required' }); return; }
+    if (!projectId) { res.status(400).json({ error: 'projectId required' }); return; }
     if (!ownerUserId) { res.status(403).json({ error: 'no owner identity' }); return; }
     if (!teamId) { res.status(403).json({ error: 'no team identity' }); return; }
-    if (!projectId) { res.status(403).json({ error: 'no project identity' }); return; }
     try {
       res.json(await deps.convert({ databaseUrl: url, ownerUserId, cwd, teamId, serverUrl, apiKey, projectId }));
     } catch (err: any) {
