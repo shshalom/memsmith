@@ -55,6 +55,8 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { runConvert } from '../../convert/convert-service.js';
 import { writeServerModeSettings } from '../../convert/settings-writer.js';
+import { flipToTeam } from '../../convert/flip-to-team.js';
+import { writeProjectRuntime } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
@@ -1553,7 +1555,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // Task 5 — Go Team Wizard: /v1/convert/test-connection + /v1/convert/migrate.
     // Both routes are owner-gated (writeAuth + requireRole('owner')).
     // probe: stateless connection check (no local DB writes).
-    // convert: bootstraps remote schema, copies local data, writes settings flip.
+    // convert: bootstraps remote schema, copies local data, writes the project
+    //   marker (runtime=server + serverUrl) and stores the team key in CredentialStore
+    //   via flipToTeam — the wizard client (running in the project) supplies cwd,
+    //   serverUrl, and apiKey in the request body; teamId comes from authContext.
+    const credStore = new CredentialStore();
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
@@ -1563,7 +1569,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           return await runConvert(
             {
               copyDeps: deps,
-              flip: (u) => writeServerModeSettings({ MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_DATABASE_URL: u }),
+              flip: (fi) => flipToTeam(
+                {
+                  writeProjectRuntime,
+                  storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                },
+                { cwd: fi.cwd, teamId: fi.teamId, serverUrl: fi.serverUrl, apiKey: fi.apiKey },
+              ),
             },
             input,
           );

@@ -3,8 +3,18 @@ import { runCopy, verifyCopy, type CopyDeps } from './copy-engine.js';
 
 export interface ConvertDeps {
   copyDeps: CopyDeps;
-  flip: (databaseUrl: string) => void;
+  flip: (input: ConvertFlipInput) => void;
 }
+
+/** Fields the flip receives for writing the project marker + team key. */
+export interface ConvertFlipInput {
+  databaseUrl: string;
+  cwd: string;
+  teamId: string;
+  serverUrl: string;
+  apiKey: string;
+}
+
 export interface ConvertResult {
   status: 'converted' | 'verify_failed';
   copiedByTable?: Record<string, number>;
@@ -14,7 +24,7 @@ export interface ConvertResult {
 
 export async function runConvert(
   deps: ConvertDeps,
-  input: { databaseUrl: string; ownerUserId: string },
+  input: { databaseUrl: string; ownerUserId: string; cwd: string; teamId: string; serverUrl: string; apiKey: string },
   onProgress?: (p: { phase: 'copying' | 'verifying' | 'switching'; table?: string; copied?: number }) => void,
 ): Promise<ConvertResult> {
   onProgress?.({ phase: 'copying' });
@@ -31,6 +41,6 @@ export async function runConvert(
   }
 
   onProgress?.({ phase: 'switching' });
-  deps.flip(input.databaseUrl);
+  deps.flip({ databaseUrl: input.databaseUrl, cwd: input.cwd, teamId: input.teamId, serverUrl: input.serverUrl, apiKey: input.apiKey });
   return { status: 'converted', copiedByTable, restartRequired: true };
 }

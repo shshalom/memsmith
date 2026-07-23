@@ -13,27 +13,46 @@ function baseCopyDeps(remoteShort = false): CopyDeps {
   };
 }
 
+const baseInput = {
+  databaseUrl: 'postgres://team',
+  ownerUserId: 'u1',
+  cwd: '/proj/a',
+  teamId: 'team-a',
+  serverUrl: 'http://team-a:38890',
+  apiKey: 'cmem_test',
+};
+
 describe('runConvert', () => {
   it('copies, verifies, flips, and reports restartRequired on success', async () => {
-    let flipped: string | null = null;
-    const deps: ConvertDeps = { copyDeps: baseCopyDeps(false), flip: (url) => { flipped = url; } };
+    let flippedUrl: string | null = null;
+    const deps: ConvertDeps = { copyDeps: baseCopyDeps(false), flip: (fi) => { flippedUrl = fi.databaseUrl; } };
     const phases: string[] = [];
-    const r = await runConvert(deps, { databaseUrl: 'postgres://team', ownerUserId: 'u1' }, p => phases.push(p.phase));
+    const r = await runConvert(deps, baseInput, p => phases.push(p.phase));
     expect(r.status).toBe('converted');
     expect(r.restartRequired).toBe(true);
-    expect(flipped).toBe('postgres://team');
+    expect(flippedUrl).toBe('postgres://team');
     expect(phases).toContain('copying');
     expect(phases).toContain('verifying');
     expect(phases).toContain('switching');
   });
 
+  it('passes full flip input to the flip callback', async () => {
+    let flipInput: ReturnType<ConvertDeps['flip']> | null = null;
+    const deps: ConvertDeps = { copyDeps: baseCopyDeps(false), flip: (fi) => { flipInput = fi; } };
+    await runConvert(deps, baseInput);
+    expect((flipInput as any)?.cwd).toBe('/proj/a');
+    expect((flipInput as any)?.teamId).toBe('team-a');
+    expect((flipInput as any)?.serverUrl).toBe('http://team-a:38890');
+    expect((flipInput as any)?.apiKey).toBe('cmem_test');
+  });
+
   it('does NOT flip when verify fails (stays on local)', async () => {
-    let flipped: string | null = null;
-    const deps: ConvertDeps = { copyDeps: baseCopyDeps(true), flip: (url) => { flipped = url; } };
-    const r = await runConvert(deps, { databaseUrl: 'postgres://team', ownerUserId: 'u1' });
+    let flippedUrl: string | null = null;
+    const deps: ConvertDeps = { copyDeps: baseCopyDeps(true), flip: (fi) => { flippedUrl = fi.databaseUrl; } };
+    const r = await runConvert(deps, baseInput);
     expect(r.status).toBe('verify_failed');
     expect(r.restartRequired).toBe(false);
-    expect(flipped).toBeNull();
+    expect(flippedUrl).toBeNull();
     expect(r.mismatches?.length).toBeGreaterThan(0);
   });
 });
