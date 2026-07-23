@@ -23,6 +23,7 @@ import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
 import { CredentialStore } from '../identity/credential-store.js';
+import { readProjectMarker } from '../identity/project-identity.js';
 
 export type SelectedRuntime = 'local' | 'server';
 
@@ -51,7 +52,9 @@ export function normalizeRuntime(raw: string | undefined): SelectedRuntime {
   return 'local';
 }
 
-export function selectRuntime(): SelectedRuntime {
+export function selectRuntime(cwd: string = process.cwd()): SelectedRuntime {
+  const marker = readProjectMarker(cwd);
+  if (marker?.runtime === 'server') return 'server';
   const settings = loadFromFileOnce();
   return normalizeRuntime(settings.MEMSMITH_RUNTIME);
 }
