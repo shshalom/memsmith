@@ -1557,10 +1557,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // Task 5 — Go Team Wizard: /v1/convert/test-connection + /v1/convert/migrate.
     // Both routes are owner-gated (writeAuth + requireRole('owner')).
     // probe: stateless connection check (no local DB writes).
-    // convert: bootstraps remote schema, copies local data, writes the project
-    //   marker (runtime=server + serverUrl) and stores the team key in CredentialStore
-    //   via flipToTeam — the wizard client (running in the project) supplies cwd,
-    //   serverUrl, and apiKey in the request body; teamId comes from authContext.
+    // convert: client posts only { databaseUrl }; the server resolves cwd/projectId/teamId
+    //   from the local project marker, derives serverUrl, and resolves or mints the team
+    //   apiKey from CredentialStore (minting against the remote DB on first convert).
+    //   Result: remote schema bootstrapped, local data copied, marker updated (runtime=server
+    //   + serverUrl), and key cached in CredentialStore.
     const credStore = new CredentialStore();
     const convertCwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
     registerConvertRoutes(app, {
@@ -1576,7 +1577,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const remotePool = createPostgresPool(cfg);
           try {
             await bootstrapServerPostgresSchema(remotePool);
-            await ensureBaseKey(remotePool as any, teamId, projectId, credStore);
+            await ensureBaseKey(remotePool, teamId, projectId, credStore);
           } finally {
             await remotePool.end();
           }

@@ -31,7 +31,8 @@ const MARKER_NOTE =
   'Non-secret MemSmith identity pointer. The access credential lives in ~/.memsmith, never here.';
 
 // Minimal shape of the pg pool we use. The real pool satisfies this.
-interface QueryablePool { query(text: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number }>; }
+// rowCount is number | null to match pg.QueryResult (pg returns null for non-SELECT statements).
+interface QueryablePool { query(text: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>; }
 
 function readMarker(cwd: string): ProjectMarker | null {
   const p = join(cwd, MARKER_RELATIVE_PATH);
