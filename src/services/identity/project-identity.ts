@@ -19,7 +19,7 @@ const IDENTITY_KEY_SCOPES = [
 // MUST match LOCAL_HOOK_ACTOR_ID in src/services/hooks/server-bootstrap.ts (not exported, so duplicated here).
 const IDENTITY_ACTOR_ID = 'system:local-hook-bootstrap';
 
-interface ProjectMarker {
+export interface ProjectMarker {
   projectId: string;
   teamId: string;
   note: string;

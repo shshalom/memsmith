@@ -175,7 +175,7 @@ export class EmbeddedPostgresManager {
     this.connectionString = null;
   }
 
-  private buildConnectionString(): string {
-    return `postgres://${this.username}:${this.password}@127.0.0.1:${this.port}/postgres`;
+  buildConnectionString(databaseName: string = 'postgres'): string {
+    return `postgres://${this.username}:${this.password}@127.0.0.1:${this.port}/${databaseName}`;
   }
 }
