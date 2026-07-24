@@ -18,7 +18,7 @@ import * as path from 'node:path';
 import {
   bootstrapServerPostgresSchema,
 } from '../../../src/storage/postgres/index.js';
-import { ensureBaseKey } from '../../../src/services/identity/project-identity.js';
+import { ensureBaseKey, upsertTeamAndProject } from '../../../src/services/identity/project-identity.js';
 import { hashApiKey } from '../../../src/services/hooks/server-bootstrap.js';
 import { CredentialStore } from '../../../src/services/identity/credential-store.js';
 
@@ -37,20 +37,10 @@ describe('convert-context mint (integration)', () => {
 
       const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
       try {
+        // Exercise the REAL production sequence: bootstrap schema → upsertTeamAndProject → ensureBaseKey.
+        // This proves a fresh (empty) destination DB works end-to-end without manual seed rows.
         await bootstrapServerPostgresSchema(pool);
-
-        // Seed teams row first — api_keys.team_id REFERENCES teams(id)
-        // ensureBaseKey only inserts api_keys; upsertTeamAndProject is not called here,
-        // so we must seed the teams row manually before calling ensureBaseKey.
-        await pool.query(
-          'INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING',
-          [teamId],
-        );
-        // Also seed projects row (FK from api_keys is team_id only, but seed for completeness)
-        await pool.query(
-          'INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING',
-          [projectId, teamId],
-        );
+        await upsertTeamAndProject(pool, teamId, projectId);
 
         // --- First call: mints a fresh key ---
         const key1 = await ensureBaseKey(pool, teamId, projectId, store);

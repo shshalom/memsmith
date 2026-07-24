@@ -55,7 +55,7 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { runConvert } from '../../convert/convert-service.js';
 import { flipToTeam } from '../../convert/flip-to-team.js';
-import { writeProjectRuntime, readProjectMarker, ensureBaseKey } from '../../../services/identity/project-identity.js';
+import { writeProjectRuntime, readProjectMarker, ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
@@ -1577,13 +1577,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const remotePool = createPostgresPool(cfg);
           try {
             await bootstrapServerPostgresSchema(remotePool);
-            await ensureBaseKey(remotePool, teamId, projectId, credStore);
+            await upsertTeamAndProject(remotePool, teamId, projectId); // seed dest team+project so api_keys + copy FKs hold on a fresh DB
+            const key = await ensureBaseKey(remotePool, teamId, projectId, credStore);
+            return key;
           } finally {
             await remotePool.end();
           }
-          const key = credStore.resolveKeyForTeam(teamId);
-          if (!key) throw new Error('ensureBaseKey did not cache the key');
-          return key;
         },
         existingServerUrl: (cwd) => readProjectMarker(cwd)?.serverUrl,
       }),

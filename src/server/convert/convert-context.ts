@@ -27,6 +27,7 @@ export function deriveServerUrl(databaseUrl: string, existingServerUrl?: string)
   const u = new URL(databaseUrl); // throws on unparseable → surfaces as convert error
   const host = u.hostname;
   if (host === 'localhost' || host === '127.0.0.1') return `http://${host}:38879`;
+  // Note: a remote team server on a nonstandard port must be provided via the marker's existingServerUrl (which takes precedence above).
   return `https://${host}`;
 }
 

@@ -82,7 +82,7 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
   writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
 }
 
-async function upsertTeamAndProject(pool: QueryablePool, teamId: string, projectId: string): Promise<void> {
+export async function upsertTeamAndProject(pool: QueryablePool, teamId: string, projectId: string): Promise<void> {
   await pool.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [teamId]);
   await pool.query('INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING', [projectId, teamId]);
 }
