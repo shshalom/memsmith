@@ -25,6 +25,7 @@ interface ProjectMarker {
   note: string;
   runtime?: 'local' | 'server';
   serverUrl?: string;
+  databaseName?: string;
 }
 
 const MARKER_NOTE =
@@ -43,6 +44,7 @@ function readMarker(cwd: string): ProjectMarker | null {
       const out: ProjectMarker = { teamId: m.teamId, projectId: m.projectId, note: m.note ?? MARKER_NOTE };
       if (m.runtime === 'local' || m.runtime === 'server') out.runtime = m.runtime;
       if (typeof m.serverUrl === 'string' && m.serverUrl.length > 0) out.serverUrl = m.serverUrl;
+      if (typeof m.databaseName === 'string' && m.databaseName.length > 0) out.databaseName = m.databaseName;
       return out;
     }
     return null;
@@ -73,6 +75,17 @@ export function writeProjectRuntime(
     ...(runtime.serverUrl ? { serverUrl: runtime.serverUrl } : {}),
   };
   writeMarker(cwd, merged);
+}
+
+// Merge databaseName into an EXISTING marker. Requires the identity marker to
+// already exist (throws otherwise — never writes an identity-less partial).
+// NEVER writes a key/secret: databaseName is a non-secret DB name only.
+export function writeProjectDatabaseName(cwd: string, databaseName: string): void {
+  const existing = readMarker(cwd);
+  if (!existing) {
+    throw new Error(`writeProjectDatabaseName: no project marker at ${join(cwd, MARKER_RELATIVE_PATH)} — mint identity first`);
+  }
+  writeMarker(cwd, { ...existing, databaseName });
 }
 
 function writeMarker(cwd: string, marker: ProjectMarker): void {
