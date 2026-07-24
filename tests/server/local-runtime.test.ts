@@ -17,7 +17,7 @@ describe('startLocalRuntime', () => {
     const conn = 'postgres://memsmith:memsmith-local@127.0.0.1:55433/postgres';
     delete process.env.MEMSMITH_QUEUE_ENGINE;
     let startedWith: string | null = null;
-    await startLocalRuntime({ manager: fakeManager(conn), startService: async (c) => { startedWith = c; } });
+    await startLocalRuntime({ manager: fakeManager(conn), startService: async (c) => { startedWith = c; }, resolveDatabaseUrl: async (c) => c });
     expect(startedWith).toBe(conn);
     expect(process.env.MEMSMITH_SERVER_DATABASE_URL).toBe(conn);
     expect(process.env.MEMSMITH_QUEUE_ENGINE).toBe('inline');
@@ -26,7 +26,7 @@ describe('startLocalRuntime', () => {
   it('does not override an explicitly set queue engine', async () => {
     process.env.MEMSMITH_QUEUE_ENGINE = 'bullmq';
     const conn = 'postgres://x:y@127.0.0.1:55433/postgres';
-    await startLocalRuntime({ manager: fakeManager(conn), startService: async () => {} });
+    await startLocalRuntime({ manager: fakeManager(conn), startService: async () => {}, resolveDatabaseUrl: async (c) => c });
     expect(process.env.MEMSMITH_QUEUE_ENGINE).toBe('bullmq');
     delete process.env.MEMSMITH_QUEUE_ENGINE;
   });

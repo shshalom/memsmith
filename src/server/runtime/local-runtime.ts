@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
+import pg from 'pg';
 import { EmbeddedPostgresManager } from './EmbeddedPostgresManager.js';
+import { readProjectMarker, writeProjectDatabaseName } from '../../services/identity/project-identity.js';
+import { resolveProjectDatabaseName, ensureDatabaseExists } from './resolve-project-database.js';
 import { logger } from '../../utils/logger.js';
 
 export interface StartLocalRuntimeOptions {
@@ -12,6 +15,11 @@ export interface StartLocalRuntimeOptions {
   // Runs after env vars are set, before the service starts. Best-effort:
   // failures are logged and never block service start.
   runImport?: (connectionString: string) => Promise<void>;
+  // Injectable per-project DB resolver. Defaults to defaultResolveDatabaseUrl,
+  // which builds an admin pg.Pool on the base `postgres` URL, resolves the
+  // project database name, creates it if needed, and returns the project-scoped
+  // URL. Tests inject `async (c) => c` (passthrough) to stay hermetic.
+  resolveDatabaseUrl?: (baseConnectionString: string, cwd: string) => Promise<string>;
 }
 
 export async function startLocalRuntime(
@@ -19,7 +27,11 @@ export async function startLocalRuntime(
 ): Promise<{ connectionString: string }> {
   const manager = options.manager ?? new EmbeddedPostgresManager();
   const { connectionString, reused } = await manager.start();
-  process.env.MEMSMITH_SERVER_DATABASE_URL = connectionString;
+  const resolveDatabaseUrl = options.resolveDatabaseUrl ?? defaultResolveDatabaseUrl;
+  process.env.MEMSMITH_SERVER_DATABASE_URL = await resolveDatabaseUrl(
+    connectionString,
+    process.env.MEMSMITH_PROJECT_CWD ?? process.cwd(),
+  );
   if (!(process.env.MEMSMITH_QUEUE_ENGINE ?? '').trim()) {
     process.env.MEMSMITH_QUEUE_ENGINE = 'inline';
   }
@@ -38,6 +50,35 @@ export async function startLocalRuntime(
   const start = options.startService ?? defaultStartService;
   await start(connectionString);
   return { connectionString };
+}
+
+async function defaultResolveDatabaseUrl(baseConnectionString: string, cwd: string): Promise<string> {
+  // baseConnectionString targets `postgres` (the maintenance DB). Use it to
+  // resolve the per-project DB, create it if needed, then return the
+  // project-scoped URL. Never leaves the runtime on the shared `postgres` DB
+  // for a non-legacy project.
+  const adminPool = new pg.Pool({ connectionString: baseConnectionString, max: 2 });
+  try {
+    const dbName = await resolveProjectDatabaseName({
+      cwd,
+      readMarker: readProjectMarker,
+      writeName: writeProjectDatabaseName,
+      probeHasProjectRows: async (projectId) => {
+        try {
+          const r = await adminPool.query('SELECT 1 FROM observations WHERE project_id = $1 LIMIT 1', [projectId]);
+          return r.rows.length > 0;
+        } catch { return false; } // fresh postgres DB has no observations table yet
+      },
+    });
+    await ensureDatabaseExists((t, p) => adminPool.query(t, p as unknown[]), dbName);
+    // Rebuild the URL with the project DB name. Parse the base URL and swap the
+    // path segment (host/port/creds unchanged).
+    const u = new URL(baseConnectionString);
+    u.pathname = '/' + dbName;
+    return u.toString();
+  } finally {
+    await adminPool.end();
+  }
 }
 
 async function defaultRunImport(_connectionString: string): Promise<void> {
