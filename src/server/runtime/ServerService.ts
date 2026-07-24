@@ -8,6 +8,7 @@ import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
 import { Server, type RouteHandler } from '../../services/server/Server.js';
+import { selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { paths } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import {
@@ -403,7 +404,7 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
       // Foreground path: run the service in THIS process and block until a
       // shutdown signal. Identical wiring to the internal `--daemon` worker
       // process, but attached to the controlling terminal / unit.
-      await runServerForeground(port, host);
+      await runRuntimeForeground(port, host);
       return;
     }
 
@@ -447,7 +448,7 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
     case '--daemon': {
       // Internal entrypoint executed by the detached child spawned via
       // `start --daemon`. Runs the same foreground loop in the child process.
-      await runServerForeground(port, host);
+      await runRuntimeForeground(port, host);
       return;
     }
 
@@ -490,6 +491,34 @@ export async function runServerForegroundForLocal(): Promise<void> {
   const port = getServerPort();
   const host = process.env.MEMSMITH_SERVER_HOST ?? DEFAULT_SERVER_HOST;
   await runServerForeground(port, host);
+}
+
+// Runtime-aware foreground entry used by `start` (foreground) and the internal
+// `--daemon` child. When the resolved runtime is local, boot the embedded PG +
+// server loop (startLocalRuntime); otherwise run the server foreground. The
+// deps object is a test seam; production omits it.
+export interface RuntimeForegroundDeps {
+  selectRuntime?: (cwd: string) => 'local' | 'server';
+  startLocal?: () => Promise<void>;
+  startServer?: (port: number, host: string) => Promise<void>;
+}
+export async function runRuntimeForeground(
+  port: number,
+  host: string,
+  deps: RuntimeForegroundDeps = {},
+): Promise<void> {
+  const pick = deps.selectRuntime ?? selectRuntime;
+  const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+  if (pick(cwd) === 'local') {
+    const startLocal = deps.startLocal ?? (async () => {
+      const { startLocalRuntime } = await import('./local-runtime.js');
+      await startLocalRuntime();
+    });
+    await startLocal();
+    return;
+  }
+  const startServer = deps.startServer ?? runServerForeground;
+  await startServer(port, host);
 }
 
 // Phase 10 — Postgres-backed `server api-key create|list|revoke` CLI. The
