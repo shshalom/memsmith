@@ -318,6 +318,22 @@ export function startCommandWantsDaemon(startArgs: string[]): boolean {
   return startArgs.some(flag => flag === '--daemon' || flag === '-d');
 }
 
+// Decides which path bare/`--daemon` `start` takes. Pure + exported for unit
+// tests. Priority: a running server is always reused first; then local auto-
+// detaches (a SessionStart hook cannot host the blocking foreground server
+// loop, so local MUST daemonize) or an explicit --daemon detaches; otherwise
+// server-mode runs foreground (systemd Type=simple owns the process). See
+// 2026-07-24-start-autodaemonize-local spec.
+export function resolveStartAction(input: {
+  wantsDaemon: boolean;
+  isLocal: boolean;
+  hasRunningServer: boolean;
+}): 'reuse' | 'daemon' | 'foreground' {
+  if (input.hasRunningServer) return 'reuse';
+  if (input.wantsDaemon || input.isLocal) return 'daemon';
+  return 'foreground';
+}
+
 export async function runServerServiceCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const command = argv[0] ?? '--daemon';
   const port = getServerPort();
@@ -381,17 +397,26 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
   switch (command) {
     case 'start': {
       const existing = readServerPidFile();
-      if (verifyPidFileOwnership(existing)) {
-        console.log(JSON.stringify({ status: 'ready', runtime: SERVER_RUNTIME, pid: existing.pid, port: existing.port }));
+      const hasRunningServer = verifyPidFileOwnership(existing);
+      const wantsDaemon = startCommandWantsDaemon(argv.slice(1));
+      const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+      const isLocal = selectRuntime(cwd) === 'local';
+
+      const action = resolveStartAction({ wantsDaemon, isLocal, hasRunningServer });
+
+      if (action === 'reuse') {
+        console.log(JSON.stringify({ status: 'ready', runtime: SERVER_RUNTIME, pid: existing!.pid, port: existing!.port }));
         return;
       }
 
-      // #2444 — `start` runs in the FOREGROUND by default so the server is
-      // usable under systemd `Type=simple` (the supervisor owns the PID and
-      // restart policy). Detached daemonization is an explicit opt-in via
-      // `start --daemon`, preserving the old behavior for ad-hoc local use.
-      const wantsDaemon = startCommandWantsDaemon(argv.slice(1));
-      if (wantsDaemon) {
+      if (action === 'daemon') {
+        // Detached so the caller (e.g. the short-lived SessionStart hook) does
+        // NOT block in the server loop. The child re-enters via `--daemon` →
+        // runRuntimeForeground, which boots local or server per selectRuntime.
+        // #2444 — `start` runs in the FOREGROUND by default so the server is
+        // usable under systemd `Type=simple` (the supervisor owns the PID and
+        // restart policy). Detached daemonization is an explicit opt-in via
+        // `start --daemon`, preserving the old behavior for ad-hoc local use.
         const daemonPid = spawnServerDaemon(port);
         if (daemonPid === undefined) {
           console.error('Failed to spawn server daemon.');
@@ -401,9 +426,7 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
         return;
       }
 
-      // Foreground path: run the service in THIS process and block until a
-      // shutdown signal. Identical wiring to the internal `--daemon` worker
-      // process, but attached to the controlling terminal / unit.
+      // action === 'foreground' — server-mode default (systemd Type=simple).
       await runRuntimeForeground(port, host);
       return;
     }
@@ -919,6 +942,7 @@ function spawnServerDaemon(port: number): number | undefined {
     env: {
       ...sanitizeEnv(process.env),
       MEMSMITH_SERVER_PORT: String(port),
+      MEMSMITH_PROJECT_CWD: process.env.MEMSMITH_PROJECT_CWD ?? process.cwd(),
     },
   });
   child.unref();
