@@ -323,6 +323,33 @@ async function buildHooks() {
     const serverStats = fs.statSync(`${hooksDir}/${SERVER_SERVICE.name}.cjs`);
     console.log(`✓ server-service built (${(serverStats.size / 1024).toFixed(2)} KB)`);
 
+    const serverBundleContent = fs.readFileSync(`${hooksDir}/${SERVER_SERVICE.name}.cjs`, 'utf-8');
+    // The SessionStart hook runs `server-service.cjs start`; a fresh LOCAL install
+    // must self-boot the embedded runtime. That path pulls startLocalRuntime +
+    // EmbeddedPostgresManager into this bundle. If they are absent, `start` in
+    // local mode fails with "MEMSMITH_SERVER_DATABASE_URL is required" and the
+    // runtime never boots (see 2026-07-24-sessionstart-local-coldboot spec).
+    //
+    // Note: minify:true renames class identifiers (e.g. EmbeddedPostgresManager →
+    // a short name), so we check minification-stable proxies:
+    //   • 'startLocalRuntime' — preserved as a module export key (vt() call)
+    //   • 'local runtime: embedded PG ready' — a string literal in local-runtime.ts
+    //     that is emitted only after EmbeddedPostgresManager.start() succeeds; proves
+    //     the full local cold-boot path (EmbeddedPostgresManager + startLocalRuntime)
+    //     is bundled.
+    for (const [symbol, proxy] of [
+      ['startLocalRuntime', 'startLocalRuntime'],
+      ['EmbeddedPostgresManager', 'local runtime: embedded PG ready'],
+    ]) {
+      if (!serverBundleContent.includes(proxy)) {
+        throw new Error(
+          `server-service.cjs is missing "${symbol}" — the local cold-boot path is not in the bundle. ` +
+          `SessionStart \`start\` would fail to boot a fresh local install. ` +
+          `Ensure runServerServiceCli's start path imports startLocalRuntime (runtime-aware start).`
+        );
+      }
+    }
+
     console.log(`\n🔧 Building MCP server...`);
     await build({
       entryPoints: [MCP_SERVER.source],
