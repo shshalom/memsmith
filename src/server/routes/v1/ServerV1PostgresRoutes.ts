@@ -55,12 +55,14 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { runConvert } from '../../convert/convert-service.js';
 import { flipToTeam } from '../../convert/flip-to-team.js';
-import { writeProjectRuntime } from '../../../services/identity/project-identity.js';
+import { writeProjectRuntime, readProjectMarker, ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
 import type { CopyDeps } from '../../convert/copy-engine.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
+import { makeResolveConvertContext } from '../../convert/convert-context.js';
+import { readLocalScopeFromMarkerOrEnv } from '../../runtime/resolve-local-scope.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -1555,14 +1557,35 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // Task 5 — Go Team Wizard: /v1/convert/test-connection + /v1/convert/migrate.
     // Both routes are owner-gated (writeAuth + requireRole('owner')).
     // probe: stateless connection check (no local DB writes).
-    // convert: bootstraps remote schema, copies local data, writes the project
-    //   marker (runtime=server + serverUrl) and stores the team key in CredentialStore
-    //   via flipToTeam — the wizard client (running in the project) supplies cwd,
-    //   serverUrl, and apiKey in the request body; teamId comes from authContext.
+    // convert: client posts only { databaseUrl }; the server resolves cwd/projectId/teamId
+    //   from the local project marker, derives serverUrl, and resolves or mints the team
+    //   apiKey from CredentialStore (minting against the remote DB on first convert).
+    //   Result: remote schema bootstrapped, local data copied, marker updated (runtime=server
+    //   + serverUrl), and key cached in CredentialStore.
     const credStore = new CredentialStore();
+    const convertCwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
+      resolveConvertContext: makeResolveConvertContext({
+        cwd: convertCwd,
+        readScope: readLocalScopeFromMarkerOrEnv,
+        resolveKey: (teamId) => credStore.resolveKeyForTeam(teamId),
+        mintKey: async (teamId, projectId, databaseUrl) => {
+          const cfg = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: databaseUrl } as NodeJS.ProcessEnv });
+          if (!cfg) throw new Error('invalid databaseUrl for key mint');
+          const remotePool = createPostgresPool(cfg);
+          try {
+            await bootstrapServerPostgresSchema(remotePool);
+            await upsertTeamAndProject(remotePool, teamId, projectId); // seed dest team+project so api_keys + copy FKs hold on a fresh DB
+            const key = await ensureBaseKey(remotePool, teamId, projectId, credStore);
+            return key;
+          } finally {
+            await remotePool.end();
+          }
+        },
+        existingServerUrl: (cwd) => readProjectMarker(cwd)?.serverUrl,
+      }),
       convert: async (input) => {
         const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl, {
           projectId: input.projectId,
