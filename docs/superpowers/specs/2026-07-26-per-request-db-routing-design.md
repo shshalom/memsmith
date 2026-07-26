@@ -155,7 +155,46 @@ still resolves the cold-boot project and sets the base URL. No change to the reu
 7. `src/server/runtime/create-server-service.ts` — construct the registry (base pool seeded), pass to routes/dashboard.
 8. `src/cli/handlers/session-init.ts` — mint identity/keys against the base pool explicitly (D6).
 9. `req` typing — add `databasePool?: PostgresPool`.
-10. **No change:** MCP server, embedder, `resolve-project-database.ts` (reused), `startLocalRuntime` cold boot.
+10. **Non-request paths (D9)** — the generation worker and the legacy `/api/*` compat adapters also
+    reach project data; see D9.
+11. **No change:** MCP server (HTTP client), embedder, `resolve-project-database.ts` (reused),
+    `startLocalRuntime` cold boot.
+
+### D9 — Non-request paths must route too (added after the whole-branch review)
+
+The first version of this spec scoped routing to the HTTP request path and asserted "MCP needs no
+change" without auditing the other surfaces that reach project data. That was a **design gap**, and
+it produced two Critical defects that per-task reviews could not catch (each task's sweep was scoped
+to route files, so a pool bound at construction time in a different file was invisible).
+
+**The rule, stated generally:** the unit to audit is not "a pool used in a route" but **"a
+project-data table reached without a `req`."** Every such path must resolve the project pool from
+whatever scope it *does* have.
+
+Two instances, both live:
+
+- **Generation worker** (`create-server-service.ts` → `ActiveServerGenerationWorkerManager` →
+  `ProviderObservationGenerator` → `processGeneratedResponse`) is constructed with the base pool. Its
+  job payloads already carry `{ team_id, project_id }`, so it must resolve the pool **per job**.
+  Consequence if unrouted: the worker looks for a non-base project's job on the base pool, finds
+  nothing, logs "nothing to do" and reports success — **silently dropping every observation for every
+  non-base project.**
+  It additionally opens one transaction spanning project-data repos *and* `audit_log` (an account
+  table); after the schema split no single database satisfies that, so the account writes
+  (`audit_log`, `usage_events`) must move to the base pool **outside** the project transaction, and
+  must be best-effort so telemetry failure cannot roll back the observation persist.
+- **Legacy `/api/*` compat adapters** (`SessionsObservationsAdapter`, `SessionsSummarizeAdapter`) are
+  mounted without `dbRouting` and write project data on the base pool. They have live callers (the
+  OpenCode integration and the Viewer UI's Observations tab), so they must mount the same middleware
+  and thread `req.databasePool`.
+
+**Routing key by path type:** request paths route from `authContext` (D2); worker paths route from the
+job's own persisted scope. Neither ever routes from client-supplied query/body fields — so these were
+*unrouted*, not *mis-routed*: a completeness gap, not an authorization hole.
+
+**Durable guard:** the isolation test must cover the generation path, asserting a generated
+observation for project B lands in B's database. Structural review of route files cannot substitute
+for exercising a non-request path end to end.
 
 ## Data flow (after)
 
