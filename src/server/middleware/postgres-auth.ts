@@ -75,6 +75,11 @@ export function requireWriteRole(): RequestHandler {
 declare module 'express-serve-static-core' {
   interface Request {
     authContext?: AuthContext;
+    // Per-request database pool, set by resolveRequestDatabase (Task 4) after
+    // routing on req.authContext.projectId. See
+    // src/server/middleware/resolve-request-database.ts for the security
+    // invariant governing how this is chosen.
+    databasePool?: PostgresPool;
   }
 }
 import type { PostgresApiKey } from '../../storage/postgres/auth.js';
