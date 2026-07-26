@@ -11,6 +11,13 @@ SECOND concurrent project on a shared server. Unblocks P3 and true multi-project
 > three are resolved below in D2/D3, D4, and D7 respectively. Claim corrections: `this.options.pool`
 > appears **52** times in the V1 routes (not "~54"); the dashboard does hold a pool
 > (`options.db`, `routes.ts:163,170`).
+>
+> **Second revision (after the whole-branch review).** The spec scoped routing to the HTTP request
+> path and never audited non-request surfaces, which produced two Critical defects (the generation
+> worker and the legacy `/api/*` adapters both reaching project data on the base pool). Added **D9**
+> with the generalized rule and a durable test guard. Also corrects a false finding recorded during
+> implementation: the compat adapters DO have live in-repo callers (the OpenCode integration and the
+> Viewer UI's Observations tab).
 
 ## Problem
 
@@ -240,7 +247,10 @@ shared, one each: process, Express, embedding model, generation logic
    requests with different authenticated projectIds land in different databases (A's write invisible
    to B) — the exact P3 gap. Provisioning idempotent. Hard-refuses `~/.memsmith`/`:55433`.
 6. **Regression:** existing single-project behavior unchanged; all current V1/dashboard tests green.
-7. **Manual acceptance = P3:** fresh temp project with the dogfood running → routes to its own DB →
+7. **Generation-path isolation (D9 guard):** a generated observation for project B must land in B's
+   database and be absent from the base. Structural review of route files cannot catch a
+   construction-time-bound pool — only exercising the non-request path does.
+8. **Manual acceptance = P3:** fresh temp project with the dogfood running → routes to its own DB →
    dashboard shows its own data → Go Team converts only its DB.
 
 ## Global constraints
