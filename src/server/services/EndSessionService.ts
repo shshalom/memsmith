@@ -29,6 +29,9 @@ import { newId } from '../../storage/postgres/utils.js';
 const SUMMARY_JOB_TYPE = 'observation_generate_session_summary';
 
 export interface EndSessionServiceOptions {
+  // Task 5 — default/fallback pool, used only when a caller does not pass a
+  // per-request pool to end(). Production /v1/sessions/:id/end handlers
+  // always pass `req.databasePool ?? this.options.pool` explicitly.
   pool: PostgresPool;
   resolveSummaryQueue: () => EventQueueLike | null;
 }
@@ -53,10 +56,10 @@ export interface EndSessionInput {
 export class EndSessionService {
   constructor(private readonly options: EndSessionServiceOptions) {}
 
-  async end(input: EndSessionInput): Promise<EndSessionResult> {
+  async end(input: EndSessionInput, pool: PostgresPool = this.options.pool): Promise<EndSessionResult> {
     const source = input.source ?? 'http_post_v1_sessions_end';
 
-    const txResult = await withPostgresTransaction(this.options.pool, async (client) => {
+    const txResult = await withPostgresTransaction(pool, async (client) => {
       const sessionsRepo = new PostgresServerSessionsRepository(client);
       const ended = await sessionsRepo.endSession({
         id: input.sessionId,

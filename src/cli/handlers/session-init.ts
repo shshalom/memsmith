@@ -106,15 +106,25 @@ export const sessionInitHandler: EventHandler = {
     // Non-fatal identity mint: ensure the project has a durable identity + base key
     // in the local embedded PG. Skips silently when the DB is not reachable (e.g.
     // the hook fires before the local runtime is up). Next session-init retries.
+    //
+    // Task 5 (per-project-database routing) — api_keys is an ACCOUNT table
+    // that lives ONLY in the base database (a per-project database is
+    // bootstrapped with schema mode 'project', which never creates api_keys).
+    // getSharedPostgresPool() is the process-wide singleton pool built once
+    // from MEMSMITH_SERVER_DATABASE_URL — nothing in this codebase ever
+    // constructs it with a per-project connection string, so it always
+    // targets the base database. Naming it `baseAccountPool` here (rather
+    // than a generic `pool`) makes that invariant explicit at the call site,
+    // so key minting can never be accidentally re-pointed at a project DB.
     try {
       const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
-      const pool = getSharedPostgresPool({ requireDatabaseUrl: true });
+      const baseAccountPool = getSharedPostgresPool({ requireDatabaseUrl: true });
       const { ensureProjectIdentity } = await import('../../services/identity/project-identity.js');
       const { CredentialStore } = await import('../../services/identity/credential-store.js');
       // ensureProjectIdentity now guarantees a resolvable base key when given a
       // store (folds in the former separate ensureBaseKey call), so a marker is
       // never written without its key.
-      await ensureProjectIdentity(pool, cwd, new CredentialStore());
+      await ensureProjectIdentity(baseAccountPool, cwd, new CredentialStore());
     } catch (err) {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }

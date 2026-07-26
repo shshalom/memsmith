@@ -196,6 +196,9 @@ export class ServerService {
       settingsStore,
       settingsResolver,
       generationProviderHolder,
+      poolRegistry: this.graph.poolRegistry,
+      baseDatabaseName: this.graph.baseDatabaseName,
+      baseProjectId: this.graph.baseProjectId ?? null,
     });
     server.registerRoutes(v1Routes);
 
@@ -240,6 +243,9 @@ export class ServerService {
       localDevTeamId: this.graph.localDevTeamId,
       localDevProjectId: this.graph.localDevProjectId,
       settingsResolver,
+      poolRegistry: this.graph.poolRegistry,
+      baseDatabaseName: this.graph.baseDatabaseName,
+      baseProjectId: this.graph.baseProjectId ?? null,
     }));
 
     server.finalizeRoutes();
@@ -274,6 +280,7 @@ export class ServerService {
       await Promise.all([
         this.graph.queueManager.close(),
         this.graph.generationWorkerManager.close(),
+        this.graph.poolRegistry?.closeAll() ?? Promise.resolve(),
       ]);
       await this.graph.postgres.pool.end();
     } finally {

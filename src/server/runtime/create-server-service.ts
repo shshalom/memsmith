@@ -5,7 +5,9 @@ import { logger } from '../../utils/logger.js';
 import { ModeManager } from '../../services/domain/ModeManager.js';
 import { getSharedPostgresPool, SERVER_POSTGRES_SCHEMA_VERSION } from '../../storage/postgres/index.js';
 import { bootstrapServerPostgresSchema } from '../../storage/postgres/schema.js';
-import type { PostgresPool } from '../../storage/postgres/pool.js';
+import { createPostgresPool, type PostgresPool } from '../../storage/postgres/pool.js';
+import { PoolRegistry } from '../../storage/postgres/pool-registry.js';
+import { parsePostgresConfig } from '../../storage/postgres/config.js';
 import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
@@ -208,6 +210,13 @@ export async function createServerService(
   const _localScope = readLocalScopeFromMarkerOrEnv(process.env.MEMSMITH_PROJECT_CWD ?? process.cwd());
   const localDevTeamId = _localScope?.teamId ?? null;
   const localDevProjectId = _localScope?.projectId ?? null;
+  // Per-request database routing (per-project-database design). The registry
+  // is only buildable when we can resolve a real base connection string (i.e.
+  // MEMSMITH_SERVER_DATABASE_URL is set) — options.pool can be injected by
+  // tests/tools without that env var, in which case per-request routing is
+  // simply not wired and every route keeps using the base pool directly (see
+  // the `poolRegistry?` fallback documented on ServerServiceGraph).
+  const poolRegistry = buildPoolRegistry(pool);
   const graph: ServerServiceGraph = {
     // Persisted runtime literal — Phase 1d will migrate this value. The TS
     // identifiers above are now `Server*`; the wire/storage value remains
@@ -222,6 +231,9 @@ export async function createServerService(
     localDevProjectId,
     queueManager,
     generationWorkerManager,
+    ...(poolRegistry
+      ? { poolRegistry: poolRegistry.registry, baseDatabaseName: poolRegistry.baseDatabaseName, baseProjectId: localDevProjectId }
+      : {}),
   };
 
   if (generationWorkerManager instanceof ActiveServerGenerationWorkerManager) {
@@ -229,6 +241,68 @@ export async function createServerService(
   }
 
   return new ServerService({ graph });
+}
+
+// Builds the PoolRegistry used for per-request database routing. Returns null
+// when MEMSMITH_SERVER_DATABASE_URL is unset (e.g. a test injected a fake pool
+// directly) — in that case per-request routing is not wired at all and every
+// route keeps using the base pool, matching pre-Task-5 behavior exactly.
+function buildPoolRegistry(
+  basePool: PostgresPool,
+): { registry: PoolRegistry; baseDatabaseName: string } | null {
+  const config = parsePostgresConfig({ requireDatabaseUrl: false });
+  if (!config) return null;
+  let baseDatabaseName: string;
+  try {
+    baseDatabaseName = new URL(config.connectionString).pathname.replace(/^\//, '');
+  } catch {
+    return null;
+  }
+  if (!baseDatabaseName) return null;
+
+  // The admin/maintenance connection targets the BASE database (never a
+  // per-project database) — CREATE DATABASE and pg_database lookups must run
+  // against it. Reuses the base pool itself; it already targets baseDatabaseName.
+  const adminQuery = async (text: string, params?: unknown[]): Promise<{ rows: unknown[] }> => {
+    const result = await basePool.query(text, params);
+    return { rows: result.rows };
+  };
+
+  const registry = new PoolRegistry({
+    baseConnectionString: config.connectionString,
+    basePool,
+    baseDatabaseName,
+    createPool: (connectionString: string) => createPostgresPool({ ...config, connectionString }),
+    adminQuery,
+    bootstrapProject: (p) => bootstrapServerPostgresSchema(p, 'project'),
+    seedHinge,
+  });
+  return { registry, baseDatabaseName };
+}
+
+// Task 5 carryover from the Task 4 review: seed the new project database's
+// own hinge rows (teams/projects) so the data tables' FKs (observations.team_id
+// -> teams.id, observations.project_id -> projects.id) resolve on first write.
+// Mirrors the existing seeding in local-runtime.ts (defaultRunImport).
+export async function seedHinge(
+  pool: PostgresPool,
+  ids: { teamId: string; projectId: string },
+): Promise<void> {
+  // Guard: the Task 4 middleware coalesces teamId ?? '' (advisory-only for
+  // routing), which is inert until this function runs. An empty/blank teamId
+  // here would silently insert a `teams` row with id='' — a project DB
+  // without a valid team anchor is a bug, not a value to persist quietly.
+  if (!ids.teamId || !ids.teamId.trim()) {
+    throw new Error(
+      `seedHinge: refusing to seed hinge rows with an empty teamId (projectId=${ids.projectId}). ` +
+        'A project database requires a valid team anchor.',
+    );
+  }
+  await pool.query('INSERT INTO teams (id, name) VALUES ($1,$1) ON CONFLICT (id) DO NOTHING', [ids.teamId]);
+  await pool.query(
+    'INSERT INTO projects (id, team_id, name) VALUES ($1,$2,$1) ON CONFLICT (id) DO NOTHING',
+    [ids.projectId, ids.teamId],
+  );
 }
 
 function buildGenerationWorkerManager(
