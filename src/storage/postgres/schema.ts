@@ -81,16 +81,28 @@ async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode 
     `,
     [2, 'team-agent-memory: typed obs_type + lifecycle_state + supersedes + quality']
   );
-  // Migration 003: the vector type lives in public schema; using a fully
-  // qualified type name ensures the ADD COLUMN works regardless of the
-  // current search_path (e.g. in per-test isolated schemas).
-  await client.query(
-    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS embedding_vec public.vector(384)`
-  );
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_observations_embedding_vec
-       ON observations USING hnsw (embedding_vec public.vector_cosine_ops)`
-  );
+  // Migrations 003-006 below are gated by `mode` (bugfix: the schema split
+  // introduced by "refactor(schema): split into hinge/account/project SQL"
+  // gated `schemaSqlFor(mode)` but left these unconditional — a 'project'-
+  // mode bootstrap has no `api_keys` table (account-only) and would fail on
+  // migration 006's ALTER TABLE; an 'account'-mode bootstrap has no
+  // `observations` table (project-only) and would fail on migrations 003/005.
+  // Each ALTER now only runs against the mode that owns the target table —
+  // see HINGE_SCHEMA_SQL/ACCOUNT_SCHEMA_SQL/PROJECT_SCHEMA_SQL below for which
+  // table lives in which mode.
+  if (mode === 'full' || mode === 'project') {
+    // Migration 003: the vector type lives in public schema; using a fully
+    // qualified type name ensures the ADD COLUMN works regardless of the
+    // current search_path (e.g. in per-test isolated schemas). `observations`
+    // is a PROJECT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE observations ADD COLUMN IF NOT EXISTS embedding_vec public.vector(384)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_observations_embedding_vec
+         ON observations USING hnsw (embedding_vec public.vector_cosine_ops)`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -99,14 +111,20 @@ async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode 
     `,
     [3, 'team-agent-memory: pgvector embedding_vec + hnsw index']
   );
-  // Migration 004: per-team server settings overrides (team-scoped control panel).
-  await client.query(
-    `CREATE TABLE IF NOT EXISTS server_settings (
-       team_id text PRIMARY KEY,
-       overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
-       updated_at timestamptz NOT NULL DEFAULT now()
-     )`
-  );
+  // Migration 004: per-team server settings overrides (team-scoped control
+  // panel). Read/written only via SettingsStore against the base/account
+  // pool (never req.databasePool) — still created for 'full'/'account' so an
+  // account-mode database is self-sufficient; skipped for 'project' since no
+  // project-scoped code path ever queries it.
+  if (mode === 'full' || mode === 'account') {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS server_settings (
+         team_id text PRIMARY KEY,
+         overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
+         updated_at timestamptz NOT NULL DEFAULT now()
+       )`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -115,16 +133,19 @@ async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode 
     `,
     [4, 'team-agent-memory: per-team server_settings overrides']
   );
-  // Migration 005: content-idempotency key for manual record-intent writes.
-  // Two detection layers + retries collapse to one row via partial unique index.
-  await client.query(
-    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS idempotency_key TEXT`
-  );
-  await client.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS ux_observations_idempotency
-       ON observations (team_id, project_id, idempotency_key)
-       WHERE idempotency_key IS NOT NULL`
-  );
+  if (mode === 'full' || mode === 'project') {
+    // Migration 005: content-idempotency key for manual record-intent writes.
+    // Two detection layers + retries collapse to one row via partial unique
+    // index. `observations` is a PROJECT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE observations ADD COLUMN IF NOT EXISTS idempotency_key TEXT`
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_observations_idempotency
+         ON observations (team_id, project_id, idempotency_key)
+         WHERE idempotency_key IS NOT NULL`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -133,12 +154,15 @@ async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode 
     `,
     [5, 'team-agent-memory: idempotency_key column + partial unique index on observations']
   );
-  // Migration 006: nullable user_id on api_keys — owning user linkage.
-  // Back-compat: column is nullable so legacy null-owner keys behave exactly
-  // as before; migration is additive + idempotent (ADD COLUMN IF NOT EXISTS).
-  await client.query(
-    `ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id TEXT`
-  );
+  if (mode === 'full' || mode === 'account') {
+    // Migration 006: nullable user_id on api_keys — owning user linkage.
+    // Back-compat: column is nullable so legacy null-owner keys behave
+    // exactly as before; migration is additive + idempotent (ADD COLUMN IF
+    // NOT EXISTS). `api_keys` is an ACCOUNT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id TEXT`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
