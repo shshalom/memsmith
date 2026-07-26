@@ -63,6 +63,9 @@ import type { CopyDeps } from '../../convert/copy-engine.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
 import { makeResolveConvertContext } from '../../convert/convert-context.js';
 import { readLocalScopeFromMarkerOrEnv } from '../../runtime/resolve-local-scope.js';
+import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
+import { resolveRequestDatabase } from '../../middleware/resolve-request-database.js';
+import { projectDatabaseName } from '../../runtime/resolve-project-database.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -112,6 +115,14 @@ export interface ServerV1PostgresRoutesOptions {
   // but the classify+compose call will receive a null provider and fail-open
   // (recorded: false) without a 500.
   generationProviderHolder?: GenerationProviderHolder;
+  // Task 5 — per-request database routing (per-project-database design).
+  // Optional: when absent, resolveRequestDatabase is never mounted and every
+  // DATA-table query falls back to `req.databasePool ?? this.options.pool`
+  // (i.e. the base pool) — this is what keeps every existing pool-less test
+  // and any deployment without MEMSMITH_SERVER_DATABASE_URL unchanged.
+  poolRegistry?: PoolRegistry;
+  baseDatabaseName?: string;
+  baseProjectId?: string | null;
 }
 
 interface BatchPreValidationFailure {
@@ -229,8 +240,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const writeGuards: RequestHandler[] = [...guards];
     const tokenCap = Number(process.env.MEMSMITH_MONTHLY_TOKEN_CAP ?? '0');
     if (tokenCap > 0) writeGuards.push(requireMonthlyQuota(this.options.pool, { kind: 'tokens', cap: tokenCap }));
-    const writeAuth: RequestHandler[] = [baseWrite, ...writeGuards];
-    const readAuth: RequestHandler[] = [baseRead, ...guards];
+    // Task 5 — per-request database routing. Mounted AFTER the auth middleware
+    // above (which populates req.authContext) and BEFORE any data handler, so
+    // req.databasePool is always resolved before a handler runs. Only mounted
+    // when a registry was actually constructed (see ServerV1PostgresRoutesOptions
+    // doc) — without one, every DATA-site fallback (`req.databasePool ??
+    // this.options.pool`) resolves to the base pool exactly as before this task.
+    const dbRouting: RequestHandler[] = this.options.poolRegistry
+      ? [resolveRequestDatabase(this.options.poolRegistry, {
+          baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
+          baseProjectId: this.options.baseProjectId ?? null,
+        })]
+      : [];
+    const writeAuth: RequestHandler[] = [baseWrite, ...dbRouting, ...writeGuards];
+    const readAuth: RequestHandler[] = [baseRead, ...dbRouting, ...guards];
 
     // GET /v1/usage — per-kind usage totals for the caller's team this month.
     app.get('/v1/usage', readAuth, this.asyncHandler(async (req, res) => {
@@ -314,7 +337,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
 
       const insertInput = this.toAgentEventInput(body, teamId);
-      await this.applyContentSessionLinks([insertInput], [req.body], teamId);
+      await this.applyContentSessionLinks([insertInput], [req.body], teamId, req.databasePool ?? this.options.pool);
       let event: PostgresAgentEvent;
       let outbox: PostgresObservationGenerationJob | null = null;
       let enqueueState: EnqueueOutcome = 'skipped';
@@ -327,7 +350,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         requestId: req.requestId ?? null,
       };
       try {
-        const result = await this.ingestEvents.ingestOne(insertInput, ingestOptions);
+        const result = await this.ingestEvents.ingestOne(insertInput, ingestOptions, req.databasePool ?? this.options.pool);
         event = result.event;
         outbox = result.outbox;
         enqueueState = result.enqueueState;
@@ -350,7 +373,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         let resolved = outbox;
         let waitTimedOut = false;
         if (outbox) {
-          const jobRepo = new PostgresObservationGenerationJobRepository(this.options.pool);
+          const jobRepo = new PostgresObservationGenerationJobRepository(req.databasePool ?? this.options.pool);
           const result = await waitForTerminalJob(jobRepo, outbox);
           resolved = result.job;
           waitTimedOut = result.timedOut;
@@ -400,6 +423,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         inputs,
         Array.isArray(req.body) ? req.body : result.data,
         teamId,
+        req.databasePool ?? this.options.pool,
       );
 
       let inserted: { event: PostgresAgentEvent; outbox: PostgresObservationGenerationJob | null }[] = [];
@@ -418,7 +442,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         requestId: req.requestId ?? null,
       };
       try {
-        const ingested = await this.ingestEvents.ingestBatch(inputs, batchIngestOptions);
+        const ingested = await this.ingestEvents.ingestBatch(inputs, batchIngestOptions, req.databasePool ?? this.options.pool);
         inserted = ingested.map(({ event, outbox }) => ({ event, outbox }));
         enqueueResults = ingested.map(({ enqueueState }) => enqueueState);
       } catch (error) {
@@ -434,7 +458,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       });
 
       if (wait) {
-        const jobRepo = new PostgresObservationGenerationJobRepository(this.options.pool);
+        const jobRepo = new PostgresObservationGenerationJobRepository(req.databasePool ?? this.options.pool);
         const waitDeadline = Date.now() + WAIT_TIMEOUT_MS;
         const resolved: { event: PostgresAgentEvent; outbox: PostgresObservationGenerationJob | null; timedOut: boolean }[] = [];
         for (const item of inserted) {
@@ -475,7 +499,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
-      const eventsRepo = new PostgresAgentEventsRepository(this.options.pool);
+      const eventsRepo = new PostgresAgentEventsRepository(req.databasePool ?? this.options.pool);
       const fullEvent = await this.loadScopedById(req, res, {
         id,
         teamId,
@@ -495,8 +519,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
+      const dataPool = req.databasePool ?? this.options.pool;
 
-      const eventResult = await this.options.pool.query(
+      const eventResult = await dataPool.query(
         `SELECT id, project_id FROM agent_events WHERE id = $1 AND team_id = $2`,
         [id, teamId],
       );
@@ -507,7 +532,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       }
       if (!this.ensureProjectAllowed(req, res, eventRow.project_id)) return;
 
-      const obsResult = await this.options.pool.query(
+      const obsResult = await dataPool.query(
         `
           SELECT o.id, o.project_id, o.team_id, o.server_session_id, o.kind, o.content,
                  o.metadata, o.generation_key, o.created_by_job_id, o.created_at, o.updated_at,
@@ -565,7 +590,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           status,
           limit,
           offset,
-        }));
+        }, req.databasePool ?? this.options.pool));
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         logger.warn('SYSTEM', 'team.jobs.list query failed', { requestId: req.requestId ?? null }, err);
@@ -629,7 +654,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           status,
           limit,
           offset,
-        }));
+        }, req.databasePool ?? this.options.pool));
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         logger.warn('SYSTEM', 'project.jobs.list query failed', { requestId: req.requestId ?? null }, err);
@@ -684,7 +709,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       try {
         ({ jobs, total } = await this.listJobsForScope({
           teamId, projectId: callerProjectId, status, sourceType, limit, offset, since,
-        }));
+        }, req.databasePool ?? this.options.pool));
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         logger.warn('SYSTEM', 'jobs.list query failed', { requestId: req.requestId ?? null }, err);
@@ -718,7 +743,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
-      const repo = new PostgresObservationGenerationJobRepository(this.options.pool);
+      const repo = new PostgresObservationGenerationJobRepository(req.databasePool ?? this.options.pool);
       const job = await this.loadScopedById(req, res, {
         id,
         teamId,
@@ -788,7 +813,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
         if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
-        const repo = new PostgresServerSessionsRepository(this.options.pool);
+        const repo = new PostgresServerSessionsRepository(req.databasePool ?? this.options.pool);
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
         try {
           if (body.externalSessionId) {
@@ -854,7 +879,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const id = this.routeParam(req.params.id);
-      const repo = new PostgresServerSessionsRepository(this.options.pool);
+      const repo = new PostgresServerSessionsRepository(req.databasePool ?? this.options.pool);
       const session = await this.loadScopedById(req, res, {
         id,
         teamId,
@@ -897,7 +922,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         sourceAdapter: 'api',
       };
       try {
-        const result = await this.endSession.end(endInput);
+        const result = await this.endSession.end(endInput, req.databasePool ?? this.options.pool);
         endedSession = result.session;
         summaryOutbox = result.outbox;
         enqueueState = result.enqueueState;
@@ -953,7 +978,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           idempotencyKey: body.idempotencyKey ?? null,
         };
         try {
-          const repo = new PostgresObservationRepository(this.options.pool);
+          const repo = new PostgresObservationRepository(req.databasePool ?? this.options.pool);
           const observation = await repo.create(createInput);
           await this.auditWrite(req, 'memory.write', observation.id, observation.projectId);
           res.status(201).json({ memory: serializeObservation(observation) });
@@ -989,7 +1014,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const provider = this.options.generationProviderHolder
             ? await this.options.generationProviderHolder.current(teamId)
             : null;
-          const repo = new PostgresObservationRepository(this.options.pool);
+          const repo = new PostgresObservationRepository(req.databasePool ?? this.options.pool);
           const deps = {
             complete: (system: string, user: string) =>
               provider ? providerComplete({ provider, system, user }) : Promise.resolve(null),
@@ -1071,7 +1096,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             // lifecycle filters are applied IN SQL (not in-memory over a recent
             // window) so a rare type like `decision` is found across the whole
             // table, not just among the most recent rows.
-            const repo = new PostgresObservationRepository(this.options.pool);
+            const repo = new PostgresObservationRepository(req.databasePool ?? this.options.pool);
             results = await repo.listByProject({
               projectId,
               teamId,
@@ -1090,7 +1115,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               platformSource,
               mode: 'search',
               userDirected,
-            });
+            }, req.databasePool ?? this.options.pool);
             if (obsType) results = results.filter(o => o.obsType === obsType);
             if (lifecycleState) results = results.filter(o => o.lifecycleState === lifecycleState);
           }
@@ -1153,7 +1178,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             platformSource,
             mode: 'context',
             userDirected: body.userDirected,
-          });
+          }, req.databasePool ?? this.options.pool);
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           logger.warn('SYSTEM', 'observation.context failed', { requestId: req.requestId ?? null }, err);
@@ -1213,7 +1238,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const teamId = this.requireTeamId(req, res);
       if (!teamId) return;
       const projectScope = req.authContext?.projectId ?? null;
-      const repo = new PostgresObservationRepository(this.options.pool);
+      const dataPool = req.databasePool ?? this.options.pool;
+      const repo = new PostgresObservationRepository(dataPool);
       const assertProjectAllowed = (projectId: string): void => {
         if (projectScope && projectScope !== projectId) {
           throw new Error('API key is scoped to a different project');
@@ -1224,7 +1250,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           assertProjectAllowed(projectId);
           // Same ranking as POST /v1/search — hybrid by default (see
           // resolveSearchResults), so MCP recall and REST search agree.
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'search' });
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'search' }, dataPool);
           // Audit the read, same as POST /v1/search — the MCP path is no exception.
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'search', via: 'mcp', query, limit,
@@ -1234,7 +1260,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         },
         context: async ({ projectId, query, limit }) => {
           assertProjectAllowed(projectId);
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'context' });
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'context' }, dataPool);
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'context', via: 'mcp', query, limit,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
@@ -1272,8 +1298,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       if (!teamId) return;
       const id = String(req.params.id);
       const projectScope = req.authContext?.projectId ?? null;
+      const dataPool = req.databasePool ?? this.options.pool;
       try {
-        const row = await this.getObservationForDelete(id, teamId, projectScope);
+        const row = await this.getObservationForDelete(id, teamId, projectScope, dataPool);
         if (!row) { res.status(404).json({ error: 'not_found' }); return; }
 
         const decision = authorizeObservationDelete(
@@ -1288,7 +1315,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           return;
         }
 
-        const deleted = await this.deleteObservationForScope(id, teamId, projectScope);
+        const deleted = await this.deleteObservationForScope(id, teamId, projectScope, dataPool);
         if (!deleted) { res.status(404).json({ error: 'not_found' }); return; }
         await this.auditWrite(req, 'observation.deleted', id, projectScope, { via: 'api' });
         res.status(200).json({ deleted: true, id });
@@ -1317,7 +1344,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           res.status(404).json({ error: 'not_found' });
           return;
         }
-        const counts = await new PostgresDataDeletionRepository(this.options.pool)
+        const counts = await new PostgresDataDeletionRepository(req.databasePool ?? this.options.pool)
           .purgeProjectMemory({ projectId, teamId });
         await this.auditWrite(req, 'project.memory_purged', projectId, projectId, { ...counts, via: 'api' });
         res.status(200).json({ purged: true, projectId, counts });
@@ -1587,7 +1614,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         existingServerUrl: (cwd) => readProjectMarker(cwd)?.serverUrl,
       }),
       convert: async (input) => {
-        const { deps, dispose } = this.buildConvertCopyDeps(input.databaseUrl, {
+        const { deps, dispose } = await this.buildConvertCopyDeps(input.databaseUrl, {
           projectId: input.projectId,
           teamId: input.teamId,
         });
@@ -1612,15 +1639,34 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     });
   }
 
+  // Task 5 — resolve the DATA-table read pool for a given (projectId, teamId)
+  // scope OUTSIDE an HTTP request (the Go Team convert closure has no `req`
+  // to read req.databasePool from — resolveConvertContext/convert run from a
+  // ConvertRoutesDeps callback, not a request handler). Mirrors
+  // resolveRequestDatabase's routing rule exactly: base pool for the
+  // baseProjectId, else the registry-resolved per-project pool. Falls back to
+  // the base pool when no registry was constructed (matches every other
+  // DATA-site fallback in this file).
+  private async resolveLocalPoolForConvert(scope: { projectId: string; teamId: string }): Promise<PostgresPool> {
+    if (!this.options.poolRegistry) return this.options.pool;
+    if (scope.projectId === this.options.baseProjectId) return this.options.pool;
+    const databaseName = projectDatabaseName(scope.projectId);
+    return this.options.poolRegistry.getPool(databaseName, scope);
+  }
+
   // Build parameterized CopyDeps for the Go Team conversion:
-  // - readRows/countRows('local') use this.options.pool (the embedded/local PG, read-only side).
+  // - readRows/countRows('local') read from the caller's OWN project database
+  //   (resolved via resolveLocalPoolForConvert), never a hardcoded base pool —
+  //   COPY_TABLES includes per-project data tables (observations, agent_events,
+  //   etc.), so this must follow the same per-request-database routing rule as
+  //   every other DATA site in this file.
   // - upsertRows/countRows('remote') use a fresh pool for the remote URL.
   // Table names come from the COPY_TABLES constant (a fixed safe list — never user input).
   // The remote schema is bootstrapped before returning so INSERTs have all tables + pgvector.
-  private buildConvertCopyDeps(
+  private async buildConvertCopyDeps(
     remoteUrl: string,
     scope: { projectId: string; teamId: string },
-  ): { deps: CopyDeps; dispose: () => Promise<void> } {
+  ): Promise<{ deps: CopyDeps; dispose: () => Promise<void> }> {
     const remoteConfig = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: remoteUrl } as NodeJS.ProcessEnv });
     if (!remoteConfig) throw new Error('invalid remote databaseUrl');
     const remotePool = createPostgresPool(remoteConfig);
@@ -1632,7 +1678,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       bootstrapped = true;
     };
 
-    const localPool = this.options.pool;
+    const localPool = await this.resolveLocalPoolForConvert(scope);
 
     const deps: CopyDeps = {
       readRows: async (table: string) => {
@@ -1741,8 +1787,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     inputs: CreatePostgresAgentEventInput[],
     rawBodies: unknown[],
     teamId: string,
+    pool: PostgresPool = this.options.pool,
   ): Promise<void> {
-    const repo = new PostgresServerSessionsRepository(this.options.pool);
+    const repo = new PostgresServerSessionsRepository(pool);
     const lookups = new Map<string, Promise<string | null>>();
 
     await Promise.all(inputs.map(async (input, index) => {
@@ -1818,16 +1865,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     return process.env.MEMSMITH_SEARCH_HYBRID !== '0';
   }
 
-  private async resolveSearchResults(input: {
-    projectId: string;
-    teamId: string;
-    query: string;
-    limit: number;
-    platformSource: string | null;
-    mode: 'search' | 'context';
-    userDirected?: boolean;
-  }): Promise<PostgresObservation[]> {
-    const repo = new PostgresObservationRepository(this.options.pool);
+  private async resolveSearchResults(
+    input: {
+      projectId: string;
+      teamId: string;
+      query: string;
+      limit: number;
+      platformSource: string | null;
+      mode: 'search' | 'context';
+      userDirected?: boolean;
+    },
+    pool: PostgresPool = this.options.pool,
+  ): Promise<PostgresObservation[]> {
+    const repo = new PostgresObservationRepository(pool);
     const hybrid = await this.searchHybridEnabledFor(input.teamId);
     let searchInput: typeof input & { ftsWeight?: number; vecWeight?: number; rrfK?: number } = input;
     if (this.options.settingsResolver) {
@@ -1842,7 +1892,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     let boosted = ranked;
     try { boosted = boostUserDirected(ranked, boost); } catch { boosted = ranked; }  // fail-open
     try {
-      return await this.applySupersession(boosted, input.mode, { teamId: input.teamId, projectId: input.projectId });
+      return await this.applySupersession(boosted, input.mode, { teamId: input.teamId, projectId: input.projectId }, pool);
     } catch (err) {
       logger.warn('SYSTEM', 'supersession resolution failed; returning ranked results', {}, err instanceof Error ? err : new Error(String(err)));
       return boosted;
@@ -1853,19 +1903,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     ranked: PostgresObservation[],
     mode: 'search' | 'context',
     scope: { teamId: string; projectId?: string },
+    pool: PostgresPool = this.options.pool,
   ): Promise<PostgresObservation[]> {
     if (ranked.length === 0) return ranked;
     const maxDepth = this.options.settingsResolver
       ? await this.options.settingsResolver.supersedeMaxDepth(scope.teamId)
       : undefined;
-    const heads = await resolveHeads(this.options.pool, ranked.map(r => r.id), scope, maxDepth);
+    const heads = await resolveHeads(pool, ranked.map(r => r.id), scope, maxDepth);
     const byId = new Map(ranked.map(r => [r.id, r]));
     const needHead = new Set<string>();
     for (const r of ranked) {
       const h = heads.get(r.id) ?? r.id;
       if (h !== r.id && !byId.has(h)) needHead.add(h);
     }
-    const fetched = await this.fetchObservationsByIds([...needHead], scope);
+    const fetched = await this.fetchObservationsByIds([...needHead], scope, pool);
     for (const f of fetched) byId.set(f.id, f);
 
     if (mode === 'context') {
@@ -1897,12 +1948,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   private async fetchObservationsByIds(
     ids: string[],
     scope: { teamId: string; projectId?: string },
+    pool: PostgresPool = this.options.pool,
   ): Promise<PostgresObservation[]> {
     if (ids.length === 0) return [];
     const args: unknown[] = [ids, scope.teamId];
     let projClause = '';
     if (scope.projectId) { projClause = ' AND project_id = $3'; args.push(scope.projectId); }
-    const result = await this.options.pool.query<ObservationRow>(
+    const result = await pool.query<ObservationRow>(
       `SELECT * FROM observations WHERE id = ANY($1) AND team_id = $2${projClause}`,
       args,
     );
@@ -1921,7 +1973,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       load: (projectId: string) => Promise<T | null>;
     },
   ): Promise<T | null> {
-    const probe = await this.options.pool.query(
+    // All three tables here (agent_events, server_sessions,
+    // observation_generation_jobs) are per-project DATA tables — always read
+    // through the per-request pool when one was resolved.
+    const probe = await (req.databasePool ?? this.options.pool).query(
       `SELECT project_id FROM ${input.table} WHERE id = $1 AND team_id = $2`,
       [input.id, input.teamId],
     );
@@ -1967,9 +2022,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     id: string,
     teamId: string,
     projectScope: string | null,
+    pool: PostgresPool = this.options.pool,
   ): Promise<{ kind: string; createdByUserId: string | null } | null> {
     const { where, params } = this.observationScope(id, teamId, projectScope);
-    const result = await this.options.pool.query(
+    const result = await pool.query(
       `SELECT kind, metadata->>'createdByUserId' AS created_by_user_id FROM observations WHERE ${where}`,
       params,
     );
@@ -1985,15 +2041,16 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     id: string,
     teamId: string,
     projectScope: string | null,
+    pool: PostgresPool = this.options.pool,
   ): Promise<boolean> {
-    const deletion = new PostgresDataDeletionRepository(this.options.pool);
+    const deletion = new PostgresDataDeletionRepository(pool);
     if (projectScope) {
       // project branch scopes id + project + team inside the repository — aligned
       // with observationScope's project case by construction.
       return deletion.deleteObservation({ id, projectId: projectScope, teamId });
     }
     const { where, params } = this.observationScope(id, teamId, null);
-    const byTeam = await this.options.pool.query(`DELETE FROM observations WHERE ${where}`, params);
+    const byTeam = await pool.query(`DELETE FROM observations WHERE ${where}`, params);
     return (byTeam.rowCount ?? 0) > 0;
   }
 
@@ -2054,15 +2111,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // selection. Filtering is enforced in SQL (WHERE team_id [, project_id,
   // status, source_type, created_at]). Application-layer filtering is never
   // trusted alone for tenant scope.
-  private async listJobsForScope(input: {
-    teamId: string;
-    projectId: string | null;
-    status: string | null;
-    sourceType?: string | null;
-    limit: number;
-    offset: number;
-    since?: Date | null;
-  }): Promise<{ jobs: JobListRow[]; total: number }> {
+  private async listJobsForScope(
+    input: {
+      teamId: string;
+      projectId: string | null;
+      status: string | null;
+      sourceType?: string | null;
+      limit: number;
+      offset: number;
+      since?: Date | null;
+    },
+    pool: PostgresPool = this.options.pool,
+  ): Promise<{ jobs: JobListRow[]; total: number }> {
     const params: Array<string | number | Date> = [input.teamId];
     let where = 'WHERE team_id = $1';
     if (input.projectId) {
@@ -2081,7 +2141,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       params.push(input.since);
       where += ` AND created_at >= $${params.length}`;
     }
-    const totalResult = await this.options.pool.query<{ total: string }>(
+    const totalResult = await pool.query<{ total: string }>(
       `SELECT COUNT(*)::text AS total FROM observation_generation_jobs ${where}`,
       params,
     );
@@ -2089,7 +2149,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     params.push(input.limit, input.offset);
     const limitParamIndex = params.length - 1;
     const offsetParamIndex = params.length;
-    const result = await this.options.pool.query<JobListRow>(
+    const result = await pool.query<JobListRow>(
       `
         SELECT id, project_id, team_id, source_type, source_id, status, attempts,
                max_attempts, created_at, completed_at, failed_at, last_error, payload
@@ -2124,8 +2184,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       res.status(400).json({ error: 'ValidationError', message: 'job id required' });
       return null;
     }
+    const pool = req.databasePool ?? this.options.pool;
     // Scope check first — same NotFound disclosure as the rest of the routes.
-    const repo = new PostgresObservationGenerationJobRepository(this.options.pool);
+    const repo = new PostgresObservationGenerationJobRepository(pool);
     const current = await this.loadScopedById(req, res, {
       id,
       teamId,
@@ -2201,7 +2262,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       ...persistedBullmqPayload,
       request_id: req.requestId ?? (persistedBullmqPayload as { request_id?: unknown }).request_id ?? null,
     };
-    const updated = await this.options.pool.query(
+    const updated = await pool.query(
       `
         UPDATE observation_generation_jobs
         SET status = 'queued',
@@ -2226,7 +2287,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     }
 
     // Append lifecycle event so the audit chain mirrors the lifecycle tracker.
-    const eventsRepo = new PostgresObservationGenerationJobEventsRepository(this.options.pool);
+    const eventsRepo = new PostgresObservationGenerationJobEventsRepository(pool);
     await eventsRepo.append({
       generationJobId: id,
       projectId: current.projectId,
@@ -2293,7 +2354,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       res.status(400).json({ error: 'ValidationError', message: 'job id required' });
       return null;
     }
-    const repo = new PostgresObservationGenerationJobRepository(this.options.pool);
+    const pool = req.databasePool ?? this.options.pool;
+    const repo = new PostgresObservationGenerationJobRepository(pool);
     const current = await this.loadScopedById(req, res, {
       id,
       teamId,
@@ -2318,7 +2380,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       return null;
     }
 
-    const updateResult = await this.options.pool.query(
+    const updateResult = await pool.query(
       `
         UPDATE observation_generation_jobs
         SET status = 'cancelled',
@@ -2335,7 +2397,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       return null;
     }
 
-    const eventsRepo = new PostgresObservationGenerationJobEventsRepository(this.options.pool);
+    const eventsRepo = new PostgresObservationGenerationJobEventsRepository(pool);
     await eventsRepo.append({
       generationJobId: id,
       projectId: current.projectId,

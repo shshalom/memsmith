@@ -7,6 +7,8 @@ import type { RouteHandler } from '../../services/server/Server.js';
 import type { PostgresQueryable } from '../../storage/postgres/utils.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
+import { resolveRequestDatabase } from '../middleware/resolve-request-database.js';
 import { getPackageRoot } from '../../shared/paths.js';
 import { lifecycleBoard, decisionLog, blockedOnWhom, costPanel, metricsOverview, userNotes } from './queries.js';
 import { getSpendReport } from './spend.js';
@@ -47,13 +49,25 @@ function asyncHandler(
  * The DashboardRoutes class passes readAuth here; the unit-test fake-app path
  * passes nothing (the default empty array) so the test never needs a real
  * Postgres pool.
+ *
+ * `db` is the ACCOUNT-table connection (used for costPanel's usage_events
+ * half and as the fallback DATA connection when resolveDataDb is absent).
+ * `resolveDataDb` (Task 5), when provided, resolves the per-request DATA
+ * connection (observations, etc.) from req.authContext.projectId via the
+ * PoolRegistry — mirroring resolveRequestDatabase's routing rule exactly
+ * (buildScope itself is NEVER involved in choosing a database; it only
+ * filters rows). Omitted by every existing caller/test, which keeps them on
+ * the single `db` connection exactly as before this task.
  */
 export function registerDashboardRoutes(
   app: Application,
   db: PostgresQueryable,
   mw: RequestHandler[] = [],
   resolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> },
+  resolveDataDb?: (req: Parameters<RequestHandler>[0]) => PostgresQueryable,
 ): void {
+  const dataDbFor = (req: Parameters<RequestHandler>[0]): PostgresQueryable =>
+    resolveDataDb ? resolveDataDb(req) : db;
   // GET /dashboard — serve the self-contained team dashboard UI.
   app.get('/dashboard', (_req, res) => {
     if (!uiHtmlBytes) {
@@ -68,7 +82,7 @@ export function registerDashboardRoutes(
   app.get('/dashboard/board', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const board = await lifecycleBoard(db, scope);
+    const board = await lifecycleBoard(dataDbFor(req), scope);
     res.status(200).json(board);
   }));
 
@@ -76,7 +90,7 @@ export function registerDashboardRoutes(
   app.get('/dashboard/decisions', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const decisions = await decisionLog(db, scope);
+    const decisions = await decisionLog(dataDbFor(req), scope);
     res.status(200).json(decisions);
   }));
 
@@ -84,15 +98,18 @@ export function registerDashboardRoutes(
   app.get('/dashboard/blocked', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const blocked = await blockedOnWhom(db, scope);
+    const blocked = await blockedOnWhom(dataDbFor(req), scope);
     res.status(200).json(blocked);
   }));
 
   // GET /dashboard/cost — token usage and estimated USD cost for the team.
+  // costPanel spans both classes of table (see the Task 5 comment on
+  // costPanel itself): `db` (account/base) covers usage_events, `dataDbFor`
+  // covers the observations-derived discoveryTokens figure.
   app.get('/dashboard/cost', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const cost = await costPanel(db, scope, resolver);
+    const cost = await costPanel(dataDbFor(req), scope, resolver, db);
     res.status(200).json(cost);
   }));
 
@@ -103,7 +120,7 @@ export function registerDashboardRoutes(
   app.get('/dashboard/metrics', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const metrics = await metricsOverview(db, scope);
+    const metrics = await metricsOverview(dataDbFor(req), scope);
     res.status(200).json(metrics);
   }));
 
@@ -111,7 +128,7 @@ export function registerDashboardRoutes(
   app.get('/dashboard/notes', ...mw, asyncHandler(async (req, res) => {
     const scope = buildScope(req);
     if (!scope) { res.status(400).json({ error: 'ValidationError', message: 'teamId is required' }); return; }
-    const notes = await userNotes(db, scope);
+    const notes = await userNotes(dataDbFor(req), scope);
     res.status(200).json({ notes });
   }));
 
@@ -149,6 +166,13 @@ export interface DashboardRoutesOptions {
   localDevTeamId?: string | null;
   localDevProjectId?: string | null;
   settingsResolver?: { inputRatePerMtok(teamId: string): Promise<number>; provider(teamId: string): Promise<string> };
+  // Task 5 — per-request database routing. Optional: when absent,
+  // resolveRequestDatabase is never mounted and every dashboard data query
+  // stays on `db` exactly as before this task (see registerDashboardRoutes'
+  // resolveDataDb doc).
+  poolRegistry?: PoolRegistry;
+  baseDatabaseName?: string;
+  baseProjectId?: string | null;
 }
 
 /**
@@ -167,6 +191,21 @@ export class DashboardRoutes implements RouteHandler {
       localDevProjectId: this.options.localDevProjectId,
       requiredScopes: ['memories:read'],
     });
-    registerDashboardRoutes(app, this.options.db, [readAuth], this.options.settingsResolver);
+    // Task 5 — mount resolveRequestDatabase AFTER readAuth (which populates
+    // req.authContext) and BEFORE the data routes, mirroring
+    // ServerV1PostgresRoutes' dbRouting. Only when a registry was actually
+    // constructed; buildScope itself never chooses a database (row filtering
+    // only — see its own doc comment and the SECURITY invariant in
+    // resolve-request-database.ts).
+    const mw: RequestHandler[] = this.options.poolRegistry
+      ? [readAuth, resolveRequestDatabase(this.options.poolRegistry, {
+          baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
+          baseProjectId: this.options.baseProjectId ?? null,
+        })]
+      : [readAuth];
+    const resolveDataDb = this.options.poolRegistry
+      ? (req: Parameters<RequestHandler>[0]) => req.databasePool ?? this.options.db
+      : undefined;
+    registerDashboardRoutes(app, this.options.db, mw, this.options.settingsResolver, resolveDataDb);
   }
 }

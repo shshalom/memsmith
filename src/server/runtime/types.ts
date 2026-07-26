@@ -3,6 +3,7 @@
 import type { PostgresPool } from '../../storage/postgres/index.js';
 import type { ServerGenerationJobKind, ServerGenerationJobPayload } from '../jobs/types.js';
 import type { ServerJobObservedListener } from '../jobs/ServerJobQueue.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
 
 export type ServerRuntimeName = 'server-beta';
 export type ServerAuthMode = 'api-key' | 'local-dev' | 'disabled';
@@ -77,6 +78,17 @@ export interface ServerServiceGraph {
   localDevProjectId?: string | null;
   queueManager: ServerQueueManager;
   generationWorkerManager: ServerGenerationWorkerManager;
+  // Per-request database routing (per-project-database design). Optional:
+  // when absent, ServerV1PostgresRoutes/DashboardRoutes never mount
+  // resolveRequestDatabase and every query stays on the base pool — this is
+  // the fallback that keeps every pool-less test/deployment path unchanged.
+  poolRegistry?: PoolRegistry;
+  // The cold-boot/dogfood project's database lives IN the base database, not
+  // a per-project msp_<id> database. Recorded once at construction time so
+  // resolveRequestDatabase can special-case it. Required whenever poolRegistry
+  // is set.
+  baseDatabaseName?: string;
+  baseProjectId?: string | null;
 }
 
 abstract class DisabledServerBoundary {

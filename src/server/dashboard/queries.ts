@@ -163,12 +163,20 @@ export async function blockedOnWhom(db: PostgresQueryable, s: Scope) {
   }
   return byBlocker;
 }
+// Task 5 — costPanel spans BOTH classes of table: usage_events is an ACCOUNT
+// table (bootstrapped only in the base database's ACCOUNT_SCHEMA_SQL — a
+// per-project database has no usage_events table at all) while observations
+// is per-project DATA. `db` (the DATA-table connection, resolved via the
+// per-request pool registry) is the default for both params for backward
+// compatibility with existing callers/tests that pass a single connection;
+// production wiring (DashboardRoutes) passes `accountDb` explicitly as the
+// base pool so the usage_events query never 42P01s against a fresh project DB.
 export async function costPanel(db: PostgresQueryable, s: Scope, resolver?: {
   inputRatePerMtok(teamId: string): Promise<number>;
   provider(teamId: string): Promise<string>;
-}) {
+}, accountDb: PostgresQueryable = db) {
   const w = scopeWhere(s);
-  const comp = await db.query(
+  const comp = await accountDb.query(
     `SELECT COALESCE(SUM(quantity),0) AS saved,
             COALESCE(SUM((metadata->>'preTokens')::bigint),0) AS pre
        FROM usage_events

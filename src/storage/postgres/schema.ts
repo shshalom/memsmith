@@ -26,11 +26,16 @@ export const SERVER_POSTGRES_TABLES = [
   'server_settings'
 ] as const;
 
-export async function bootstrapServerPostgresSchema(client: PostgresQueryable): Promise<void> {
+export type SchemaMode = 'full' | 'account' | 'project';
+
+export async function bootstrapServerPostgresSchema(
+  client: PostgresQueryable,
+  mode: SchemaMode = 'full'
+): Promise<void> {
   if (isPostgresPool(client)) {
     const poolClient = await client.connect();
     try {
-      await bootstrapServerPostgresSchema(poolClient);
+      await bootstrapServerPostgresSchema(poolClient, mode);
     } finally {
       poolClient.release();
     }
@@ -42,7 +47,7 @@ export async function bootstrapServerPostgresSchema(client: PostgresQueryable): 
   await client.query('CREATE EXTENSION IF NOT EXISTS vector');
   await client.query('BEGIN');
   try {
-    await applyPhase1Migration(client);
+    await applyPhase1Migration(client, mode);
     await client.query('COMMIT');
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -52,8 +57,14 @@ export async function bootstrapServerPostgresSchema(client: PostgresQueryable): 
   }
 }
 
-async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
-  await client.query(PHASE_1_SCHEMA_SQL);
+function schemaSqlFor(mode: SchemaMode): string {
+  if (mode === 'account') return `${HINGE_SCHEMA_SQL}\n${ACCOUNT_SCHEMA_SQL}`;
+  if (mode === 'project') return `${HINGE_SCHEMA_SQL}\n${PROJECT_SCHEMA_SQL}`;
+  return PHASE_1_SCHEMA_SQL;
+}
+
+async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode = 'full'): Promise<void> {
+  await client.query(schemaSqlFor(mode));
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -70,16 +81,28 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
     `,
     [2, 'team-agent-memory: typed obs_type + lifecycle_state + supersedes + quality']
   );
-  // Migration 003: the vector type lives in public schema; using a fully
-  // qualified type name ensures the ADD COLUMN works regardless of the
-  // current search_path (e.g. in per-test isolated schemas).
-  await client.query(
-    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS embedding_vec public.vector(384)`
-  );
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_observations_embedding_vec
-       ON observations USING hnsw (embedding_vec public.vector_cosine_ops)`
-  );
+  // Migrations 003-006 below are gated by `mode` (bugfix: the schema split
+  // introduced by "refactor(schema): split into hinge/account/project SQL"
+  // gated `schemaSqlFor(mode)` but left these unconditional — a 'project'-
+  // mode bootstrap has no `api_keys` table (account-only) and would fail on
+  // migration 006's ALTER TABLE; an 'account'-mode bootstrap has no
+  // `observations` table (project-only) and would fail on migrations 003/005.
+  // Each ALTER now only runs against the mode that owns the target table —
+  // see HINGE_SCHEMA_SQL/ACCOUNT_SCHEMA_SQL/PROJECT_SCHEMA_SQL below for which
+  // table lives in which mode.
+  if (mode === 'full' || mode === 'project') {
+    // Migration 003: the vector type lives in public schema; using a fully
+    // qualified type name ensures the ADD COLUMN works regardless of the
+    // current search_path (e.g. in per-test isolated schemas). `observations`
+    // is a PROJECT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE observations ADD COLUMN IF NOT EXISTS embedding_vec public.vector(384)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_observations_embedding_vec
+         ON observations USING hnsw (embedding_vec public.vector_cosine_ops)`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -88,14 +111,20 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
     `,
     [3, 'team-agent-memory: pgvector embedding_vec + hnsw index']
   );
-  // Migration 004: per-team server settings overrides (team-scoped control panel).
-  await client.query(
-    `CREATE TABLE IF NOT EXISTS server_settings (
-       team_id text PRIMARY KEY,
-       overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
-       updated_at timestamptz NOT NULL DEFAULT now()
-     )`
-  );
+  // Migration 004: per-team server settings overrides (team-scoped control
+  // panel). Read/written only via SettingsStore against the base/account
+  // pool (never req.databasePool) — still created for 'full'/'account' so an
+  // account-mode database is self-sufficient; skipped for 'project' since no
+  // project-scoped code path ever queries it.
+  if (mode === 'full' || mode === 'account') {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS server_settings (
+         team_id text PRIMARY KEY,
+         overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
+         updated_at timestamptz NOT NULL DEFAULT now()
+       )`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -104,16 +133,19 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
     `,
     [4, 'team-agent-memory: per-team server_settings overrides']
   );
-  // Migration 005: content-idempotency key for manual record-intent writes.
-  // Two detection layers + retries collapse to one row via partial unique index.
-  await client.query(
-    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS idempotency_key TEXT`
-  );
-  await client.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS ux_observations_idempotency
-       ON observations (team_id, project_id, idempotency_key)
-       WHERE idempotency_key IS NOT NULL`
-  );
+  if (mode === 'full' || mode === 'project') {
+    // Migration 005: content-idempotency key for manual record-intent writes.
+    // Two detection layers + retries collapse to one row via partial unique
+    // index. `observations` is a PROJECT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE observations ADD COLUMN IF NOT EXISTS idempotency_key TEXT`
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_observations_idempotency
+         ON observations (team_id, project_id, idempotency_key)
+         WHERE idempotency_key IS NOT NULL`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -122,12 +154,15 @@ async function applyPhase1Migration(client: PostgresQueryable): Promise<void> {
     `,
     [5, 'team-agent-memory: idempotency_key column + partial unique index on observations']
   );
-  // Migration 006: nullable user_id on api_keys — owning user linkage.
-  // Back-compat: column is nullable so legacy null-owner keys behave exactly
-  // as before; migration is additive + idempotent (ADD COLUMN IF NOT EXISTS).
-  await client.query(
-    `ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id TEXT`
-  );
+  if (mode === 'full' || mode === 'account') {
+    // Migration 006: nullable user_id on api_keys — owning user linkage.
+    // Back-compat: column is nullable so legacy null-owner keys behave
+    // exactly as before; migration is additive + idempotent (ADD COLUMN IF
+    // NOT EXISTS). `api_keys` is an ACCOUNT_SCHEMA_SQL table.
+    await client.query(
+      `ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id TEXT`
+    );
+  }
   await client.query(
     `
       INSERT INTO server_beta_schema_migrations (version, description)
@@ -159,7 +194,10 @@ function isPostgresPool(client: PostgresQueryable): client is PostgresPoolLike {
   );
 }
 
-const PHASE_1_SCHEMA_SQL = `
+// HINGE: tables referenced by both account-side and project-side tables via
+// FK. Composed into both 'account' and 'project' modes so their FKs resolve
+// regardless of which side of the split a given database holds.
+export const HINGE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS server_beta_schema_migrations (
   version INTEGER PRIMARY KEY,
   description TEXT NOT NULL,
@@ -184,6 +222,11 @@ CREATE TABLE IF NOT EXISTS projects (
   UNIQUE (id, team_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_projects_team ON projects(team_id, id);
+`;
+
+// ACCOUNT: team/billing/auth-plane tables. Composed with HINGE for 'account' mode.
+export const ACCOUNT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS team_members (
   team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
@@ -224,6 +267,35 @@ CREATE TABLE IF NOT EXISTS audit_log (
   FOREIGN KEY (project_id, team_id) REFERENCES projects(id, team_id) ON DELETE SET NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_audit_log_scope_created ON audit_log(project_id, team_id, created_at);
+
+-- Usage metering: append-only per-team usage, aggregated for quotas + billing.
+-- kind is open-ended ('request', 'tokens_in', 'tokens_out', 'observation', ...).
+CREATE TABLE IF NOT EXISTS usage_events (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  quantity BIGINT NOT NULL DEFAULT 1,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events_team_created ON usage_events(team_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_events_team_kind_created ON usage_events(team_id, kind, created_at);
+
+-- Fixed-window rate-limit counters. subject_id is the api key id (per-key limit).
+CREATE TABLE IF NOT EXISTS rate_limit_counters (
+  subject_id TEXT NOT NULL,
+  window_start TIMESTAMPTZ NOT NULL,
+  count BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (subject_id, window_start)
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_counters_window ON rate_limit_counters(window_start);
+`;
+
+// PROJECT DATA: observation/session/event pipeline tables. Composed with
+// HINGE for 'project' mode.
+export const PROJECT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS server_sessions (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -378,7 +450,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_observations_generation_key_scope
   WHERE generation_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_jobs_source_scope
   ON observation_generation_jobs(team_id, project_id, source_type, source_id, job_type);
-CREATE INDEX IF NOT EXISTS idx_projects_team ON projects(team_id, id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_team_project ON agent_events(team_id, project_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_observations_project_session ON observations(project_id, server_session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_observations_team_project ON observations(team_id, project_id, created_at);
@@ -390,30 +461,6 @@ CREATE INDEX IF NOT EXISTS idx_observation_jobs_team_project ON observation_gene
 CREATE INDEX IF NOT EXISTS idx_observation_jobs_event ON observation_generation_jobs(agent_event_id);
 CREATE INDEX IF NOT EXISTS idx_observation_jobs_source ON observation_generation_jobs(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_observation_job_events_job_created ON observation_generation_job_events(generation_job_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_log_scope_created ON audit_log(project_id, team_id, created_at);
-
--- Usage metering: append-only per-team usage, aggregated for quotas + billing.
--- kind is open-ended ('request', 'tokens_in', 'tokens_out', 'observation', ...).
-CREATE TABLE IF NOT EXISTS usage_events (
-  id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-  kind TEXT NOT NULL,
-  quantity BIGINT NOT NULL DEFAULT 1,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_usage_events_team_created ON usage_events(team_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_usage_events_team_kind_created ON usage_events(team_id, kind, created_at);
-
--- Fixed-window rate-limit counters. subject_id is the api key id (per-key limit).
-CREATE TABLE IF NOT EXISTS rate_limit_counters (
-  subject_id TEXT NOT NULL,
-  window_start TIMESTAMPTZ NOT NULL,
-  count BIGINT NOT NULL DEFAULT 0,
-  PRIMARY KEY (subject_id, window_start)
-);
-CREATE INDEX IF NOT EXISTS idx_rate_limit_counters_window ON rate_limit_counters(window_start);
 
 -- Migration 002: typed obs_type + lifecycle_state + supersedes + quality
 ALTER TABLE observations ADD COLUMN IF NOT EXISTS obs_type TEXT;
@@ -435,5 +482,8 @@ CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(team_id, projec
 CREATE INDEX IF NOT EXISTS idx_observations_lifecycle ON observations(team_id, project_id, lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_observations_active_work ON observations(team_id, project_id, lifecycle_state, updated_at DESC)
   WHERE lifecycle_state IN ('open','active','blocked','deferred');
-
 `;
+
+// Back-compat: 'full' reproduces the pre-split single schema exactly —
+// hinge tables first (data/account tables FK them), then account, then project.
+const PHASE_1_SCHEMA_SQL = `${HINGE_SCHEMA_SQL}\n${ACCOUNT_SCHEMA_SQL}\n${PROJECT_SCHEMA_SQL}`;

@@ -17,13 +17,15 @@
 //   - The API key MUST be project-scoped. Cross-project compat calls return
 //     400; we never let compat traffic bypass project scope.
 
-import type { Application, Request, Response } from 'express';
+import type { Application, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import type { RouteHandler } from '../../services/server/Server.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { PostgresServerSessionsRepository } from '../../storage/postgres/server-sessions.js';
 import { logger } from '../../utils/logger.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
+import { resolveRequestDatabase } from '../middleware/resolve-request-database.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
 import { IngestEventsService } from '../services/IngestEventsService.js';
 import type { CreatePostgresAgentEventInput } from '../../storage/postgres/agent-events.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
@@ -55,6 +57,13 @@ export interface SessionsObservationsAdapterOptions {
   // bypassed request has a null team and GET /api/observations 403s.
   localDevTeamId?: string | null;
   localDevProjectId?: string | null;
+  // Critical 2 fix — per-request database routing (same as Task 5's V1
+  // routes). Optional: when absent, resolveRequestDatabase is never mounted
+  // and every DATA-site fallback (`req.databasePool ?? this.options.pool`)
+  // resolves to the base pool exactly as before this fix.
+  poolRegistry?: PoolRegistry;
+  baseDatabaseName?: string;
+  baseProjectId?: string | null;
 }
 
 export class SessionsObservationsAdapter implements RouteHandler {
@@ -75,6 +84,17 @@ export class SessionsObservationsAdapter implements RouteHandler {
       localDevProjectId: this.options.localDevProjectId ?? null,
       requiredScopes: ['memories:read'],
     });
+    // Critical 2 fix — mount the same dbRouting middleware Task 5 mounted on
+    // the V1 routes, AFTER auth (req.authContext must be populated) and
+    // BEFORE any data handler. Only mounted when a registry was actually
+    // constructed; otherwise every DATA-site fallback below resolves to the
+    // base pool exactly as before this fix.
+    const dbRouting: RequestHandler[] = this.options.poolRegistry
+      ? [resolveRequestDatabase(this.options.poolRegistry, {
+          baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
+          baseProjectId: this.options.baseProjectId ?? null,
+        })]
+      : [];
 
     // GET /api/observations — paginated observation list for the viewer's
     // "Observations" tab. The viewer's usePagination hook calls this with
@@ -82,13 +102,14 @@ export class SessionsObservationsAdapter implements RouteHandler {
     // viewer `Observation` shape (id/type/text/lifecycle/created_at/...).
     // Scoped to the caller's team/project (server runtime is Postgres-backed,
     // so this reads the same observations table the dashboard board reads).
-    app.get('/api/observations', readAuth, this.asyncHandler(async (req, res) => {
+    app.get('/api/observations', [readAuth, ...dbRouting], this.asyncHandler(async (req, res) => {
       const teamId = req.authContext?.teamId ?? null;
       if (!teamId) {
         res.status(403).json({ error: 'Forbidden', message: 'API key is not bound to a team' });
         return;
       }
       const projectId = req.authContext?.projectId ?? null;
+      const dataPool = req.databasePool ?? this.options.pool;
 
       const rawLimit = Number.parseInt(String(req.query.limit ?? ''), 10);
       const rawOffset = Number.parseInt(String(req.query.offset ?? ''), 10);
@@ -105,7 +126,7 @@ export class SessionsObservationsAdapter implements RouteHandler {
          WHERE ${where}
          ORDER BY created_at DESC, id DESC
          LIMIT $${scopeArgs.length + 1} OFFSET $${scopeArgs.length + 2}`;
-      const result = await this.options.pool.query(
+      const result = await dataPool.query(
         sql,
         [...scopeArgs, limit + 1, offset],
       );
@@ -151,7 +172,7 @@ export class SessionsObservationsAdapter implements RouteHandler {
       res.status(200).json({ items, hasMore });
     }));
 
-    app.post('/api/sessions/observations', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/api/sessions/observations', [writeAuth, ...dbRouting], this.asyncHandler(async (req, res) => {
       const parsed = observationsSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
@@ -195,13 +216,14 @@ export class SessionsObservationsAdapter implements RouteHandler {
     teamId: string,
     projectId: string,
   ): Promise<void> {
+    const dataPool = req.databasePool ?? this.options.pool;
     const platformSource = normalizePlatformSource(
       typeof data.platformSource === 'string'
         ? data.platformSource
         : DEFAULT_PLATFORM_SOURCE,
     );
     const session = await resolveServerSession({
-      pool: this.options.pool,
+      pool: dataPool,
       teamId,
       projectId,
       contentSessionId: data.contentSessionId,
@@ -244,7 +266,7 @@ export class SessionsObservationsAdapter implements RouteHandler {
       apiKeyId: req.authContext?.apiKeyId ?? null,
       actorId: null,
       sourceAdapter: COMPAT_SOURCE_ADAPTER,
-    });
+    }, dataPool);
     // Legacy response shape — older clients only check `status`.
     res.json({
       status: 'queued',

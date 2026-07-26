@@ -69,6 +69,10 @@ async function defaultResolveDatabaseUrl(baseConnectionString: string, cwd: stri
           return r.rows.length > 0;
         } catch { return false; } // fresh postgres DB has no observations table yet
       },
+      databaseExists: async (name) => {
+        const r = await adminPool.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+        return r.rows.length > 0;
+      },
     });
     await ensureDatabaseExists((t, p) => adminPool.query(t, p as unknown[]), dbName);
     // Rebuild the URL with the project DB name. Parse the base URL and swap the

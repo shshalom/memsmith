@@ -4,6 +4,8 @@ import type { Job } from 'bullmq';
 import { logger } from '../../utils/logger.js';
 import { PostgresAuthRepository } from '../../storage/postgres/auth.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
+import { projectDatabaseName } from './resolve-project-database.js';
 import { ProviderObservationGenerator } from '../generation/ProviderObservationGenerator.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 import type { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
@@ -26,6 +28,7 @@ import type {
 // adapter otherwise so the server can boot without provider credentials.
 
 export interface ActiveServerGenerationWorkerManagerOptions {
+  // The BASE pool — account tables only. See ProviderObservationGeneratorOptions.
   pool: PostgresPool;
   queueManager: ServerGenerationQueueManager;
   provider: ServerGenerationProvider;
@@ -36,6 +39,12 @@ export interface ActiveServerGenerationWorkerManagerOptions {
   // Task 13: optional resolver so team overrides for qualityFloor and
   // reformatRetries are honored. Passed through to ProviderObservationGenerator.
   settingsResolver?: SettingsResolver;
+  // Critical 1 fix — per-job database routing, passed through to
+  // ProviderObservationGenerator. Optional: when absent (tests, injected
+  // pools), every project-data query keeps using `pool` exactly as before
+  // this fix (see ProviderObservationGenerator.resolveProjectPool).
+  poolRegistry?: PoolRegistry;
+  baseProjectId?: string | null;
   // Test seam: replace the generator with a stub.
   generatorFactory?: (
     pool: PostgresPool,
@@ -63,6 +72,9 @@ export class ActiveServerGenerationWorkerManager implements ServerGenerationWork
           ...(options.providerHolder !== undefined ? { providerHolder: options.providerHolder } : {}),
           // Task 13: thread the resolver so quality knobs honor team overrides.
           ...(options.settingsResolver !== undefined ? { settingsResolver: options.settingsResolver } : {}),
+          // Critical 1 fix: thread per-job database routing through.
+          ...(options.poolRegistry !== undefined ? { poolRegistry: options.poolRegistry } : {}),
+          ...(options.baseProjectId !== undefined ? { baseProjectId: options.baseProjectId } : {}),
         });
   }
 
@@ -136,6 +148,19 @@ export class ActiveServerGenerationWorkerManager implements ServerGenerationWork
 
   // Look up the outbox row by BullMQ jobId and, when found, write the
   // `generation_job.stalled` audit row scoped to that row's team/project.
+  //
+  // KNOWN LIMITATION (Critical 1 fix, Step 2/3): BullMQ's stalled-job
+  // observer hands us ONLY the bullmq_job_id — no team_id/project_id, no
+  // payload to resolve a project pool from (unlike ProviderObservationGenerator
+  // .process(), which has the validated job payload). We cannot search every
+  // provisioned project database for this id without new fan-out
+  // infrastructure the registry does not provide. Querying the BASE pool here
+  // finds the row when it belongs to the base/cold-boot project (same as
+  // before this fix) and safely finds nothing for a non-base project's
+  // stalled job — that job's `generation_job.stalled` audit row is silently
+  // skipped rather than misrouted or crashing. This is best-effort telemetry
+  // (caller wraps in try/catch and only logs a warning either way); the job
+  // itself is unaffected — BullMQ's own retry/reconciliation still runs.
   private async writeStalledJobAuditRow(
     bullmqJobId: string,
     lane: 'event' | 'summary',

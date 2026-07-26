@@ -53,6 +53,11 @@ const EVENT_JOB_TYPE = 'observation_generate_for_event';
 export type EnqueueOutcome = 'enqueued' | 'queued_only' | 'skipped';
 
 export interface IngestEventsServiceOptions {
+  // Task 5 — default/fallback pool. Used only when a caller does not pass a
+  // per-request pool to ingestOne/ingestBatch (e.g. legacy call sites that
+  // predate per-request database routing). Production /v1/events handlers
+  // always pass `req.databasePool ?? this.options.pool` explicitly so writes
+  // land in the caller's project database, not the base database.
   pool: PostgresPool;
   // Lazy queue resolver so the service does not depend on the queue manager
   // type and tests can swap in a fake. When this returns null, the outbox
@@ -90,6 +95,7 @@ export class IngestEventsService {
   async ingestOne(
     input: CreatePostgresAgentEventInput,
     opts: IngestEventOptions = {},
+    pool: PostgresPool = this.options.pool,
   ): Promise<IngestEventResult> {
     const generate = opts.generate ?? true;
     const source = opts.source ?? 'http_post_v1_events';
@@ -99,7 +105,7 @@ export class IngestEventsService {
     // every client, including non-hook adapters).
     const scrubbedInput = { ...input, payload: scrubEventPayload(input.payload ?? {}) };
 
-    const txResult = await withPostgresTransaction(this.options.pool, async (client) => {
+    const txResult = await withPostgresTransaction(pool, async (client) => {
       const eventsRepo = new PostgresAgentEventsRepository(client);
       const inserted = await eventsRepo.create(scrubbedInput);
 
@@ -162,11 +168,12 @@ export class IngestEventsService {
   async ingestBatch(
     inputs: CreatePostgresAgentEventInput[],
     opts: IngestEventOptions = {},
+    pool: PostgresPool = this.options.pool,
   ): Promise<IngestEventResult[]> {
     const generate = opts.generate ?? true;
     const source = opts.source ?? 'http_post_v1_events_batch';
 
-    const txResults = await withPostgresTransaction(this.options.pool, async (client) => {
+    const txResults = await withPostgresTransaction(pool, async (client) => {
       const eventsRepo = new PostgresAgentEventsRepository(client);
       const jobsRepo = new PostgresObservationGenerationJobRepository(client);
       const eventsLogRepo = new PostgresObservationGenerationJobEventsRepository(client);
