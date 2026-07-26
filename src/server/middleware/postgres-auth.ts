@@ -150,11 +150,24 @@ async function authenticatePostgresRequest(
     && hasLoopbackHostHeader(req)
     && !hasForwardedClientHeaders(req)
   ) {
+    // local-dev bypass ONLY: take the project from the request so a SECOND local
+    // project on the shared server routes to its own database. Safe because this
+    // branch is loopback + local-dev (single-user machine), never multi-tenant.
+    // api-key mode below is unaffected: its projectId comes from the api_keys row.
+    //
+    // This makes authContext the ONE routing source for every mode (Task 4's
+    // db-routing middleware reads ONLY authContext.projectId, never raw request
+    // fields) — putting the request-read here, inside the trusted loopback
+    // branch, is what keeps that invariant clean everywhere else.
+    const requestProjectId =
+      (typeof (req as any).body?.projectId === 'string' && (req as any).body.projectId.trim())
+      || (typeof (req as any).query?.projectId === 'string' && (req as any).query.projectId.trim())
+      || '';
     const ctx: AuthContext = {
       userId: LOCAL_OWNER_USER_ID,
       organizationId: null,
       teamId: options.localDevTeamId ?? null,
-      projectId: options.localDevProjectId ?? null,
+      projectId: requestProjectId || options.localDevProjectId || null,
       scopes: ['local-dev', 'memories:read', 'memories:write', 'settings:admin'],
       apiKeyId: null,
       mode: 'local-dev',
