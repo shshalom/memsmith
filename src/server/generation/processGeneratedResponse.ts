@@ -65,7 +65,20 @@ export type ProcessGeneratedResponseOutcome =
   | { kind: 'parse_error'; jobId: string; reason: string };
 
 export interface ProcessGeneratedResponseInput {
+  // The PROJECT pool. The four project-data repos (observations,
+  // observation_sources, observation_generation_jobs,
+  // observation_generation_job_events) run inside ONE transaction on this
+  // pool.
   pool: PostgresPool;
+  // Critical 1 fix (Step 3) — the BASE pool for ACCOUNT-table writes
+  // (audit_log, usage_events). After the project/base schema split, no
+  // single database has both `observations` and `audit_log`, so those writes
+  // MUST happen outside the project-pool transaction, on the base pool, and
+  // MUST be best-effort: a failure there can never roll back or fail the
+  // observation persist (the real work). Defaults to `pool` when absent —
+  // back-compat for callers that never wired a registry (tests, injected
+  // single-pool setups), matching pre-split behavior exactly.
+  basePool?: PostgresPool;
   job: PostgresObservationGenerationJob;
   rawText: string;
   modelId?: string;
@@ -309,12 +322,30 @@ async function persistGeneratedObservations(
     embeddingByIndex.set(index, await embedForPersist(stripped));
   }
 
-  return withPostgresTransaction(input.pool, async (client) => {
+  // Critical 1 fix (Step 3) — audit_log is an ACCOUNT table; after the
+  // project/base schema split it no longer lives in the same database as the
+  // four project-data repos below, so it can no longer be written inside
+  // their transaction. Collect the audit entries emitted during the loop and
+  // flush them to the BASE pool AFTER the transaction commits (see the flush
+  // below) — mirrors the usage-metering treatment already applied to this
+  // function pre-split (Greptile #3078: a failed insert must never roll back
+  // the observation + job writes).
+  const pendingAuditEntries: Array<{
+    teamId: string | null;
+    projectId: string | null;
+    actorId: string | null;
+    apiKeyId: string | null;
+    action: string;
+    resourceType: string;
+    resourceId: string | null;
+    details?: Record<string, unknown>;
+  }> = [];
+
+  const outcome = await withPostgresTransaction(input.pool, async (client) => {
     const obsRepo = new PostgresObservationRepository(client);
     const sourcesRepo = new PostgresObservationSourcesRepository(client);
     const jobsRepo = new PostgresObservationGenerationJobRepository(client);
     const eventsLogRepo = new PostgresObservationGenerationJobEventsRepository(client);
-    const auditRepo = new PostgresAuthRepository(client);
 
     // Reload the job inside the transaction. If it was already completed
     // by another worker, return its existing observations idempotently.
@@ -427,8 +458,9 @@ async function persistGeneratedObservations(
       // Phase 11 — audit each generated observation. Using the SAME
       // generation_job_id reference so the audit chain (event_received →
       // generation_job.queued → generation_job.processing → observation.
-      // created → observation.read) can be reconstructed.
-      const observationAuditEntry = {
+      // created → observation.read) can be reconstructed. Queued here,
+      // flushed to the base pool after the transaction commits (see above).
+      pendingAuditEntries.push({
         teamId: fresh.teamId,
         projectId: fresh.projectId,
         actorId: input.actorId ?? null,
@@ -446,15 +478,7 @@ async function persistGeneratedObservations(
           parsedObservationIndex: index,
           kind,
         },
-      };
-      try {
-        await auditRepo.createAuditLog(observationAuditEntry);
-      } catch (auditError) {
-        logger.warn('SYSTEM', 'audit_log observation.created insert failed', {
-          observationId: observation.id,
-          error: auditError instanceof Error ? auditError.message : String(auditError),
-        });
-      }
+      });
     }
 
     // Advance outbox status. Phase 1 transitionStatus enforces legal
@@ -482,10 +506,9 @@ async function persistGeneratedObservations(
       },
     });
 
-    // Audit log — best-effort; failure here would already be inside the
-    // transaction so any insert error rolls everything back. We accept
-    // that to keep the pipeline observable end-to-end.
-    const jobCompletedAuditEntry = {
+    // generation_job.completed audit — queued here, flushed to the base pool
+    // after the transaction commits (see above).
+    pendingAuditEntries.push({
       teamId: fresh.teamId,
       projectId: fresh.projectId,
       actorId: input.actorId ?? null,
@@ -502,17 +525,7 @@ async function persistGeneratedObservations(
         sourceAdapter: input.sourceAdapter ?? null,
         sourceType: fresh.sourceType,
       },
-    };
-    try {
-      await auditRepo.createAuditLog(jobCompletedAuditEntry);
-    } catch (auditError) {
-      // The audit log table may not have a metadata column on older
-      // schemas; swallow rather than failing generation.
-      logger.warn('SYSTEM', 'audit log insert failed during generation', {
-        jobId: fresh.id,
-        error: auditError instanceof Error ? auditError.message : String(auditError),
-      });
-    }
+    });
 
     return {
       kind: 'completed' as const,
@@ -521,6 +534,27 @@ async function persistGeneratedObservations(
       privateContentDetected,
     };
   });
+
+  // Flush the audit_log rows queued during the transaction above, on the
+  // BASE pool, AFTER the transaction has committed. Best-effort per entry:
+  // one failed insert must never affect the others or the (already-committed)
+  // observation persist — this is telemetry, not the real work.
+  if (pendingAuditEntries.length > 0) {
+    const auditRepo = new PostgresAuthRepository(input.basePool ?? input.pool);
+    for (const entry of pendingAuditEntries) {
+      try {
+        await auditRepo.createAuditLog(entry);
+      } catch (auditError) {
+        logger.warn('SYSTEM', 'audit_log insert failed (post-commit)', {
+          action: entry.action,
+          resourceId: entry.resourceId,
+          error: auditError instanceof Error ? auditError.message : String(auditError),
+        });
+      }
+    }
+  }
+
+  return outcome;
 }
 
 // Post-commit usage metering writes (tokens + observation counts). Extracted
@@ -529,7 +563,7 @@ async function recordUsageMetering(
   input: ProcessGeneratedResponseInput,
   observationCount: number,
 ): Promise<void> {
-  const usageRepo = new PostgresUsageRepository(input.pool);
+  const usageRepo = new PostgresUsageRepository(input.basePool ?? input.pool);
   if (input.tokensUsed && input.tokensUsed > 0) {
     await usageRepo.record({
       teamId: input.job.teamId,

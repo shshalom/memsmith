@@ -12,13 +12,15 @@
 // UNIQUE constraint stays in force — exactly the same idempotency guarantee
 // as `/v1/sessions/:id/end`.
 
-import type { Application, Request, Response } from 'express';
+import type { Application, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import type { RouteHandler } from '../../services/server/Server.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
 import { PostgresServerSessionsRepository } from '../../storage/postgres/server-sessions.js';
 import { logger } from '../../utils/logger.js';
 import { requirePostgresServerAuth } from '../middleware/postgres-auth.js';
+import { resolveRequestDatabase } from '../middleware/resolve-request-database.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
 import { EndSessionService } from '../services/EndSessionService.js';
 import { resolveServerSession } from './SessionsObservationsAdapter.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
@@ -35,6 +37,13 @@ export interface SessionsSummarizeAdapterOptions {
   endSession: EndSessionService;
   authMode?: string;
   allowLocalDevBypass?: boolean;
+  // Critical 2 fix — per-request database routing (same as Task 5's V1
+  // routes). Optional: when absent, resolveRequestDatabase is never mounted
+  // and every DATA-site fallback (`req.databasePool ?? this.options.pool`)
+  // resolves to the base pool exactly as before this fix.
+  poolRegistry?: PoolRegistry;
+  baseDatabaseName?: string;
+  baseProjectId?: string | null;
 }
 
 export class SessionsSummarizeAdapter implements RouteHandler {
@@ -46,8 +55,18 @@ export class SessionsSummarizeAdapter implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       requiredScopes: ['memories:write'],
     });
+    // Critical 2 fix — same dbRouting mount as Task 5's V1 routes and the
+    // sibling SessionsObservationsAdapter. Only mounted when a registry was
+    // actually constructed; otherwise the DATA-site fallback below resolves
+    // to the base pool exactly as before this fix.
+    const dbRouting: RequestHandler[] = this.options.poolRegistry
+      ? [resolveRequestDatabase(this.options.poolRegistry, {
+          baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
+          baseProjectId: this.options.baseProjectId ?? null,
+        })]
+      : [];
 
-    app.post('/api/sessions/summarize', writeAuth, this.asyncHandler(async (req, res) => {
+    app.post('/api/sessions/summarize', [writeAuth, ...dbRouting], this.asyncHandler(async (req, res) => {
       const parsed = summarizeSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
@@ -94,13 +113,14 @@ export class SessionsSummarizeAdapter implements RouteHandler {
     teamId: string,
     projectId: string,
   ): Promise<void> {
+    const dataPool = req.databasePool ?? this.options.pool;
     const platformSource = normalizePlatformSource(
       typeof data.platformSource === 'string'
         ? data.platformSource
         : DEFAULT_PLATFORM_SOURCE,
     );
     const session = await resolveServerSession({
-      pool: this.options.pool,
+      pool: dataPool,
       teamId,
       projectId,
       contentSessionId: data.contentSessionId,
@@ -117,7 +137,7 @@ export class SessionsSummarizeAdapter implements RouteHandler {
       apiKeyId: req.authContext?.apiKeyId ?? null,
       actorId: null,
       sourceAdapter: 'claude-code-compat',
-    });
+    }, dataPool);
     if (!result.session) {
       res.status(404).json({ status: 'not_found', reason: 'session_not_found' });
       return;

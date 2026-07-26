@@ -218,11 +218,19 @@ export class ServerService {
       allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
       localDevTeamId: this.graph.localDevTeamId ?? null,
       localDevProjectId: this.graph.localDevProjectId ?? null,
+      // Critical 2 fix — same per-request routing wiring as v1Routes/DashboardRoutes
+      // below, so these legacy adapters stop writing project data to the base pool.
+      poolRegistry: this.graph.poolRegistry,
+      baseDatabaseName: this.graph.baseDatabaseName,
+      baseProjectId: this.graph.baseProjectId ?? null,
     }));
     server.registerRoutes(new SessionsSummarizeAdapter({
       pool: this.graph.postgres.pool,
       endSession: v1Routes.getEndSessionService(),
       authMode: compatAuthMode,
+      poolRegistry: this.graph.poolRegistry,
+      baseDatabaseName: this.graph.baseDatabaseName,
+      baseProjectId: this.graph.baseProjectId ?? null,
     }));
 
     // #2552 — mount the Viewer UI static handler so the viewer loads on the

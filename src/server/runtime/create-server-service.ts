@@ -196,15 +196,6 @@ export async function createServerService(
   const pool = options.pool ?? getSharedPostgresPool({ requireDatabaseUrl: true });
   const bootstrap = await initializePostgres(pool, options.bootstrapSchema ?? true);
   const queueManager = options.queueManager ?? buildQueueManager();
-  const generationDisabled = options.generationDisabled
-    ?? (process.env.MEMSMITH_GENERATION_DISABLED === '1'
-      || process.env.MEMSMITH_GENERATION_DISABLED === 'true');
-  const generationWorkerManager = options.generationWorkerManager
-    ?? (generationDisabled
-      ? new DisabledServerGenerationWorkerManager(
-          'MEMSMITH_GENERATION_DISABLED is set; this server runs HTTP only. A separate `memsmith server worker start` process consumes the BullMQ queues.',
-        )
-      : buildGenerationWorkerManager(pool, queueManager, options.generationProvider));
   // Read the local-dev fallback team/project: env > marker (no minting here —
   // the runtime boot in defaultRunImport already minted, so the marker exists).
   const _localScope = readLocalScopeFromMarkerOrEnv(process.env.MEMSMITH_PROJECT_CWD ?? process.cwd());
@@ -216,7 +207,22 @@ export async function createServerService(
   // tests/tools without that env var, in which case per-request routing is
   // simply not wired and every route keeps using the base pool directly (see
   // the `poolRegistry?` fallback documented on ServerServiceGraph).
+  //
+  // Built BEFORE the generation worker manager (Critical 1 fix) so the
+  // registry + base-project mapping can be threaded into
+  // ActiveServerGenerationWorkerManager / ProviderObservationGenerator,
+  // giving the generation path the same per-job routing the HTTP path
+  // already has via resolveRequestDatabase.
   const poolRegistry = buildPoolRegistry(pool);
+  const generationDisabled = options.generationDisabled
+    ?? (process.env.MEMSMITH_GENERATION_DISABLED === '1'
+      || process.env.MEMSMITH_GENERATION_DISABLED === 'true');
+  const generationWorkerManager = options.generationWorkerManager
+    ?? (generationDisabled
+      ? new DisabledServerGenerationWorkerManager(
+          'MEMSMITH_GENERATION_DISABLED is set; this server runs HTTP only. A separate `memsmith server worker start` process consumes the BullMQ queues.',
+        )
+      : buildGenerationWorkerManager(pool, queueManager, options.generationProvider, poolRegistry, localDevProjectId));
   const graph: ServerServiceGraph = {
     // Persisted runtime literal — Phase 1d will migrate this value. The TS
     // identifiers above are now `Server*`; the wire/storage value remains
@@ -309,6 +315,8 @@ function buildGenerationWorkerManager(
   pool: PostgresPool,
   queueManager: ServerQueueManager,
   injectedProvider?: ServerGenerationProvider,
+  poolRegistryResult?: { registry: PoolRegistry; baseDatabaseName: string } | null,
+  baseProjectId?: string | null,
 ): ServerGenerationWorkerManager {
   if (!(queueManager instanceof ActiveServerQueueManager) && !(queueManager instanceof InlineServerQueueManager)) {
     return new DisabledServerGenerationWorkerManager(
@@ -339,6 +347,12 @@ function buildGenerationWorkerManager(
     // Task 13: pass the same resolver so quality knobs (qualityFloor,
     // reformatRetries) honor team overrides in the generation pipeline.
     settingsResolver: resolver,
+    // Critical 1 fix — thread per-job database routing through so generated
+    // observations for a non-base project land in THAT project's database,
+    // not the base pool. Absent when MEMSMITH_SERVER_DATABASE_URL isn't set
+    // (tests/injected pools) — see buildPoolRegistry's own back-compat note.
+    ...(poolRegistryResult ? { poolRegistry: poolRegistryResult.registry } : {}),
+    baseProjectId: baseProjectId ?? null,
   });
 }
 

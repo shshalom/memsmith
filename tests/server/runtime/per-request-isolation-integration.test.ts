@@ -28,6 +28,14 @@ const HTTP_TEST_PORT_GUARD = 38879; // the dogfood HTTP port — never bind this
 // dogfood server. Using an explicit, clearly-non-default literal instead.
 const HTTP_TEST_PORT = 48879;
 
+// Task 8 (Critical 1 regression guard) — a SECOND, entirely separate
+// throwaway PG + HTTP server for the generation-path test below (own data
+// dir, own ports; never shared with the routing-only suite above, since that
+// one runs with generation disabled).
+const GEN_DATA_DIR = join(tmpdir(), `ms-reqroute-gen-${randomUUID()}`);
+const GEN_PG_PORT = 55453;
+const GEN_HTTP_TEST_PORT = 48880;
+
 if (OPT_IN) {
   // HARD dogfood guards — must be verified before any PG/HTTP interaction.
   // These throw at MODULE LOAD, before any test body runs, so a misconfigured
@@ -43,6 +51,18 @@ if (OPT_IN) {
   }
   if (HTTP_TEST_PORT === HTTP_TEST_PORT_GUARD) {
     throw new Error('BUG: HTTP_TEST_PORT matches the dogfood HTTP port — refusing to run');
+  }
+  if (GEN_DATA_DIR.includes('/.memsmith')) {
+    throw new Error('BUG: GEN_DATA_DIR points into ~/.memsmith — refusing to run');
+  }
+  if (String(GEN_PG_PORT) === '55433') {
+    throw new Error('BUG: GEN_PG_PORT matches the dogfood Postgres port — refusing to run');
+  }
+  if (GEN_PG_PORT === HTTP_TEST_PORT_GUARD || GEN_PG_PORT === PG_PORT) {
+    throw new Error('BUG: GEN_PG_PORT collides with another reserved port — refusing to run');
+  }
+  if (GEN_HTTP_TEST_PORT === HTTP_TEST_PORT_GUARD || GEN_HTTP_TEST_PORT === HTTP_TEST_PORT) {
+    throw new Error('BUG: GEN_HTTP_TEST_PORT collides with another reserved port — refusing to run');
   }
 
   // CRITICAL DOGFOOD GUARD: src/shared/paths.ts computes DATA_DIR = a
@@ -330,6 +350,210 @@ if (OPT_IN) {
       },
       120_000,
     );
+
+    // --- Task 8 (Critical 1) regression guard ---
+    // The whole-branch review found that the generation worker (BullMQ ->
+    // ProviderObservationGenerator -> processGeneratedResponse) was pinned to
+    // the BASE pool at construction time (create-server-service.ts), so a
+    // non-base project's job would `loadCanonicalOutbox` against the wrong
+    // database, find nothing, log "job row not found by id; nothing to do",
+    // and report status:'completed' with observationCount:0 — every
+    // generated observation for every non-base project was silently
+    // dropped. This test boots its OWN ServerService (own throwaway PG, own
+    // HTTP port — never touches the suite above's instance) with generation
+    // ENABLED (MEMSMITH_QUEUE_ENGINE=inline, generationDisabled:false) and a
+    // fake provider injected via createServerService({ generationProvider }),
+    // then proves end-to-end that a generated observation for a non-base
+    // project B lands in B's OWN msp_* database and is completely absent from
+    // the base database — the exact assertion that would have caught
+    // Critical 1.
+    it(
+      'generation path (BullMQ -> ProviderObservationGenerator -> processGeneratedResponse) resolves the JOB\'s own project pool: a generated observation for project B lands in B\'s database and is absent from the base database',
+      async () => {
+        expect(GEN_DATA_DIR.includes('/.memsmith')).toBe(false);
+        expect(String(GEN_PG_PORT)).not.toBe('55433');
+
+        const { EmbeddedPostgresManager } = await import('../../../src/server/runtime/EmbeddedPostgresManager.js');
+        const { createServerService } = await import('../../../src/server/runtime/create-server-service.js');
+        const pg = (await import('pg')).default;
+
+        const throwawayDataDir = join(GEN_DATA_DIR, 'pgdata');
+        const throwawayPidFile = join(GEN_DATA_DIR, 'local-pg.pid');
+        const existingBinariesDir = join(homedir(), '.memsmith', 'pg-binaries');
+
+        mkdirSync(GEN_DATA_DIR, { recursive: true });
+
+        let genManager: import('../../../src/server/runtime/EmbeddedPostgresManager.js').EmbeddedPostgresManager | null = null;
+        let genService: import('../../../src/server/runtime/ServerService.js').ServerService | null = null;
+        let genAdminPool: import('pg').Pool | null = null;
+        let prevEnv: Record<string, string | undefined> | null = null;
+
+        try {
+          genManager = new EmbeddedPostgresManager({
+            paths: {
+              binariesDir: existingBinariesDir,
+              dataDir: throwawayDataDir,
+              pidFile: throwawayPidFile,
+            },
+            port: GEN_PG_PORT,
+          });
+          const { connectionString } = await genManager.start();
+          expect(connectionString).toContain(String(GEN_PG_PORT));
+
+          genAdminPool = new pg.Pool({ connectionString, max: 5 });
+
+          // Fake provider — deterministic, no network, no LLM credentials.
+          // Returns well-formed observation XML so parseAgentXml accepts it
+          // and processGeneratedResponse persists exactly one observation.
+          const fakeProvider = {
+            providerLabel: 'claude' as const,
+            generate: async () => ({
+              rawText: '<observation><type>discovery</type><title>generated in project B</title>'
+                + '<facts><fact>proves per-job pool routing</fact></facts></observation>',
+              providerLabel: 'claude' as const,
+            }),
+          };
+
+          const genFallbackTeamId = randomUUID();
+          const genFallbackProjectId = randomUUID();
+          prevEnv = {
+            MEMSMITH_SERVER_DATABASE_URL: process.env.MEMSMITH_SERVER_DATABASE_URL,
+            MEMSMITH_AUTH_MODE: process.env.MEMSMITH_AUTH_MODE,
+            MEMSMITH_ALLOW_LOCAL_DEV_BYPASS: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS,
+            MEMSMITH_GENERATION_DISABLED: process.env.MEMSMITH_GENERATION_DISABLED,
+            MEMSMITH_QUEUE_ENGINE: process.env.MEMSMITH_QUEUE_ENGINE,
+            MEMSMITH_LOCAL_DEV_TEAM_ID: process.env.MEMSMITH_LOCAL_DEV_TEAM_ID,
+            MEMSMITH_LOCAL_DEV_PROJECT_ID: process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID,
+            MEMSMITH_SERVER_PORT: process.env.MEMSMITH_SERVER_PORT,
+            // Task 9's GenerationProviderHolder re-resolves a REAL provider
+            // per job from SettingsResolver (default 'ollama' when nothing is
+            // set) and only falls back to the injected `generationProvider`
+            // (our deterministic fake) when that real construction returns
+            // null. Force null construction: pick a provider ('gemini') and
+            // strip every credential env var that could make it — or any
+            // other provider the ambient shell happens to have configured —
+            // succeed, so this test never makes a real network/LLM call.
+            MEMSMITH_SERVER_PROVIDER: process.env.MEMSMITH_SERVER_PROVIDER,
+            ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+            MEMSMITH_ANTHROPIC_API_KEY: process.env.MEMSMITH_ANTHROPIC_API_KEY,
+            GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+            MEMSMITH_GEMINI_API_KEY: process.env.MEMSMITH_GEMINI_API_KEY,
+            OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+            MEMSMITH_OPENROUTER_API_KEY: process.env.MEMSMITH_OPENROUTER_API_KEY,
+          };
+          process.env.MEMSMITH_SERVER_DATABASE_URL = connectionString;
+          process.env.MEMSMITH_AUTH_MODE = 'local-dev';
+          process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS = '1';
+          delete process.env.MEMSMITH_GENERATION_DISABLED;
+          process.env.MEMSMITH_QUEUE_ENGINE = 'inline';
+          process.env.MEMSMITH_LOCAL_DEV_TEAM_ID = genFallbackTeamId;
+          process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID = genFallbackProjectId;
+          process.env.MEMSMITH_SERVER_PORT = String(GEN_HTTP_TEST_PORT);
+          process.env.MEMSMITH_SERVER_PROVIDER = 'gemini';
+          delete process.env.ANTHROPIC_API_KEY;
+          delete process.env.MEMSMITH_ANTHROPIC_API_KEY;
+          delete process.env.GEMINI_API_KEY;
+          delete process.env.MEMSMITH_GEMINI_API_KEY;
+          delete process.env.OPENROUTER_API_KEY;
+          delete process.env.MEMSMITH_OPENROUTER_API_KEY;
+
+          // NOTE: unlike the routing-only suite above, env is NOT restored
+          // immediately after start() — restored in the outer finally below
+          // instead. Generation runs ASYNCHRONOUSLY relative to service.start()
+          // (the inline BullMQ worker processes the job triggered by the POST
+          // below, and GenerationProviderHolder re-resolves MEMSMITH_SERVER_PROVIDER
+          // from env on EVERY job, not just at boot) — restoring early would let
+          // the ambient shell's real provider credentials leak back in before
+          // the job actually runs, defeating the whole point of clearing them.
+          genService = await createServerService({
+            pool: genAdminPool,
+            authMode: 'local-dev',
+            bootstrapSchema: true,
+            generationDisabled: false,
+            generationProvider: fakeProvider,
+          });
+          await genService.start();
+
+          const genRuntimeState = genService!.getRuntimeState();
+          const genPort = genRuntimeState.port;
+          expect(genPort).not.toBe(HTTP_TEST_PORT_GUARD);
+          const genBase = `http://127.0.0.1:${genPort}`;
+
+          const projectB = randomUUID();
+
+          // POST /v1/events (NOT /v1/memories — that writes a manual
+          // observation directly and never touches the generation worker).
+          // ?wait=true polls the outbox job to a terminal status through the
+          // SAME req.databasePool the job repo uses, so this call returns
+          // only once the inline BullMQ worker has actually run
+          // ProviderObservationGenerator.process() for this job.
+          const eventRes = await postJson(genBase, '/v1/events?wait=true', {
+            projectId: projectB,
+            sourceType: 'api',
+            eventType: 'tool_use',
+            occurredAtEpoch: Date.now(),
+            payload: { probe: 'critical-1-regression-guard' },
+          });
+          expect(eventRes.status).toBe(201);
+          const eventBody = await eventRes.json() as {
+            event: { id: string; projectId: string };
+            generationJob: { status: string } | null;
+          };
+          expect(eventBody.event.projectId).toBe(projectB);
+          expect(eventBody.generationJob).not.toBeNull();
+          expect(eventBody.generationJob!.status).toBe('completed');
+
+          // --- The core proof ---
+          // B's own msp_* database must exist and contain exactly the
+          // generated observation; the BASE database must contain NONE of
+          // B's rows. Pre-fix, the worker ran loadCanonicalOutbox against the
+          // BASE pool, found nothing, and silently no-op'd — this observation
+          // would never have existed anywhere.
+          const dbNameB = `msp_${projectB.replace(/-/g, '')}`;
+          const dbRows = await genAdminPool.query(
+            'SELECT datname FROM pg_database WHERE datname = $1',
+            [dbNameB],
+          );
+          expect(dbRows.rows.length).toBe(1);
+
+          const projectBPool = new pg.Pool({
+            connectionString: withDatabaseNameForTest(connectionString, dbNameB),
+            max: 5,
+          });
+          try {
+            const generatedInB = await projectBPool.query(
+              `SELECT id, project_id, kind FROM observations WHERE project_id = $1 AND kind != 'manual'`,
+              [projectB],
+            );
+            expect(generatedInB.rows.length).toBe(1);
+            expect((generatedInB.rows[0] as { kind: string }).kind).toBe('discovery');
+          } finally {
+            await projectBPool.end();
+          }
+
+          // Absent from the base database — the exact defect this guard
+          // exists to catch.
+          const generatedInBase = await genAdminPool.query(
+            `SELECT id FROM observations WHERE project_id = $1`,
+            [projectB],
+          );
+          expect(generatedInBase.rows.length).toBe(0);
+        } finally {
+          if (prevEnv) restoreEnv(prevEnv);
+          if (genService) {
+            try { await genService.stop(); } catch { /* best-effort */ }
+          }
+          if (genAdminPool) {
+            try { await genAdminPool.end(); } catch { /* best-effort */ }
+          }
+          if (genManager) {
+            try { await genManager.stop(); } catch { /* best-effort */ }
+          }
+          try { rmSync(GEN_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
+        }
+      },
+      60_000,
+    );
   });
 } else {
   // No opt-in: register nothing. `bun test` sees zero tests from this file.
@@ -354,4 +578,14 @@ function restoreEnv(prev: Record<string, string | undefined>): void {
       process.env[key] = value;
     }
   }
+}
+
+// Swaps the database name in a Postgres connection string, mirroring
+// PoolRegistry's own withDatabaseName (kept test-local rather than importing
+// that unexported helper) — used to open a direct connection to project B's
+// own msp_* database for the Critical 1 regression guard's assertions.
+function withDatabaseNameForTest(baseConnectionString: string, databaseName: string): string {
+  const u = new URL(baseConnectionString);
+  u.pathname = '/' + databaseName;
+  return u.toString();
 }

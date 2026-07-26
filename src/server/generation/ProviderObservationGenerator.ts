@@ -7,6 +7,8 @@ import { PostgresObservationGenerationJobRepository } from '../../storage/postgr
 import { PostgresProjectsRepository } from '../../storage/postgres/projects.js';
 import { PostgresAuthRepository } from '../../storage/postgres/auth.js';
 import type { PostgresPool } from '../../storage/postgres/pool.js';
+import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
+import { projectDatabaseName } from '../runtime/resolve-project-database.js';
 import type { PostgresObservationGenerationJob } from '../../storage/postgres/generation-jobs.js';
 import {
   assertServerGenerationJobPayload,
@@ -56,6 +58,11 @@ export class ServerGenerationScopeViolationError extends Error {
 //   - no assumption of Claude Code transcript shape
 
 export interface ProviderObservationGeneratorOptions {
+  // The BASE pool — account tables only (api_keys, audit_log). Project-data
+  // tables (observation_generation_jobs, agent_events, projects, observations,
+  // ...) are reached through the per-job pool resolved via poolRegistry below;
+  // `pool` is the fallback when no registry is wired (tests, injected pools) —
+  // see resolveProjectPool.
   pool: PostgresPool;
   provider: ServerGenerationProvider;
   workerId?: string;
@@ -67,10 +74,31 @@ export interface ProviderObservationGeneratorOptions {
   // Task 13: optional resolver so team overrides for reformatRetries and
   // qualityFloor are honored. Falls back to env when absent.
   settingsResolver?: SettingsResolver;
+  // Critical 1 fix — per-job database routing. Mirrors resolveLocalPoolForConvert
+  // in ServerV1PostgresRoutes.ts: base pool for the cold-boot/base project (or
+  // when no registry is wired at all — back-compat for tests/injected pools),
+  // else registry.getPool(projectDatabaseName(projectId), ...). Without this,
+  // every project-data query in generation silently ran against the base pool
+  // (Critical 1 from the whole-branch review).
+  poolRegistry?: PoolRegistry;
+  baseProjectId?: string | null;
 }
 
 export class ProviderObservationGenerator {
   constructor(private readonly options: ProviderObservationGeneratorOptions) {}
+
+  // Resolves the PROJECT-DATA pool for a job's scope. Mirrors
+  // resolveLocalPoolForConvert's shape exactly: base pool when there's no
+  // registry wired (back-compat — tests/injected pools keep working unchanged)
+  // or when this is the cold-boot/base project; otherwise the per-project pool
+  // from the registry. NEVER used for account tables (api_keys, audit_log) —
+  // those always use `this.options.pool` directly.
+  private async resolveProjectPool(scope: { projectId: string; teamId: string }): Promise<PostgresPool> {
+    if (!this.options.poolRegistry) return this.options.pool;
+    if (scope.projectId === this.options.baseProjectId) return this.options.pool;
+    const databaseName = projectDatabaseName(scope.projectId);
+    return this.options.poolRegistry.getPool(databaseName, scope);
+  }
 
   /**
    * Worker entrypoint. Returns a small JSON summary on success so BullMQ's
@@ -107,12 +135,27 @@ export class ProviderObservationGenerator {
       throw error;
     }
 
+    // Critical 1 fix — resolve the PROJECT pool for this job from the
+    // payload's own {team_id, project_id} BEFORE touching any project-data
+    // table (observation_generation_jobs, agent_events, projects, ...). The
+    // payload is schema-validated above but not yet trust-verified against
+    // the canonical row; that verification happens immediately below via the
+    // scope-mismatch check. Worst case a tampered payload just resolves the
+    // WRONG database, finds no matching/scope-consistent row there, and the
+    // job fails safely — the pool choice itself is never a trust boundary
+    // (see the security invariant on resolveRequestDatabase for the request
+    // path's equivalent).
+    const projectPool = await this.resolveProjectPool({
+      projectId: payload.project_id,
+      teamId: payload.team_id,
+    });
+
     // Phase 11 — anti-bypass guard. We MUST NOT trust BullMQ payload data
     // for tenant scope. Reload the canonical outbox row keyed by id only
     // (no scope filter), then compare its team_id/project_id to the
     // payload's. A mismatch indicates payload tampering or a programmer
     // bug; either way we audit and refuse.
-    const candidate = await this.loadCanonicalOutbox(payload.generation_job_id);
+    const candidate = await this.loadCanonicalOutbox(projectPool, payload.generation_job_id);
     if (!candidate) {
       logger.info('SYSTEM', 'job row not found by id; nothing to do', {
         correlationId,
@@ -128,7 +171,7 @@ export class ProviderObservationGenerator {
       await this.auditScopeViolation(payload, candidate, violation, correlationId);
       // Tag the row as failed so subsequent retries do not pick it up.
       await markGenerationFailed({
-        pool: this.options.pool,
+        pool: projectPool,
         job: candidate,
         reason: violation.message,
         classification: 'scope_mismatch',
@@ -140,7 +183,8 @@ export class ProviderObservationGenerator {
 
     // Phase 11 — revocation check. If the api_key that initiated this job
     // was revoked between enqueue and execution, do not generate. Audit
-    // and fail without retry.
+    // and fail without retry. api_keys is an ACCOUNT table — always the base
+    // pool, never the resolved project pool.
     if (payload.api_key_id) {
       const revoked = await this.isApiKeyRevoked(payload.api_key_id);
       if (revoked) {
@@ -150,7 +194,7 @@ export class ProviderObservationGenerator {
         );
         await this.auditRevokedKey(payload, candidate, violation, correlationId);
         await markGenerationFailed({
-          pool: this.options.pool,
+          pool: projectPool,
           job: candidate,
           reason: violation.message,
           classification: 'revoked_key',
@@ -161,7 +205,7 @@ export class ProviderObservationGenerator {
       }
     }
 
-    const fresh = await this.lockOutbox(payload.generation_job_id, payload.team_id, payload.project_id);
+    const fresh = await this.lockOutbox(projectPool, payload.generation_job_id, payload.team_id, payload.project_id);
     if (!fresh) {
       logger.info('SYSTEM', 'job no longer exists or is in terminal status; nothing to do', {
         correlationId,
@@ -207,14 +251,14 @@ export class ProviderObservationGenerator {
       : this.options.provider;
 
     try {
-      return await this.generateAndPersist(job, payload, fresh, correlationId, payloadRequestId, provider);
+      return await this.generateAndPersist(job, payload, fresh, correlationId, payloadRequestId, provider, projectPool);
     } catch (error) {
       const classified = error instanceof ServerClassifiedProviderError ? error : null;
       const retryable = classified
         ? classified.kind === 'transient' || classified.kind === 'rate_limit'
         : false;
       await markGenerationFailed({
-        pool: this.options.pool,
+        pool: projectPool,
         job: fresh,
         reason: error instanceof Error ? error.message : String(error),
         classification: classified?.kind ?? 'unknown',
@@ -231,6 +275,9 @@ export class ProviderObservationGenerator {
   // Task 9: `provider` is the per-job resolved provider (from the holder or
   // the fixed fallback); it is passed in rather than read from `this.options`
   // so in-flight jobs are isolated from subsequent hot-swaps.
+  // `projectPool` is this job's resolved PROJECT pool (Critical 1 fix) — every
+  // project-data read/write below uses it; only account tables (api_keys,
+  // audit_log) go through `this.options.pool` (the base pool).
   private async generateAndPersist(
     job: Job<ServerGenerationJobPayload>,
     payload: ServerGenerationJobPayload,
@@ -238,9 +285,10 @@ export class ProviderObservationGenerator {
     correlationId: string,
     payloadRequestId: string | null,
     provider: ServerGenerationProvider,
+    projectPool: PostgresPool,
   ): Promise<{ jobId: string; status: 'completed'; observationCount: number }> {
-    const events = await this.loadEvents(fresh, payload);
-    const project = await this.loadProject(fresh);
+    const events = await this.loadEvents(projectPool, fresh, payload);
+    const project = await this.loadProject(projectPool, fresh);
 
     const genContext = {
       job: fresh,
@@ -273,7 +321,11 @@ export class ProviderObservationGenerator {
     }
 
     const persistInput = {
-      pool: this.options.pool,
+      pool: projectPool,
+      // Critical 1 fix (Step 3) — audit_log/usage_events are ACCOUNT tables;
+      // processGeneratedResponse writes them on this base pool, OUTSIDE the
+      // project-pool transaction, best-effort (see that module for detail).
+      basePool: this.options.pool,
       job: fresh,
       rawText: result.rawText,
       modelId: result.modelId,
@@ -295,7 +347,7 @@ export class ProviderObservationGenerator {
 
     if (outcome.kind === 'parse_error') {
       await markGenerationFailed({
-        pool: this.options.pool,
+        pool: projectPool,
         job: fresh,
         reason: outcome.reason,
         classification: 'parse_error',
@@ -325,8 +377,11 @@ export class ProviderObservationGenerator {
   // compare its team_id/project_id to the BullMQ payload as a tampering
   // detector. Authoritative scope decisions still come from this row, NEVER
   // from the BullMQ payload.
-  private async loadCanonicalOutbox(jobId: string): Promise<PostgresObservationGenerationJob | null> {
-    const result = await this.options.pool.query<{
+  private async loadCanonicalOutbox(
+    pool: PostgresPool,
+    jobId: string,
+  ): Promise<PostgresObservationGenerationJob | null> {
+    const result = await pool.query<{
       id: string;
       project_id: string;
       team_id: string;
@@ -505,11 +560,12 @@ export class ProviderObservationGenerator {
   }
 
   private async lockOutbox(
+    pool: PostgresPool,
     jobId: string,
     teamId: string,
     projectId: string,
   ): Promise<PostgresObservationGenerationJob | null> {
-    const repo = new PostgresObservationGenerationJobRepository(this.options.pool);
+    const repo = new PostgresObservationGenerationJobRepository(pool);
     const current = await repo.getByIdForScope({ id: jobId, projectId, teamId });
     if (!current) {
       return null;
@@ -545,17 +601,18 @@ export class ProviderObservationGenerator {
   }
 
   private async loadEvents(
+    pool: PostgresPool,
     job: PostgresObservationGenerationJob,
     payload: ServerGenerationJobPayload,
   ): Promise<NonNullable<Awaited<ReturnType<PostgresAgentEventsRepository['getByIdForScope']>>>[]> {
-    const repo = new PostgresAgentEventsRepository(this.options.pool);
+    const repo = new PostgresAgentEventsRepository(pool);
 
     if (job.sourceType === 'session_summary') {
       // Summary jobs feed the provider every event tied to the server_session
       // that hasn't already been collapsed into a completed event-generation
       // job. The session repo enforces tenant scope inside its WHERE clause.
       if (!job.serverSessionId) return [];
-      const sessions = new PostgresServerSessionsRepository(this.options.pool);
+      const sessions = new PostgresServerSessionsRepository(pool);
       const events = await sessions.listUnprocessedEvents({
         serverSessionId: job.serverSessionId,
         projectId: job.projectId,
@@ -580,8 +637,8 @@ export class ProviderObservationGenerator {
     return [];
   }
 
-  private async loadProject(job: PostgresObservationGenerationJob) {
-    const repo = new PostgresProjectsRepository(this.options.pool);
+  private async loadProject(pool: PostgresPool, job: PostgresObservationGenerationJob) {
+    const repo = new PostgresProjectsRepository(pool);
     return await repo.getByIdForTeam(job.projectId, job.teamId);
   }
 }
