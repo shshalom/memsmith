@@ -1,9 +1,16 @@
 # Per-Request Database Routing — Design (Option A)
 
-**Date:** 2026-07-26
+**Date:** 2026-07-26 (revised after code-verified review)
 **Status:** Approved (design). Ready for implementation planning.
 **Severity:** High — completes local database-per-project (d31e98f3), which does not isolate a
 SECOND concurrent project on a shared server. Unblocks P3 and true multi-project-per-machine.
+
+> **Revision note.** The first draft of this spec contained a Critical flaw (the dashboard's
+> unauthenticated `?projectId=` query param would have selected the *database*) and two Important
+> gaps (undesigned account-table topology; an unverified assumption about identity minting). All
+> three are resolved below in D2/D3, D4, and D7 respectively. Claim corrections: `this.options.pool`
+> appears **52** times in the V1 routes (not "~54"); the dashboard does hold a pool
+> (`options.db`, `routes.ts:163,170`).
 
 ## Problem
 
@@ -23,188 +30,202 @@ single database. The database must be chosen **per request**, not once per proce
 
 One server process, one port, one boot, **one shared embedding model** — serving unlimited local
 projects, each physically isolated in its own database, by routing each request to the correct
-project's database pool based on the request's identity. The dogfood keeps its `postgres` database,
-untouched.
+project's database pool based on the request's **authenticated** identity. The dogfood keeps its
+existing database, untouched.
 
-## Key enabling facts (verified)
+## Key enabling facts (code-verified)
 
 - The embedding model is already a **module-level singleton** (`embedder.ts`: `let extractorPromise`
   loads once). One model already serves the whole process — sharing it across projects is free. The
-  earlier "N models" cost was purely an artifact of Option B (N processes); it does not apply here.
-- Every request already carries project identity: `req.authContext.{teamId, projectId}` (auth
-  middleware) in api-key mode; the local client (`ServerClient`) also sends `projectId` in the
-  request body.
-- The server is built around ONE injected pool: `create-server-service.ts:194` builds it and threads
-  it into V1 routes (`this.options.pool`, ~54 uses), dashboard (`options.db`), auth, metering.
-- **MCP needs no change** — it is a separate process that talks to the server over HTTP via
-  `ServerClient` (sends `projectId` in the body); server-side per-request routing handles it.
+  "N models" cost applies only to Option B (N processes).
+- **MCP needs no change** — `mcp-server.ts` holds no pool; it is a separate process talking HTTP via
+  `ServerClient`. Server-side routing covers it.
+- The server is built around ONE injected pool (`create-server-service.ts:194`), threaded into V1
+  routes (`this.options.pool`, **52** uses), the dashboard (`options.db`), auth, rate-limit, quota,
+  metering.
+- **No SQL joins cross the account/data boundary.** The only join touching account tables is
+  `teams ⋈ team_members` (`teams.ts:90`) — both stay on the account side. So a schema split requires
+  **no query-body rewrites**, only re-pointing which pool executes them.
+- **A request can never arrive without a minted identity.** `buildServerContext`
+  (`runtime-selector.ts:129-136`) returns `null` — no request is sent — unless BOTH a key (resolved
+  from the marker's teamId via `CredentialStore`) and a `projectId` are present.
 
 ## Approach
 
 Introduce a **pool registry** (`Map<databaseName, Pool>`, get-or-create + cached) and a
-**per-request DB-resolution middleware** (runs after auth) that sets `req.databasePool` to the pool
-for the request's effective project database. Route handlers use `req.databasePool` instead of the
-single construction-time pool. The embedding model, Express app, and generation logic stay shared
-and singular.
-
-### Effective projectId (the routing key) — two identity sources
-
-- **api-key / team mode:** `databaseName = msp_<authContext.projectId>`. The DB is bound to the
-  AUTHENTICATED identity — a request can only reach its own project's DB. (Auth-bound; safe by
-  construction.)
-- **local-dev mode (loopback bypass):** the bypass currently stamps a boot-time constant
-  `localDevProjectId` — which is the second-project bug. Since local-dev is the loopback-trusted,
-  single-user-on-their-own-machine path, the effective projectId becomes the **request's own
-  projectId** (from the request body / an explicit param the client already sends), falling back to
-  `localDevProjectId` only when the request carries none. This is safe SPECIFICALLY because it is the
-  local-dev loopback path (not a multi-tenant trust boundary); in api-key mode the request-supplied
-  projectId is NEVER trusted over the authenticated one.
-
-### First-touch database provisioning (fixes the reuse-path gap)
-
-Because a second project now joins a *running* server, its database must be provisioned on first
-use, not at cold boot. The DB-resolution middleware, on a cache miss for `databaseName`:
-1. `ensureDatabaseExists(adminPool, databaseName)` (reuse the d31e98f3 helper — `postgres` no-op;
-   `pg_database` check; quoted `CREATE DATABASE` only-if-absent) via a short-lived admin pool on the
-   base `postgres` URL.
-2. `bootstrapServerPostgresSchema(newPool)` for the project DB (idempotent).
-3. Register the pool in the registry.
-This is idempotent and only runs once per project per process lifetime (cached thereafter).
+**per-request DB-resolution middleware** (after auth) that sets `req.databasePool` for the request's
+**authenticated** project. Data routes use `req.databasePool`; account routes/middleware keep using
+the base pool. The Express app, embedding model, and generation logic stay shared and singular.
 
 ## Decisions
 
 ### D1 — Pool registry
-A process-level `PoolRegistry`: `getPool(databaseName): Promise<Pool>` — returns the cached pool or
-creates it (build URL by swapping the DB segment of the base `postgres` URL:
-`new URL(base); u.pathname='/'+dbName`), ensuring the DB exists + schema bootstrapped on first
-create. `postgres` (the base/dogfood DB) is a normal entry. The registry owns pool lifecycle
-(closed on server stop).
+A process-level `PoolRegistry`: `getPool(databaseName): Promise<Pool>` — returns the cached pool, or
+creates it (URL built by swapping the DB segment of the base URL: `new URL(base); u.pathname='/'+dbName`),
+provisioning on first create (D5). Must be **single-flight**: concurrent `getPool` for the same name
+resolves one creation, not N. The base/cold-boot database is a normal registry entry. The registry
+owns pool lifecycle (all pools closed on server stop).
 
-### D2 — DB-resolution middleware (after auth, before route handlers)
-`resolveRequestDatabase`: compute effective projectId (D-routing-key above) → `databaseName` →
-`req.databasePool = await registry.getPool(databaseName)`. If no projectId can be resolved at all
-(neither auth nor request nor local-dev fallback), respond `400` (never silently fall back to
-`postgres` — that would reintroduce the leak). Mounted so EVERY data route runs after it.
+### D2 — Routing key is the AUTHENTICATED identity only (Critical fix)
+`databaseName` is derived **exclusively** from `req.authContext.projectId`:
 
-### D3 — Routes use `req.databasePool`
-The ~54 V1 route pool-uses (`this.options.pool`) and the dashboard's `options.db` usage switch to
-the per-request `req.databasePool`. Auth/metering/quota middleware that currently take the global
-pool: these run BEFORE DB-resolution (auth must set authContext first) and legitimately operate on
-the base/admin pool (rate-limit, quota, key lookup are cross-project server-account concerns) — they
-stay on the base pool. Only the project-DATA reads/writes (observations, agent_events, sessions,
-jobs, dashboard board/queries) move to `req.databasePool`. The spec's plan phase enumerates exactly
-which sites are data (→ req pool) vs account (→ base pool).
+- **api-key / team mode:** `authContext.projectId` comes from the authenticated `api_keys` row. A
+  request-supplied `projectId` (query param or body) is **NEVER** used to select the database.
+- **local-dev loopback bypass:** the bypass currently stamps a boot-time constant
+  `localDevProjectId`, which is the second-project bug. Fix: in local-dev mode ONLY, the bypass
+  populates `authContext.projectId` from the request's own `projectId` (the client always sends one
+  — see Key enabling facts), falling back to `localDevProjectId` when absent. The value therefore
+  still enters routing **through `authContext`**, and only on the loopback, single-user-machine
+  path. This keeps exactly one routing source for all modes.
 
-### D4 — Reuse-path no longer needs per-project boot
-With per-request routing, the `start` `reuse` path is CORRECT as-is (a second project reuses the
-running server; its first data request provisions + routes its DB). `startLocalRuntime`'s cold-boot
-DB-resolution (from d31e98f3) still resolves the FIRST/cold-boot project (the dogfood) and sets the
-base URL to that project's DB — which becomes the registry's base. (For the dogfood that is
-`postgres`.) No change needed to the reuse early-return.
+**Invariant (review focus):** nothing outside `authContext` may influence which database a request
+touches. Client-supplied `projectId` may narrow a `WHERE` clause; it may never choose a pool.
 
-### D5 — Marker minting for a reuse-path project
-A second project joining a running server never runs `startLocalRuntime`, so its marker
-(`.memsmith/project.json`) is not minted by the runtime boot. It must be minted elsewhere so the
-project has a stable identity + `databaseName`. Options resolved in the plan: the DB-resolution
-middleware (or a lightweight per-request identity step) ensures the marker exists for the request's
-cwd/identity — OR the client already sends a minted projectId (the hook path mints identity
-client-side via `ensureProjectIdentity` before calling the server). The plan will confirm the client
-already mints identity before its first server call (the hook/`buildServerContext` path) so the
-server only needs to route + provision the DB, not mint markers. If confirmed, D5 is a no-op beyond
-provisioning; if not, the middleware mints.
+### D3 — Dashboard scope vs routing (Critical fix)
+`buildScope` (`dashboard/routes.ts:132-140`) lets a query param **override** `authContext` with no
+ownership check ("explicit query param always wins"). That override is retained **for filtering
+only** — it continues to shape `WHERE team_id/project_id = …` — but the **pool** is resolved from
+`authContext.projectId` per D2. A caller cannot reach another database by passing `?projectId=`.
+(Pre-existing authz looseness of the filter override is out of scope here and noted as a follow-up.)
 
-### D6 — Dashboard per-request routing
-The dashboard resolves `projectId` per request already (`buildScope`: query param or authContext).
-Its queries switch from `options.db` to a pool resolved from that projectId via the registry, so
-each project's dashboard shows its OWN database. (This also fixes the P3 "no data / load failure"
-symptom for a second project.)
+### D4 — Account / project schema split, with hinge replication (Important fix)
+`PHASE_1_SCHEMA_SQL` currently creates all 15 tables in every database. Split it:
+
+**ACCOUNT tables — base database only** (~30 query sites):
+`api_keys`, `team_members`, `usage_events`, `audit_log`, `rate_limit_counters`, `server_settings`.
+
+**PROJECT-DATA tables — each `msp_` database** (~94 query sites):
+`observations`, `observation_sources`, `agent_events`, `server_sessions`,
+`observation_generation_jobs`, `observation_generation_job_events`.
+
+**HINGE — `teams` + `projects` exist in BOTH.** Every data table carries a composite FK to
+`projects(id, team_id)` (`schema.ts:244,263,297-298,315`) and most also FK `teams(id)`. Postgres
+cannot enforce FKs across databases, so each project DB keeps local `teams`/`projects` tables holding
+**just its own one team row + one project row** as an FK anchor. This is nearly free: the boot path
+already seeds exactly those rows (`local-runtime.ts:85-89`). The base copies remain authoritative for
+account purposes.
+
+Rejected alternative: dropping the FKs from data tables — that loses referential integrity on the
+core data and requires a destructive `ALTER … DROP CONSTRAINT` migration against the dogfood's live
+database. Not worth it.
+
+Both schemas track their own migration state (`server_beta_schema_migrations` exists in each).
+`bootstrapServerPostgresSchema` gains a mode (`'account' | 'project'`), defaulting to today's
+full-schema behavior for back-compat where needed.
+
+### D5 — First-touch provisioning (fixes the reuse-path gap)
+On a registry cache miss the registry: (1) `ensureDatabaseExists(adminQuery, databaseName)` — reuse
+the d31e98f3 helper (base-DB no-op; `pg_database` check; quoted `CREATE DATABASE` only-if-absent) via
+a connection to the **maintenance database** (CREATE DATABASE cannot run in a transaction or on the
+project pool); (2) bootstrap the **project** schema (D4) in the new DB; (3) seed its hinge rows
+(`teams`/`projects` for that identity); (4) register the pool. Idempotent; runs once per project per
+process lifetime.
+
+### D6 — Routes: data → `req.databasePool`, account → base pool
+The 52 `this.options.pool` uses split by table class (D4). Auth, rate-limit, quota, and metering
+middleware run **before** DB-resolution (auth must set `authContext` first) and read account tables —
+they legitimately stay on the base pool. Only project-data reads/writes move to `req.databasePool`.
+Because no query joins across the boundary, **no SQL bodies change** — only the pool handed to them.
+`api_keys` lives in the base DB only, which also resolves where `ensureProjectIdentity`
+(`session-init.ts:117`) mints keys: it must explicitly target the **base** pool, not
+`getSharedPostgresPool()`'s ambient value.
+
+### D7 — First-request identity (Important gap, resolved)
+Verified: `buildServerContext` refuses to send a request without both a key and a `projectId`
+(`runtime-selector.ts:129-136`). Therefore **every** request reaching the server carries a real
+`projectId`, and the middleware never needs to mint markers. If no projectId can be resolved even so,
+respond **400** — never silently fall back to the base database (that reintroduces the leak).
+(Pre-existing, unchanged: a project's very first `session-init` mint can no-op if the DB is briefly
+unreachable, and the client stays silent until the next session. Not introduced here.)
+
+### D8 — Reuse path stays as-is
+With per-request routing the `start` `reuse` early-return is correct: a second project reuses the
+running server, and its first data request provisions and routes its own database. `startLocalRuntime`
+still resolves the cold-boot project and sets the base URL. No change to the reuse branch.
 
 ## Components / change points
 
-1. `src/storage/postgres/pool-registry.ts` (NEW) — `PoolRegistry` (D1), reusing
-   `ensureDatabaseExists` + `bootstrapServerPostgresSchema` + URL path-swap.
-2. `src/server/middleware/resolve-request-database.ts` (NEW) — `resolveRequestDatabase` (D2), plus
-   the effective-projectId resolver (auth-bound vs local-dev-request-supplied).
-3. `src/server/routes/v1/ServerV1PostgresRoutes.ts` — data routes use `req.databasePool`; account
-   middleware stay on base pool (D3). Register the middleware after auth.
-4. `src/server/dashboard/routes.ts` — board/queries use a registry-resolved pool (D6).
-5. `src/server/runtime/create-server-service.ts` — construct the `PoolRegistry` (seeded with the base
-   pool as the `postgres`/cold-boot entry), pass it to routes + dashboard.
-6. `req` typing — add `databasePool?: PostgresPool` to the Express request augmentation.
-7. **No change:** MCP server (HTTP client), embedder (already singleton), `startLocalRuntime`
-   cold-boot resolution (still resolves the first project), `resolve-project-database.ts` (reused).
+1. `src/storage/postgres/pool-registry.ts` (NEW) — `PoolRegistry` (D1, D5), single-flight.
+2. `src/server/middleware/resolve-request-database.ts` (NEW) — `resolveRequestDatabase` (D2).
+3. `src/server/middleware/postgres-auth.ts` — local-dev bypass populates `authContext.projectId` from
+   the request, falling back to `localDevProjectId` (D2).
+4. `src/storage/postgres/schema.ts` — split into account/project schema SQL + hinge; mode parameter (D4).
+5. `src/server/routes/v1/ServerV1PostgresRoutes.ts` — classify 52 pool uses; mount middleware after auth (D6).
+6. `src/server/dashboard/routes.ts` — pool from `authContext` via registry; filter scope unchanged (D3).
+7. `src/server/runtime/create-server-service.ts` — construct the registry (base pool seeded), pass to routes/dashboard.
+8. `src/cli/handlers/session-init.ts` — mint identity/keys against the base pool explicitly (D6).
+9. `req` typing — add `databasePool?: PostgresPool`.
+10. **No change:** MCP server, embedder, `resolve-project-database.ts` (reused), `startLocalRuntime` cold boot.
 
 ## Data flow (after)
 
 ```
-request → auth middleware (sets authContext)
+request → auth middleware (sets authContext; local-dev bypass takes projectId from the request)
         → resolveRequestDatabase:
-             effective projectId = api-key ? authContext.projectId
-                                  : local-dev ? (request projectId ?? localDevProjectId)
-             databaseName = msp_<projectId>  (or 'postgres' for the dogfood/legacy)
-             req.databasePool = await registry.getPool(databaseName)   // provisions+bootstraps on first touch
-        → route handler uses req.databasePool  (data reads/writes)
-             (account middleware — rate/quota/keys — used the base pool earlier in the chain)
-one shared: server process, Express, embedding model, generation logic
+             databaseName = msp_<authContext.projectId>   (base DB name for the cold-boot/legacy project)
+             req.databasePool = await registry.getPool(databaseName)   // provisions on first touch
+        → data handlers use req.databasePool
+          account middleware/handlers (auth, rate, quota, metering, keys) used the BASE pool
+shared, one each: process, Express, embedding model, generation logic
 ```
 
 ## Error handling
 
-- No resolvable projectId → `400` (never silent-fallback to `postgres`).
-- First-touch `CREATE DATABASE`/bootstrap failure → surface as a `500` for that request; do NOT
-  register a broken pool; retried next request. Never fall back to another project's DB.
-- Admin pool for provisioning is short-lived (created per provision, closed after) OR a dedicated
-  long-lived admin pool on `postgres` for `pg_database` checks + CREATE (plan picks; must be a
-  connection to the maintenance DB, not a project pool, since CREATE DATABASE can't run in a txn).
-- Registry pools closed on server stop (no leak).
+- No resolvable `authContext.projectId` → **400**. Never fall back to the base DB.
+- Provisioning failure → **500** for that request; do not cache a broken pool; retried next request.
+  Never fall back to another project's DB.
+- Provisioning uses a maintenance-DB connection (not a project pool, not in a txn).
+- Registry pools closed on server stop.
 
-## Security (the safety-critical core)
+## Security (safety-critical core)
 
-- **api-key/team:** routing key = `authContext.projectId` (authenticated). A request can NEVER reach
-  another project's DB; a request-supplied projectId is ignored in this mode.
-- **local-dev:** routing key = the loopback-trusted client's own projectId. This is a single-user
-  local trust boundary; there is no cross-tenant exposure (only the machine's owner reaches the
-  loopback server). The dogfood's requests carry its projectId → `postgres`; untouched.
-- The provisioning path only ever CREATEs new `msp_` DBs; never DROP/ALTER an existing DB.
+- **Single routing source:** the database is chosen from `authContext.projectId` and nothing else
+  (D2). In api-key mode that value is authenticated; request-supplied ids are ignored for routing.
+- **Dashboard:** `?projectId=` filters rows; it cannot select a database (D3).
+- **local-dev:** routing follows the loopback-trusted client's own project — a single-user machine
+  boundary, not multi-tenant. The dogfood routes to its existing database, untouched.
+- Provisioning only ever `CREATE`s new databases; never `DROP`/`ALTER` an existing one.
 
 ## Testing
 
-1. **Unit — PoolRegistry:** getPool caches; first-create provisions (ensureDatabaseExists +
-   bootstrap) via injected fakes; `postgres` maps to the base pool; concurrent getPool for the same
-   name doesn't double-create (single-flight).
-2. **Unit — effective projectId resolver:** api-key mode → authContext.projectId (ignores
-   request-supplied); local-dev → request projectId, else localDevProjectId; none → error.
-3. **Unit — resolveRequestDatabase middleware:** sets req.databasePool from the resolved name; 400
-   when no projectId.
-4. **Integration (opt-in, dogfood-guarded):** on a throwaway server (non-`:55433`, throwaway dir):
-   two requests carrying different projectIds land in different databases (write under A invisible to
-   B), proving PER-REQUEST isolation on ONE running server (the exact P3 gap). Idempotent
-   provisioning. Self-skips without opt-in; hard dogfood guard.
-5. **Regression:** existing single-project (dogfood) behavior unchanged — its requests route to
-   `postgres`; all existing V1/dashboard tests still green (they use one project, so `req.databasePool`
-   resolves to the same pool they used before).
-6. **Manual acceptance = P3:** fresh temp project (dogfood running) → its session's requests route to
-   its own `msp_` DB → dashboard shows its own data → Go Team converts ONLY its DB.
+1. **Unit — PoolRegistry:** caches; provisions once on first create (injected fakes); single-flight
+   under concurrent `getPool`; base name maps to the base pool.
+2. **Unit — routing key:** api-key mode ignores request-supplied `projectId`; local-dev takes it from
+   the request, else `localDevProjectId`; neither → 400.
+3. **Unit — dashboard separation (Critical regression guard):** a request whose `authContext.projectId`
+   is A but with `?projectId=B` resolves the pool for **A** (and only filters by B). This test must
+   fail if anyone reintroduces param-driven pool selection.
+4. **Unit — schema split:** account bootstrap creates account tables + hinge, not data tables;
+   project bootstrap creates data tables + hinge, not `api_keys`/`team_members`/etc.
+5. **Integration (opt-in, dogfood-guarded):** on a throwaway server (non-`:55433`, temp dir), two
+   requests with different authenticated projectIds land in different databases (A's write invisible
+   to B) — the exact P3 gap. Provisioning idempotent. Hard-refuses `~/.memsmith`/`:55433`.
+6. **Regression:** existing single-project behavior unchanged; all current V1/dashboard tests green.
+7. **Manual acceptance = P3:** fresh temp project with the dogfood running → routes to its own DB →
+   dashboard shows its own data → Go Team converts only its DB.
 
 ## Global constraints
 
 - Branch from `main` (`d31e98f3`). Never commit to `main`. Merge `--no-ff` recording a pre-merge
   rollback SHA. Nothing pushed (local only).
 - Commit trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
-- **Dogfood never at risk.** The dogfood routes to its existing `postgres` DB (marker pinned). No
-  DROP/ALTER of any existing DB; provisioning only CREATEs new `msp_`. Integration tests use throwaway
-  dir + non-`:55433` port and hard-refuse `~/.memsmith`/`:55433`.
-- Security: in api-key mode the routing key is the AUTHENTICATED projectId only; request-supplied
-  projectId is never trusted over auth. This invariant is a review focus.
-- No new dependency; per-project DBs use the existing schema via existing bootstrap.
+- **Dogfood never at risk.** It routes to its existing database (marker pinned). No `DROP`/`ALTER` of
+  any existing database; the schema split adds no destructive migration (its DB already has every
+  table and remains the base). Integration tests use a throwaway dir + non-`:55433` port.
+- **Security invariant (review focus):** routing derives from `authContext` only.
+- No new dependencies.
 - Sonnet implementers + per-task review + broad Opus review, per standing instruction.
+
+## Cost note (honest)
+
+This is ~4-6 tasks, not 2-3. The schema split (D4) is the risky one; classifying and re-pointing ~124
+query sites is broad but mechanical (no SQL rewrites, per the no-cross-joins finding). Option B
+(process-per-project) needs no schema work but costs N processes, dynamic ports, and supervision;
+A was chosen to keep one shared process and one shared model.
 
 ## Relationship to prior work / open follow-ups
 
-- Completes d31e98f3 (which only isolated the cold-boot project). Together they deliver true
-  multi-project-per-machine isolation with one shared server + one shared model.
-- Unblocks P3.
-- Rejected Option B (process-per-project): heavier (N processes, N embedding models, dynamic ports,
-  supervision). A keeps one lightweight shared process — the product's one-instance-per-machine model.
-- Unchanged open items: `npx install` retired-worker reference; `resolveLocalScope`-against-test-PG
-  coverage; dashboard api-key-mode 401 on keyless load.
+- Completes d31e98f3 (which isolated only the cold-boot project). Unblocks P3.
+- Follow-ups (unchanged): `npx install` retired-worker reference; `resolveLocalScope`-against-test-PG
+  coverage; dashboard api-key-mode 401 on keyless load; **new:** `buildScope`'s unauthenticated
+  query-param filter override deserves its own authz review.
