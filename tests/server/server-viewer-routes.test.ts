@@ -76,4 +76,73 @@ describe('ServerViewerRoutes on the server runtime (#2552)', () => {
       expect(body.error).toBe('ViewerUnavailable');
     }
   });
+
+  // The local dashboard could not read its own data: the machine mints a base
+  // key but nothing handed it to the browser, so every read 401'd. GET / now
+  // issues that key as a loopback cookie. These cases exercise the real HTTP
+  // path end-to-end, because the first cut of this fix passed its unit tests
+  // while silently issuing no cookie at all (it gated on an env var that lives
+  // in settings.json, not process.env).
+  async function serveRootWith(resolveLocalKey: (() => string | null) | undefined, headers: Record<string, string> = {}) {
+    spies = [
+      spyOn(logger, 'info').mockImplementation(() => {}),
+      spyOn(logger, 'warn').mockImplementation(() => {}),
+    ];
+    server = new Server(baseOptions());
+    server.registerRoutes(new ServerViewerRoutes({ resolveLocalKey }));
+    server.finalizeRoutes();
+    const port = 42000 + Math.floor(Math.random() * 9000);
+    await server.listen(port, '127.0.0.1');
+    const res = await fetch(`http://127.0.0.1:${port}/`, { headers });
+    return res.headers.get('set-cookie');
+  }
+
+  it('issues the local key as an HttpOnly loopback cookie', async () => {
+    const cookie = await serveRootWith(() => 'cmem_localkey000000000000000000000');
+    expect(cookie).toContain('memsmith_local_key=cmem_localkey000000000000000000000');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+  });
+
+  it('issues NO cookie when the machine has no local key (team/server mode)', async () => {
+    expect(await serveRootWith(() => null)).toBeNull();
+  });
+
+  it('issues NO cookie when no resolver is wired at all', async () => {
+    expect(await serveRootWith(undefined)).toBeNull();
+  });
+
+  it('issues NO cookie to a request that was forwarded from elsewhere', async () => {
+    const cookie = await serveRootWith(
+      () => 'cmem_localkey000000000000000000000',
+      { 'X-Forwarded-For': '203.0.113.9' },
+    );
+    expect(cookie).toBeNull();
+  });
+
+  it('issues NO cookie when the Host header is not loopback', async () => {
+    const cookie = await serveRootWith(
+      () => 'cmem_localkey000000000000000000000',
+      { Host: 'memsmith.example.com' },
+    );
+    expect(cookie).toBeNull();
+  });
+
+  it('still serves the page when resolving the key throws', async () => {
+    spies = [
+      spyOn(logger, 'info').mockImplementation(() => {}),
+      spyOn(logger, 'warn').mockImplementation(() => {}),
+    ];
+    server = new Server(baseOptions());
+    server.registerRoutes(new ServerViewerRoutes({
+      resolveLocalKey: () => { throw new Error('credentials unreadable'); },
+    }));
+    server.finalizeRoutes();
+    const port = 42000 + Math.floor(Math.random() * 9000);
+    await server.listen(port, '127.0.0.1');
+    // A credential read must never take down the page itself.
+    const res = await fetch(`http://127.0.0.1:${port}/`);
+    expect([200, 503]).toContain(res.status);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
 });

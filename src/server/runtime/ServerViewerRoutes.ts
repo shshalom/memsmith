@@ -90,8 +90,17 @@ export class ServerViewerRoutes implements RouteHandler {
       // proxied from elsewhere, and a forwarded-client header means the
       // request did not originate on this machine.
       if (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req)) {
-        const key = this.options.resolveLocalKey?.() ?? null;
-        if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+        // Never let a credential read break serving the page. Losing the cookie
+        // degrades the dashboard to unauthenticated; throwing here would 500 the
+        // whole viewer. The guarantee lives at the route, not only in the
+        // caller's resolver, so every caller inherits it.
+        try {
+          const key = this.options.resolveLocalKey?.() ?? null;
+          if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+        } catch (error) {
+          logger.warn('SYSTEM', 'could not resolve local key for viewer cookie', {},
+            error instanceof Error ? error : new Error(String(error)));
+        }
       }
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(viewerHtmlBytes);

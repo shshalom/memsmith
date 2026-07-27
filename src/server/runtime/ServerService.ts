@@ -257,11 +257,10 @@ export class ServerService {
     // cookie -- which is exactly how the first cut of this fix failed.
     const localTeamId = this.graph.localDevTeamId ?? null;
     server.registerRoutes(new ServerViewerRoutes({
+      // A throwing resolver cannot break the page — ServerViewerRoutes wraps
+      // this call — so no defensive try/catch is duplicated here.
       resolveLocalKey: localTeamId
-        ? () => {
-          try { return new CredentialStore().resolveKeyForTeam(localTeamId); }
-          catch { return null; } // never let a credential read break serving the page
-        }
+        ? () => new CredentialStore().resolveKeyForTeam(localTeamId)
         : undefined,
     }));
 
