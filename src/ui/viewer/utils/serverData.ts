@@ -47,3 +47,11 @@ export const DASHBOARD_UNAUTHORIZED = Symbol.for('memsmith.dashboard.unauthorize
 export function isUnauthorized(v: unknown): boolean {
   return v === DASHBOARD_UNAUTHORIZED;
 }
+
+// Collapse the sentinel back to null for callers that only want data. The
+// sentinel is a Symbol and therefore TRUTHY, so a plain `?? null` would pass it
+// through into state. Every consumer that does not explicitly branch on
+// isUnauthorized must route its value through this.
+export function dataOrNull(v: unknown): unknown {
+  return isUnauthorized(v) ? null : v;
+}
