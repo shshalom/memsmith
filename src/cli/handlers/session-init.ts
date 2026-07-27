@@ -117,6 +117,17 @@ export const sessionInitHandler: EventHandler = {
     // than a generic `pool`) makes that invariant explicit at the call site,
     // so key minting can never be accidentally re-pointed at a project DB.
     try {
+      // MEMSMITH_SERVER_DATABASE_URL is set by local-runtime via process.env
+      // INSIDE the server process and is never written to a file, so this hook
+      // — a separate short-lived process — never inherits it. Without this the
+      // pool below threw on every session and minting was skipped forever, so a
+      // fresh local project came up with no marker, no database, and no memory.
+      //
+      // The local embedded PG address is a fixed default and a not-yet-existing
+      // project needs only the BASE database, so the value is derivable here.
+      // A team install always sets the variable explicitly and this is a no-op.
+      const { resolveLocalBaseDatabaseUrl } = await import('../../services/identity/local-base-dsn.js');
+      process.env.MEMSMITH_SERVER_DATABASE_URL = resolveLocalBaseDatabaseUrl();
       const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
       const baseAccountPool = getSharedPostgresPool({ requireDatabaseUrl: true });
       const { ensureProjectIdentity } = await import('../../services/identity/project-identity.js');
