@@ -1217,10 +1217,21 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // receives live updates. The client (Task 5) subscribes and renders new
     // observations as they arrive. Best-effort: the stream never blocks or
     // affects generation; a broken connection is dropped on next publish.
+    // The subscription is scoped to the authenticated project, so a subscriber
+    // only ever receives its own project's observations. Scope comes from
+    // authContext — never from a query or body field — matching the database
+    // routing invariant. Without a project identity there is nothing to scope
+    // to, so the stream is refused rather than opened unfiltered.
     app.get('/v1/stream', readAuth, (req: Request, res: Response) => {
+      const projectId = req.authContext?.projectId;
+      const teamId = req.authContext?.teamId ?? '';
+      if (!projectId) {
+        res.status(400).json({ error: 'no project identity' });
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ type: 'initial_load' })}\n\n`);
-      const unsub = ObservationStream.instance.subscribe(res);
+      const unsub = ObservationStream.instance.subscribe(res, { teamId, projectId });
       req.on('close', () => { unsub(); });
     });
 
