@@ -3,6 +3,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { ThemePreference } from '../hooks/useTheme';
 import { VIEWS, ViewId } from '../views/viewState';
 import { useSpinningFavicon } from '../hooks/useSpinningFavicon';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 interface SidebarProps {
   activeView: ViewId;
@@ -10,6 +11,8 @@ interface SidebarProps {
   projects: string[];
   currentProject: string;
   onProjectChange: (project: string) => void;
+  /** The project this dashboard is scoped to (from `?project=`), for the header + switcher. */
+  scopedProjectId: string;
   themePreference: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
   isProcessing: boolean;
@@ -23,6 +26,7 @@ export function Sidebar({
   projects,
   currentProject,
   onProjectChange,
+  scopedProjectId,
   themePreference,
   onThemeChange,
   isProcessing,
@@ -38,6 +42,11 @@ export function Sidebar({
         <span className="sidebar-brand-icon" aria-hidden="true">◆</span>
         <span className="sidebar-brand-name">MemSmith</span>
       </div>
+
+      {/* Header: always names the current project and its runtime
+          ("ms-p3-fresh · Local"), and doubles as the project switcher.
+          Degrades to nothing if /v1/projects is unavailable. */}
+      <ProjectSwitcher scopedProjectId={scopedProjectId} />
 
       {/* View navigation */}
       <ul className="sidebar-nav" role="list">

@@ -5,8 +5,31 @@ export const V1_ENDPOINTS = {
   SEARCH: '/v1/search', CONTEXT: '/v1/context', OBSERVATION: '/v1/observations', STREAM: '/v1/stream',
   DASH_BOARD: '/dashboard/board', DASH_DECISIONS: '/dashboard/decisions',
   DASH_BLOCKED: '/dashboard/blocked', DASH_COST: '/dashboard/cost',
-  DASH_NOTES: '/dashboard/notes',
+  DASH_NOTES: '/dashboard/notes', PROJECTS: '/v1/projects',
 } as const;
+
+export interface ProjectSummary {
+  projectId: string;
+  teamId: string;
+  name: string;
+  runtime: 'local' | 'team';
+  isCurrent: boolean;
+}
+
+// GET /v1/projects is loopback-gated and may not exist on every server build
+// (older servers, or a non-loopback client). Any non-2xx or network failure
+// degrades to an empty list so the switcher can render nothing rather than
+// error — that degradation is required behaviour, not a stopgap.
+export async function fetchProjects(): Promise<ProjectSummary[]> {
+  try {
+    const res = await fetch(V1_ENDPOINTS.PROJECTS, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data as ProjectSummary[] : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function fetchObservations(
   opts: { query?: string; type?: string; lifecycle?: string; limit?: number; userDirected?: boolean } = {},

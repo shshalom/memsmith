@@ -7,12 +7,17 @@ import { DashboardView } from './views/DashboardView';
 import SettingsView from './views/SettingsView';
 import { useSSE } from './hooks/useSSE';
 import { useTheme } from './hooks/useTheme';
+import { useProjectScope } from './hooks/useProjectScope';
 import { getInitialView, ViewId } from './views/viewState';
 
 export function App() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView());
   const [currentFilter, setCurrentFilter] = useState('');
   const [logsModalOpen, setLogsModalOpen] = useState(false);
+  // The project this dashboard is scoped to, per `?project=` on load. Held
+  // for the app's lifetime so switching views (pure client-side state, no
+  // navigation) never drops it -- see design doc Item 2.
+  const scopedProjectId = useProjectScope();
   // The Console (worker log stream) is backed by /api/logs, which only exists
   // in the worker runtime. On the local/server runtime that endpoint 404s, so
   // we hide the console button+drawer entirely rather than show a dead panel.
@@ -50,6 +55,7 @@ export function App() {
         projects={projects}
         currentProject={currentFilter}
         onProjectChange={setCurrentFilter}
+        scopedProjectId={scopedProjectId}
         themePreference={preference}
         onThemeChange={setThemePreference}
         isProcessing={isProcessing}
