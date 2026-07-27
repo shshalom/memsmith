@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
@@ -95,9 +95,25 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
   writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
 }
 
-export async function upsertTeamAndProject(pool: QueryablePool, teamId: string, projectId: string): Promise<void> {
+export async function upsertTeamAndProject(
+  pool: QueryablePool,
+  teamId: string,
+  projectId: string,
+  name?: string,
+): Promise<void> {
   await pool.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [teamId]);
-  await pool.query('INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING', [projectId, teamId]);
+  // Name the project after its folder. The column was previously filled with
+  // the projectId purely to satisfy NOT NULL, which left the project switcher
+  // listing raw UUIDs. DO UPDATE (not DO NOTHING) so a project minted before
+  // this change heals on its next session — but only when the stored name is
+  // still the placeholder, so a name a user chose is never clobbered.
+  const projectName = name?.trim() || projectId;
+  await pool.query(
+    `INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $3)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+     WHERE projects.name = projects.id`,
+    [projectId, teamId, projectName],
+  );
 }
 
 /**
@@ -126,7 +142,8 @@ export async function ensureProjectIdentity(
     writeMarker(cwd, { teamId, projectId, note: MARKER_NOTE });
     logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
   }
-  await upsertTeamAndProject(pool, teamId, projectId);
+  // basename of a path ending in a separator is '' — fall back to the id.
+  await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined);
   if (store) {
     // Guarantee a resolvable key for this identity. ensureBaseKey is idempotent:
     // it returns the cached key (repairing DB drift if needed) or mints one.
