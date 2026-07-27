@@ -129,10 +129,14 @@ describe('ensureBaseKey', () => {
     await ensureBaseKey(pool, 'team-c', 'proj-c', store);
     const insertCall = pool.calls.find((c: any) => /insert into api_keys/i.test(c.text));
     expect(insertCall).toBeDefined();
-    // The scopes arg is the 5th value ($5) — a JSON string.
-    const scopesArg = insertCall!.values?.[4] as string;
+    // Find the scopes arg by shape, not by position — this previously hardcoded
+    // values[4] and broke when project_id was added to the INSERT, even though
+    // the behaviour under test was unchanged.
+    const scopesArg = (insertCall!.values ?? []).find(
+      (v: unknown) => typeof v === 'string' && v.trim().startsWith('['),
+    ) as string | undefined;
     expect(typeof scopesArg).toBe('string');
-    const scopes: string[] = JSON.parse(scopesArg);
+    const scopes: string[] = JSON.parse(scopesArg!);
     expect(scopes).toContain('memories:read');
     expect(scopes).toContain('memories:write');
   });

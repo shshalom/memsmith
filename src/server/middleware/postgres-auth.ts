@@ -89,6 +89,7 @@ import {
   isLocalhost,
   parseBearerToken,
 } from './request-auth-helpers.js';
+import { readLocalKeyCookie } from '../runtime/local-key-cookie.js';
 import { logger } from '../../utils/logger.js';
 import { resolveIdentityProvider } from '../identity/provider-factory.js';
 
@@ -143,7 +144,17 @@ async function authenticatePostgresRequest(
   // Bearer is canonical; raw X-Api-Key is a fallback so clients using
   // @better-auth/api-key defaults (e.g. the worker bundle shipped from the
   // Windows-canary line) authenticate without a per-client custom config.
-  const rawKey = parseBearerToken(authorization) || xApiKey || null;
+  // Third source: the loopback cookie GET / issues to the local dashboard,
+  // carrying the base key this machine already minted. EventSource cannot send
+  // headers, so a cookie is the only mechanism that serves both fetch and SSE.
+  // Accepted ONLY from a loopback origin — a cookie arriving from anywhere else
+  // is ignored outright, so this cannot widen remote access. The key itself is
+  // still verified by the normal api-key path below; this is a transport for an
+  // existing credential, not a bypass.
+  const cookieKey = (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req))
+    ? readLocalKeyCookie(req.header('cookie'))
+    : null;
+  const rawKey = parseBearerToken(authorization) || xApiKey || cookieKey || null;
 
   const allowLocalDevBypass = options.allowLocalDevBypass
     ?? process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1';

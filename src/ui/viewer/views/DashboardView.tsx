@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { fetchDashboard } from '../utils/serverData';
+import { fetchDashboard, isUnauthorized, dataOrNull } from '../utils/serverData';
+
+// Shown instead of the generic load failure when the server rejected our
+// credentials, so an auth problem does not read as missing data.
+const UNAUTHORIZED_MESSAGE = 'Not authenticated — reload this page to sign in to your local MemSmith.';
 import { toDecisionChains, type DecisionChain } from '../utils/dashboardShape';
 
 // ── Metrics payload (matches /dashboard/metrics) ─────────────────────────────
@@ -338,22 +342,28 @@ export function DashboardView() {
     Promise.all([fetchDashboard('metrics'), fetchDashboard('cost'), fetchDashboard('decisions'), fetchDashboard('notes')])
       .then(([m, c, d, n]) => {
         if (cancelled) return;
+        if (isUnauthorized(m)) { setError(UNAUTHORIZED_MESSAGE); return; }
         if (!m) { setError('metrics unavailable'); return; }
         setMetrics(m as Metrics);
-        setCost((c ?? null) as Cost | null);
-        setChains(toDecisionChains(d));
-        const notesPayload = n as { notes?: UserNote[] } | null;
+        // dataOrNull collapses the unauthorized sentinel back to null. The
+        // sentinel is a Symbol and therefore TRUTHY, so `?? null` would pass it
+        // straight through into state and every downstream property read would
+        // render garbage. Only the `metrics` branch above wants to see it.
+        setCost(dataOrNull(c) as Cost | null);
+        setChains(toDecisionChains(dataOrNull(d)));
+        const notesPayload = dataOrNull(n) as { notes?: UserNote[] } | null;
         setNotes(notesPayload?.notes ?? []);
       })
       .catch(err => { if (!cancelled) setError(String(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     // Spend loads separately — ccusage can take ~2s, so it shouldn't block the
     // rest of the dashboard; it fills in when ready.
-    fetchDashboard('spend').then(s => { if (!cancelled) setSpend((s ?? null) as Spend | null); }).catch(() => {});
+    fetchDashboard('spend').then(s => { if (!cancelled) setSpend(dataOrNull(s) as Spend | null); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
   if (loading) return <div className="dash-loading">Loading dashboard…</div>;
+  if (error === UNAUTHORIZED_MESSAGE) return <div className="dash-error">{UNAUTHORIZED_MESSAGE}</div>;
   if (error || !metrics) return <div className="dash-error">Failed to load dashboard data.</div>;
 
   return (

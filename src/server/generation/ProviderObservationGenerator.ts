@@ -27,6 +27,7 @@ import { PostgresServerSessionsRepository } from '../../storage/postgres/server-
 import { parseAgentXml } from '../../sdk/parser.js';
 import type { GenerationProviderHolder } from './GenerationProviderHolder.js';
 import type { SettingsResolver } from '../settings/SettingsResolver.js';
+import { isAgentPlumbingEvent, skipAgentPlumbingEnabled } from './agent-noise-filter.js';
 
 // Phase 11 — sentinel exception class so the worker can distinguish
 // scope-violation/revoked-key failures from generic processor errors and
@@ -287,7 +288,24 @@ export class ProviderObservationGenerator {
     provider: ServerGenerationProvider,
     projectPool: PostgresPool,
   ): Promise<{ jobId: string; status: 'completed'; observationCount: number }> {
-    const events = await this.loadEvents(projectPool, fresh, payload);
+    const loaded = await this.loadEvents(projectPool, fresh, payload);
+    // Drop activity that is only the assistant driving its own tooling before
+    // the provider ever sees it. Generating from those rows produced memory
+    // ABOUT THE AGENT ("Agent decided to use mcp__voicesmith__speak"), complete
+    // with invented rationale, which then crowded real project context out of
+    // the recall budget. Filtering here — the single choke point every
+    // generation path funnels through — keeps it out of every code path at once.
+    // Opt-out via the `skipAgentPlumbing` setting (default: on).
+    const events = skipAgentPlumbingEnabled() ? loaded.filter(e => !isAgentPlumbingEvent(e)) : loaded;
+    if (loaded.length > 0 && events.length === 0) {
+      // Everything in this job was plumbing. Nothing to generate from — say so
+      // rather than sending an empty context to the provider and storing
+      // whatever it invents to fill the template.
+      logger.info('SYSTEM', '[generation] job contained only agent tooling activity; nothing to generate', {
+        jobId: fresh.id, droppedEvents: loaded.length,
+      });
+      return { jobId: fresh.id, status: 'completed', observationCount: 0 };
+    }
     const project = await this.loadProject(projectPool, fresh);
 
     const genContext = {

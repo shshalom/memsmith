@@ -33,6 +33,8 @@ import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 import { readLocalScopeFromMarkerOrEnv } from './resolve-local-scope.js';
+import { resolveGenerationProviderName } from './resolve-generation-provider.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
 
 export interface CreateServerServiceOptions {
   pool?: PostgresPool;
@@ -357,15 +359,29 @@ function buildGenerationWorkerManager(
 }
 
 function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
-  const provider = (process.env.MEMSMITH_SERVER_PROVIDER ?? '').trim().toLowerCase();
-  if (!provider) return null;
+  // Resolve env > settings.json > registry default ('ollama'). Reading only
+  // process.env meant the declared default never applied on a real install —
+  // MemSmith's settings live in ~/.memsmith/settings.json — so a fresh local
+  // project generated nothing and its jobs queued forever.
+  let fileSettings: Record<string, unknown> = {};
+  try {
+    fileSettings = loadFromFileOnce() as unknown as Record<string, unknown>;
+  } catch { /* defaults still apply if settings are unreadable */ }
+
+  const provider = resolveGenerationProviderName(process.env, fileSettings);
+  if (!provider) {
+    logger.warn('SYSTEM', 'server: MEMSMITH_SERVER_PROVIDER is not a known provider; generation disabled', {
+      configured: (process.env.MEMSMITH_SERVER_PROVIDER ?? fileSettings.MEMSMITH_SERVER_PROVIDER ?? '') as string,
+    });
+    return null;
+  }
   try {
     return instantiateServerGenerationProvider(provider);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     // Surface the construction failure so operators can see why generation is
     // disabled instead of silently getting a null provider.
-    logger.warn('SYSTEM', 'server: failed to construct generation provider from env; generation disabled', { provider }, err);
+    logger.warn('SYSTEM', 'server: failed to construct generation provider; generation disabled', { provider }, err);
     return null;
   }
 }

@@ -26,10 +26,16 @@ export const SETTING_KEYS: readonly SettingKey[] = [
     boot: false, options: ['ollama', 'claude', 'gemini', 'openrouter'],
     label: 'Generation model', description: "Who distills your team's memory. Switching applies live.",
     help: 'The AI provider that turns raw session activity into stored observations. "ollama" runs a local model on your machine (private, free, no API key); "claude"/"gemini"/"openrouter" call a hosted model (higher quality, needs an API key, costs tokens). Changing this takes effect on the next observation — no restart.' },
-  { key: 'model', type: 'string', env: 'MEMSMITH_SERVER_MODEL', default: 'llama3.1:8b',
+  // qwen2.5:14b, not llama3.1:8b — the 8b model produced materially worse
+  // observations (vague restatements, invented rationale) on the same input.
+  { key: 'model', type: 'string', env: 'MEMSMITH_SERVER_MODEL', default: 'qwen2.5:14b',
     boot: false, label: 'Model name',
     description: 'The specific model the provider runs.',
     help: 'The exact model the chosen provider uses to write observations (e.g. "qwen2.5:14b" for ollama, "claude-haiku-4-5" for claude). Larger models write sharper, more accurate memory but are slower and — for hosted providers — more expensive per observation.' },
+  { key: 'skipAgentPlumbing', type: 'boolean', env: 'MEMSMITH_SKIP_AGENT_PLUMBING', default: true,
+    boot: false, label: 'Skip agent tooling',
+    description: "Don't record the assistant operating its own tools.",
+    help: 'When on (recommended), activity that is only the assistant driving its own tooling — MCP servers, todo lists, plan mode — is never turned into memory. Those rows describe the agent, not your project, so they can never answer "why is the code like this?", and they crowd out real context inside the recall budget. Tools whose output IS project knowledge (Read, Grep, Edit, Bash) are always kept. Off = capture everything, including the noise.' },
   { key: 'tiering', type: 'boolean', env: 'MEMSMITH_TIERING', default: true,
     boot: false, label: 'Compression (tiering)',
     description: 'Squeeze older memory to fit the injection budget.',

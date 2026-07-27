@@ -16,6 +16,12 @@ import { existsSync, readFileSync } from 'fs';
 import type { RouteHandler } from '../../services/server/Server.js';
 import { getPackageRoot } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
+import { buildLocalKeyCookie } from './local-key-cookie.js';
+import {
+  isLocalhost,
+  hasLoopbackHostHeader,
+  hasForwardedClientHeaders,
+} from '../middleware/request-auth-helpers.js';
 
 const VIEWER_HTML_CANDIDATE_PATHS: readonly string[] = (() => {
   const packageRoot = getPackageRoot();
@@ -50,7 +56,17 @@ if (resolvedViewerHtmlPath) {
   });
 }
 
+export interface ServerViewerRoutesOptions {
+  // Resolves the local API key to hand a loopback browser, for the project
+  // named by ?project= (falling back to the server's own). Omitted in
+  // team/server mode, where the operator authenticates normally and no
+  // machine-local credential should be issued.
+  resolveLocalKey?: (requestedProjectId?: string) => string | null | Promise<string | null>;
+}
+
 export class ServerViewerRoutes implements RouteHandler {
+  constructor(private readonly options: ServerViewerRoutesOptions = {}) {}
+
   setupRoutes(app: Application): void {
     const packageRoot = getPackageRoot();
     const parentRoot = path.join(packageRoot, '..');
@@ -62,10 +78,35 @@ export class ServerViewerRoutes implements RouteHandler {
     app.use(express.static(path.join(parentRoot, 'ui')));
     app.use(express.static(path.join(parentRoot, 'plugin', 'ui')));
 
-    app.get('/', (_req: Request, res: Response) => {
+    app.get('/', async (req: Request, res: Response) => {
       if (!viewerHtmlBytes) {
         res.status(503).json({ error: 'ViewerUnavailable', message: 'Viewer UI not found at any expected location' });
         return;
+      }
+      // Hand the loopback browser the base key this machine already minted, so
+      // the dashboard can authenticate against its own data. Without this the
+      // viewer sends no credential at all and every /dashboard and /v1 read
+      // 401s. Gated on loopback by BOTH the socket peer and the Host header:
+      // the socket check alone would still issue the cookie to a request
+      // proxied from elsewhere, and a forwarded-client header means the
+      // request did not originate on this machine.
+      if (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req)) {
+        // Never let a credential read break serving the page. Losing the cookie
+        // degrades the dashboard to unauthenticated; throwing here would 500 the
+        // whole viewer. The guarantee lives at the route, not only in the
+        // caller's resolver, so every caller inherits it.
+        try {
+          // ?project=<projectId> selects WHICH project's credential to hand
+          // over, so the dashboard — and the Go Team wizard, which converts
+          // whatever the request authenticates as — acts on the project the
+          // user is actually looking at rather than the server's own.
+          const requested = typeof req.query?.project === 'string' ? req.query.project : undefined;
+          const key = (await this.options.resolveLocalKey?.(requested)) ?? null;
+          if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+        } catch (error) {
+          logger.warn('SYSTEM', 'could not resolve local key for viewer cookie', {},
+            error instanceof Error ? error : new Error(String(error)));
+        }
       }
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(viewerHtmlBytes);
