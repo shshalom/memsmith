@@ -41,7 +41,7 @@ import { recordServedCompression } from '../../retrieval/recordServedCompression
 import { ObservationStream } from './ObservationStream.js';
 import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
-import { registerSettingsRoutes, registerIdentityRoutes } from './settingsRoutes.js';
+import { registerSettingsRoutes, registerIdentityRoutes, registerProjectsRoutes } from './settingsRoutes.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
 import { scrubEventPayload } from '../../services/event-payload-scrub.js';
 import { embedForPersist } from '../../generation/embed-for-persist.js';
@@ -1443,6 +1443,25 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         res.status(403).json({ error: 'Forbidden', message: 'insufficient scope' });
         return false;
       },
+    });
+
+    // Item 3 (2026-07-27 local-fresh-install-readiness) — GET /v1/projects:
+    // read-only project-switcher surface. Runs under the same readAuth as
+    // /v1/identity so authContext.projectId is populated for isCurrent — but
+    // the route's own handler independently re-checks the three-part loopback
+    // gate (isLocalhost && hasLoopbackHostHeader && !hasForwardedClientHeaders),
+    // the same gate already shipped for the viewer cookie, so a non-loopback
+    // caller is refused even if auth alone would have let it through.
+    app.use('/v1/projects', (req, res, next) => {
+      if (req.method === 'GET') {
+        identityReadAuth(req, res, next);
+      } else {
+        next();
+      }
+    });
+    registerProjectsRoutes(app, {
+      pool: this.options.pool,
+      credentialStore: this.options.credentialStore ?? new CredentialStore(),
     });
 
     // Task 6 — /v1/members management routes.

@@ -6,8 +6,19 @@ import { SETTING_KEYS, getSettingKey, validateSettingValue } from '../../setting
 import { buildIdentityPayload } from './identity-payload.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { isLocalhost } from '../../middleware/request-auth-helpers.js';
+import { basename, join } from 'path';
+import {
+  isLocalhost,
+  hasLoopbackHostHeader,
+  hasForwardedClientHeaders,
+} from '../../middleware/request-auth-helpers.js';
+import type { ProjectMarker } from '../../../services/identity/project-identity.js';
+
+/** Minimal shape of the pg pool the projects route needs (base DB only —
+ * `projects`/`teams` are ACCOUNT tables, never per-project). */
+interface ProjectsQueryable {
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
+}
 
 /** Matches the signature of ServerV1PostgresRoutes.auditWrite for injection. */
 export type AuditFn = (
@@ -76,8 +87,20 @@ export interface IdentityRouteDeps {
 export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps): void {
   app.get('/v1/identity', (req: Request, res: Response) => {
     if (!deps.requireScopes(req, res, 'memories:read')) return;
+    // Report the REQUEST's project, not the server's cwd. One server serves
+    // every local project, so falling back to the server's own marker always
+    // showed the dogfood's identity regardless of which project's dashboard
+    // was open. The Go Team wizard lives in Settings and converts
+    // req.authContext.projectId — so Settings must display the SAME project
+    // or a user could convert one project while believing they converted
+    // another. Only fall back to the marker when authContext carries no
+    // project (e.g. no auth middleware wired, as in unit tests).
+    const ctxTeam = (req as any).authContext?.teamId;
+    const ctxProject = (req as any).authContext?.projectId;
     const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
-    const ids = readProjectMarker(cwd);
+    const ids = (ctxTeam && ctxProject)
+      ? { teamId: ctxTeam, projectId: ctxProject }
+      : readProjectMarker(cwd);
     if (!ids) {
       res.status(404).json({ error: 'NotFound', message: 'no project marker found' });
       return;
@@ -89,6 +112,105 @@ export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps
     const payload = buildIdentityPayload(ids, store, { reveal });
     res.status(200).json(payload);
   });
+}
+
+// ── Projects route (Item 3 — project switcher) ────────────────────────────────
+
+export interface ProjectListEntry {
+  projectId: string;
+  teamId: string;
+  name: string;
+  runtime: 'local' | 'team';
+  isCurrent: boolean;
+}
+
+export interface ProjectsRouteDeps {
+  pool: ProjectsQueryable;
+  credentialStore?: CredentialStore;
+}
+
+/**
+ * GET /v1/projects — used by the dashboard's project switcher.
+ *
+ * Loopback-gated by the SAME three-part check already shipped for the viewer
+ * cookie (isLocalhost && hasLoopbackHostHeader && !hasForwardedClientHeaders):
+ * this mirrors the cookie rule exactly, so the switcher can never list a
+ * project it could not actually open.
+ *
+ * Lists only projects this machine holds a key for (DB `projects` joined
+ * against CredentialStore) — never every project in the database.
+ *
+ * `name` — honest gap (see design doc): `projects.name` is set to the
+ * projectId by upsertTeamAndProject (`VALUES ($1, $2, $1)`), so there is no
+ * real human-readable name in the DB today. This endpoint derives one from
+ * the directory basename ONLY for the project this server booted from (the
+ * only marker this process can read — every other project's marker lives in
+ * a directory this process has no path to); every other project falls back
+ * to its short projectId. This does not pretend a name exists where one
+ * doesn't.
+ *
+ * `runtime` — same constraint: read from `ProjectMarker.runtime` for the
+ * current project only ('server' marker value → "team" in the response);
+ * every other project falls back to "local", matching the spec's own
+ * "absent → local" rule for a marker with no runtime field.
+ */
+export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps): void {
+  app.get('/v1/projects', async (req: Request, res: Response) => {
+    if (!(isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req))) {
+      res.status(403).json({ error: 'Forbidden', message: 'loopback only' });
+      return;
+    }
+
+    const store = deps.credentialStore ?? new CredentialStore();
+    const teamIds = store.listTeamIdsWithKeys();
+    if (teamIds.length === 0) {
+      res.status(200).json([]);
+      return;
+    }
+
+    const rows = await deps.pool.query(
+      'SELECT id, team_id FROM projects WHERE team_id = ANY($1::text[]) ORDER BY id',
+      [teamIds],
+    );
+
+    const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+    const currentMarker = readServerProjectMarker(cwd);
+    const currentProjectId = (req as any).authContext?.projectId ?? null;
+
+    const projects: ProjectListEntry[] = (rows.rows as { id: string; team_id: string }[]).map((row) => {
+      const isServerProject = currentMarker !== null && currentMarker.projectId === row.id;
+      const runtime: 'local' | 'team' = isServerProject && currentMarker!.runtime === 'server' ? 'team' : 'local';
+      const name = isServerProject ? basename(cwd) : row.id.slice(0, 8);
+      return {
+        projectId: row.id,
+        teamId: row.team_id,
+        name,
+        runtime,
+        isCurrent: currentProjectId === row.id,
+      };
+    });
+
+    res.status(200).json(projects);
+  });
+}
+
+function readServerProjectMarker(cwd: string): ProjectMarker | null {
+  const p = join(cwd, MARKER_RELATIVE_PATH);
+  if (!existsSync(p)) return null;
+  try {
+    const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProjectMarker>;
+    if (m.teamId && m.projectId) {
+      return {
+        teamId: m.teamId,
+        projectId: m.projectId,
+        note: m.note ?? '',
+        ...(m.runtime ? { runtime: m.runtime } : {}),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Settings routes ───────────────────────────────────────────────────────────

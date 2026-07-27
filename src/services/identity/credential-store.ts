@@ -22,6 +22,13 @@ export class CredentialStore {
     return file.keys[teamId] ?? null;
   }
 
+  /** Team ids this machine currently holds a key for. Read-only; used by the
+   * project switcher (GET /v1/projects) to mirror the exact cookie rule — a
+   * project only ever appears if this machine could actually open it. */
+  listTeamIdsWithKeys(): string[] {
+    return Object.keys(this.read().keys);
+  }
+
   storeKeyForTeam(teamId: string, key: string): void {
     const file = this.read();
     file.keys[teamId] = key;
