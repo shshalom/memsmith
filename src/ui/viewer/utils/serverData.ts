@@ -31,7 +31,19 @@ export async function fetchDashboard(kind: 'board'|'decisions'|'blocked'|'cost'|
     metrics: '/dashboard/metrics', spend: '/dashboard/spend', notes: V1_ENDPOINTS.DASH_NOTES };
   try {
     const res = await fetch(map[kind], { headers: { Accept: 'application/json' } });
+    // Distinguish "not authenticated" from "no data". Both used to collapse to
+    // null, so an auth failure rendered as "Failed to load dashboard data" and
+    // read as a data problem -- which is exactly how this was misdiagnosed once
+    // already. Callers that only care about presence still see a falsy result.
+    if (res.status === 401 || res.status === 403) return DASHBOARD_UNAUTHORIZED;
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
+}
+
+// Sentinel for an authentication failure, distinct from null ("no data").
+export const DASHBOARD_UNAUTHORIZED = Symbol.for('memsmith.dashboard.unauthorized');
+
+export function isUnauthorized(v: unknown): boolean {
+  return v === DASHBOARD_UNAUTHORIZED;
 }

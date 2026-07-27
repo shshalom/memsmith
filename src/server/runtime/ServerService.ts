@@ -25,6 +25,7 @@ import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapt
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
+import { CredentialStore } from '../../services/identity/credential-store.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 
@@ -238,7 +239,31 @@ export class ServerService {
     // viewer's own API calls resolve against those; express.static only
     // matches existing files and the `/` GET only matches the root, so this
     // never shadows an API route.
-    server.registerRoutes(new ServerViewerRoutes());
+    // In local runtime the browser is the machine owner, and this machine has
+    // already minted a base key for its team. Hand that key to a loopback
+    // browser so the dashboard can read its own data; without it the viewer
+    // sends no credential and every read 401s. Deliberately NOT wired for the
+    // server/team runtime, where the operator authenticates normally and no
+    // machine-local credential should be issued.
+    // Condition: this machine has a local project marker (localDevTeamId) AND
+    // holds that team's key in its own CredentialStore. Both are true only for
+    // a local install, and the second is the actual precondition anyway -- a
+    // team-mode server has no local credential file to read, so resolveKeyFor-
+    // Team returns null and no cookie is issued.
+    //
+    // NB: do NOT gate on process.env.MEMSMITH_RUNTIME. That setting lives in
+    // ~/.memsmith/settings.json, not the process environment, so reading it
+    // here evaluates false on a real local install and silently disables the
+    // cookie -- which is exactly how the first cut of this fix failed.
+    const localTeamId = this.graph.localDevTeamId ?? null;
+    server.registerRoutes(new ServerViewerRoutes({
+      resolveLocalKey: localTeamId
+        ? () => {
+          try { return new CredentialStore().resolveKeyForTeam(localTeamId); }
+          catch { return null; } // never let a credential read break serving the page
+        }
+        : undefined,
+    }));
 
     // Team dashboard — the "only us" team views (lifecycle board, decision log
     // with supersession lineage, blocked-on-whom, cost). Auth-gated by

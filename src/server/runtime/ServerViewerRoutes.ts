@@ -16,6 +16,12 @@ import { existsSync, readFileSync } from 'fs';
 import type { RouteHandler } from '../../services/server/Server.js';
 import { getPackageRoot } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
+import { buildLocalKeyCookie } from './local-key-cookie.js';
+import {
+  isLocalhost,
+  hasLoopbackHostHeader,
+  hasForwardedClientHeaders,
+} from '../middleware/request-auth-helpers.js';
 
 const VIEWER_HTML_CANDIDATE_PATHS: readonly string[] = (() => {
   const packageRoot = getPackageRoot();
@@ -50,7 +56,16 @@ if (resolvedViewerHtmlPath) {
   });
 }
 
+export interface ServerViewerRoutesOptions {
+  // Resolves the local base API key to hand a loopback browser. Omitted in
+  // team/server mode, where the operator authenticates normally and no
+  // machine-local credential should be issued.
+  resolveLocalKey?: () => string | null;
+}
+
 export class ServerViewerRoutes implements RouteHandler {
+  constructor(private readonly options: ServerViewerRoutesOptions = {}) {}
+
   setupRoutes(app: Application): void {
     const packageRoot = getPackageRoot();
     const parentRoot = path.join(packageRoot, '..');
@@ -62,10 +77,21 @@ export class ServerViewerRoutes implements RouteHandler {
     app.use(express.static(path.join(parentRoot, 'ui')));
     app.use(express.static(path.join(parentRoot, 'plugin', 'ui')));
 
-    app.get('/', (_req: Request, res: Response) => {
+    app.get('/', (req: Request, res: Response) => {
       if (!viewerHtmlBytes) {
         res.status(503).json({ error: 'ViewerUnavailable', message: 'Viewer UI not found at any expected location' });
         return;
+      }
+      // Hand the loopback browser the base key this machine already minted, so
+      // the dashboard can authenticate against its own data. Without this the
+      // viewer sends no credential at all and every /dashboard and /v1 read
+      // 401s. Gated on loopback by BOTH the socket peer and the Host header:
+      // the socket check alone would still issue the cookie to a request
+      // proxied from elsewhere, and a forwarded-client header means the
+      // request did not originate on this machine.
+      if (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req)) {
+        const key = this.options.resolveLocalKey?.() ?? null;
+        if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
       }
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(viewerHtmlBytes);
