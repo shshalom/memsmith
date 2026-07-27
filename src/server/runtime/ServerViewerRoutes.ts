@@ -57,10 +57,11 @@ if (resolvedViewerHtmlPath) {
 }
 
 export interface ServerViewerRoutesOptions {
-  // Resolves the local base API key to hand a loopback browser. Omitted in
+  // Resolves the local API key to hand a loopback browser, for the project
+  // named by ?project= (falling back to the server's own). Omitted in
   // team/server mode, where the operator authenticates normally and no
   // machine-local credential should be issued.
-  resolveLocalKey?: () => string | null;
+  resolveLocalKey?: (requestedProjectId?: string) => string | null | Promise<string | null>;
 }
 
 export class ServerViewerRoutes implements RouteHandler {
@@ -77,7 +78,7 @@ export class ServerViewerRoutes implements RouteHandler {
     app.use(express.static(path.join(parentRoot, 'ui')));
     app.use(express.static(path.join(parentRoot, 'plugin', 'ui')));
 
-    app.get('/', (req: Request, res: Response) => {
+    app.get('/', async (req: Request, res: Response) => {
       if (!viewerHtmlBytes) {
         res.status(503).json({ error: 'ViewerUnavailable', message: 'Viewer UI not found at any expected location' });
         return;
@@ -95,7 +96,12 @@ export class ServerViewerRoutes implements RouteHandler {
         // whole viewer. The guarantee lives at the route, not only in the
         // caller's resolver, so every caller inherits it.
         try {
-          const key = this.options.resolveLocalKey?.() ?? null;
+          // ?project=<projectId> selects WHICH project's credential to hand
+          // over, so the dashboard — and the Go Team wizard, which converts
+          // whatever the request authenticates as — acts on the project the
+          // user is actually looking at rather than the server's own.
+          const requested = typeof req.query?.project === 'string' ? req.query.project : undefined;
+          const key = (await this.options.resolveLocalKey?.(requested)) ?? null;
           if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
         } catch (error) {
           logger.warn('SYSTEM', 'could not resolve local key for viewer cookie', {},

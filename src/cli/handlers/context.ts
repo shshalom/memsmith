@@ -166,7 +166,16 @@ export const contextHandler: EventHandler = {
     // Always surface the dashboard link at session start — even on an empty
     // project (buildInjectionBlock returns '' with no memory, but the link is
     // most useful exactly then). resolveDashboardUrl is pure/total.
-    const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl()}`;
+    // Scope the link to THIS project. One server serves every local project,
+    // so a bare link lands on whichever project the server booted from — which
+    // also means the Go Team wizard would act on that project rather than this
+    // one. Best-effort: an unreadable marker just yields the unscoped link.
+    let dashboardProjectId: string | undefined;
+    try {
+      const { readProjectMarker } = await import('../../services/identity/project-identity.js');
+      dashboardProjectId = readProjectMarker(cwd)?.projectId;
+    } catch { /* unscoped link is a fine fallback */ }
+    const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;

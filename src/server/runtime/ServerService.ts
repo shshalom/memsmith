@@ -26,6 +26,7 @@ import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js'
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
 import { CredentialStore } from '../../services/identity/credential-store.js';
+import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 
@@ -259,8 +260,26 @@ export class ServerService {
     server.registerRoutes(new ServerViewerRoutes({
       // A throwing resolver cannot break the page — ServerViewerRoutes wraps
       // this call — so no defensive try/catch is duplicated here.
+      //
+      // ?project= picks WHICH project's key is handed over, so the dashboard
+      // and the Go Team wizard act on the project being viewed rather than the
+      // one the server booted from. Only keys this machine already holds are
+      // issued; anything else falls back to the server's own project.
       resolveLocalKey: localTeamId
-        ? () => new CredentialStore().resolveKeyForTeam(localTeamId)
+        ? (requestedProjectId?: string) => {
+          const store = new CredentialStore();
+          return resolveViewerKeyForRequest({
+            requestedProjectId,
+            serverTeamId: localTeamId,
+            lookupTeamForProject: async (projectId: string) => {
+              const r = await this.graph.postgres.pool.query(
+                'SELECT team_id FROM projects WHERE id = $1', [projectId],
+              );
+              return (r.rows[0] as { team_id?: string } | undefined)?.team_id ?? null;
+            },
+            resolveKeyForTeam: (teamId: string) => store.resolveKeyForTeam(teamId),
+          });
+        }
         : undefined,
     }));
 

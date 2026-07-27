@@ -11,6 +11,12 @@ export function resolveDashboardPort(): number {
   return DEFAULT_SERVER_PORT + ((process.getuid?.() ?? 77) % 100);
 }
 
-export function resolveDashboardUrl(): string {
-  return `http://127.0.0.1:${resolveDashboardPort()}`;
+// One server serves every local project, so a bare link always lands on the
+// project the SERVER booted from. Passing the session's own projectId scopes
+// the dashboard — and the Go Team wizard, which acts on whatever the dashboard
+// authenticates as — to the project the user is actually working in.
+export function resolveDashboardUrl(projectId?: string): string {
+  const base = `http://127.0.0.1:${resolveDashboardPort()}`;
+  const id = projectId?.trim();
+  return id ? `${base}?project=${encodeURIComponent(id)}` : base;
 }
