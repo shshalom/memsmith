@@ -118,16 +118,37 @@ export class EmbeddedPostgresManager {
     return this.connectionString;
   }
 
+  // Postgres writes its own pid on line 1 of postmaster.pid in the data dir.
+  // It is authoritative and, unlike our pid file, outlives this process.
+  private readPostmasterPid(): number | null {
+    try {
+      const raw = readFileSync(join(this.paths.dataDir, 'postmaster.pid'), 'utf8');
+      const pid = Number.parseInt(raw.split('\n')[0]?.trim() ?? '', 10);
+      return Number.isInteger(pid) && pid > 0 ? pid : null;
+    } catch { return null; }
+  }
+
   isRunning(): boolean {
     if (!existsSync(this.paths.pidFile)) return false;
     const pid = Number.parseInt(readFileSync(this.paths.pidFile, 'utf8').trim(), 10);
-    return Number.isInteger(pid) && isPidAlive(pid);
+    if (Number.isInteger(pid) && isPidAlive(pid)) return true;
+    // Our record is stale, but postgres may still be up and ours — an older
+    // build recorded the server's pid here, so a server restart orphans it.
+    // Re-adopt from postmaster.pid rather than declaring the port foreign.
+    const pgPid = this.readPostmasterPid();
+    return pgPid !== null && isPidAlive(pgPid);
   }
 
   async start(): Promise<{ connectionString: string; reused: boolean }> {
     // Reuse path: a live pid file means an instance we own is already up.
     if (this.isRunning()) {
       this.connectionString = this.buildConnectionString();
+      // Heal a pid file left by an older build (or a crashed server) so the
+      // record matches the postgres actually running.
+      const pgPid = this.readPostmasterPid();
+      if (pgPid !== null) {
+        try { writeFileSync(this.paths.pidFile, String(pgPid), 'utf8'); } catch { /* best effort */ }
+      }
       logger.info('SYSTEM', 'embedded PG already running; reusing', { port: this.port });
       return { connectionString: this.connectionString, reused: true };
     }
@@ -159,7 +180,14 @@ export class EmbeddedPostgresManager {
     await instance.waitForReady();
     this.instance = instance;
     this.connectionString = instance.getConnectionString();
-    writeFileSync(this.paths.pidFile, String(process.pid), 'utf8');
+    // Record the POSTGRES pid, not our own. Writing process.pid ties the
+    // record to the server's lifetime: when the server exits, the pid goes
+    // stale, the reuse check below fails, and the next boot unlinks the file
+    // and then refuses to start because the still-running postgres now looks
+    // like a foreign process squatting on the port. Recovering meant hand-
+    // restoring the file. postmaster.pid is written by postgres itself and
+    // outlives us, so adoption survives a server restart.
+    writeFileSync(this.paths.pidFile, String(this.readPostmasterPid() ?? process.pid), 'utf8');
     logger.info('SYSTEM', 'embedded PG started', { port: this.port, dataDir: this.paths.dataDir });
     return { connectionString: this.connectionString, reused: false };
   }
