@@ -145,10 +145,14 @@ async function insertApiKeyHash(
 ): Promise<void> {
   const id = randomUUID();
   await pool.query(
-    `INSERT INTO api_keys (id, key_hash, team_id, actor_id, scopes)
-     VALUES ($1, $2, $3, $4, $5::jsonb)
+    // project_id must be persisted, not just accepted as a parameter.
+    // postgres-auth builds authContext.projectId from this column, and
+    // resolveRequestDatabase 400s ("no project identity") without it — so a
+    // NULL here authenticates fine but fails every dashboard and /v1 read.
+    `INSERT INTO api_keys (id, key_hash, team_id, project_id, actor_id, scopes)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
      ON CONFLICT (id) DO NOTHING`,
-    [id, keyHash, teamId, IDENTITY_ACTOR_ID, JSON.stringify([...IDENTITY_KEY_SCOPES])],
+    [id, keyHash, teamId, projectId, IDENTITY_ACTOR_ID, JSON.stringify([...IDENTITY_KEY_SCOPES])],
   );
 }
 
