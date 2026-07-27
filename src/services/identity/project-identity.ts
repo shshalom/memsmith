@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'path';
 import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
+import { LOCAL_OWNER_USER_ID } from '../../server/identity/providers/local-provider.js';
 
 export const MARKER_RELATIVE_PATH = '.memsmith/project.json';
 
@@ -114,6 +115,19 @@ export async function upsertTeamAndProject(
      WHERE projects.name = projects.id`,
     [projectId, teamId, projectName],
   );
+  // Establish the machine's user as this team's owner. Without a team_members
+  // row (and a user_id on the key) authContext.role resolves to null for every
+  // local project, so requireRole('owner') — which guards the Go Team wizard —
+  // could never be satisfied on ANY local install. DO UPDATE so a team minted
+  // before this change becomes owned on its next session instead of staying
+  // ownerless forever, but only when the role is not already owner, so a real
+  // owner set by team mode is never overwritten.
+  await pool.query(
+    `INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'owner')
+     ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'owner'
+     WHERE team_members.role <> 'owner'`,
+    [teamId, LOCAL_OWNER_USER_ID],
+  );
 }
 
 /**
@@ -166,10 +180,14 @@ async function insertApiKeyHash(
     // postgres-auth builds authContext.projectId from this column, and
     // resolveRequestDatabase 400s ("no project identity") without it — so a
     // NULL here authenticates fine but fails every dashboard and /v1 read.
-    `INSERT INTO api_keys (id, key_hash, team_id, project_id, actor_id, scopes)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+    // user_id must be set too: authContext.role is resolved by joining
+    // api_keys.user_id to team_members, so a NULL here leaves the role
+    // unresolvable no matter what membership rows exist — which is what made
+    // requireRole('owner') unsatisfiable on every local install.
+    `INSERT INTO api_keys (id, key_hash, team_id, project_id, user_id, actor_id, scopes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
      ON CONFLICT (id) DO NOTHING`,
-    [id, keyHash, teamId, projectId, IDENTITY_ACTOR_ID, JSON.stringify([...IDENTITY_KEY_SCOPES])],
+    [id, keyHash, teamId, projectId, LOCAL_OWNER_USER_ID, IDENTITY_ACTOR_ID, JSON.stringify([...IDENTITY_KEY_SCOPES])],
   );
 }
 
@@ -203,7 +221,18 @@ export async function ensureBaseKey(
       'SELECT 1 FROM api_keys WHERE key_hash = $1 AND team_id = $2 LIMIT 1',
       [keyHash, teamId],
     );
-    if (existing.rowCount && existing.rowCount > 0) return cached;
+    if (existing.rowCount && existing.rowCount > 0) {
+      // The key is already stored, so the INSERT below never runs — which left
+      // keys minted before owner establishment with user_id = NULL forever, and
+      // a NULL user_id makes authContext.role unresolvable. Backfill it here so
+      // an existing install becomes owned on its next session rather than
+      // staying permanently unable to use owner-gated features like Go Team.
+      await pool.query(
+        'UPDATE api_keys SET user_id = $1 WHERE key_hash = $2 AND team_id = $3 AND user_id IS NULL',
+        [LOCAL_OWNER_USER_ID, keyHash, teamId],
+      );
+      return cached;
+    }
     // cache/DB drift: hash missing — re-insert it (do NOT mint a new key; reuse the cached one)
     await insertApiKeyHash(pool, keyHash, teamId, projectId);
     logger.info('IDENTITY', 'repaired cache/DB drift: re-inserted key hash', { teamId, projectId });
