@@ -169,7 +169,7 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
     }
 
     const rows = await deps.pool.query(
-      'SELECT id, team_id FROM projects WHERE team_id = ANY($1::text[]) ORDER BY id',
+      'SELECT id, team_id, name FROM projects WHERE team_id = ANY($1::text[]) ORDER BY name',
       [teamIds],
     );
 
@@ -177,10 +177,16 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
     const currentMarker = readServerProjectMarker(cwd);
     const currentProjectId = (req as any).authContext?.projectId ?? null;
 
-    const projects: ProjectListEntry[] = (rows.rows as { id: string; team_id: string }[]).map((row) => {
+    const projects: ProjectListEntry[] = (rows.rows as { id: string; team_id: string; name: string }[]).map((row) => {
       const isServerProject = currentMarker !== null && currentMarker.projectId === row.id;
       const runtime: 'local' | 'team' = isServerProject && currentMarker!.runtime === 'server' ? 'team' : 'local';
-      const name = isServerProject ? basename(cwd) : row.id.slice(0, 8);
+      // Projects are named after their folder at mint time. Older rows were
+      // stamped with the projectId as a NOT NULL placeholder and heal on their
+      // next session, so treat name === id as "unnamed" and shorten it rather
+      // than showing a full uuid. The server's own project can always fall
+      // back to its cwd basename.
+      const stored = row.name && row.name !== row.id ? row.name : null;
+      const name = stored ?? (isServerProject ? basename(cwd) : row.id.slice(0, 8));
       return {
         projectId: row.id,
         teamId: row.team_id,

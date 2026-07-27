@@ -185,4 +185,47 @@ describe('GET /v1/projects', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // Projects are named after their folder at mint time. The route originally
+  // selected only (id, team_id) and shortened the uuid for every project except
+  // the server's own, which meant a real stored name was discarded — the
+  // switcher kept showing uuids after naming already worked.
+  it('shows a project\'s stored name, not a shortened uuid', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'memsmith-projects-route-'));
+    const store = new CredentialStore(join(dir, 'creds.json'));
+    store.storeKeyForTeam(TEAM_A, 'cmem_named_key');
+    await pool.query('UPDATE projects SET name = $2 WHERE id = $1', [PROJECT_A, 'my-real-folder']);
+
+    const { app } = appWith({ credentialStore: store });
+    const { call, close } = await startApp(app);
+    try {
+      const res = await call('/v1/projects');
+      const entry = res.body.find((p: any) => p.projectId === PROJECT_A);
+      expect(entry?.name).toBe('my-real-folder');
+    } finally {
+      // Restore the placeholder so sibling tests see the original fixture.
+      await pool.query('UPDATE projects SET name = id WHERE id = $1', [PROJECT_A]);
+      await close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to a short id when the name is still the placeholder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'memsmith-projects-route-'));
+    const store = new CredentialStore(join(dir, 'creds.json'));
+    store.storeKeyForTeam(TEAM_A, 'cmem_named_key');
+    // Fixture rows are seeded with name = id (the NOT NULL placeholder).
+
+    const { app } = appWith({ credentialStore: store });
+    const { call, close } = await startApp(app);
+    try {
+      const res = await call('/v1/projects');
+      const entry = res.body.find((p: any) => p.projectId === PROJECT_A);
+      expect(entry?.name).toBe(PROJECT_A.slice(0, 8));
+      expect(entry?.name).not.toBe(PROJECT_A);
+    } finally {
+      await close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
