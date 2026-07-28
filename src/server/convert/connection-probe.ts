@@ -18,6 +18,22 @@ function looksLikeAuthError(msg: string): boolean {
   return /password|authentication|role .* does not exist|permission denied/i.test(msg);
 }
 
+// Can this connection actually run CREATE EXTENSION? Superusers can; so can a
+// role granted rds_superuser or equivalent. Asked as one boolean so a database
+// that answers differently (or errors) simply reports "no" and the user gets
+// instruct-only guidance rather than a button that fails.
+async function canCreateExtension(url: string, deps: ProbeDeps): Promise<boolean> {
+  try {
+    const r = await deps.runQuery(
+      url,
+      "SELECT (usesuper OR pg_has_role(current_user,'rds_superuser','member')) AS allowed FROM pg_user WHERE usename = current_user",
+    );
+    return r.rows[0]?.allowed === true || r.rows[0]?.allowed === 't';
+  } catch {
+    return false;
+  }
+}
+
 export async function probeConnection(url: string, deps: ProbeDeps): Promise<ProbeResult> {
   const result: ProbeResult = {
     connectivity: { reachable: false, authenticates: false },
@@ -57,7 +73,13 @@ export async function probeConnection(url: string, deps: ProbeDeps): Promise<Pro
       result.fitness.pgvector = true;
     } else {
       const available = await deps.runQuery(url, "SELECT name FROM pg_available_extensions WHERE name='vector'");
-      if (available.rows.length > 0) result.fixable.push('pgvector');
+      // Only advertise a fix we can actually apply. The spec gates one-click
+      // setup on MemSmith HAVING PERMISSION; a managed Postgres (RDS, Cloud SQL)
+      // commonly refuses CREATE EXTENSION to the app user, and offering a button
+      // that always fails is worse than telling the user to ask their DBA.
+      if (available.rows.length > 0 && await canCreateExtension(url, deps)) {
+        result.fixable.push('pgvector');
+      }
     }
   } catch { /* leave pgvector false */ }
 

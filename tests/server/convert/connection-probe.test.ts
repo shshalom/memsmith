@@ -40,6 +40,10 @@ describe('probeConnection', () => {
       'TEMP TABLE': { rows: [] },
       "extname='vector'": { rows: [] },              // not installed
       "name='vector'": { rows: [{ '?column?': 1 }] }, // but available
+      // ...and this connection may actually create it. A fix is only offered
+      // when it is BOTH available and permitted, so a managed database that
+      // refuses CREATE EXTENSION gets instructions rather than a failing button.
+      'usesuper': { rows: [{ allowed: true }] },
       'information_schema.tables': { rows: [] },
     });
     const r = await probeConnection('postgres://x', deps);
