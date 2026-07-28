@@ -34,6 +34,23 @@ export async function applyFix(
   }
 }
 
+// Ask the server whether a real owner identity already exists for this install.
+// The wizard uses this to decide whether the Sign-In card is needed at all —
+// the owner of a single-user local install has nobody else to be.
+//
+// Fail-safe: any failure reports false, which KEEPS the sign-in step. Showing a
+// shorter path and then discovering there is no owner is worse than asking.
+export async function fetchOwnerEstablished(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const res = await fetchImpl('/v1/identity', { credentials: 'include' });
+    if (!res.ok) return false;
+    const body = await res.json() as { ownerEstablished?: unknown };
+    return body?.ownerEstablished === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function migrate(databaseUrl: string, fetchImpl: typeof fetch = fetch): Promise<ConvertResult> {
   try {
     const res = await fetchImpl('/v1/convert/migrate', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ databaseUrl }) });

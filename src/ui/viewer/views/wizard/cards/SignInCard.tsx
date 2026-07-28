@@ -6,6 +6,16 @@ interface SignInCardProps {
   onBack: () => void;
   signedIn: boolean;
   onSignedIn: (value: boolean) => void;
+  /**
+   * True when a real owner identity already exists for this install.
+   *
+   * The wizard normally drops this card from its order entirely in that case,
+   * so this is a belt-and-braces guard: if the card is reached anyway, it must
+   * not poll a login endpoint that does not exist. There is no mounted
+   * better-auth HTTP surface, and there is deliberately never going to be —
+   * OIDC/Cognito owns human login.
+   */
+  ownerEstablished?: boolean | null;
 }
 
 async function checkSession(): Promise<boolean> {
@@ -19,15 +29,21 @@ async function checkSession(): Promise<boolean> {
   }
 }
 
-export default function SignInCard({ onNext, onBack, signedIn, onSignedIn }: SignInCardProps) {
+export default function SignInCard({
+  onNext, onBack, signedIn, onSignedIn, ownerEstablished = null,
+}: SignInCardProps) {
   const [checking, setChecking] = useState(false);
+  const owner = ownerEstablished === true;
 
   // Poll for session after user has opened the sign-in page in a new tab.
+  //
+  // Never poll when an owner is already established: identity is settled, and
+  // the endpoint would 404 forever (no login surface is mounted).
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
 
-    if (!signedIn) {
+    if (!signedIn && !owner) {
       timer = setInterval(async () => {
         const ok = await checkSession();
         if (cancelled) return;
@@ -42,7 +58,7 @@ export default function SignInCard({ onNext, onBack, signedIn, onSignedIn }: Sig
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [signedIn, onSignedIn]);
+  }, [signedIn, owner, onSignedIn]);
 
   async function handleCheckNow() {
     setChecking(true);
@@ -59,7 +75,13 @@ export default function SignInCard({ onNext, onBack, signedIn, onSignedIn }: Sig
         to the shared workspace so your observations are attributed correctly.
       </p>
 
-      {signedIn ? (
+      {owner && !signedIn ? (
+        <div className="wizard-success" role="status">
+          You are the owner of this machine’s MemSmith install — no sign-in needed.
+          Your identity is already established, and it will be recorded as the
+          owner of the converted team.
+        </div>
+      ) : signedIn ? (
         <div className="wizard-success" role="status">
           You are signed in. Ready to proceed.
         </div>
@@ -96,7 +118,7 @@ export default function SignInCard({ onNext, onBack, signedIn, onSignedIn }: Sig
           type="button"
           className="wizard-btn wizard-btn--terracotta"
           onClick={onNext}
-          disabled={!signedIn}
+          disabled={!signedIn && !owner}
         >
           Next
         </button>

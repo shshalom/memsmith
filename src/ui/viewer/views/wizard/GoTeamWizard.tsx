@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-import React, { useState, useCallback } from 'react';
-import { WizardStep, nextStep, prevStep, canAdvance } from './wizardState.js';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import {
+  WizardStep, nextStep, prevStep, canAdvance, buildWizardOrder, resolveOrphanedStep,
+} from './wizardState.js';
+import { fetchOwnerEstablished } from './wizardData.js';
 import WelcomeCard    from './cards/WelcomeCard.js';
 import DestinationCard from './cards/DestinationCard.js';
 import ConvertCard    from './cards/ConvertCard.js';
@@ -26,6 +29,8 @@ export function pickCard(step: WizardStep): React.ComponentType<any> {
 interface WizardState {
   probeAllGreen: boolean;
   signedIn: boolean;
+  /** null until /v1/identity answers; see buildWizardOrder for the fail-safe. */
+  ownerEstablished: boolean | null;
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -42,18 +47,47 @@ interface GoTeamWizardProps {
 export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWizardProps) {
   const [step, setStep]               = useState<WizardStep>('welcome');
   const [databaseUrl, setDatabaseUrl] = useState('');
-  const [wizardState, setWizardState] = useState<WizardState>({ probeAllGreen: false, signedIn: false });
+  const [wizardState, setWizardState] = useState<WizardState>({
+    probeAllGreen: false, signedIn: false, ownerEstablished: null,
+  });
   const [restartRequired, setRestartRequired] = useState(false);
+
+  // Ask once per opening whether a real owner already exists. If so, the
+  // Sign-In card is dropped from the order entirely rather than merely made
+  // passable — the owner of a single-user local install has nobody else to be.
+  // Any failure leaves this false, which keeps the sign-in step.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetchOwnerEstablished().then(established => {
+      if (!cancelled) {
+        setWizardState(s => ({ ...s, ownerEstablished: established }));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const order = useMemo(
+    () => buildWizardOrder({ ownerEstablished: wizardState.ownerEstablished }),
+    [wizardState.ownerEstablished],
+  );
+
+  // If the order shrinks while the user is standing on the step that was
+  // removed, move them FORWARD to where that step would have led — not back to
+  // the start, which would discard the progress they had already made.
+  useEffect(() => {
+    setStep(s => resolveOrphanedStep(s, order));
+  }, [order]);
 
   const handleNext = useCallback(() => {
     if (canAdvance(step, wizardState)) {
-      setStep(s => nextStep(s));
+      setStep(s => nextStep(s, order));
     }
-  }, [step, wizardState]);
+  }, [step, wizardState, order]);
 
   const handleBack = useCallback(() => {
-    setStep(s => prevStep(s));
-  }, []);
+    setStep(s => prevStep(s, order));
+  }, [order]);
 
   const handleProbeGreen = useCallback((green: boolean) => {
     setWizardState(s => ({ ...s, probeAllGreen: green }));
@@ -110,6 +144,7 @@ export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWi
             onBack={handleBack}
             signedIn={wizardState.signedIn}
             onSignedIn={handleSignedIn}
+            ownerEstablished={wizardState.ownerEstablished}
           />
         );
       case 'invite':

@@ -109,7 +109,14 @@ export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps
     // reveal is only honored for loopback requests — same trust boundary as the local dashboard
     const revealParam = req.query.reveal === 'true';
     const reveal = revealParam && isLocalhost(req);
-    const payload = buildIdentityPayload(ids, store, { reveal });
+    // Report the role the auth middleware already resolved (postgres-auth.ts
+    // sets it for both the api-key path and the loopback local-dev owner), so
+    // this costs no extra query. The Go Team wizard uses it to decide whether it
+    // must ask for a sign-in at all: the owner of a single-user local install
+    // has nobody else to be. Only a role that reports exactly 'owner' counts —
+    // a null role (what a session yields today) keeps the sign-in step.
+    const ctxRole = (req as any).authContext?.role ?? null;
+    const payload = buildIdentityPayload(ids, store, { reveal, role: ctxRole });
     res.status(200).json(payload);
   });
 }

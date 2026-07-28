@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'bun:test';
-import { canAdvance } from '../../src/ui/viewer/views/wizard/wizardState.js';
+import { canAdvance, buildWizardOrder } from '../../src/ui/viewer/views/wizard/wizardState.js';
 // This task's testable seam is the container's advance logic + card selection.
 // Assert the pure gating the container relies on (full DOM render is covered by
 // manual acceptance; keep the automated test at the logic boundary).
@@ -15,5 +15,13 @@ describe('wizard container', () => {
   });
   it('reuses canAdvance for Next gating (destination needs green)', () => {
     expect(canAdvance('destination', { probeAllGreen: false, signedIn: false })).toBe(false);
+  });
+  it('every step in the owner-skip order still maps to a card', () => {
+    // Guards the container's invariant: it renders whatever step the derived
+    // order hands it, so a shortened order must never contain a step that
+    // pickCard cannot resolve.
+    for (const step of buildWizardOrder({ ownerEstablished: true })) {
+      expect(pickCard(step)).toBeDefined();
+    }
   });
 });
