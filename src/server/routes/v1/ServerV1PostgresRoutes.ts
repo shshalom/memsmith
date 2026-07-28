@@ -53,6 +53,7 @@ import type { GenerationProviderHolder } from '../../generation/GenerationProvid
 import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
+import { applyPgvectorFix } from '../../convert/apply-fix.js';
 import { runConvert } from '../../convert/convert-service.js';
 import { flipToTeam } from '../../convert/flip-to-team.js';
 import { writeProjectRuntime, readProjectMarker, ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
@@ -1624,6 +1625,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
+      // Reuses the probe's connection deps: the same credentials that diagnosed
+      // the gap are the ones that must be able to close it.
+      applyFix: (url, fix) => fix === 'pgvector'
+        ? applyPgvectorFix(url, makeRealProbeDeps())
+        : Promise.resolve({ ok: false, error: `unknown fix: ${fix}` }),
       resolveConvertContext: makeResolveConvertContext({
         cwd: convertCwd,
         readScope: readLocalScopeFromMarkerOrEnv,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import React, { useState } from 'react';
-import { testConnection, ProbeResult } from '../wizardData.js';
+import { testConnection, applyFix, ProbeResult } from '../wizardData.js';
 
 interface DestinationCardProps {
   onNext: () => void;
@@ -20,16 +20,33 @@ const CHECK_LABELS: Record<string, string> = {
   schemaReady: 'Schema ready',
 };
 
-function CheckRow({ name, ok, fixable }: { name: string; ok: boolean; fixable: boolean }) {
+function CheckRow({ name, ok, fixable, onFix, fixing }: {
+  name: string; ok: boolean; fixable: boolean;
+  onFix?: () => void; fixing?: boolean;
+}) {
   return (
     <div className={`wizard-check-row${ok ? ' wizard-check-row--ok' : ' wizard-check-row--fail'}`}>
       <span className="wizard-check-icon" aria-hidden="true">{ok ? '✓' : '✗'}</span>
       <span className="wizard-check-label">{CHECK_LABELS[name] ?? name}</span>
-      {!ok && fixable && (
+      {/* `fixable` means the probe confirmed MemSmith can actually apply the
+          fix — it is available on the server AND this connection has permission.
+          When it cannot, we fall back to instructions for a DBA rather than
+          offering a button that would fail. */}
+      {!ok && fixable && onFix && (
+        <button
+          type="button"
+          className="wizard-check-fix"
+          onClick={onFix}
+          disabled={fixing}
+        >
+          {fixing ? 'Fixing…' : 'Fix'}
+        </button>
+      )}
+      {!ok && !fixable && (
         <span className="wizard-check-hint">
           {name === 'pgvector'
-            ? 'Run CREATE EXTENSION vector; as superuser to fix.'
-            : 'Fixable — check connection credentials and permissions.'}
+            ? 'Ask your DBA to run: CREATE EXTENSION vector;'
+            : 'Check connection credentials and permissions.'}
         </span>
       )}
     </div>
@@ -39,6 +56,7 @@ function CheckRow({ name, ok, fixable }: { name: string; ok: boolean; fixable: b
 export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlChange, databaseUrl, probeAllGreen }: DestinationCardProps) {
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [testing, setTesting] = useState(false);
+  const [fixing, setFixing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleTest() {
@@ -50,6 +68,25 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
     onProbeGreen(result.allGreen);
     if (result.error) setError(result.error);
     setTesting(false);
+  }
+
+  // Apply a remediation the probe said we can actually perform, then re-probe so
+  // the checklist (and the Next button, which unlocks only on all-green)
+  // reflects reality instead of a stale result.
+  async function handleFix(fix: string) {
+    setFixing(fix);
+    setError(null);
+    const result = await applyFix(databaseUrl, fix);
+    if (!result.ok) {
+      setError(result.error ?? 'Could not apply the fix.');
+      setFixing(null);
+      return;
+    }
+    const reprobed = await testConnection(databaseUrl);
+    setProbe(reprobed);
+    onProbeGreen(reprobed.allGreen);
+    if (reprobed.error) setError(reprobed.error);
+    setFixing(null);
   }
 
   const fixableSet = new Set(probe?.fixable ?? []);
@@ -87,7 +124,8 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
           <CheckRow name="reachable"    ok={probe.connectivity.reachable}    fixable={false} />
           <CheckRow name="authenticates" ok={probe.connectivity.authenticates} fixable={false} />
           <CheckRow name="writable"     ok={probe.fitness.writable}          fixable={false} />
-          <CheckRow name="pgvector"     ok={probe.fitness.pgvector}          fixable={fixableSet.has('pgvector')} />
+          <CheckRow name="pgvector"     ok={probe.fitness.pgvector}          fixable={fixableSet.has('pgvector')}
+                    onFix={() => handleFix('pgvector')} fixing={fixing === 'pgvector'} />
           <CheckRow name="versionOk"    ok={probe.fitness.versionOk}         fixable={false} />
           <CheckRow name="schemaReady"  ok={probe.fitness.schemaReady}       fixable={fixableSet.has('schemaReady')} />
         </div>

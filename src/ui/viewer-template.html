@@ -3833,6 +3833,30 @@
       font-style: italic;
     }
 
+    /* One-click remediation for a gap the probe confirmed MemSmith can close.
+       Only rendered when the fix is both available and permitted — otherwise
+       the row shows instruct-only guidance instead. */
+    .wizard-check-fix {
+      margin-left: auto;
+      padding: 3px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: var(--settings-accent, #c2410c);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+
+    .wizard-check-fix:hover:not(:disabled) { opacity: 0.85; }
+
+    .wizard-check-fix:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
     /* ── Progress stepper ─────────────────────────────────────────────────── */
 
     .wizard-progress {

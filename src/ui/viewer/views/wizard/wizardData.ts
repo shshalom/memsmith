@@ -13,6 +13,27 @@ export async function testConnection(databaseUrl: string, fetchImpl: typeof fetc
   }
 }
 
+// Apply a remediation the probe marked fixable (currently only 'pgvector').
+// The server allowlists the fix name — this never sends free-form SQL.
+export async function applyFix(
+  databaseUrl: string,
+  fix: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchImpl('/v1/convert/apply-fix', {
+      method: 'POST', credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ databaseUrl, fix }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: (body as any)?.error ?? `HTTP ${res.status}` };
+    return body as { ok: boolean; error?: string };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function migrate(databaseUrl: string, fetchImpl: typeof fetch = fetch): Promise<ConvertResult> {
   try {
     const res = await fetchImpl('/v1/convert/migrate', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ databaseUrl }) });
