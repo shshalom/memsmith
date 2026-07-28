@@ -1,5 +1,24 @@
 export interface ProbeResult { connectivity: { reachable: boolean; authenticates: boolean }; fitness: { writable: boolean; pgvector: boolean; versionOk: boolean; schemaReady: boolean }; allGreen: boolean; fixable: string[]; error?: string }
-export interface ConvertResult { status: 'converted' | 'verify_failed'; copiedByTable?: Record<string, number>; mismatches?: Array<{ table: string; local: number; remote: number }>; restartRequired: boolean }
+// 'failed' means the request itself did not complete — a crash, a rejection, or
+// a transport fault. It is deliberately distinct from 'verify_failed', which
+// means the copy ran and its row counts did not match. Collapsing the two told
+// users "verification failed" when verification had never run.
+export interface ConvertResult {
+  status: 'converted' | 'verify_failed' | 'failed';
+  copiedByTable?: Record<string, number>;
+  mismatches?: Array<{ table: string; local: number; remote: number }>;
+  restartRequired: boolean;
+  /** Present on 'failed': the server's or transport's own message, verbatim. */
+  error?: string;
+  /**
+   * Present on success: what the project needs to start using the remote.
+   *
+   * The server does not apply this — the project's own session hook does, since
+   * the marker and credential store live on the user's machine, not the server's.
+   * Never render apiKey.
+   */
+  join?: { teamId: string; projectId: string; serverUrl: string; apiKey: string };
+}
 
 const NOT_GREEN: ProbeResult = { connectivity: { reachable: false, authenticates: false }, fitness: { writable: false, pgvector: false, versionOk: false, schemaReady: false }, allGreen: false, fixable: [] };
 
@@ -54,9 +73,23 @@ export async function fetchOwnerEstablished(fetchImpl: typeof fetch = fetch): Pr
 export async function migrate(databaseUrl: string, fetchImpl: typeof fetch = fetch): Promise<ConvertResult> {
   try {
     const res = await fetchImpl('/v1/convert/migrate', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ databaseUrl }) });
-    if (!res.ok) return { status: 'verify_failed', restartRequired: false };
+    if (!res.ok) {
+      // Keep the server's own message. A convert can fail for reasons that have
+      // nothing to do with verification (a foreign-key crash, a 403, a bad URL),
+      // and the user cannot act on "verification failed" when that is not what
+      // happened. Fall back to the status code when the body carries no text.
+      const body = await res.json().catch(() => null) as { error?: unknown } | null;
+      const message = typeof body?.error === 'string' && body.error.trim()
+        ? body.error
+        : `HTTP ${res.status}`;
+      return { status: 'failed', error: message, restartRequired: false };
+    }
     return (await res.json()) as ConvertResult;
-  } catch {
-    return { status: 'verify_failed', restartRequired: false };
+  } catch (e) {
+    return {
+      status: 'failed',
+      error: e instanceof Error ? e.message : String(e),
+      restartRequired: false,
+    };
   }
 }
