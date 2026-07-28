@@ -63,8 +63,7 @@ export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequ
         <div className="wizard-warning">
           <strong>Before you proceed:</strong> this operation copies all memory to
           the remote and changes the active runtime. The server must restart to
-          complete the switch. Make sure you have reviewed the destination and
-          signed in first.
+          complete the switch. Make sure you have reviewed the destination first.
         </div>
       )}
 
