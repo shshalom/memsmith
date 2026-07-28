@@ -140,6 +140,46 @@ export const sessionInitHandler: EventHandler = {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
 
+    // Claim any pending Go Team join left by a convert.
+    //
+    // The server copies the data but cannot write this project's marker — one
+    // shared server can only guess at project directories, and guessing is what
+    // let a convert of one project flip another's. So the server leaves a note on
+    // the destination database and THIS process — which genuinely runs in the
+    // project directory — applies it.
+    //
+    // Entirely non-fatal: any failure leaves the project on local with its data
+    // intact and the note still pending, so the next session retries.
+    try {
+      const [
+        { claimPendingTeamJoin }, { applyConvertJoin },
+        { readProjectMarker, writeProjectRuntime }, { CredentialStore },
+        { getSharedPostgresPool },
+      ] = await Promise.all([
+        import('../../server/convert/claim-pending-join.js'),
+        import('../../server/convert/apply-join.js'),
+        import('../../services/identity/project-identity.js'),
+        import('../../services/identity/credential-store.js'),
+        import('../../storage/postgres/pool.js'),
+      ]);
+      const store = new CredentialStore();
+      await claimPendingTeamJoin(cwd, {
+        readProjectMarker: (c) => readProjectMarker(c) as any,
+        resolveKeyForTeam: (teamId) => store.resolveKeyForTeam(teamId),
+        // The LOCAL base-account pool, already open above for identity minting.
+        // The note lives here, not on the destination: putting it on the remote is
+        // circular, since reaching the remote needs the URL the note carries.
+        pool: getSharedPostgresPool({ requireDatabaseUrl: true }),
+        applyJoin: (c, join) => applyConvertJoin({
+          readProjectMarker: (x) => readProjectMarker(x) as any,
+          writeProjectRuntime,
+          storeKeyForTeam: (teamId, key) => store.storeKeyForTeam(teamId, key),
+        }, c, join),
+      });
+    } catch (err) {
+      logger.warn('IDENTITY', 'pending team join not applied (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
+    }
+
     const runtime = dependencies.resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.

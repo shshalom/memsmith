@@ -66,6 +66,7 @@ import {
 } from '../../convert/generated-columns.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
 import { deriveServerUrl } from '../../convert/convert-context.js';
+import { recordPendingJoin } from '../../convert/pending-join.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
 import { resolveRequestDatabase } from '../../middleware/resolve-request-database.js';
 import { projectDatabaseName } from '../../runtime/resolve-project-database.js';
@@ -1662,11 +1663,33 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             }
           })();
 
-          return await runConvert({ copyDeps: deps }, {
-            ...input,
-            serverUrl: deriveServerUrl(input.databaseUrl),
-            apiKey,
-          });
+          const serverUrl = deriveServerUrl(input.databaseUrl);
+          const result = await runConvert({ copyDeps: deps }, { ...input, serverUrl, apiKey });
+
+          // Leave the note for the project's own session hook to claim.
+          //
+          // On the LOCAL base-account database (this.options.pool), NOT the
+          // destination: the hook has to be able to find the note using only what
+          // it already has, and putting it on the remote is circular — reaching the
+          // remote requires the URL the note itself carries. The hook opens this
+          // same base pool at session start for identity minting.
+          //
+          // This is a row addressed by projectId, which comes from the api_keys row
+          // and cannot be steered by the caller — not a filesystem path the server
+          // had to guess. That distinction is the whole point: guessing paths is
+          // what let a convert of one project flip another's marker.
+          //
+          // Success only: a failed verify must never leave a project primed to
+          // switch to an incomplete remote. Carries no key — the hook resolves that
+          // from CredentialStore, where the mint above cached it.
+          if (result.status === 'converted') {
+            await recordPendingJoin(this.options.pool, {
+              projectId: input.projectId,
+              teamId: input.teamId,
+              serverUrl,
+            });
+          }
+          return result;
         } finally {
           await dispose();
         }
