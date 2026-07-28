@@ -2,14 +2,17 @@
 import type { RequestHandler } from 'express';
 import type { ProbeResult } from '../../convert/connection-probe.js';
 import type { ConvertResult } from '../../convert/convert-service.js';
-import type { ResolveConvertContext } from '../../convert/convert-context.js';
 
 export interface ConvertRoutesDeps {
   authMiddleware: RequestHandler[]; // [writeAuth..., requireRole('owner')]
   probe: (databaseUrl: string) => Promise<ProbeResult>;
   applyFix: (databaseUrl: string, fix: string) => Promise<{ ok: boolean; error?: string }>;
-  convert: (input: { databaseUrl: string; ownerUserId: string; cwd: string; teamId: string; serverUrl: string; apiKey: string; projectId: string }) => Promise<ConvertResult>;
-  resolveConvertContext: ResolveConvertContext;
+  convert: (input: {
+    databaseUrl: string;
+    ownerUserId: string;
+    teamId: string;
+    projectId: string;
+  }) => Promise<ConvertResult>;
 }
 
 export function registerConvertRoutes(app: import('express').Application, deps: ConvertRoutesDeps): void {
@@ -47,18 +50,30 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
     const ownerUserId = req.authContext?.userId;
     if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
     if (!ownerUserId) { res.status(403).json({ error: 'no owner identity' }); return; }
+
+    // WHICH project gets copied comes from authContext and nothing else.
+    //
+    // This previously resolved the project by reading a marker file from the
+    // SERVER's cwd. One server serves every local project, so that was always
+    // whichever project the server was launched from — and a request to convert
+    // project A copied project B's entire memory to the remote instead. Reading
+    // a request body field would be equally wrong: it would let any owner
+    // exfiltrate another project by asking. authContext.projectId derives from
+    // the api_keys row, so the caller cannot steer it.
+    //
+    // No fallback on purpose: falling back to disk is exactly what caused the
+    // leak, so an unresolvable project fails loudly instead of guessing.
+    const projectId = req.authContext?.projectId;
+    const teamId = req.authContext?.teamId;
+    if (!projectId || !teamId) {
+      res.status(400).json({
+        error: 'no project scope on this credential — cannot determine which project to convert',
+      });
+      return;
+    }
+
     try {
-      const ctx = await deps.resolveConvertContext(url);
-      if ('error' in ctx) { res.status(400).json({ error: ctx.error }); return; }
-      res.json(await deps.convert({
-        databaseUrl: url,
-        ownerUserId,
-        cwd: ctx.cwd,
-        teamId: ctx.teamId,
-        serverUrl: ctx.serverUrl,
-        apiKey: ctx.apiKey,
-        projectId: ctx.projectId,
-      }));
+      res.json(await deps.convert({ databaseUrl: url, ownerUserId, teamId, projectId }));
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'convert failed' });
     }

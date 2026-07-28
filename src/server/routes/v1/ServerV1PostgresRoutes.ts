@@ -55,15 +55,18 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { applyPgvectorFix } from '../../convert/apply-fix.js';
 import { runConvert } from '../../convert/convert-service.js';
-import { flipToTeam } from '../../convert/flip-to-team.js';
-import { writeProjectRuntime, readProjectMarker, ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
+import { ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
 import type { CopyDeps } from '../../convert/copy-engine.js';
+import { ensureRemoteTeamHinge } from '../../convert/team-hinge.js';
+import {
+  discoverGeneratedColumns, stripGeneratedColumns, type GeneratedColumnMap,
+} from '../../convert/generated-columns.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
-import { makeResolveConvertContext } from '../../convert/convert-context.js';
-import { readLocalScopeFromMarkerOrEnv } from '../../runtime/resolve-local-scope.js';
+import { deriveServerUrl } from '../../convert/convert-context.js';
+import { recordPendingJoin } from '../../convert/pending-join.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
 import { resolveRequestDatabase } from '../../middleware/resolve-request-database.js';
 import { projectDatabaseName } from '../../runtime/resolve-project-database.js';
@@ -1615,13 +1618,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // Task 5 — Go Team Wizard: /v1/convert/test-connection + /v1/convert/migrate.
     // Both routes are owner-gated (writeAuth + requireRole('owner')).
     // probe: stateless connection check (no local DB writes).
-    // convert: client posts only { databaseUrl }; the server resolves cwd/projectId/teamId
-    //   from the local project marker, derives serverUrl, and resolves or mints the team
-    //   apiKey from CredentialStore (minting against the remote DB on first convert).
-    //   Result: remote schema bootstrapped, local data copied, marker updated (runtime=server
-    //   + serverUrl), and key cached in CredentialStore.
+    // convert: the client posts only { databaseUrl }. The project to copy comes
+    //   from req.authContext (see ConvertRoutes) — never from the server's cwd,
+    //   which is how a request to convert one project previously copied another's
+    //   entire memory to the remote.
+    //
+    // The server does DATABASE work only: bootstrap the remote schema, copy this
+    // project's rows, verify counts. It does NOT write the project's marker or
+    // its credential-store entry — those live in the user's project directory and
+    // home directory, and belong to the process that runs THERE. The server
+    // returns `join` (teamId/projectId/serverUrl/apiKey) and the project's own
+    // session hook applies it.
     const credStore = new CredentialStore();
-    const convertCwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
@@ -1630,44 +1638,58 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       applyFix: (url, fix) => fix === 'pgvector'
         ? applyPgvectorFix(url, makeRealProbeDeps())
         : Promise.resolve({ ok: false, error: `unknown fix: ${fix}` }),
-      resolveConvertContext: makeResolveConvertContext({
-        cwd: convertCwd,
-        readScope: readLocalScopeFromMarkerOrEnv,
-        resolveKey: (teamId) => credStore.resolveKeyForTeam(teamId),
-        mintKey: async (teamId, projectId, databaseUrl) => {
-          const cfg = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: databaseUrl } as NodeJS.ProcessEnv });
-          if (!cfg) throw new Error('invalid databaseUrl for key mint');
-          const remotePool = createPostgresPool(cfg);
-          try {
-            await bootstrapServerPostgresSchema(remotePool);
-            await upsertTeamAndProject(remotePool, teamId, projectId); // seed dest team+project so api_keys + copy FKs hold on a fresh DB
-            const key = await ensureBaseKey(remotePool, teamId, projectId, credStore);
-            return key;
-          } finally {
-            await remotePool.end();
-          }
-        },
-        existingServerUrl: (cwd) => readProjectMarker(cwd)?.serverUrl,
-      }),
       convert: async (input) => {
         const { deps, dispose } = await this.buildConvertCopyDeps(input.databaseUrl, {
           projectId: input.projectId,
           teamId: input.teamId,
         });
         try {
-          return await runConvert(
-            {
-              copyDeps: deps,
-              flip: (fi) => flipToTeam(
-                {
-                  writeProjectRuntime,
-                  storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
-                },
-                { cwd: fi.cwd, teamId: fi.teamId, serverUrl: fi.serverUrl, apiKey: fi.apiKey },
-              ),
-            },
-            input,
-          );
+          // The team key for the destination. Reuse this team's existing key when
+          // there is one, else mint against the remote. Minting seeds the
+          // destination team+project first so the api_keys FK holds on a fresh DB.
+          const existingKey = credStore.resolveKeyForTeam(input.teamId);
+          const apiKey = existingKey ?? await (async () => {
+            const cfg = parsePostgresConfig({
+              env: { MEMSMITH_SERVER_DATABASE_URL: input.databaseUrl } as NodeJS.ProcessEnv,
+            });
+            if (!cfg) throw new Error('invalid databaseUrl for key mint');
+            const remotePool = createPostgresPool(cfg);
+            try {
+              await bootstrapServerPostgresSchema(remotePool);
+              await upsertTeamAndProject(remotePool, input.teamId, input.projectId);
+              return await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
+            } finally {
+              await remotePool.end();
+            }
+          })();
+
+          const serverUrl = deriveServerUrl(input.databaseUrl);
+          const result = await runConvert({ copyDeps: deps }, { ...input, serverUrl, apiKey });
+
+          // Leave the note for the project's own session hook to claim.
+          //
+          // On the LOCAL base-account database (this.options.pool), NOT the
+          // destination: the hook has to be able to find the note using only what
+          // it already has, and putting it on the remote is circular — reaching the
+          // remote requires the URL the note itself carries. The hook opens this
+          // same base pool at session start for identity minting.
+          //
+          // This is a row addressed by projectId, which comes from the api_keys row
+          // and cannot be steered by the caller — not a filesystem path the server
+          // had to guess. That distinction is the whole point: guessing paths is
+          // what let a convert of one project flip another's marker.
+          //
+          // Success only: a failed verify must never leave a project primed to
+          // switch to an incomplete remote. Carries no key — the hook resolves that
+          // from CredentialStore, where the mint above cached it.
+          if (result.status === 'converted') {
+            await recordPendingJoin(this.options.pool, {
+              projectId: input.projectId,
+              teamId: input.teamId,
+              serverUrl,
+            });
+          }
+          return result;
         } finally {
           await dispose();
         }
@@ -1707,14 +1729,46 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     if (!remoteConfig) throw new Error('invalid remote databaseUrl');
     const remotePool = createPostgresPool(remoteConfig);
 
+    // Resolved before ensureBootstrapped is defined because that closure reads
+    // the local teams row; keeping the declaration above its use avoids relying
+    // on call-time ordering to stay valid.
+    const localPool = await this.resolveLocalPoolForConvert(scope);
+
     let bootstrapped = false;
+    let generatedColumns: GeneratedColumnMap = new Map();
     const ensureBootstrapped = async (): Promise<void> => {
       if (bootstrapped) return;
       await bootstrapServerPostgresSchema(remotePool);
+      // Five of the seven COPY_TABLES carry a team_id FK (projects,
+      // server_sessions, agent_events, observation_generation_jobs,
+      // observations), and `projects` is copied first — so on a remote that has
+      // no such team yet, the convert died on
+      // projects_team_id_fkey before a single row landed. The team row is a
+      // hinge the data depends on, not account state to be copied: ensure it
+      // exists, never modify it if it already does.
+      //
+      // Carry the local team's real name across so the remote does not display a
+      // bare UUID. Best-effort: the name is cosmetic, and failing to read it must
+      // not block the conversion (ensureRemoteTeamHinge falls back to the id).
+      let teamName: string | undefined;
+      try {
+        const named = await localPool.query(
+          'SELECT name FROM teams WHERE id = $1',
+          [scope.teamId],
+        );
+        const candidate = (named.rows[0] as { name?: unknown } | undefined)?.name;
+        if (typeof candidate === 'string' && candidate.trim()) teamName = candidate;
+      } catch {
+        // Local teams row unreadable — fall through to the id-as-name default.
+      }
+      await ensureRemoteTeamHinge(remotePool, { teamId: scope.teamId, teamName });
+      // Generated columns (e.g. observations.content_search, a tsvector) come
+      // back from SELECT * but Postgres rejects any INSERT that names them.
+      // Discovered from the destination schema so a future migration adding one
+      // cannot silently reintroduce the crash.
+      generatedColumns = await discoverGeneratedColumns(remotePool);
       bootstrapped = true;
     };
-
-    const localPool = await this.resolveLocalPoolForConvert(scope);
 
     const deps: CopyDeps = {
       readRows: async (table: string) => {
@@ -1725,9 +1779,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       upsertRows: async (table: string, rows: Array<Record<string, unknown>>) => {
         if (rows.length === 0) return;
         await ensureBootstrapped();
-        const cols = Object.keys(rows[0]!);
+        // Must run after ensureBootstrapped — that is what populates the map.
+        const writable = stripGeneratedColumns(table, rows, generatedColumns);
+        const cols = Object.keys(writable[0]!);
         const colList = cols.map(c => `"${c}"`).join(', ');
-        for (const row of rows) {
+        for (const row of writable) {
           const values = cols.map(c => row[c]);
           const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
           await remotePool.query(
@@ -1738,6 +1794,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       },
       countRows: async (which: 'local' | 'remote', table: string) => {
         const pool = which === 'local' ? localPool : remotePool;
+        // Verification can be the first thing to touch the remote when a project
+        // has no rows to copy (upsertRows returns early on an empty batch, so it
+        // never triggers the bootstrap). Counting against a database with no
+        // tables would throw instead of reporting zero.
+        if (which === 'remote') await ensureBootstrapped();
         const { text, params } = buildScopedCountQuery(table, which);
         const result = await pool.query(text, params(scope));
         return Number((result.rows[0] as { count: string }).count);

@@ -17,10 +17,16 @@ describe('wizardData', () => {
     expect(r.allGreen).toBe(false);
     expect(r.error).toBeDefined();
   });
-  it('migrate degrades to verify_failed on error', async () => {
+  it('migrate degrades to failed (not verify_failed) on error', async () => {
+    // This assertion previously expected 'verify_failed', which encoded the bug:
+    // a transport error was reported to the user as "Conversion did not pass
+    // verification" even though verification never ran. A crash and a row-count
+    // mismatch need different fixes, so they must not share a status.
+    // See tests/ui/wizard-convert-errors.test.ts for the full contract.
     const boom = (async () => { throw new Error('net'); }) as unknown as typeof fetch;
     const r = await migrate('postgres://x', boom);
-    expect(r.status).toBe('verify_failed');
+    expect(r.status).toBe('failed');
+    expect(r.error).toContain('net');
     expect(r.restartRequired).toBe(false);
   });
 });

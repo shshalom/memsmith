@@ -2,7 +2,11 @@
 import React, { useState } from 'react';
 import { migrate, ConvertResult } from '../wizardData.js';
 
-type Phase = 'idle' | 'copying' | 'verifying' | 'flipping' | 'done' | 'failed';
+// 'failed' = the copy ran but verification found missing rows.
+// 'errored' = the request itself did not complete (crash, 403, transport).
+// Keeping them apart is the whole point: the card used to report a crash as a
+// verification failure, which is a different problem with a different fix.
+type Phase = 'idle' | 'copying' | 'verifying' | 'flipping' | 'done' | 'failed' | 'errored';
 
 interface ConvertCardProps {
   databaseUrl: string;
@@ -18,6 +22,7 @@ const PHASE_LABELS: Record<Phase, string> = {
   flipping:  'Switching runtime to server mode…',
   done:      'Conversion complete.',
   failed:    'Conversion did not pass verification. Local data is unchanged.',
+  errored:   'Conversion could not run. Local data is unchanged.',
 };
 
 export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequired }: ConvertCardProps) {
@@ -41,6 +46,8 @@ export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequ
 
     if (res.status === 'converted') {
       setPhase('done');
+    } else if (res.status === 'failed') {
+      setPhase('errored');
     } else {
       setPhase('failed');
     }
@@ -91,6 +98,15 @@ export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequ
         </p>
       )}
 
+      {result?.status === 'failed' && result.error && (
+        <div className="wizard-error" role="alert">
+          The conversion could not run, so nothing was copied and the runtime was
+          NOT switched. Your local data is unchanged.
+          <br />
+          <code>{result.error}</code>
+        </div>
+      )}
+
       {result?.mismatches && result.mismatches.length > 0 && (
         <div className="wizard-error" role="alert">
           Verification mismatches:{' '}
@@ -115,18 +131,18 @@ export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequ
           type="button"
           className="wizard-btn wizard-btn--ghost"
           onClick={onBack}
-          disabled={phase !== 'idle' && phase !== 'done' && phase !== 'failed'}
+          disabled={phase !== 'idle' && phase !== 'done' && phase !== 'failed' && phase !== 'errored'}
         >
           Back
         </button>
-        {(phase === 'idle' || phase === 'failed') && (
+        {(phase === 'idle' || phase === 'failed' || phase === 'errored') && (
           <button
             type="button"
             className="wizard-btn wizard-btn--terracotta"
             onClick={handleMigrate}
             disabled={!confirmed && phase === 'idle'}
           >
-            {phase === 'failed' ? 'Retry' : 'Convert All'}
+            {phase === 'failed' || phase === 'errored' ? 'Retry' : 'Convert All'}
           </button>
         )}
         {phase === 'done' && (
