@@ -381,22 +381,43 @@ function IdentityPane({
         <h2 className="settings-card-title">Team Mode</h2>
         <div className="settings-rows">
           <div className="settings-row">
-            <div className="settings-row-meta">
-              <span className="settings-row-label">Switch to Team</span>
-              <span className="settings-row-desc">
-                Move your memory to a shared remote workspace so teammates can
-                collaborate. Your local data stays intact as a backup.
-              </span>
-            </div>
-            <div className="settings-row-control">
-              <button
-                type="button"
-                className="settings-go-team-btn"
-                onClick={() => setWizardOpen(true)}
-              >
-                GO TEAM
-              </button>
-            </div>
+            {/* Once a project is in team mode there is nothing to convert, so
+                offering GO TEAM invites the user to redo work already done. The
+                button rendered unconditionally before, which is why it stayed
+                visible after a successful conversion. */}
+            {identity.runtime === 'team' ? (
+              <>
+                <div className="settings-row-meta">
+                  <span className="settings-row-label">This project is in Team mode</span>
+                  <span className="settings-row-desc">
+                    Memory for this project is served from the shared workspace.
+                    Your local data remains intact as a backup.
+                  </span>
+                </div>
+                <div className="settings-row-control">
+                  <span className="settings-badge settings-badge--team">TEAM</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="settings-row-meta">
+                  <span className="settings-row-label">Switch to Team</span>
+                  <span className="settings-row-desc">
+                    Move your memory to a shared remote workspace so teammates can
+                    collaborate. Your local data stays intact as a backup.
+                  </span>
+                </div>
+                <div className="settings-row-control">
+                  <button
+                    type="button"
+                    className="settings-go-team-btn"
+                    onClick={() => setWizardOpen(true)}
+                  >
+                    GO TEAM
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>

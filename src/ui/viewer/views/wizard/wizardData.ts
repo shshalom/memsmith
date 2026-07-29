@@ -53,6 +53,28 @@ export async function applyFix(
   }
 }
 
+// Fetch the team's base key for the Invite step.
+//
+// The wizard used to receive this as a prop that was only non-null when the user
+// had already flipped the "reveal" toggle in Identity settings — a hidden
+// prerequisite that made the Invite card show "(base key not available)" on every
+// normal run. Handing the user their key IS the card's job, so it fetches it.
+//
+// ?reveal=true is honoured for loopback requests only (the same trust boundary as
+// the local dashboard), so this cannot expose a key off-machine.
+export async function fetchBaseKey(fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  try {
+    const res = await fetchImpl('/v1/identity?reveal=true', { credentials: 'include' });
+    if (!res.ok) return null;
+    const body = await res.json() as { keyPlaintext?: unknown };
+    return typeof body?.keyPlaintext === 'string' && body.keyPlaintext.trim()
+      ? body.keyPlaintext
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // Ask the server whether a real owner identity already exists for this install.
 // The wizard uses this to decide whether the Sign-In card is needed at all —
 // the owner of a single-user local install has nobody else to be.

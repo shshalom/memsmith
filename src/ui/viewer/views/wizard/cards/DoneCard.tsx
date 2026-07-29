@@ -27,14 +27,13 @@ export default function DoneCard({ restartRequired, onClose }: DoneCardProps) {
       )}
 
       {!restartRequired && (
-        // No restart: selectRuntime() re-reads the project marker on every call
-        // and the marker's serverUrl wins over cached settings, both verified
-        // against a running server. The project switches over on its next
-        // session, when its own hook applies the join the server returned.
+        // No restart and no waiting: the convert applies the switch immediately,
+        // and selectRuntime() re-reads the project marker on every call (verified
+        // live). A project whose path was not yet on record falls back to
+        // finishing on its next session via the pending-join note.
         <div className="wizard-restart-notice" role="status">
-          <strong>Almost there.</strong> Your memory is now on the shared database.
-          This project finishes switching over on its next session — no restart
-          needed.
+          <strong>This project is now in Team mode.</strong> Memory is served from
+          the shared database — no restart needed.
         </div>
       )}
 
