@@ -96,11 +96,23 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
   writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
 }
 
+/**
+ * projects.metadata key holding the project's directory on this machine.
+ *
+ * Not a secret — it points at the explicitly non-secret marker — but also NOT
+ * authoritative: a project can be moved or deleted. Anything acting on this path
+ * must verify the marker there still belongs to the project first (see
+ * applyConvertJoin), because a stale path points at another project's marker or
+ * none at all.
+ */
+export const PROJECT_PATH_KEY = 'memsmith_project_path';
+
 export async function upsertTeamAndProject(
   pool: QueryablePool,
   teamId: string,
   projectId: string,
   name?: string,
+  cwd?: string,
 ): Promise<void> {
   await pool.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [teamId]);
   // Name the project after its folder. The column was previously filled with
@@ -109,11 +121,25 @@ export async function upsertTeamAndProject(
   // this change heals on its next session — but only when the stored name is
   // still the placeholder, so a name a user chose is never clobbered.
   const projectName = name?.trim() || projectId;
+  // Record WHERE the project lives. Nothing else on this machine did: the
+  // server's metadata was {} for every project, the browser never receives a
+  // path, and server_sessions has no cwd column. That gap is why the Go Team
+  // convert could not complete its own flip — the only party that knew the
+  // directory was this hook, which runs in it. With the path on record, a convert
+  // can resolve the right marker instead of the server guessing, and guessing is
+  // what copied one project's memory into another project's remote.
+  //
+  // Unlike `name`, the path is updated unconditionally: it must always reflect
+  // reality, because a stale path is actively dangerous rather than merely ugly.
+  const path = cwd?.trim();
+  const metadataPatch = path ? JSON.stringify({ [PROJECT_PATH_KEY]: path }) : null;
   await pool.query(
-    `INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $3)
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-     WHERE projects.name = projects.id`,
-    [projectId, teamId, projectName],
+    `INSERT INTO projects (id, team_id, name, metadata)
+     VALUES ($1, $2, $3, COALESCE($4::jsonb, '{}'::jsonb))
+     ON CONFLICT (id) DO UPDATE SET
+       name = CASE WHEN projects.name = projects.id THEN EXCLUDED.name ELSE projects.name END,
+       metadata = COALESCE(projects.metadata, '{}'::jsonb) || COALESCE($4::jsonb, '{}'::jsonb)`,
+    [projectId, teamId, projectName, metadataPatch],
   );
   // Establish the machine's user as this team's owner. Without a team_members
   // row (and a user_id on the key) authContext.role resolves to null for every
@@ -157,7 +183,7 @@ export async function ensureProjectIdentity(
     logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
   }
   // basename of a path ending in a separator is '' — fall back to the id.
-  await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined);
+  await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined, cwd);
   if (store) {
     // Guarantee a resolvable key for this identity. ensureBaseKey is idempotent:
     // it returns the cached key (repairing DB drift if needed) or mints one.

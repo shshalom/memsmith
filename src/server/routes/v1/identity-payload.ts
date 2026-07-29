@@ -25,12 +25,20 @@ export interface IdentityPayload {
    * state keeps the sign-in step instead of silently skipping it.
    */
   ownerEstablished: boolean;
+  /**
+   * This project's runtime.
+   *
+   * Lets the Settings pane hide the GO TEAM button on a project that is already
+   * in team mode — it previously rendered unconditionally, inviting the user to
+   * convert something already converted.
+   */
+  runtime: 'local' | 'team';
 }
 
 export function buildIdentityPayload(
   ids: { teamId: string; projectId: string },
   store: CredentialStore,
-  opts: { reveal: boolean; role?: string | null },
+  opts: { reveal: boolean; role?: string | null; runtime?: 'local' | 'team' },
 ): IdentityPayload {
   const key = store.resolveKeyForTeam(ids.teamId);
   const role = opts.role ?? null;
@@ -41,6 +49,8 @@ export function buildIdentityPayload(
     keyMasked: key ? maskKey(key) : '',
     role,
     ownerEstablished: role === 'owner',
+    // Default 'local': absent runtime means not-team, matching the marker rule.
+    runtime: opts.runtime ?? 'local',
   };
   if (opts.reveal && key) payload.keyPlaintext = key;
   return payload;

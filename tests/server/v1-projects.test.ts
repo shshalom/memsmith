@@ -106,16 +106,38 @@ describe('GET /v1/projects', () => {
     }
   });
 
-  it('runtime reflects the current project\'s own marker; other projects fall back to local', async () => {
+  it('runtime resolves per project from ITS OWN marker, not the server\'s', async () => {
+    // This test previously asserted "other projects fall back to local" — which
+    // WAS the bug: runtime came from the SERVER's marker, so only the project the
+    // server launched from could ever report "team". A converted project showed
+    // "Local" forever and the GO TEAM button never went away.
+    //
+    // Now each project's runtime comes from its own marker, found via the path
+    // recorded in projects.metadata. Two projects, opposite runtimes, one server.
     const dir = mkdtempSync(join(tmpdir(), 'memsmith-projects-route-'));
     const store = new CredentialStore(join(dir, 'creds.json'));
     store.storeKeyForTeam(TEAM_A, 'msk_teama1234567890');
     store.storeKeyForTeam(TEAM_B, 'msk_teamb1234567890');
 
-    const serverCwd = mkdtempSync(join(tmpdir(), 'memsmith-projects-servercwd-'));
-    mkdirSync(join(serverCwd, '.memsmith'), { recursive: true });
-    writeFileSync(join(serverCwd, '.memsmith', 'project.json'),
+    // Project A lives here and is on the TEAM runtime.
+    const dirA = mkdtempSync(join(tmpdir(), 'memsmith-proj-a-'));
+    mkdirSync(join(dirA, '.memsmith'), { recursive: true });
+    writeFileSync(join(dirA, '.memsmith', 'project.json'),
       JSON.stringify({ teamId: TEAM_A, projectId: PROJECT_A, runtime: 'server' }), 'utf-8');
+
+    // Project B lives here and is still LOCAL.
+    const dirB = mkdtempSync(join(tmpdir(), 'memsmith-proj-b-'));
+    mkdirSync(join(dirB, '.memsmith'), { recursive: true });
+    writeFileSync(join(dirB, '.memsmith', 'project.json'),
+      JSON.stringify({ teamId: TEAM_B, projectId: PROJECT_B }), 'utf-8');
+
+    // Record each project's path, the way a session hook does.
+    await upsertTeamAndProject(pool, TEAM_A, PROJECT_A, 'proj-a', dirA);
+    await upsertTeamAndProject(pool, TEAM_B, PROJECT_B, 'proj-b', dirB);
+
+    // The server's OWN cwd is deliberately somewhere unrelated: it must have no
+    // bearing on what either project reports.
+    const serverCwd = mkdtempSync(join(tmpdir(), 'memsmith-projects-servercwd-'));
 
     const { app, restoreCwd } = appWith({ credentialStore: store, serverCwd });
     const { call, close } = await startApp(app);
@@ -123,13 +145,39 @@ describe('GET /v1/projects', () => {
       const res = await call('/v1/projects');
       expect(res.status).toBe(200);
       const byId = new Map((res.body as { projectId: string; runtime: string }[]).map(p => [p.projectId, p.runtime]));
-      expect(byId.get(PROJECT_A)).toBe('team'); // this server's own marker says runtime: 'server' -> "team"
-      expect(byId.get(PROJECT_B)).toBe('local'); // unreachable marker -> falls back to local
+      expect(byId.get(PROJECT_A)).toBe('team');   // its own marker says server
+      expect(byId.get(PROJECT_B)).toBe('local');  // its own marker says local
+    } finally {
+      await close();
+      restoreCwd();
+      for (const d of [dir, dirA, dirB, serverCwd]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('reports local for a project whose recorded path holds a DIFFERENT project', async () => {
+    // A project can be moved and another take its directory. Trusting a stale
+    // path would attribute one project's runtime to another.
+    const dir = mkdtempSync(join(tmpdir(), 'memsmith-projects-route-'));
+    const store = new CredentialStore(join(dir, 'creds.json'));
+    store.storeKeyForTeam(TEAM_A, 'msk_teama1234567890');
+
+    const wrongDir = mkdtempSync(join(tmpdir(), 'memsmith-wrong-'));
+    mkdirSync(join(wrongDir, '.memsmith'), { recursive: true });
+    writeFileSync(join(wrongDir, '.memsmith', 'project.json'),
+      JSON.stringify({ teamId: TEAM_B, projectId: PROJECT_B, runtime: 'server' }), 'utf-8');
+    await upsertTeamAndProject(pool, TEAM_A, PROJECT_A, 'proj-a', wrongDir);
+
+    const { app, restoreCwd } = appWith({ credentialStore: store });
+    const { call, close } = await startApp(app);
+    try {
+      const res = await call('/v1/projects');
+      const byId = new Map((res.body as { projectId: string; runtime: string }[]).map(p => [p.projectId, p.runtime]));
+      expect(byId.get(PROJECT_A)).toBe('local');
     } finally {
       await close();
       restoreCwd();
       rmSync(dir, { recursive: true, force: true });
-      rmSync(serverCwd, { recursive: true, force: true });
+      rmSync(wrongDir, { recursive: true, force: true });
     }
   });
 

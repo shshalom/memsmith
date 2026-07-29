@@ -55,7 +55,7 @@ import { registerConvertRoutes } from './ConvertRoutes.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { applyPgvectorFix } from '../../convert/apply-fix.js';
 import { runConvert } from '../../convert/convert-service.js';
-import { ensureBaseKey, upsertTeamAndProject } from '../../../services/identity/project-identity.js';
+import { ensureBaseKey, upsertTeamAndProject, writeProjectRuntime, PROJECT_PATH_KEY } from '../../../services/identity/project-identity.js';
 import { bootstrapServerPostgresSchema } from '../../../storage/postgres/schema.js';
 import { parsePostgresConfig } from '../../../storage/postgres/config.js';
 import { createPostgresPool } from '../../../storage/postgres/pool.js';
@@ -66,7 +66,10 @@ import {
 } from '../../convert/generated-columns.js';
 import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './convert-scope.js';
 import { deriveServerUrl } from '../../convert/convert-context.js';
-import { recordPendingJoin } from '../../convert/pending-join.js';
+import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
+import { applyConvertJoin } from '../../convert/apply-join.js';
+import { resolveProjectRuntime } from './project-runtime.js';
+import { readProjectMarker as readProjectMarkerForRuntime } from '../../../services/identity/project-identity.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
 import { resolveRequestDatabase } from '../../middleware/resolve-request-database.js';
 import { projectDatabaseName } from '../../runtime/resolve-project-database.js';
@@ -1447,6 +1450,27 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         res.status(403).json({ error: 'Forbidden', message: 'insufficient scope' });
         return false;
       },
+      // Report THIS project's runtime, resolved from its own marker via the path
+      // recorded in projects.metadata. Settings uses it to hide GO TEAM on a
+      // project already in team mode. Fail-safe to 'local' — never guessed from
+      // the server's cwd, which would report the server's runtime for every
+      // project.
+      resolveRuntime: async (projectId: string) => {
+        try {
+          const result = await this.options.pool.query(
+            'SELECT metadata FROM projects WHERE id = $1',
+            [projectId],
+          );
+          const row = result.rows[0] as { metadata?: Record<string, unknown> | null } | undefined;
+          if (!row) return 'local';
+          return resolveProjectRuntime(
+            { projectId, metadata: row.metadata ?? null },
+            readProjectMarkerForRuntime,
+          );
+        } catch {
+          return 'local';
+        }
+      },
     });
 
     // Item 3 (2026-07-27 local-fresh-install-readiness) — GET /v1/projects:
@@ -1688,6 +1712,45 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               teamId: input.teamId,
               serverUrl,
             });
+
+            // Complete the flip NOW rather than waiting for the project's next
+            // session. The marker is re-read on every call (verified live:
+            // flipping server->local->server inside one process was followed
+            // every time), so there is no reason to make the user start a session
+            // to see a switch that takes effect immediately.
+            //
+            // The path comes from the AUTHENTICATED project's own record — never
+            // the server's cwd, which is what copied one project's memory into
+            // another's remote. applyConvertJoin independently refuses if the
+            // marker at that path belongs to a different project, so a stale or
+            // reused directory cannot flip the wrong one.
+            //
+            // Best-effort: the pending note above stays until this succeeds, so a
+            // failure here just means the project's next session finishes the job.
+            try {
+              const pathRow = await this.options.pool.query(
+                'SELECT metadata FROM projects WHERE id = $1',
+                [input.projectId],
+              );
+              const meta = (pathRow.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+              const projectPath = meta?.[PROJECT_PATH_KEY];
+              if (typeof projectPath === 'string' && projectPath.trim()) {
+                const applied = applyConvertJoin(
+                  {
+                    readProjectMarker: readProjectMarkerForRuntime,
+                    writeProjectRuntime,
+                    storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  },
+                  projectPath,
+                  { teamId: input.teamId, projectId: input.projectId, serverUrl, apiKey },
+                );
+                if (applied.applied) {
+                  await clearPendingJoin(this.options.pool, input.projectId);
+                }
+              }
+            } catch {
+              // Leave the note for the next session to claim.
+            }
           }
           return result;
         } finally {

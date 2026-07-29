@@ -4,6 +4,7 @@ import type { SettingsResolver } from '../../settings/SettingsResolver.js';
 import type { SettingsStore } from '../../settings/SettingsStore.js';
 import { SETTING_KEYS, getSettingKey, validateSettingValue } from '../../settings/settingKeys.js';
 import { buildIdentityPayload } from './identity-payload.js';
+import { resolveProjectRuntime } from './project-runtime.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
 import { readFileSync, existsSync } from 'fs';
 import { basename, join } from 'path';
@@ -82,10 +83,15 @@ function readProjectMarker(cwd: string): { teamId: string; projectId: string } |
 export interface IdentityRouteDeps {
   credentialStore?: CredentialStore;
   requireScopes: (req: Request, res: Response, needed: string) => boolean;
+  /**
+   * Resolve a project's runtime from its OWN marker. Optional so existing
+   * callers (and unit tests) keep working; absent means 'local'.
+   */
+  resolveRuntime?: (projectId: string) => Promise<'local' | 'team'> | 'local' | 'team';
 }
 
 export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps): void {
-  app.get('/v1/identity', (req: Request, res: Response) => {
+  app.get('/v1/identity', async (req: Request, res: Response) => {
     if (!deps.requireScopes(req, res, 'memories:read')) return;
     // Report the REQUEST's project, not the server's cwd. One server serves
     // every local project, so falling back to the server's own marker always
@@ -116,7 +122,14 @@ export function registerIdentityRoutes(app: Application, deps: IdentityRouteDeps
     // has nobody else to be. Only a role that reports exactly 'owner' counts —
     // a null role (what a session yields today) keeps the sign-in step.
     const ctxRole = (req as any).authContext?.role ?? null;
-    const payload = buildIdentityPayload(ids, store, { reveal, role: ctxRole });
+    // Report THIS project's runtime so Settings can hide the GO TEAM button on a
+    // project already in team mode. Resolved from the project's own marker via
+    // its recorded path — never from the server's cwd, which would report the
+    // server's own project's runtime for every project.
+    const runtime = deps.resolveRuntime
+      ? await deps.resolveRuntime(ids.projectId)
+      : 'local';
+    const payload = buildIdentityPayload(ids, store, { reveal, role: ctxRole, runtime });
     res.status(200).json(payload);
   });
 }
@@ -147,19 +160,18 @@ export interface ProjectsRouteDeps {
  * Lists only projects this machine holds a key for (DB `projects` joined
  * against CredentialStore) — never every project in the database.
  *
- * `name` — honest gap (see design doc): `projects.name` is set to the
- * projectId by upsertTeamAndProject (`VALUES ($1, $2, $1)`), so there is no
- * real human-readable name in the DB today. This endpoint derives one from
- * the directory basename ONLY for the project this server booted from (the
- * only marker this process can read — every other project's marker lives in
- * a directory this process has no path to); every other project falls back
- * to its short projectId. This does not pretend a name exists where one
- * doesn't.
+ * `name` — `projects.name` is the folder basename, stamped at mint time.
+ * Rows minted before that change hold the projectId as a NOT NULL placeholder
+ * and heal on their next session; those are shortened rather than shown as a
+ * full uuid.
  *
- * `runtime` — same constraint: read from `ProjectMarker.runtime` for the
- * current project only ('server' marker value → "team" in the response);
- * every other project falls back to "local", matching the spec's own
- * "absent → local" rule for a marker with no runtime field.
+ * `runtime` — resolved per project from ITS OWN marker, located via the path
+ * recorded in `projects.metadata` (see resolveProjectRuntime). This previously
+ * derived from the SERVER's marker, which meant only the project the server was
+ * launched from could ever report "team" — so a converted project displayed
+ * "Local" forever and the GO TEAM button never went away. Projects with no
+ * recorded path report "local" until their next session records one; the path is
+ * never guessed from the server's cwd.
  */
 export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps): void {
   app.get('/v1/projects', async (req: Request, res: Response) => {
@@ -176,7 +188,7 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
     }
 
     const rows = await deps.pool.query(
-      'SELECT id, team_id, name FROM projects WHERE team_id = ANY($1::text[]) ORDER BY name',
+      'SELECT id, team_id, name, metadata FROM projects WHERE team_id = ANY($1::text[]) ORDER BY name',
       [teamIds],
     );
 
@@ -184,9 +196,18 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
     const currentMarker = readServerProjectMarker(cwd);
     const currentProjectId = (req as any).authContext?.projectId ?? null;
 
-    const projects: ProjectListEntry[] = (rows.rows as { id: string; team_id: string; name: string }[]).map((row) => {
+    const projects: ProjectListEntry[] = (rows.rows as {
+      id: string; team_id: string; name: string; metadata: Record<string, unknown> | null;
+    }[]).map((row) => {
       const isServerProject = currentMarker !== null && currentMarker.projectId === row.id;
-      const runtime: 'local' | 'team' = isServerProject && currentMarker!.runtime === 'server' ? 'team' : 'local';
+      // Each project's runtime comes from ITS OWN marker, located via the path
+      // recorded in projects.metadata. This previously derived from the SERVER's
+      // marker, so only the project the server launched from could ever report
+      // "team" — a converted project kept showing "Local" forever.
+      const runtime = resolveProjectRuntime(
+        { projectId: row.id, metadata: row.metadata },
+        readServerProjectMarker,
+      );
       // Projects are named after their folder at mint time. Older rows were
       // stamped with the projectId as a NOT NULL placeholder and heal on their
       // next session, so treat name === id as "unnamed" and shorten it rather

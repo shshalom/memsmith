@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   WizardStep, nextStep, prevStep, canAdvance, buildWizardOrder, resolveOrphanedStep,
 } from './wizardState.js';
-import { fetchOwnerEstablished } from './wizardData.js';
+import { fetchOwnerEstablished, fetchBaseKey } from './wizardData.js';
 import WelcomeCard    from './cards/WelcomeCard.js';
 import DestinationCard from './cards/DestinationCard.js';
 import ConvertCard    from './cards/ConvertCard.js';
@@ -47,6 +47,10 @@ interface GoTeamWizardProps {
 export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWizardProps) {
   const [step, setStep]               = useState<WizardStep>('welcome');
   const [databaseUrl, setDatabaseUrl] = useState('');
+  // Fetched rather than taken from the prop: the prop was only populated when the
+  // user had already flipped "reveal" in Identity settings, so the Invite card
+  // showed "(base key not available)" on every normal run.
+  const [fetchedKey, setFetchedKey]   = useState<string | null>(null);
   const [wizardState, setWizardState] = useState<WizardState>({
     probeAllGreen: false, signedIn: false, ownerEstablished: null,
   });
@@ -63,6 +67,12 @@ export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWi
       if (!cancelled) {
         setWizardState(s => ({ ...s, ownerEstablished: established }));
       }
+    });
+    // Fetch the base key up front so the Invite step has something to show
+    // without the user having had to reveal it beforehand. Falls back to the
+    // prop (still passed by the Identity pane) if the fetch yields nothing.
+    void fetchBaseKey().then(key => {
+      if (!cancelled && key) setFetchedKey(key);
     });
     return () => { cancelled = true; };
   }, [open]);
@@ -150,7 +160,7 @@ export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWi
       case 'invite':
         return (
           <InviteCard
-            baseKey={baseKey}
+            baseKey={fetchedKey ?? baseKey}
             onNext={handleNext}
             onBack={handleBack}
           />

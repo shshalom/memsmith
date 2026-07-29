@@ -7,6 +7,8 @@ export interface IdentityPayload {
   keyPresent: boolean;
   keyMasked: string;
   keyPlaintext?: string;
+  /** Optional so an older server response still parses; absent means 'local'. */
+  runtime?: 'local' | 'team';
 }
 
 export async function fetchIdentity(reveal?: boolean): Promise<IdentityPayload | null> {
