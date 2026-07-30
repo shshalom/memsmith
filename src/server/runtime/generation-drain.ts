@@ -145,6 +145,51 @@ export async function reclaimStaleLocks(
   }
 }
 
+/**
+ * Return jobs that failed for a TRANSIENT reason back to `queued`.
+ *
+ * A job whose provider was briefly unreachable exhausts its 3 attempts and lands
+ * in `failed` — correctly, at the time. But the cause was temporary, the work is
+ * still wanted, and nothing ever retries it: the drain only looks at `queued` and
+ * the reclaim only at `processing`. So a transient blip strands work in a third,
+ * quietest way. Restarting ollama mid-drain produced exactly this:
+ *   {"reason": "ollama network error: fetch failed", "classification": "transient"}
+ *
+ * Only `transient` rows are touched. A genuinely failed job (bad input, a
+ * permanent provider rejection) must stay failed — retrying it forever would
+ * burn the queue on work that can never succeed.
+ *
+ * Attempts are reset so the retried job gets a fresh budget rather than
+ * immediately re-failing on an exhausted counter.
+ *
+ * Never throws.
+ */
+export async function reclaimTransientFailures(
+  pool: DrainQueryable,
+  opts: { limit?: number } = {},
+): Promise<number> {
+  const limit = opts.limit ?? DEFAULT_DRAIN_BATCH;
+  try {
+    const result = await pool.query(
+      `UPDATE observation_generation_jobs
+          SET status = 'queued', attempts = 0, locked_at = NULL, locked_by = NULL,
+              failed_at = NULL
+        WHERE id IN (
+          SELECT id FROM observation_generation_jobs
+           WHERE status = 'failed'
+             AND last_error->>'classification' = 'transient'
+           ORDER BY created_at ASC
+           LIMIT $1
+        )
+        RETURNING id`,
+      [limit],
+    );
+    return result.rows.length;
+  } catch {
+    return 0;
+  }
+}
+
 /** Minimal shape of the queue a drained job is published back into. */
 export interface RequeueTarget {
   add: (jobId: string, payload: unknown) => Promise<void>;

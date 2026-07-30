@@ -7,6 +7,7 @@ import {
   classifyHttpProviderError,
 } from './shared/error-classification.js';
 import { buildServerGenerationPrompt } from './shared/prompt-builder.js';
+import { ensureOllamaRunning, resolveAutostartEnabled } from './ollama-ensure-running.js';
 import type {
   ServerGenerationContext,
   ServerGenerationProvider,
@@ -49,6 +50,42 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /**
+   * Best-effort: confirm ollama is listening, starting it if it is not.
+   *
+   * Deliberately swallows everything. If this cannot help, the request below
+   * fails as it always did — classified transient and retried. This must never
+   * turn a recoverable outage into a lost job.
+   */
+  private async ensureRunning(): Promise<void> {
+    try {
+      // The OpenAI-compatible apiUrl ends in /v1/chat/completions; the liveness
+      // endpoint is /api/tags on the same origin.
+      const origin = new URL(this.apiUrl).origin;
+      await ensureOllamaRunning({
+        probe: async () => {
+          const r = await this.fetchImpl(`${origin}/api/tags`, {
+            signal: AbortSignal.timeout(2_000),
+          });
+          return r.ok;
+        },
+        spawn: async () => {
+          const { spawn } = await import('child_process');
+          // Detached + ignored stdio so the server outlives this process and
+          // cannot block on an unread pipe.
+          const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' });
+          child.unref();
+          // Give it a moment to bind before the confirming probe.
+          await new Promise(resolve => setTimeout(resolve, 3_000));
+        },
+        now: () => Date.now(),
+        autostart: resolveAutostartEnabled(process.env),
+      });
+    } catch {
+      // Fall through to the normal request path.
+    }
+  }
+
   async generate(
     context: ServerGenerationContext,
     signal?: AbortSignal,
@@ -65,6 +102,19 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
         modelId: this.model,
       };
     }
+
+    // Check ollama is alive AT THE POINT OF USE, and start it if not.
+    //
+    // Ollama died on a reboot and nothing restarted it: generation stopped for
+    // ~15 hours while thousands of jobs piled up. Polling would notice
+    // eventually; checking here notices immediately, because this is the exact
+    // moment the provider is needed — and it can recover rather than just report.
+    //
+    // Single-flighted and backed off inside ensureOllamaRunning, so four
+    // concurrent jobs spawn one server and a broken install does not become a
+    // spawn loop. A false result falls through to the normal request path, whose
+    // failure is classified transient and retried — never silently dropped.
+    await this.ensureRunning();
 
     let response: Response;
     try {

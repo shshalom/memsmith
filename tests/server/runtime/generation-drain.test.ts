@@ -250,6 +250,55 @@ describe('reclaimStaleLocks', () => {
   });
 });
 
+import { reclaimTransientFailures } from '../../../src/server/runtime/generation-drain.js';
+
+// A job whose provider was briefly unreachable exhausts its 3 attempts and lands
+// in 'failed' — correctly at the time, but the cause was temporary and nothing
+// ever retries it. Restarting ollama mid-drain produced exactly one:
+//   {"reason": "ollama network error: fetch failed", "classification": "transient"}
+describe('reclaimTransientFailures', () => {
+  it('requeues transient failures so a provider blip does not lose the work', async () => {
+    const pool = fakePool([{ id: 'j1' }]);
+    expect(await reclaimTransientFailures(pool as never)).toBe(1);
+    const sql = pool.calls[0]!.text;
+    expect(sql).toMatch(/status\s*=\s*'queued'/i);
+    expect(sql).toMatch(/WHERE\s+status\s*=\s*'failed'/i);
+  });
+
+  it('ONLY touches transient failures — a permanent failure stays failed', async () => {
+    // Retrying a job that can never succeed would burn the queue forever.
+    const pool = fakePool([]);
+    await reclaimTransientFailures(pool as never);
+    expect(pool.calls[0]!.text).toMatch(/classification'\s*=\s*'transient'/i);
+  });
+
+  it('resets attempts so the retry has a fresh budget', async () => {
+    // Requeuing with attempts already at 3/3 would re-fail immediately.
+    const pool = fakePool([]);
+    await reclaimTransientFailures(pool as never);
+    expect(pool.calls[0]!.text).toMatch(/attempts\s*=\s*0/i);
+  });
+
+  it('clears the lock and failure timestamp for a clean re-run', async () => {
+    const pool = fakePool([]);
+    await reclaimTransientFailures(pool as never);
+    const sql = pool.calls[0]!.text;
+    expect(sql).toMatch(/locked_at\s*=\s*NULL/i);
+    expect(sql).toMatch(/failed_at\s*=\s*NULL/i);
+  });
+
+  it('is bounded', async () => {
+    const pool = fakePool([]);
+    await reclaimTransientFailures(pool as never, { limit: 25 });
+    expect(pool.calls[0]!.values).toContain(25);
+  });
+
+  it('never throws', async () => {
+    const boom = { query: async () => { throw new Error('pg down'); } };
+    expect(await reclaimTransientFailures(boom as never)).toBe(0);
+  });
+});
+
 describe('resolveQueueConcurrency', () => {
   it('defaults to 1 — unchanged behaviour when unconfigured', () => {
     // A local model is memory-hungry (qwen2.5:14b is ~9GB resident), so the safe

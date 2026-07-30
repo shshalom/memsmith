@@ -395,6 +395,11 @@ function buildGenerationWorkerManager(
   });
 }
 
+/** settings.json values are `unknown`; treat blank as absent so a `""` never wins. */
+function asNonEmptyString(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+}
+
 function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
   // Resolve env > settings.json > registry default ('ollama'). Reading only
   // process.env meant the declared default never applied on a real install —
@@ -412,8 +417,26 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
     });
     return null;
   }
+  // Resolve the MODEL from settings too, not just the provider.
+  //
+  // instantiateServerGenerationProvider reads only process.env.MEMSMITH_SERVER_MODEL
+  // and otherwise falls back to a hardcoded per-provider default — for ollama
+  // that is llama3.1:8b, which produces materially worse observations (vague
+  // restatements, invented rationale) than the configured qwen2.5:14b. Ollama's
+  // model lives under its own key (MEMSMITH_OLLAMA_MODEL), which nothing here
+  // ever read, so the right model only arrived when some other path happened to
+  // export it into process.env first.
+  //
+  // Same settings-vs-env shape as the provider bug above: configured in one
+  // place, read from another, hardcoded default silently winning.
+  const modelFromSettings = provider === 'ollama'
+    ? (process.env.MEMSMITH_OLLAMA_MODEL
+        ?? asNonEmptyString(fileSettings.MEMSMITH_OLLAMA_MODEL)
+        ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL))
+    : (process.env.MEMSMITH_SERVER_MODEL ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL));
+
   try {
-    return instantiateServerGenerationProvider(provider);
+    return instantiateServerGenerationProvider(provider, modelFromSettings);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     // Surface the construction failure so operators can see why generation is
