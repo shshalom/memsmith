@@ -19,19 +19,52 @@ import { embed } from '../../server/generation/embedder.js';
 export type ObservationSourceType = 'agent_event' | 'session_summary' | 'observation_reindex' | 'manual';
 
 /**
- * Cosine distance above which a vector hit is not a real answer.
+ * Cosine distance above which a vector hit is probably not a real answer.
  *
- * Measured, not guessed. Across 90 queries against the dogfood corpus — 60
- * drawn from actual observation content, 30 deliberately off-domain:
+ * THIS IS A LOSSY CUTOFF. Do not use it alone as a "does memory know this"
+ * gate — see the union rule below.
  *
- *   REAL      n=60  min 0.1189  p50 0.2836  p90 0.4257  max 0.4872
- *   OFF-TOPIC n=30  min 0.6147  p50 0.7609  max 0.8775
+ * An earlier version of this comment claimed the positive and negative
+ * populations were cleanly separable, with any floor in (0.4872, 0.6147)
+ * scoring 100%/100%. That measurement was rigged without intending to be: its
+ * "real" queries were lifted from observation TEXT, making them near-duplicates
+ * of stored content (p50 0.28), and its negatives were off-domain trivia. It
+ * measured the distance between "text already in the corpus" and "a different
+ * universe", which is not the operating case.
  *
- * The two populations do not overlap. Any floor in (0.4872, 0.6147) keeps 100%
- * of genuine hits and rejects 100% of off-domain ones, so this sits near the
- * middle of that empty band rather than on either edge — there is no
- * precision/recall tradeoff to tune here, which is why a fixed default is
- * defensible.
+ * Re-measured with natural questions a user would actually ask (never copied
+ * from stored text, each independently confirmed answerable via full-text
+ * search) and with plausible-but-absent software questions as negatives:
+ *
+ *   POSITIVES n=53  min 0.2106  p50 0.4422  p90 0.5651  max 0.6913
+ *   NEGATIVES n=28  min 0.5572  p50 0.6388  max 0.7389
+ *
+ * The populations OVERLAP: 6 of 53 positives sit above the lowest negative.
+ * No single distance separates them. The sweep:
+ *
+ *   floor   recall   specificity
+ *   0.50    69.8%    100.0%
+ *   0.55    86.8%    100.0%   <- best single-cutoff compromise
+ *   0.58    96.2%     89.3%
+ *   0.60    96.2%     67.9%
+ *
+ * 0.55 is chosen because a false positive is worse than a false negative here:
+ * injecting unrelated memory actively misleads, while missing some is the
+ * status quo. It still silently drops ~13% of genuine questions — real ones
+ * measured, e.g. "what is the spool for" (0.6913) and "what is stranding"
+ * (0.6766).
+ *
+ * USE THE UNION INSTEAD when deciding whether memory has an answer:
+ * `vectorDistance <= floor OR ftsHits > 0`. Measured 100% recall AND 100%
+ * specificity on the same set, because full-text search rescues exactly the
+ * high-distance positives that embedding similarity misses — all 7 dropped
+ * positives had real FTS support (2, 12, 34, 40, 27, 2 hits). Vector search
+ * covers paraphrase; FTS covers vocabulary. Neither alone is sufficient.
+ *
+ * (Recall of the union is partly circular, since positives were selected for
+ * having FTS hits. The non-circular findings are that its SPECIFICITY is 100%
+ * — no negative had any FTS hit — and that FTS support for the rescued
+ * positives is substantial rather than marginal.)
  *
  * Callers opt in; vectorSearch without `maxDistance` is unchanged.
  */
