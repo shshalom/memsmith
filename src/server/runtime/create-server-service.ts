@@ -17,6 +17,7 @@ import {
 } from './generation-drain.js';
 import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
 import { runContinuousDrain } from './continuous-drain.js';
+import { backfillEmbeddings, loadUnembeddedRows } from './embedding-backfill.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
@@ -287,6 +288,37 @@ export async function createServerService(
       const transientReclaimed = await reclaimTransientFailures(pool);
       if (transientReclaimed > 0) {
         logger.info('SYSTEM', 'requeued transient generation failures', { transientReclaimed });
+      }
+      // Re-embed observations written while the embedder was unavailable.
+      //
+      // embedForPersist degrades to NULL rather than failing the write — right,
+      // because losing the observation is worse than losing its vector. But a
+      // NULL-embedding row is SEMANTICALLY DARK: it exists, keyword search finds
+      // it, every semantic query misses it. Indistinguishable, to the user, from
+      // the memory not being there.
+      //
+      // scripts/backfill-embeddings.ts already repaired this by hand, but a human
+      // had to know to run it — the same shape as the job drain. Two dark rows sat
+      // unnoticed for two weeks. Now it happens on boot.
+      try {
+        const dark = await loadUnembeddedRows(pool);
+        if (dark.length > 0) {
+          const { embedForPersist } = await import('../generation/embed-for-persist.js');
+          const result = await backfillEmbeddings(dark, {
+            embed: (content: string) => embedForPersist(content),
+            write: async (id: string, vec: number[]) => {
+              await pool.query(
+                'UPDATE observations SET embedding_vec = $1::vector WHERE id = $2',
+                [JSON.stringify(vec), id],
+              );
+            },
+          });
+          logger.info('SYSTEM', 'embedding backfill', {
+            found: dark.length, repaired: result.repaired, failed: result.failed,
+          });
+        }
+      } catch {
+        // Never blocks boot; the next start retries.
       }
       const resolveQueue = (kind: 'event' | 'summary') => {
         const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };

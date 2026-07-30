@@ -30,6 +30,7 @@ import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 import { assessGenerationHealth } from './generation-health.js';
+import { countEmbeddingCoverage } from './embedding-backfill.js';
 
 // Phase 1d retains the persisted runtime literal `'server-beta'`. Renaming the
 // constant here keeps the TS identifier modern while preserving wire/storage
@@ -78,6 +79,11 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
       // the different and more useful question: is memory actually being
       // distilled right now?
       const generation = await collectGenerationHealth(this.graph);
+      // Embedding coverage: a NULL-embedding observation exists but is invisible
+      // to semantic search, which to a user is indistinguishable from the memory
+      // not being there. Two such rows went unnoticed for two weeks because
+      // nothing reported them.
+      const embeddings = await countEmbeddingCoverage(this.graph.postgres.pool);
       res.json({
         name: 'memsmith-server',
         runtime: SERVER_RUNTIME,
@@ -92,6 +98,7 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
         },
         queueLanes,
         generation,
+        embeddings,
       });
     });
   }
