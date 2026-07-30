@@ -12,9 +12,10 @@ import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
 import {
-  DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, requeueDrainedJobs,
-  resolveQueueConcurrency,
+  DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
+  requeueDrainedJobs, resolveQueueConcurrency,
 } from './generation-drain.js';
+import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
 import { runContinuousDrain } from './continuous-drain.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
@@ -270,6 +271,22 @@ export async function createServerService(
       const reclaimed = await reclaimStaleLocks(pool);
       if (reclaimed > 0) {
         logger.info('SYSTEM', 'reclaimed stale generation locks', { reclaimed });
+      }
+      // Sessions have the same shape: generation_status transitions INTO
+      // 'processing' with no path back, so one whose process died mid-generation
+      // stays there forever. Zero are stuck today — which is exactly how the job
+      // stranding started before it reached 6,958 rows in silence.
+      const sessionsReclaimed = await reclaimStaleSessionGeneration(pool);
+      if (sessionsReclaimed > 0) {
+        logger.info('SYSTEM', 'reclaimed stale session generation', { sessionsReclaimed });
+      }
+      // Transient provider failures exhausted their attempts while the provider
+      // was briefly unreachable. The cause was temporary and the work is still
+      // wanted, but neither the drain ('queued') nor the lock reclaim
+      // ('processing') can see a 'failed' row.
+      const transientReclaimed = await reclaimTransientFailures(pool);
+      if (transientReclaimed > 0) {
+        logger.info('SYSTEM', 'requeued transient generation failures', { transientReclaimed });
       }
       const resolveQueue = (kind: 'event' | 'summary') => {
         const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
