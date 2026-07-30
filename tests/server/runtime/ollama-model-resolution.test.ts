@@ -44,7 +44,9 @@ describe('ollama model resolution', () => {
     delete process.env.MEMSMITH_SERVER_MODEL;
     try {
       const p = instantiateServerGenerationProvider('ollama');
-      expect(modelOf(p)).toBe('llama3.1:8b');
+      // The last-resort fallback is qwen, NOT llama3.1:8b — if it ever fires it
+      // must not silently downgrade the quality of stored memory.
+      expect(modelOf(p)).toBe('qwen2.5:14b');
     } finally {
       if (before !== undefined) process.env.MEMSMITH_SERVER_MODEL = before;
     }

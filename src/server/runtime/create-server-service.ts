@@ -480,7 +480,12 @@ export function instantiateServerGenerationProvider(
     // Ollama is fronted by an auth proxy.
     const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      model: chosenModel ?? 'llama3.1:8b',
+      // qwen2.5:14b, matching the registry default. This was 'llama3.1:8b',
+      // which produces materially worse observations (vague restatements,
+      // invented rationale — measured 2.86 vs 3.90). Callers now pass the
+      // configured model, so this last-resort fallback should rarely fire; when
+      // it does it must not silently downgrade the quality of stored memory.
+      model: chosenModel ?? 'qwen2.5:14b',
     };
     if (apiKey) opts.apiKey = apiKey;
     const baseUrl = process.env.MEMSMITH_OLLAMA_URL;

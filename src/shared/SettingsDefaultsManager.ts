@@ -154,7 +154,16 @@ export class SettingsDefaultsManager {
     MEMSMITH_TELEGRAM_CHAT_ID: '',
     MEMSMITH_TELEGRAM_TRIGGER_TYPES: 'security_alert',
     MEMSMITH_TELEGRAM_TRIGGER_CONCEPTS: '',
-    MEMSMITH_QUEUE_ENGINE: 'sqlite',
+    // 'inline', NOT the retired 'sqlite'. buildQueueManager treats anything
+    // that is not 'inline' or 'bullmq' as a DisabledServerQueueManager, so
+    // shipping 'sqlite' meant every fresh install wrote a value that would
+    // silently disable generation entirely — no error, jobs just queue forever.
+    //
+    // It never bit only by luck: local-runtime.ts forces 'inline' when
+    // process.env is empty, and settings.json is never loaded into process.env
+    // on that path. Change either half and generation dies quietly. 'inline' is
+    // what the local runtime actually uses, so config and behaviour now agree.
+    MEMSMITH_QUEUE_ENGINE: 'inline',
     MEMSMITH_REDIS_URL: '',
     MEMSMITH_REDIS_HOST: '127.0.0.1',
     MEMSMITH_REDIS_PORT: '6379',
