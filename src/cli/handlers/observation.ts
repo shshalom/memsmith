@@ -38,6 +38,24 @@ export async function shouldLogRediscovery(
 }
 
 
+/**
+ * Persist an event the server could not accept, so it is not lost.
+ *
+ * Best-effort and never throws: this runs inside a PostToolUse hook, and
+ * breaking the user's tool call to record memory would be a worse trade than
+ * losing the event. Lazily imported so the spool module is never loaded on the
+ * happy path.
+ */
+function spoolFailedEvent(event: unknown): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const spool = require('./capture-spool.js') as typeof import('./capture-spool.js');
+    spool.spoolEvent(spool.defaultSpoolPath(), event);
+  } catch {
+    // Nothing further to do — the event is lost, but the user's tool call is not.
+  }
+}
+
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
@@ -94,7 +112,12 @@ export const observationHandler: EventHandler = {
       } catch (error: unknown) {
         if (isServerClientError(error) && error.isFallbackEligible()) {
           logServerFallback(error.kind, { status: error.status, message: error.message, route: '/v1/events' });
-          // fall through to clean skip (worker fallback retired)
+          // Spool it rather than dropping it. This used to fall through to a
+          // "clean skip", which meant the event was gone: no queue row, no local
+          // copy, nothing for any drain to replay. Capture is the one path with
+          // no second chance — every other recovery in the system works on rows
+          // that already reached Postgres.
+          spoolFailedEvent(event);
         } else {
           logger.error('HOOK', 'Server event failed (non-recoverable)', {
             error: error instanceof Error ? error.message : String(error),
@@ -104,9 +127,29 @@ export const observationHandler: EventHandler = {
       }
     }
 
-    // No server runtime reachable (embedded not yet available). The worker
-    // fallback has been retired; skip cleanly so the hook never blocks.
-    logger.debug('HOOK', 'No reachable runtime for observation; skipping', { toolName });
+    // No server runtime reachable (embedded not yet available). Previously a
+    // "clean skip" that silently discarded the event — the single largest source
+    // of permanently missing memory, because it fires exactly during the
+    // cold-boot window when the server has not started yet. Spool it instead;
+    // the next session start flushes it.
+    logger.debug('HOOK', 'No reachable runtime for observation; spooling', { toolName });
+    spoolFailedEvent({
+      projectId: null,
+      contentSessionId: sessionId,
+      platformSource,
+      sourceType: 'hook',
+      eventType: 'tool_use',
+      occurredAtEpoch: Date.now(),
+      payload: {
+        tool_name: toolName,
+        tool_input: scrubEventPayload(toolInput),
+        tool_response: scrubEventPayload(toolResponse),
+        cwd,
+        agentId: input.agentId,
+        agentType: input.agentType,
+        platformSource,
+      },
+    });
     return { continue: true, suppressOutput: true };
   },
 };

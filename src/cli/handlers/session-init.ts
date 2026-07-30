@@ -172,6 +172,34 @@ export const sessionInitHandler: EventHandler = {
     }
 
     const runtime = dependencies.resolveRuntimeContext(cwd);
+
+    // Deliver anything capture had to buffer while the server was unreachable.
+    //
+    // observation.ts used to DROP those events entirely — no queue row, no local
+    // copy, nothing any drain could replay. They now land in a local spool, and
+    // this is the only place with both a live runtime and a resolved project to
+    // attribute them to. Entirely best-effort: the spool is kept unless every
+    // event is delivered, so a failure here costs nothing but a retry next time.
+    if (runtime.runtime === 'server') {
+      try {
+        const [{ flushSpooledEvents }, spool] = await Promise.all([
+          import('./spool-flush.js'),
+          import('./capture-spool.js'),
+        ]);
+        const path = spool.defaultSpoolPath();
+        const result = await flushSpooledEvents({
+          read: () => spool.readSpooledEvents(path),
+          send: async (event) => { await runtime.client.recordEvent(event as never); },
+          clear: () => spool.clearSpool(path),
+          projectId: runtime.projectId,
+        });
+        if (result.delivered > 0 || result.failed > 0) {
+          logger.info('HOOK', 'flushed spooled capture events', result);
+        }
+      } catch (err) {
+        logger.warn('HOOK', 'spool flush skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
+      }
+    }
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {
