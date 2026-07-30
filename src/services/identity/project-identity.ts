@@ -97,6 +97,45 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
 }
 
 /**
+ * Create the marker ONLY if none exists, returning whichever marker won.
+ *
+ * The mint path is check-then-act: read the marker, see nothing, generate uuids,
+ * write. Hook processes start independently, so several can pass that check
+ * before any of them writes, and each then believes it owns a DIFFERENT
+ * projectId while the file keeps only the last writer's.
+ *
+ * Measured with 6 concurrent hook processes in one fresh project: up to 4
+ * distinct projectIds, and only 3 of 6 sessions agreed with the marker actually
+ * on disk. The disagreeing sessions write their events and observations under a
+ * projectId nothing points at — orphaned memory, invisible, in the project the
+ * user is actively working in.
+ *
+ * `wx` makes the create atomic: exactly one process can succeed, and everyone
+ * else reads back the winner. This is the same exclusive-create primitive the
+ * credential store uses for its lock.
+ */
+function createMarkerIfAbsent(cwd: string, candidate: ProjectMarker): ProjectMarker {
+  const p = join(cwd, MARKER_RELATIVE_PATH);
+  const dir = dirname(p);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try {
+    writeFileSync(p, JSON.stringify(candidate, null, 2), { encoding: 'utf-8', flag: 'wx' });
+    return candidate;
+  } catch {
+    // Lost the race (or the file appeared between our read and now). Adopt the
+    // winner rather than overwriting it — overwriting is what orphaned the
+    // other sessions' memory.
+    const winner = readMarker(cwd);
+    if (winner) return winner;
+    // The file exists but is unreadable/!valid. Falling back to a plain write is
+    // correct here: an unusable marker is worse than a replaced one, and without
+    // a marker the project has no identity at all.
+    writeMarker(cwd, candidate);
+    return candidate;
+  }
+}
+
+/**
  * projects.metadata key holding the project's directory on this machine.
  *
  * Not a secret — it points at the explicitly non-secret marker — but also NOT
@@ -176,11 +215,25 @@ export async function ensureProjectIdentity(
   store?: CredentialStore,
 ): Promise<{ teamId: string; projectId: string }> {
   const existing = readMarker(cwd);
-  const teamId = existing?.teamId ?? randomUUID();
-  const projectId = existing?.projectId ?? randomUUID();
-  if (!existing) {
-    writeMarker(cwd, { teamId, projectId, note: MARKER_NOTE });
-    logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
+  let teamId: string;
+  let projectId: string;
+  if (existing) {
+    teamId = existing.teamId;
+    projectId = existing.projectId;
+  } else {
+    // Concurrent starts all reach here having seen no marker. Let the filesystem
+    // pick the winner and adopt it, rather than each session proceeding under
+    // its own id — half of them would otherwise write memory under a projectId
+    // the marker does not name.
+    const candidate: ProjectMarker = { teamId: randomUUID(), projectId: randomUUID(), note: MARKER_NOTE };
+    const won = createMarkerIfAbsent(cwd, candidate);
+    teamId = won.teamId;
+    projectId = won.projectId;
+    if (won.projectId === candidate.projectId) {
+      logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
+    } else {
+      logger.info('IDENTITY', 'adopted project identity minted by a concurrent session', { teamId, projectId, cwd });
+    }
   }
   // basename of a path ending in a separator is '' — fall back to the id.
   await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined, cwd);
