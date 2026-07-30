@@ -84,6 +84,16 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
       // not being there. Two such rows went unnoticed for two weeks because
       // nothing reported them.
       const embeddings = await countEmbeddingCoverage(this.graph.postgres.pool);
+      // Cheapest possible liveness probe. Everything downstream — capture,
+      // recall, the drain — is dead the moment Postgres is, so this is the one
+      // fact worth knowing first.
+      let pgReachable = false;
+      try {
+        await this.graph.postgres.pool.query('SELECT 1');
+        pgReachable = true;
+      } catch {
+        pgReachable = false;
+      }
       res.json({
         name: 'memsmith-server',
         runtime: SERVER_RUNTIME,
@@ -91,6 +101,11 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
         postgres: {
           initialized: this.graph.postgres.bootstrap.initialized,
           schemaVersion: this.graph.postgres.bootstrap.schemaVersion,
+          // `initialized`/`schemaVersion` describe BOOT, and stay true forever
+          // once set — they said "healthy" even if Postgres died minutes later.
+          // `reachable` is the live answer, because everything (capture,
+          // recall, the drain) is dead the moment the database is.
+          reachable: pgReachable,
         },
         boundaries: {
           queueManager: this.graph.queueManager.getHealth(),
