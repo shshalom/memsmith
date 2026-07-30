@@ -11,6 +11,9 @@ import { parsePostgresConfig } from '../../storage/postgres/config.js';
 import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
+import {
+  loadQueuedJobsForDrain, reclaimStaleLocks, requeueDrainedJobs, resolveQueueConcurrency,
+} from './generation-drain.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
@@ -246,6 +249,40 @@ export async function createServerService(
 
   if (generationWorkerManager instanceof ActiveServerGenerationWorkerManager) {
     generationWorkerManager.start();
+    // Recover jobs abandoned by a previous process.
+    //
+    // The inline queue's work list is in-memory only, populated solely by add()
+    // at enqueue time — so every restart left its queued rows stranded in
+    // Postgres with nothing to pick them up. On the dogfood that reached 6,958
+    // jobs spanning two weeks: all the activity captured, none of it distilled,
+    // and no warning anywhere. Nothing was lost (the agent_events survive and
+    // each job still carries its agent_event_id), which is precisely why
+    // replaying them recovers the lot.
+    //
+    // Fire-and-forget: a drain failure must never block startup. Both helpers
+    // swallow their own errors, so the catch is belt-and-braces.
+    void (async () => {
+      // Reclaim first: a job locked by a process that died stays 'processing'
+      // forever and the drain below cannot see it. Returning those to 'queued'
+      // means one pass recovers both kinds of stranded work.
+      const reclaimed = await reclaimStaleLocks(pool);
+      if (reclaimed > 0) {
+        logger.info('SYSTEM', 'reclaimed stale generation locks', { reclaimed });
+      }
+      const jobs = await loadQueuedJobsForDrain(pool);
+      if (jobs.length === 0) return;
+      const result = await requeueDrainedJobs(jobs, {
+        resolveQueue: (kind: 'event' | 'summary') => {
+          const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
+          try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
+        },
+      });
+      // Log it: the entire failure mode here was silence — 6,958 jobs stranded
+      // for two weeks with nothing reporting it.
+      logger.info('SYSTEM', 'generation backlog drain', {
+        found: jobs.length, requeued: result.requeued, skipped: result.skipped,
+      });
+    })().catch(() => { /* never blocks boot */ });
   }
 
   return new ServerService({ graph });
@@ -439,7 +476,7 @@ export function instantiateServerGenerationProvider(
 function buildQueueManager(): ServerQueueManager {
   const config = getRedisQueueConfig();
   if (config.engine === 'inline') {
-    return new InlineServerQueueManager();
+    return new InlineServerQueueManager(resolveQueueConcurrency(process.env));
   }
   if (config.engine !== 'bullmq') {
     return new DisabledServerQueueManager(
