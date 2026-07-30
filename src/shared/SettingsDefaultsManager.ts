@@ -1,8 +1,53 @@
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { HOOK_TIMEOUTS, getTimeout } from './hook-constants.js';
+
+/**
+ * settings.json is credential-bearing: MEMSMITH_SERVER_API_KEY,
+ * MEMSMITH_TEAM_API_KEY, MEMSMITH_GEMINI_API_KEY, MEMSMITH_OPENROUTER_API_KEY
+ * and MEMSMITH_TELEGRAM_BOT_TOKEN all live in it.
+ *
+ * server-bootstrap's persistServerSettings already chmods to 0600 after writing,
+ * and the convert writer passes mode 0600 — but this class is the writer that
+ * CREATES the file, and it did neither. Measured on a live install:
+ * ~/.memsmith/settings.json at 0644 inside a 0755 directory.
+ *
+ * No secret had leaked only because every credential key on that box happened to
+ * be empty (the real ones live in credentials.json, 0600). That is luck. Set an
+ * OpenRouter key through the UI and a world-readable file holds a live token.
+ *
+ * The nested→flat migration was worse: it rewrote the file with no mode, so a
+ * file server-bootstrap had deliberately locked to 0600 came back out at 0644.
+ */
+const SETTINGS_FILE_MODE = 0o600;
+const SETTINGS_DIR_MODE = 0o700;
+
+/**
+ * Narrow a settings file (and its directory) to owner-only.
+ *
+ * Best-effort by design. Windows and CIFS do not implement POSIX modes, and a
+ * hook that cannot read settings is a worse failure than a loose mode bit — so
+ * hardening must never become a new way for loading to throw.
+ */
+function hardenSettingsPath(settingsPath: string): void {
+  try {
+    if ((statSync(settingsPath).mode & 0o777) !== SETTINGS_FILE_MODE) {
+      chmodSync(settingsPath, SETTINGS_FILE_MODE);
+    }
+  } catch {
+    // Non-POSIX filesystem or a race with another writer; leave as-is.
+  }
+  try {
+    const dir = dirname(settingsPath);
+    if ((statSync(dir).mode & 0o777) !== SETTINGS_DIR_MODE) {
+      chmodSync(dir, SETTINGS_DIR_MODE);
+    }
+  } catch {
+    // Same rationale as above.
+  }
+}
 
 export interface SettingsDefaults {
   MEMSMITH_MODEL: string;
@@ -220,9 +265,15 @@ export class SettingsDefaultsManager {
         try {
           const dir = dirname(settingsPath);
           if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
+            mkdirSync(dir, { recursive: true, mode: SETTINGS_DIR_MODE });
           }
-          writeFileSync(settingsPath, JSON.stringify(defaults, null, 2), 'utf-8');
+          writeFileSync(settingsPath, JSON.stringify(defaults, null, 2), {
+            encoding: 'utf-8',
+            mode: SETTINGS_FILE_MODE,
+          });
+          // mkdir/open honour the process umask, so the mode above is a ceiling
+          // rather than a guarantee. chmod explicitly.
+          hardenSettingsPath(settingsPath);
           // stderr, never stdout: this fires on the first boot in a fresh data
           // dir, and CLI commands like `start` promise machine-readable JSON
           // on stdout to the hook framework.
@@ -232,6 +283,12 @@ export class SettingsDefaultsManager {
         }
         return applyEnvOverrides ? this.applyEnvOverrides(defaults) : defaults;
       }
+
+      // Reading is the one moment we are guaranteed to touch an existing file,
+      // so it is where an install that predates this fix gets repaired. Without
+      // this, the hardening would only ever help fresh installs and every
+      // already-exposed settings.json would stay exposed forever.
+      hardenSettingsPath(settingsPath);
 
       const settingsData = readFileSync(settingsPath, 'utf-8');
       // Strip UTF-8 BOM if present — Windows tools (editors, formatters, CLI
@@ -244,7 +301,13 @@ export class SettingsDefaultsManager {
         flatSettings = settings.env;
 
         try {
-          writeFileSync(settingsPath, JSON.stringify(flatSettings, null, 2), 'utf-8');
+          // Preserve the 0600 that server-bootstrap deliberately set; a bare
+          // writeFileSync here silently widened it back to 0644.
+          writeFileSync(settingsPath, JSON.stringify(flatSettings, null, 2), {
+            encoding: 'utf-8',
+            mode: SETTINGS_FILE_MODE,
+          });
+          hardenSettingsPath(settingsPath);
           // stderr, never stdout — same JSON-on-stdout contract as above.
           console.warn('[SETTINGS] Migrated settings file from nested to flat schema:', settingsPath);
         } catch (error: unknown) {
