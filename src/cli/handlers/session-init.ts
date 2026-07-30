@@ -116,26 +116,17 @@ export const sessionInitHandler: EventHandler = {
     // targets the base database. Naming it `baseAccountPool` here (rather
     // than a generic `pool`) makes that invariant explicit at the call site,
     // so key minting can never be accidentally re-pointed at a project DB.
+    // Shared with contextHandler (SessionStart), which now mints too so the
+    // dashboard link is scoped on a new project's FIRST session rather than its
+    // second. Extracted rather than duplicated: the DSN derivation inside is
+    // load-bearing (a short-lived hook process never inherits
+    // MEMSMITH_SERVER_DATABASE_URL from the server) and must not fork between the
+    // two call sites. Idempotent, so running in both places is a no-op the second
+    // time.
     try {
-      // MEMSMITH_SERVER_DATABASE_URL is set by local-runtime via process.env
-      // INSIDE the server process and is never written to a file, so this hook
-      // — a separate short-lived process — never inherits it. Without this the
-      // pool below threw on every session and minting was skipped forever, so a
-      // fresh local project came up with no marker, no database, and no memory.
-      //
-      // The local embedded PG address is a fixed default and a not-yet-existing
-      // project needs only the BASE database, so the value is derivable here.
-      // A team install always sets the variable explicitly and this is a no-op.
-      const { resolveLocalBaseDatabaseUrl } = await import('../../services/identity/local-base-dsn.js');
-      process.env.MEMSMITH_SERVER_DATABASE_URL = resolveLocalBaseDatabaseUrl();
-      const { getSharedPostgresPool } = await import('../../storage/postgres/pool.js');
-      const baseAccountPool = getSharedPostgresPool({ requireDatabaseUrl: true });
-      const { ensureProjectIdentity } = await import('../../services/identity/project-identity.js');
-      const { CredentialStore } = await import('../../services/identity/credential-store.js');
-      // ensureProjectIdentity now guarantees a resolvable base key when given a
-      // store (folds in the former separate ensureBaseKey call), so a marker is
-      // never written without its key.
-      await ensureProjectIdentity(baseAccountPool, cwd, new CredentialStore());
+      const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
+        await import('./ensure-identity.js');
+      await ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
     } catch (err) {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
