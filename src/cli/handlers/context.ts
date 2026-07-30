@@ -170,10 +170,27 @@ export const contextHandler: EventHandler = {
     // so a bare link lands on whichever project the server booted from — which
     // also means the Go Team wizard would act on that project rather than this
     // one. Best-effort: an unreadable marker just yields the unscoped link.
+    //
+    // Mint the identity here if it does not exist yet. It used to be minted only
+    // by sessionInitHandler, which runs on UserPromptSubmit — i.e. on the user's
+    // FIRST MESSAGE, strictly after this line. So on the first session of a new
+    // project the marker did not exist and the link came out unscoped; only the
+    // second session showed the right one. The fallback below treated that as an
+    // edge case, but on a fresh project it was the certain case.
+    //
+    // ensureProjectIdentityForHook is idempotent and never throws, so calling it
+    // on every session start is safe and an existing project pays only a marker
+    // read.
     let dashboardProjectId: string | undefined;
     try {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
       dashboardProjectId = readProjectMarker(cwd)?.projectId;
+      if (!dashboardProjectId) {
+        const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
+          await import('./ensure-identity.js');
+        const minted = await ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
+        dashboardProjectId = minted?.projectId;
+      }
     } catch { /* unscoped link is a fine fallback */ }
     const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext

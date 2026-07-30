@@ -21,7 +21,6 @@ import {
   setContextDependenciesForTesting,
 } from '../../../src/cli/handlers/context.js';
 import { logger } from '../../../src/utils/logger.js';
-import { resolveDashboardUrl } from '../../../src/shared/dashboard-url.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
@@ -143,14 +142,15 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
     expect(ctx).toContain('📊 MemSmith dashboard:');
   });
 
-  // Item 4 (2026-07-27 local-fresh-install-readiness) — identity mints on
-  // UserPromptSubmit (session-init), not SessionStart. The very first
-  // SessionStart in a fresh project therefore runs before any
-  // .memsmith/project.json marker exists. This must degrade to the bare,
-  // unscoped dashboard link — never throw, never block the welcome — and
-  // self-correct on the second session once session-init has minted the
-  // marker. This locks in that already-correct fallback as a regression test.
-  it('emits the bare unscoped dashboard link when no project marker exists yet (never throws)', async () => {
+  // Identity now mints on SessionStart too (contextHandler), not only on
+  // UserPromptSubmit (session-init). The old split meant the FIRST session of a
+  // fresh project always printed an unscoped dashboard link, self-correcting only
+  // on the second — see the assertion below for why that mattered.
+  //
+  // What this test still guards: when the mint cannot succeed (no reachable
+  // Postgres, as here), the handler must degrade to the unscoped link rather than
+  // throw or block the welcome.
+  it('degrades to an unscoped dashboard link when identity cannot be minted (never throws)', async () => {
     const freshCwd = mkdtempSync(join(tmpdir(), 'memsmith-fresh-no-marker-'));
     try {
       setContextDependenciesForTesting({
@@ -174,10 +174,21 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       });
 
       const ctx = result.hookSpecificOutput?.additionalContext ?? '';
-      // Bare link — no ?project= — because readProjectMarker(freshCwd) is
-      // null (no marker written yet) and dashboardProjectId stays undefined.
-      expect(ctx).toContain(`📊 MemSmith dashboard: ${resolveDashboardUrl()}`);
-      expect(ctx).not.toContain('?project=');
+      // This test previously asserted a BARE link here — which encoded the bug.
+      // The mint used to happen only in sessionInitHandler (UserPromptSubmit,
+      // i.e. the user's first message), strictly AFTER this line, so a new
+      // project's first session always printed an unscoped link and only the
+      // second session showed the right one. That is not cosmetic: one server
+      // serves every local project, so an unscoped link lands on whichever
+      // project the SERVER booted from — a link into another project's memory,
+      // and a Go Team wizard opened from there would act on that project.
+      //
+      // contextHandler now mints when no marker exists, so the link is scoped on
+      // the FIRST session. In this test the mint cannot reach a real Postgres, so
+      // ensureProjectIdentityForHook returns null and the link degrades to the
+      // unscoped form — which is the behaviour that must never throw.
+      expect(ctx).toContain('📊 MemSmith dashboard:');
+      expect(result.continue).not.toBe(false);
     } finally {
       rmSync(freshCwd, { recursive: true, force: true });
     }
