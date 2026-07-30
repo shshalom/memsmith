@@ -18,7 +18,7 @@
 //   - Never let a refill failure kill the loop — that would silently reinstate
 //     the exact bug being fixed.
 import { describe, it, expect } from 'bun:test';
-import { runContinuousDrain, DEFAULT_REFILL_THRESHOLD } from '../../../src/server/runtime/continuous-drain.js';
+import { runContinuousDrain, DEFAULT_REFILL_THRESHOLD, MAX_BACKOFF_MS } from '../../../src/server/runtime/continuous-drain.js';
 
 function harness(opts: {
   backlog: number;
@@ -111,17 +111,68 @@ describe('runContinuousDrain', () => {
     expect(remaining).toBe(0);
   });
 
-  it('gives up after repeated consecutive failures instead of looping forever', async () => {
+  it('BACKS OFF on repeated failures but never gives up permanently', async () => {
+    // The original version stopped after 5 consecutive failures. With a 5s poll
+    // that meant a ~25-SECOND Postgres blip killed the drain for the rest of the
+    // process lifetime, and the backlog silently stopped draining until the next
+    // restart — the exact stranding shape this loop exists to prevent.
+    //
+    // Backing off is right; giving up is not. A transient outage must be
+    // survivable, so the loop keeps retrying at a widening interval.
     let calls = 0;
+    const sleeps: number[] = [];
     const deps = {
-      loadBatch: async () => { calls += 1; throw new Error('pg down'); },
+      loadBatch: async () => {
+        calls += 1;
+        if (calls <= 8) throw new Error('pg down');
+        return 0; // recovered: backlog empty, exit cleanly
+      },
       queueDepth: () => 0,
-      sleep: async () => {},
+      sleep: async (ms: number) => { sleeps.push(ms); },
       isClosed: () => false,
       batchSize: 500,
     } as never;
     await runContinuousDrain(deps);
-    expect(calls).toBeLessThanOrEqual(5);
+    // It survived 8 consecutive failures rather than stopping at 5.
+    expect(calls).toBe(9);
+    // And it waited longer each time instead of hammering a dead database.
+    expect(sleeps[3]!).toBeGreaterThan(sleeps[0]!);
+  });
+
+  it('caps the backoff so recovery is not delayed for hours', async () => {
+    const sleeps: number[] = [];
+    let calls = 0;
+    const deps = {
+      loadBatch: async () => { calls += 1; if (calls <= 30) throw new Error('pg down'); return 0; },
+      queueDepth: () => 0,
+      sleep: async (ms: number) => { sleeps.push(ms); },
+      isClosed: () => false,
+      batchSize: 500,
+    } as never;
+    await runContinuousDrain(deps);
+    expect(Math.max(...sleeps)).toBeLessThanOrEqual(MAX_BACKOFF_MS);
+  });
+
+  it('resets the backoff once a batch succeeds', async () => {
+    // A blip must not leave the loop permanently slow.
+    const sleeps: number[] = [];
+    let calls = 0;
+    let remaining = 1000;
+    const deps = {
+      loadBatch: async (limit: number) => {
+        calls += 1;
+        if (calls <= 3) throw new Error('blip');
+        const took = Math.min(limit, remaining);
+        remaining -= took;
+        return took;
+      },
+      queueDepth: () => 0,
+      sleep: async (ms: number) => { sleeps.push(ms); },
+      isClosed: () => false,
+      batchSize: 500,
+    } as never;
+    await runContinuousDrain(deps);
+    expect(remaining).toBe(0);
   });
 
   it('never throws', async () => {

@@ -19,8 +19,20 @@
 export const DEFAULT_REFILL_THRESHOLD = 50;
 /** Pause between polls when there is nothing to do. */
 export const DEFAULT_POLL_MS = 5_000;
-/** Consecutive failures tolerated before giving up on the loop. */
-export const MAX_CONSECUTIVE_FAILURES = 5;
+/**
+ * Ceiling on the retry interval after repeated failures.
+ *
+ * This loop used to GIVE UP after 5 consecutive failures. With a 5s poll that
+ * meant a ~25-second Postgres blip killed the drain for the rest of the process
+ * lifetime: the backlog silently stopped draining until the next restart, with
+ * nothing reporting it. That is precisely the stranding shape the loop exists to
+ * prevent, reintroduced by its own error handling.
+ *
+ * Backing off is right; giving up is not. A transient outage must be survivable,
+ * so the loop retries forever at a widening interval, capped here so recovery is
+ * not delayed for hours once the database returns.
+ */
+export const MAX_BACKOFF_MS = 60_000;
 
 export interface ContinuousDrainDeps {
   /** Load up to `limit` queued jobs into the queue; returns how many were loaded. */
@@ -76,11 +88,14 @@ export async function runContinuousDrain(deps: ContinuousDrainDeps): Promise<voi
       if (deps.isClosed()) return;
     } catch {
       consecutiveFailures += 1;
-      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return;
+      // Exponential backoff, capped — never a permanent stop. A dead database
+      // must not be hammered, but a transient one must be survived: the loop
+      // waits longer each time and keeps trying, so recovery is automatic.
+      const backoff = Math.min(pollMs * 2 ** (consecutiveFailures - 1), MAX_BACKOFF_MS);
       try {
-        await deps.sleep(pollMs);
+        await deps.sleep(backoff);
       } catch {
-        return; // even sleep is broken — stop cleanly
+        return; // even sleep is broken — the runtime itself is gone
       }
     }
   }
