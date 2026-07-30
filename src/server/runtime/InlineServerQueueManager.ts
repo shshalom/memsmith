@@ -10,6 +10,7 @@ import type {
   ServerGenerationQueueManager,
   ServerQueueLaneMetric,
 } from './types.js';
+import { DEFAULT_QUEUE_CONCURRENCY } from './generation-drain.js';
 
 const QUEUE_KINDS: ServerGenerationJobKind[] = ['event', 'summary'];
 
@@ -18,10 +19,15 @@ export class InlineServerQueueManager implements ServerGenerationQueueManager {
   private readonly queues: Map<ServerGenerationJobKind, InlineServerQueue<ServerGenerationJobPayload>>;
   private closed = false;
 
-  constructor() {
+  constructor(concurrency: number = DEFAULT_QUEUE_CONCURRENCY) {
     this.queues = new Map();
     for (const k of QUEUE_KINDS) {
-      this.queues.set(k, new InlineServerQueue<ServerGenerationJobPayload>(SERVER_JOB_QUEUE_NAMES[k]));
+      // Concurrency was hardcoded to 1, which on a local model meant roughly 3
+      // jobs/minute — far slower than events arrive, so the queue could never
+      // catch up. Configurable via MEMSMITH_GENERATION_CONCURRENCY; still
+      // defaults to 1 because each concurrent job pins another ~9GB copy of the
+      // model in RAM.
+      this.queues.set(k, new InlineServerQueue<ServerGenerationJobPayload>(SERVER_JOB_QUEUE_NAMES[k], concurrency));
     }
   }
 

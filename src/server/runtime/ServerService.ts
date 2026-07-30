@@ -29,6 +29,7 @@ import { CredentialStore } from '../../services/identity/credential-store.js';
 import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
+import { assessGenerationHealth } from './generation-health.js';
 
 // Phase 1d retains the persisted runtime literal `'server-beta'`. Renaming the
 // constant here keeps the TS identifier modern while preserving wire/storage
@@ -71,6 +72,12 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
     // the lane with `unavailable: true` rather than crashing the route.
     app.get('/v1/info', async (_req, res) => {
       const queueLanes = await collectQueueLaneMetrics(this.graph);
+      // `boundaries` reports whether the machinery is WIRED UP. It reported
+      // healthy through fifteen hours of total generation failure, because the
+      // queue itself was fine — the provider had died. `generation` below answers
+      // the different and more useful question: is memory actually being
+      // distilled right now?
+      const generation = await collectGenerationHealth(this.graph);
       res.json({
         name: 'memsmith-server',
         runtime: SERVER_RUNTIME,
@@ -84,9 +91,57 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
           generationWorkerManager: this.graph.generationWorkerManager.getHealth(),
         },
         queueLanes,
+        generation,
       });
     });
   }
+}
+
+// Real probes for the generation-health question. All best-effort: assess*
+// degrades to 'unknown' rather than claiming health it has not verified, and the
+// route must never throw on a probe blip.
+async function collectGenerationHealth(graph: ServerServiceGraph) {
+  const pool = graph.postgres.pool;
+  return assessGenerationHealth({
+    now: () => new Date(),
+    counts: async () => {
+      const r = await pool.query(
+        `SELECT
+           count(*) FILTER (WHERE status = 'queued')     AS queued,
+           count(*) FILTER (WHERE status = 'processing') AS processing,
+           count(*) FILTER (WHERE status = 'completed'
+                              AND completed_at > now() - interval '1 hour') AS recent
+         FROM observation_generation_jobs`,
+      );
+      const row = (r.rows[0] ?? {}) as Record<string, unknown>;
+      return {
+        queued: Number(row.queued ?? 0),
+        processing: Number(row.processing ?? 0),
+        completedLastHour: Number(row.recent ?? 0),
+      };
+    },
+    lastCompletedAt: async () => {
+      const r = await pool.query(
+        `SELECT max(completed_at) AS last FROM observation_generation_jobs WHERE status = 'completed'`,
+      );
+      const last = (r.rows[0] as { last?: unknown } | undefined)?.last;
+      return last instanceof Date ? last : (typeof last === 'string' ? new Date(last) : null);
+    },
+    providerReachable: async () => {
+      // No live reachability probe exists on the graph today, so this reports
+      // whether a provider is CONFIGURED at all — which still catches the
+      // "generation disabled, nothing can ever be produced" case.
+      //
+      // It does NOT catch a configured-but-dead provider (ollama not running),
+      // which is precisely what failed for fifteen hours. The queued+stale
+      // signal above is what covers that case: a dead provider produces a
+      // growing backlog with no completions, and that IS detected. Reporting a
+      // true/false here that we cannot actually verify would be the same
+      // unverified-health claim this whole check exists to eliminate.
+      const health = graph.generationWorkerManager.getHealth();
+      return health?.status !== 'disabled';
+    },
+  });
 }
 
 async function collectQueueLaneMetrics(

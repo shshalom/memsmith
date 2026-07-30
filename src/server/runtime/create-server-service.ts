@@ -11,6 +11,11 @@ import { parsePostgresConfig } from '../../storage/postgres/config.js';
 import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
+import {
+  DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, requeueDrainedJobs,
+  resolveQueueConcurrency,
+} from './generation-drain.js';
+import { runContinuousDrain } from './continuous-drain.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
@@ -246,6 +251,66 @@ export async function createServerService(
 
   if (generationWorkerManager instanceof ActiveServerGenerationWorkerManager) {
     generationWorkerManager.start();
+    // Recover jobs abandoned by a previous process.
+    //
+    // The inline queue's work list is in-memory only, populated solely by add()
+    // at enqueue time — so every restart left its queued rows stranded in
+    // Postgres with nothing to pick them up. On the dogfood that reached 6,958
+    // jobs spanning two weeks: all the activity captured, none of it distilled,
+    // and no warning anywhere. Nothing was lost (the agent_events survive and
+    // each job still carries its agent_event_id), which is precisely why
+    // replaying them recovers the lot.
+    //
+    // Fire-and-forget: a drain failure must never block startup. Both helpers
+    // swallow their own errors, so the catch is belt-and-braces.
+    void (async () => {
+      // Reclaim first: a job locked by a process that died stays 'processing'
+      // forever and the drain below cannot see it. Returning those to 'queued'
+      // means one pass recovers both kinds of stranded work.
+      const reclaimed = await reclaimStaleLocks(pool);
+      if (reclaimed > 0) {
+        logger.info('SYSTEM', 'reclaimed stale generation locks', { reclaimed });
+      }
+      const resolveQueue = (kind: 'event' | 'summary') => {
+        const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
+        try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
+      };
+
+      // Keep draining until the backlog is gone, rather than loading one batch
+      // and stopping. A single 500-job batch recovers 7% of a 6,917-job backlog
+      // and then goes quiet — clearing the rest would take ~14 restarts.
+      //
+      // Refills only when the queue is LOW: handing a slow local model the whole
+      // backlog at once would mean a shutdown strands all of it, which is the
+      // original bug at a larger scale.
+      let totalRequeued = 0;
+      await runContinuousDrain({
+        batchSize: DEFAULT_DRAIN_BATCH,
+        // InlineServerQueue has no size(), but its internal waiting[] is what
+        // getCounts() reports. Reading it directly keeps this synchronous — the
+        // drain loop checks depth on every iteration and must not await here.
+        queueDepth: () => {
+          const mgr = queueManager as { getQueue?: (k: string) => { getWaitingCount?: () => number } };
+          try { return mgr.getQueue?.('event')?.getWaitingCount?.() ?? 0; } catch { return 0; }
+        },
+        sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+        isClosed: () => false,
+        loadBatch: async (limit: number) => {
+          const jobs = await loadQueuedJobsForDrain(pool, { batchSize: limit });
+          if (jobs.length === 0) return 0;
+          const result = await requeueDrainedJobs(jobs, { resolveQueue });
+          totalRequeued += result.requeued;
+          // Log every batch: the entire failure mode here was silence — 6,958
+          // jobs stranded for two weeks with nothing reporting it.
+          logger.info('SYSTEM', 'generation backlog drain', {
+            found: jobs.length, requeued: result.requeued, skipped: result.skipped, totalRequeued,
+          });
+          // Report loaded rows, not just successfully requeued ones, so a batch
+          // that could not be published still advances and cannot loop forever.
+          return jobs.length;
+        },
+      });
+    })().catch(() => { /* never blocks boot */ });
   }
 
   return new ServerService({ graph });
@@ -358,6 +423,11 @@ function buildGenerationWorkerManager(
   });
 }
 
+/** settings.json values are `unknown`; treat blank as absent so a `""` never wins. */
+function asNonEmptyString(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+}
+
 function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
   // Resolve env > settings.json > registry default ('ollama'). Reading only
   // process.env meant the declared default never applied on a real install —
@@ -375,8 +445,26 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
     });
     return null;
   }
+  // Resolve the MODEL from settings too, not just the provider.
+  //
+  // instantiateServerGenerationProvider reads only process.env.MEMSMITH_SERVER_MODEL
+  // and otherwise falls back to a hardcoded per-provider default — for ollama
+  // that is llama3.1:8b, which produces materially worse observations (vague
+  // restatements, invented rationale) than the configured qwen2.5:14b. Ollama's
+  // model lives under its own key (MEMSMITH_OLLAMA_MODEL), which nothing here
+  // ever read, so the right model only arrived when some other path happened to
+  // export it into process.env first.
+  //
+  // Same settings-vs-env shape as the provider bug above: configured in one
+  // place, read from another, hardcoded default silently winning.
+  const modelFromSettings = provider === 'ollama'
+    ? (process.env.MEMSMITH_OLLAMA_MODEL
+        ?? asNonEmptyString(fileSettings.MEMSMITH_OLLAMA_MODEL)
+        ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL))
+    : (process.env.MEMSMITH_SERVER_MODEL ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL));
+
   try {
-    return instantiateServerGenerationProvider(provider);
+    return instantiateServerGenerationProvider(provider, modelFromSettings);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     // Surface the construction failure so operators can see why generation is
@@ -420,7 +508,12 @@ export function instantiateServerGenerationProvider(
     // Ollama is fronted by an auth proxy.
     const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      model: chosenModel ?? 'llama3.1:8b',
+      // qwen2.5:14b, matching the registry default. This was 'llama3.1:8b',
+      // which produces materially worse observations (vague restatements,
+      // invented rationale — measured 2.86 vs 3.90). Callers now pass the
+      // configured model, so this last-resort fallback should rarely fire; when
+      // it does it must not silently downgrade the quality of stored memory.
+      model: chosenModel ?? 'qwen2.5:14b',
     };
     if (apiKey) opts.apiKey = apiKey;
     const baseUrl = process.env.MEMSMITH_OLLAMA_URL;
@@ -439,7 +532,7 @@ export function instantiateServerGenerationProvider(
 function buildQueueManager(): ServerQueueManager {
   const config = getRedisQueueConfig();
   if (config.engine === 'inline') {
-    return new InlineServerQueueManager();
+    return new InlineServerQueueManager(resolveQueueConcurrency(process.env));
   }
   if (config.engine !== 'bullmq') {
     return new DisabledServerQueueManager(
