@@ -146,6 +146,16 @@ export async function reclaimStaleLocks(
 }
 
 /**
+ * How long a transient failure must have sat before it is safe to requeue.
+ *
+ * The provider's own retry backoff is 5s/25s/125s, so a job that failed moments
+ * ago may still have a retry pending. Requeuing it then would run the same work
+ * twice concurrently — the identical "reset live work" hazard the lock and
+ * session reclaims guard against, and one the invariant test caught here.
+ */
+export const DEFAULT_TRANSIENT_STALE_MINUTES = 10;
+
+/**
  * Return jobs that failed for a TRANSIENT reason back to `queued`.
  *
  * A job whose provider was briefly unreachable exhausts its 3 attempts and lands
@@ -166,9 +176,10 @@ export async function reclaimStaleLocks(
  */
 export async function reclaimTransientFailures(
   pool: DrainQueryable,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; staleMinutes?: number } = {},
 ): Promise<number> {
   const limit = opts.limit ?? DEFAULT_DRAIN_BATCH;
+  const staleMinutes = opts.staleMinutes ?? DEFAULT_TRANSIENT_STALE_MINUTES;
   try {
     const result = await pool.query(
       `UPDATE observation_generation_jobs
@@ -178,11 +189,13 @@ export async function reclaimTransientFailures(
           SELECT id FROM observation_generation_jobs
            WHERE status = 'failed'
              AND last_error->>'classification' = 'transient'
+             AND failed_at IS NOT NULL
+             AND failed_at < now() - ($2 || ' minutes')::interval
            ORDER BY created_at ASC
            LIMIT $1
         )
         RETURNING id`,
-      [limit],
+      [limit, staleMinutes],
     );
     return result.rows.length;
   } catch {
