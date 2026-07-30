@@ -265,11 +265,37 @@ export async function ensureBaseKey(
     return cached;
   }
 
-  // no cached key: mint fresh
-  const rawKey = createRawApiKey();
-  const keyHash = hashApiKey(rawKey);
-  await insertApiKeyHash(pool, keyHash, teamId, projectId);
-  store.storeKeyForTeam(teamId, rawKey);
-  logger.info('IDENTITY', 'minted base key', { teamId, projectId });
-  return rawKey;
+  // No cached key: mint a candidate, but let the STORE decide the winner.
+  //
+  // Several sessions starting together all reach this point having seen an empty
+  // cache, so each mints its own candidate. Writing unconditionally meant N keys
+  // inserted into api_keys for one team while the cache kept only the last —
+  // measured at 5 concurrent starts: 5 distinct keys, 5 rows, 1 cached. The four
+  // orphans are valid credentials whose plaintext is gone, so they can be
+  // neither used nor identified for revocation.
+  //
+  // storeKeyIfAbsent resolves that atomically under the cross-process lock: the
+  // first writer wins and every other caller gets the winner's key back.
+  const candidate = createRawApiKey();
+  // Fall back to the plain write when the store predates storeKeyIfAbsent (a
+  // hand-rolled stub, or an alternate backing such as Secrets Manager that has
+  // not implemented check-and-set yet). Those callers keep the old racy
+  // behaviour rather than crashing on a missing method.
+  const adopted = typeof store.storeKeyIfAbsent === 'function'
+    ? store.storeKeyIfAbsent(teamId, candidate)
+    : (store.storeKeyForTeam(teamId, candidate), candidate);
+
+  // Persist the hash of the key we actually adopted, never the candidate we
+  // discarded — inserting the loser is what created the orphan rows.
+  await insertApiKeyHash(pool, hashApiKey(adopted), teamId, projectId);
+
+  if (adopted === candidate) {
+    logger.info('IDENTITY', 'minted base key', { teamId, projectId });
+  } else {
+    // Not an error: another concurrent start won the race and we adopted its
+    // key. Logged because a burst of these is the signature of heavy session
+    // concurrency, which is worth being able to see.
+    logger.info('IDENTITY', 'adopted base key minted by a concurrent session', { teamId, projectId });
+  }
+  return adopted;
 }
