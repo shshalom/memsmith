@@ -67,6 +67,19 @@ export class InlineServerQueue<TPayload extends object = object> {
     }
   }
 
+  /**
+   * Waiting depth, synchronously.
+   *
+   * The continuous drain checks this on every iteration to decide whether to
+   * refill, and must not await — getCounts() is async and would make the hot
+   * loop needlessly asynchronous. Without a real reading here the drain would
+   * always see 0 and over-feed a slow local model, which is the original
+   * stranding bug at a larger scale.
+   */
+  getWaitingCount(): number {
+    return this.waiting.length;
+  }
+
   async getCounts(): Promise<ServerJobCounts> {
     return { waiting: this.waiting.length, active: this.active, delayed: 0, failed: this.failed, completed: this.completed };
   }

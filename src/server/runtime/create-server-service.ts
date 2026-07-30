@@ -12,8 +12,10 @@ import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
 import {
-  loadQueuedJobsForDrain, reclaimStaleLocks, requeueDrainedJobs, resolveQueueConcurrency,
+  DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, requeueDrainedJobs,
+  resolveQueueConcurrency,
 } from './generation-drain.js';
+import { runContinuousDrain } from './continuous-drain.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
@@ -269,18 +271,44 @@ export async function createServerService(
       if (reclaimed > 0) {
         logger.info('SYSTEM', 'reclaimed stale generation locks', { reclaimed });
       }
-      const jobs = await loadQueuedJobsForDrain(pool);
-      if (jobs.length === 0) return;
-      const result = await requeueDrainedJobs(jobs, {
-        resolveQueue: (kind: 'event' | 'summary') => {
-          const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
-          try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
+      const resolveQueue = (kind: 'event' | 'summary') => {
+        const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
+        try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
+      };
+
+      // Keep draining until the backlog is gone, rather than loading one batch
+      // and stopping. A single 500-job batch recovers 7% of a 6,917-job backlog
+      // and then goes quiet — clearing the rest would take ~14 restarts.
+      //
+      // Refills only when the queue is LOW: handing a slow local model the whole
+      // backlog at once would mean a shutdown strands all of it, which is the
+      // original bug at a larger scale.
+      let totalRequeued = 0;
+      await runContinuousDrain({
+        batchSize: DEFAULT_DRAIN_BATCH,
+        // InlineServerQueue has no size(), but its internal waiting[] is what
+        // getCounts() reports. Reading it directly keeps this synchronous — the
+        // drain loop checks depth on every iteration and must not await here.
+        queueDepth: () => {
+          const mgr = queueManager as { getQueue?: (k: string) => { getWaitingCount?: () => number } };
+          try { return mgr.getQueue?.('event')?.getWaitingCount?.() ?? 0; } catch { return 0; }
         },
-      });
-      // Log it: the entire failure mode here was silence — 6,958 jobs stranded
-      // for two weeks with nothing reporting it.
-      logger.info('SYSTEM', 'generation backlog drain', {
-        found: jobs.length, requeued: result.requeued, skipped: result.skipped,
+        sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+        isClosed: () => false,
+        loadBatch: async (limit: number) => {
+          const jobs = await loadQueuedJobsForDrain(pool, { batchSize: limit });
+          if (jobs.length === 0) return 0;
+          const result = await requeueDrainedJobs(jobs, { resolveQueue });
+          totalRequeued += result.requeued;
+          // Log every batch: the entire failure mode here was silence — 6,958
+          // jobs stranded for two weeks with nothing reporting it.
+          logger.info('SYSTEM', 'generation backlog drain', {
+            found: jobs.length, requeued: result.requeued, skipped: result.skipped, totalRequeued,
+          });
+          // Report loaded rows, not just successfully requeued ones, so a batch
+          // that could not be published still advances and cannot loop forever.
+          return jobs.length;
+        },
       });
     })().catch(() => { /* never blocks boot */ });
   }
