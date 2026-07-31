@@ -66,7 +66,18 @@ const REASON_BADGE: Record<string, { cls: string; label: string }> = {
 function runtimeTile(runtime: string | null): { n: string; l: string; hint: string; accent: boolean } {
   // 'server-beta' is the legacy literal for the server runtime; treat both as
   // team so the tile does not read "server-beta" at the user.
-  if (runtime === 'server' || runtime === 'server-beta') {
+  // 'team' is what /v1/identity actually returns — its type is 'local' | 'team'
+  // (identity-payload.ts:35). 'server'/'server-beta' are the SERVER-wide literals
+  // from /v1/info, kept only so a caller pointed at that endpoint still maps
+  // sensibly.
+  //
+  // This mapping originally listed ONLY server/server-beta, because it was
+  // written when the tile read /v1/info. Repointing it at /v1/identity — which
+  // reports per-project, and was the right move — silently broke it: 'team' fell
+  // through to the unknown branch and the tile read "— runtime unavailable" on a
+  // correctly converted project. Every layer beneath was working and returning
+  // "team"; only this comparison disagreed.
+  if (runtime === 'team' || runtime === 'server' || runtime === 'server-beta') {
     return { n: 'team', l: 'Runtime', hint: 'shared Postgres · team workspace', accent: false };
   }
   if (runtime === 'local') {
