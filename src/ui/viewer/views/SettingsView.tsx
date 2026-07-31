@@ -278,6 +278,7 @@ function ContextPane({
   onSave,
   isSaving,
   saveStatus,
+  runtime,
 }: {
   hidden?: boolean;
   hasBeenActive: boolean;
@@ -285,9 +286,28 @@ function ContextPane({
   onSave: (s: import('../types.js').Settings) => void;
   isSaving: boolean;
   saveStatus: string;
+  runtime?: 'local' | 'team';
 }) {
   return (
     <div className="settings-pane settings-pane--context" hidden={hidden}>
+      {/* SCOPE NOTICE. These controls write MEMSMITH_CONTEXT_* to
+          ~/.memsmith/settings.json, which is per-MACHINE. Team overrides
+          (server_settings, PATCH /v1/settings) cover a DISJOINT set of keys —
+          provider, model, search weights, cost caps — and deliberately do not
+          include the context-display keys edited here.
+
+          Converting a project to team mode therefore does NOT make these shared,
+          and nothing said so: a user reasonably expects everything under Settings
+          to follow the project into team mode. Stating the scope is honest;
+          silently routing machine-local display preferences into a team-wide
+          table would change behaviour for teammates who never asked for it. */}
+      {runtime === 'team' ? (
+        <div className="settings-note settings-note--scope">
+          These context settings apply to <strong>this machine only</strong>. They
+          are not shared with teammates — team-wide settings cover the provider,
+          model, search ranking and cost caps.
+        </div>
+      ) : null}
       {hasBeenActive ? (
         <ContextSettingsPane
           settings={settings}
@@ -576,6 +596,7 @@ export default function SettingsView({ initialFields }: SettingsViewProps) {
         onSave={saveContextSettings}
         isSaving={isContextSaving}
         saveStatus={contextSaveStatus}
+        runtime={identity?.runtime}
       />
       <IdentityPane
         identity={identity}
