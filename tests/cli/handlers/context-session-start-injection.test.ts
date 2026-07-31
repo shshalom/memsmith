@@ -152,8 +152,26 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
   // throw or block the welcome.
   it('degrades to an unscoped dashboard link when identity cannot be minted (never throws)', async () => {
     const freshCwd = mkdtempSync(join(tmpdir(), 'memsmith-fresh-no-marker-'));
+    // The comment above says the mint "cannot reach a real Postgres". On a
+    // developer machine running the dogfood server it CAN: the handler resolved
+    // the local base DSN itself, minted successfully, and wrote a `projects` row
+    // into the live database. The temp dir is cleaned up; that row was not.
+    //
+    // Measured: 31 orphaned `memsmith-fresh-no-marker-*` projects accumulated in
+    // the dogfood database — one per full-suite run — and surfaced in the user's
+    // real project switcher, outnumbering their actual projects 2:1. The
+    // assertions passed either way, so the leak was invisible.
+    //
+    // Overriding MEMSMITH_SERVER_DATABASE_URL does NOT fix this:
+    // resolveLocalBaseDatabaseUrl reads process.env at call time and other suites
+    // mutate the same variable, so whether the mint fails depends on file
+    // ordering — it passed alone and failed in the full suite. The mint itself is
+    // now the injectable seam, which is deterministic.
     try {
       setContextDependenciesForTesting({
+        // Make the mint genuinely fail, so the degrade path under test is the
+        // path actually exercised, and no test can write to the developer's DB.
+        mintProjectIdentity: async () => null,
         loadFromFileOnce: () => ({}),
         getProjectContext: () => ({
           primary: 'memsmith',
@@ -189,6 +207,10 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       // unscoped form — which is the behaviour that must never throw.
       expect(ctx).toContain('📊 MemSmith dashboard:');
       expect(result.continue).not.toBe(false);
+      // The link must be UNSCOPED — that is the degrade behaviour under test.
+      // Asserting it also proves the mint really failed, so this test can no
+      // longer silently start writing to a live database again.
+      expect(ctx).not.toMatch(/\?project=/);
     } finally {
       rmSync(freshCwd, { recursive: true, force: true });
     }

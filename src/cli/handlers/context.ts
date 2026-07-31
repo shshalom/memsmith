@@ -26,10 +26,31 @@ import { INJECTED_DIRECTIVES } from '../../services/retrieval/directive.js';
 // them into a string the same way POST /v1/context does server-side.
 const SESSION_START_RECENT_LIMIT = 10;
 
+/**
+ * Mint this project's identity so the dashboard link can be scoped.
+ *
+ * Injectable because it WRITES: a successful mint inserts a `projects` row into
+ * the live local Postgres. A test exercising the degrade path ("identity cannot
+ * be minted") had no way to prevent that, so on any developer machine running
+ * the dogfood server the mint quietly succeeded and left a row behind — 31 of
+ * them accumulated, one per full-suite run, and surfaced in the user's real
+ * project switcher.
+ *
+ * Overriding the env DSN is not a fix: resolveLocalBaseDatabaseUrl reads
+ * process.env at call time, and other suites mutate the same variable, so the
+ * outcome depends on file ordering. The seam has to be the mint itself.
+ */
+async function defaultMintProjectIdentity(cwd: string): Promise<{ teamId: string; projectId: string } | null> {
+  const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
+    await import('./ensure-identity.js');
+  return ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
+}
+
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
   getProjectContext: defaultGetProjectContext,
   loadFromFileOnce: defaultLoadFromFileOnce,
+  mintProjectIdentity: defaultMintProjectIdentity,
 };
 
 let dependencies = defaultDependencies;
@@ -186,9 +207,7 @@ export const contextHandler: EventHandler = {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
       dashboardProjectId = readProjectMarker(cwd)?.projectId;
       if (!dashboardProjectId) {
-        const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
-          await import('./ensure-identity.js');
-        const minted = await ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
+        const minted = await dependencies.mintProjectIdentity(cwd);
         dashboardProjectId = minted?.projectId;
       }
     } catch { /* unscoped link is a fine fallback */ }
