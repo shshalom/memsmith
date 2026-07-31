@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from 'fs';
 import type { RouteHandler } from '../../services/server/Server.js';
 import { getPackageRoot } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
-import { buildLocalKeyCookie } from './local-key-cookie.js';
+import { buildLocalKeyCookie, readLocalKeyCookie } from './local-key-cookie.js';
 import {
   isLocalhost,
   hasLoopbackHostHeader,
@@ -101,8 +101,31 @@ export class ServerViewerRoutes implements RouteHandler {
           // whatever the request authenticates as — acts on the project the
           // user is actually looking at rather than the server's own.
           const requested = typeof req.query?.project === 'string' ? req.query.project : undefined;
-          const key = (await this.options.resolveLocalKey?.(requested)) ?? null;
-          if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+          // A BARE request must NOT overwrite an existing scoped cookie.
+          //
+          // Without ?project=, resolveLocalKey falls back to the SERVER's own
+          // project. Every plain `/` load — a refresh, a client-side route
+          // change, any navigation that drops the query string — therefore
+          // silently re-scoped the whole dashboard back to the server's project.
+          //
+          // Measured: visit /?project=<run2> and /v1/identity reports run2/team;
+          // one bare `/` load later it reports the dogfood/local. The sidebar
+          // still said "ms-p3-run2 · Team" while the Runtime tile showed the
+          // DOGFOOD's runtime — two panels describing different projects.
+          //
+          // Worse than a display bug: the Go Team wizard converts whatever the
+          // request authenticates as, so a bare reload before pressing GO TEAM
+          // would have aimed it at the server's project instead of the one on
+          // screen. That is the convert-scope leak again, reachable from the UI.
+          //
+          // An explicit ?project= still wins — that is a deliberate switch.
+          const existing = readLocalKeyCookie(req.headers?.cookie);
+          if (!requested && existing) {
+            // Keep the caller's current scope; issue nothing.
+          } else {
+            const key = (await this.options.resolveLocalKey?.(requested)) ?? null;
+            if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+          }
         } catch (error) {
           logger.warn('SYSTEM', 'could not resolve local key for viewer cookie', {},
             error instanceof Error ? error : new Error(String(error)));
