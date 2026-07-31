@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { V1_ENDPOINTS } from '../constants/api.js';
+import { readProjectParam } from './projectScope.js';
 
 export interface IdentityPayload {
   teamId: string;
@@ -13,7 +14,17 @@ export interface IdentityPayload {
 
 export async function fetchIdentity(reveal?: boolean): Promise<IdentityPayload | null> {
   try {
-    const url = reveal ? `${V1_ENDPOINTS.IDENTITY}?reveal=true` : V1_ENDPOINTS.IDENTITY;
+    // Carry the project from the URL. The server now treats the REQUEST as
+    // authoritative for scope (verified against the key's entitlement), so the
+    // answer no longer depends on whichever key last landed in the cookie. Without
+    // this the viewer would still be asking "what project is my credential for?"
+    // instead of "what project am I looking at?".
+    const project = typeof location !== 'undefined' ? readProjectParam(location.search) : '';
+    const params = new URLSearchParams();
+    if (reveal) params.set('reveal', 'true');
+    if (project) params.set('projectId', project);
+    const qs = params.toString();
+    const url = qs ? `${V1_ENDPOINTS.IDENTITY}?${qs}` : V1_ENDPOINTS.IDENTITY;
     // credentials:'include' is REQUIRED. /v1/identity authenticates via the
     // viewer's project cookie; without it the browser sends nothing and the
     // route answers 401 "Missing API key". Every other identity caller in the

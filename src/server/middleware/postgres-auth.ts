@@ -90,6 +90,7 @@ import {
   parseBearerToken,
 } from './request-auth-helpers.js';
 import { readLocalKeyCookie } from '../runtime/local-key-cookie.js';
+import { resolveRequestedProject } from './resolve-requested-project.js';
 import { logger } from '../../utils/logger.js';
 import { resolveIdentityProvider } from '../identity/provider-factory.js';
 
@@ -278,11 +279,40 @@ async function authenticatePostgresRequest(
     }
   }
 
+  // WHICH PROJECT is a property of the REQUEST; WHO YOU ARE is a property of the
+  // credential. Deriving projectId solely from the api_keys row conflated them,
+  // so "which project am I viewing" was decided by whichever key happened to sit
+  // in the loopback cookie — and a bare page load reissues that cookie with the
+  // SERVER's project key, silently re-scoping the whole dashboard mid-session.
+  //
+  // The request may only NARROW to a project the key already reaches;
+  // resolveRequestedProject verifies entitlement and fails closed. Without that
+  // check `?projectId=` would be a scope-escalation vector.
+  const requestedProject =
+    (typeof (req as any).query?.projectId === 'string' && (req as any).query.projectId)
+    || (typeof (req as any).query?.project === 'string' && (req as any).query.project)
+    || (typeof (req as any).body?.projectId === 'string' && (req as any).body.projectId)
+    || undefined;
+  const scope = await resolveRequestedProject(pool, {
+    requested: requestedProject,
+    keyProjectId: verified.projectId,
+    keyTeamId: verified.teamId,
+  });
+  if (scope.source === 'denied') {
+    // An authorization event, not a routine miss: something asked for a project
+    // this key cannot reach. Logged rather than 403'd because the request still
+    // has a valid scope (the key's own) and refusing outright would break
+    // clients that append a stale project param.
+    logger.warn('SYSTEM', 'refused out-of-scope project request', {
+      requested: String(requestedProject), keyProjectId: verified.projectId, teamId: verified.teamId,
+    });
+  }
+
   const ctx: AuthContext = {
     userId,
     organizationId: null,
     teamId: verified.teamId,
-    projectId: verified.projectId,
+    projectId: scope.projectId,
     scopes: verified.scopes,
     apiKeyId: verified.apiKeyId,
     mode: 'api-key',
