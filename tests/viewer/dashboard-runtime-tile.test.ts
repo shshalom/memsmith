@@ -31,7 +31,7 @@ const REPO = join(import.meta.dir, '..', '..');
  * guards below assert the two copies stay in step.
  */
 function runtimeTile(runtime: string | null): { n: string; hint: string } {
-  if (runtime === 'server' || runtime === 'server-beta') {
+  if (runtime === 'team' || runtime === 'server' || runtime === 'server-beta') {
     return { n: 'team', hint: 'shared Postgres · team workspace' };
   }
   if (runtime === 'local') {
@@ -43,6 +43,33 @@ function runtimeTile(runtime: string | null): { n: string; hint: string } {
 describe('dashboard Runtime tile', () => {
   it('reads "team" for a converted project', () => {
     expect(runtimeTile('server').n).toBe('team');
+  });
+
+  it('accepts the literal /v1/identity ACTUALLY returns: "team"', () => {
+    // THE BUG THIS FILE MISSED. The mapping listed only server/server-beta,
+    // written when the tile read /v1/info. Repointing it at /v1/identity — which
+    // reports per-project and was the right move — silently broke it: 'team' fell
+    // through to the unknown branch and the tile read "— runtime unavailable" on a
+    // correctly converted project, reported three times by the user.
+    //
+    // The test passed throughout because it asserted MY assumption about the
+    // wire format instead of the format the endpoint declares. IdentityPayload's
+    // runtime is typed 'local' | 'team' (identity-payload.ts:35) — 'server' is
+    // not a value it can ever produce.
+    expect(runtimeTile('team').n).toBe('team');
+  });
+
+  it('pins the payload contract, so a repoint cannot silently break it again', async () => {
+    // Read the declared type rather than trusting a comment: if the server ever
+    // renames these literals, this fails instead of the tile going blank.
+    const { readFileSync } = await import('fs');
+    const src = readFileSync(join(REPO, 'src/server/routes/v1/identity-payload.ts'), 'utf-8');
+    const declared = src.match(/runtime:\s*([^;]+);/)?.[1] ?? '';
+    for (const literal of declared.split('|').map(s => s.trim().replace(/'/g, ''))) {
+      if (!literal) continue;
+      // Every value the payload can carry must map to a real label, never "—".
+      expect(runtimeTile(literal).n).not.toBe('—');
+    }
   });
 
   it('treats the legacy server-beta literal as team, not as a raw label', () => {

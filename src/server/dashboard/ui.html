@@ -222,7 +222,9 @@
   // database, dashboard still said "local". /v1/info knew the whole time.
   let RUNTIME = null;
   function runtimeTile(){
-    if (RUNTIME === 'server' || RUNTIME === 'server-beta') {
+    // 'team' is what /v1/identity returns (its type is 'local' | 'team').
+    // server/server-beta are the /v1/info literals, kept for tolerance.
+    if (RUNTIME === 'team' || RUNTIME === 'server' || RUNTIME === 'server-beta') {
       return { n: 'team', l: 'Runtime', hint: 'shared Postgres · team workspace' };
     }
     if (RUNTIME === 'local') {
