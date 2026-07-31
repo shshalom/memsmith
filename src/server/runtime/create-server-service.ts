@@ -12,6 +12,9 @@ import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
 import {
+  listProjectTargets, sweepAllProjects,
+} from './multi-project-recovery.js';
+import {
   DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
   requeueDrainedJobs, resolveQueueConcurrency,
 } from './generation-drain.js';
@@ -324,6 +327,71 @@ export async function createServerService(
         const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
         try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
       };
+
+      // EVERY OTHER PROJECT. All the sweeps above take a single pool and were
+      // handed the BASE pool, so when projects moved to per-project `msp_<id>`
+      // databases they silently became partial: still running, still logging
+      // success, covering only the dogfood.
+      //
+      // Measured on a fresh install: 26 agent_events captured, 27 jobs created,
+      // 1 completed, 26 stuck 'queued' with nothing able to see them. The only
+      // observations that appeared were a memory_gap and a user_note — both
+      // DIRECT inserts that bypass generation — which is why the project looked
+      // half-alive rather than broken.
+      //
+      // Worse than the stranding bug it descends from: that was a one-time
+      // backlog; this hits every project the user creates from here on.
+      if (poolRegistry) {
+        try {
+          const targets = await listProjectTargets(pool, { baseProjectId: localDevProjectId });
+          if (targets.length > 0) {
+            const getPool = async (t: { projectId: string; teamId: string; databaseName: string }) => {
+              try {
+                return await poolRegistry.registry.getPool(t.databaseName, {
+                  teamId: t.teamId, projectId: t.projectId,
+                });
+              } catch { return null; }
+            };
+            // Same order as the base sweep: reclaim locks and transient failures
+            // FIRST, so the drain below can see rows they return to 'queued'.
+            const locks = await sweepAllProjects(targets, {
+              getPool,
+              sweep: (p: unknown) => reclaimStaleLocks(p as never),
+            });
+            const sessions = await sweepAllProjects(targets, {
+              getPool,
+              sweep: (p: unknown) => reclaimStaleSessionGeneration(p as never),
+            });
+            const transient = await sweepAllProjects(targets, {
+              getPool,
+              sweep: (p: unknown) => reclaimTransientFailures(p as never),
+            });
+            const requeued = await sweepAllProjects(targets, {
+              getPool,
+              sweep: async (p: unknown) => {
+                const jobs = await loadQueuedJobsForDrain(p as never, { batchSize: DEFAULT_DRAIN_BATCH });
+                if (jobs.length === 0) return 0;
+                // Recovery lane: a per-project backlog must not outrank the
+                // observation the user is generating right now.
+                const r = await requeueDrainedJobs(jobs, { resolveQueue });
+                return r.requeued;
+              },
+            });
+            // Log unconditionally when there were projects to sweep: the entire
+            // failure mode here was silence.
+            logger.info('SYSTEM', 'multi-project recovery sweep', {
+              projects: targets.length,
+              locksReclaimed: locks.total,
+              sessionsReclaimed: sessions.total,
+              transientRequeued: transient.total,
+              jobsRequeued: requeued.total,
+              projectsFailed: requeued.projectsFailed,
+            });
+          }
+        } catch {
+          // Never blocks boot; the next start retries.
+        }
+      }
 
       // Keep draining until the backlog is gone, rather than loading one batch
       // and stopping. A single 500-job batch recovers 7% of a 6,917-job backlog
