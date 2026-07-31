@@ -206,6 +206,14 @@ export async function reclaimTransientFailures(
 /** Minimal shape of the queue a drained job is published back into. */
 export interface RequeueTarget {
   add: (jobId: string, payload: unknown) => Promise<void>;
+  /**
+   * Enqueue at BACKGROUND priority, when the queue supports lanes.
+   *
+   * Optional: only the inline (local-runtime) queue distinguishes live capture
+   * from backlog replay. BullMQ deployments run recovery on separate workers, so
+   * they fall back to `add` with no loss.
+   */
+  addRecovery?: (jobId: string, payload: unknown) => Promise<void>;
 }
 
 export interface RequeueDeps {
@@ -241,7 +249,17 @@ export async function requeueDrainedJobs(
       const queue = deps.resolveQueue(kind);
       // No queue (disabled adapter) or no payload to replay → leave it queued.
       if (!queue || job.payload == null) { skipped += 1; continue; }
-      await queue.add(job.bullmqJobId ?? job.id, job.payload);
+      // RECOVERY LANE, not the live lane. This is backlog replay: it must never
+      // compete with an observation from the session the user is in right now.
+      // Routing it through add() meant a 500-job batch sat ahead of the user's
+      // own work in one shared pool — measured throughput on live capture fell
+      // from 368/hr to 35/hr while old jobs drained.
+      //
+      // addRecovery is optional on the interface because BullMQ has no lane
+      // split; when it is absent the old behaviour applies, which is correct for
+      // a multi-process deployment where recovery runs on its own workers anyway.
+      const enqueue = queue.addRecovery ?? queue.add;
+      await enqueue.call(queue, job.bullmqJobId ?? job.id, job.payload);
       requeued += 1;
     } catch {
       // One bad job must not cost the rest of the backlog.

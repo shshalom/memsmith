@@ -28,11 +28,24 @@ import type { RedisQueueConfig } from '../queue/redis-config.js';
 // only. Do not treat completed/failed Worker state as authoritative.
 
 export interface ServerJobCounts {
+  /** LIVE lane only — observations from the session the user is in right now. */
   waiting: number;
   active: number;
   delayed: number;
   failed: number;
   completed: number;
+  /**
+   * Backlog lane depth, reported separately.
+   *
+   * Optional because BullMQ has no equivalent split; only the inline queue
+   * distinguishes lanes. Keeping it out of `waiting` is deliberate: a single
+   * blended figure gave no way to tell the user's own pending work from
+   * two-week-old backlog, and "queued: 500" reads as a problem when 477 of them
+   * are recovery that is supposed to take its time.
+   */
+  waitingRecovery?: number;
+  /** How many active jobs are backlog rather than live. */
+  activeRecovery?: number;
 }
 
 // Phase 12 — runtime stalled counter. BullMQ doesn't expose a stalled counter

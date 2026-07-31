@@ -335,12 +335,27 @@ export async function createServerService(
       let totalRequeued = 0;
       await runContinuousDrain({
         batchSize: DEFAULT_DRAIN_BATCH,
-        // InlineServerQueue has no size(), but its internal waiting[] is what
-        // getCounts() reports. Reading it directly keeps this synchronous — the
-        // drain loop checks depth on every iteration and must not await here.
+        // Depth of the RECOVERY lane, not the live lane.
+        //
+        // getWaitingCount() is live-capture only now that the queue has two
+        // lanes, so reading it here would report 0 almost always and the drain
+        // would refill on every poll — handing a slow local model the entire
+        // backlog, which is the original stranding bug at a larger scale.
+        // getRecoveryWaitingCount() is the figure this loop is actually pacing.
+        //
+        // Kept synchronous: the loop checks depth every iteration and must not
+        // await. Falls back to the live count for queues without lanes.
         queueDepth: () => {
-          const mgr = queueManager as { getQueue?: (k: string) => { getWaitingCount?: () => number } };
-          try { return mgr.getQueue?.('event')?.getWaitingCount?.() ?? 0; } catch { return 0; }
+          const mgr = queueManager as {
+            getQueue?: (k: string) => {
+              getRecoveryWaitingCount?: () => number;
+              getWaitingCount?: () => number;
+            };
+          };
+          try {
+            const q = mgr.getQueue?.('event');
+            return q?.getRecoveryWaitingCount?.() ?? q?.getWaitingCount?.() ?? 0;
+          } catch { return 0; }
         },
         sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
         isClosed: () => false,
