@@ -215,12 +215,28 @@
   };
   const BADGE = { blocked:'b-blocked', open:'b-open', deferred:'b-deferred' };
 
+  // The Runtime tile used to be the literal string 'local'. It never read
+  // anything, so it said "local" on a team install too — accidentally correct
+  // until someone ran Go Team, which is exactly when the answer matters.
+  // Live report: marker said runtime=server, rows were verifiably on the shared
+  // database, dashboard still said "local". /v1/info knew the whole time.
+  let RUNTIME = null;
+  function runtimeTile(){
+    if (RUNTIME === 'server' || RUNTIME === 'server-beta') {
+      return { n: 'team', l: 'Runtime', hint: 'shared Postgres · team workspace' };
+    }
+    if (RUNTIME === 'local') {
+      return { n: 'local', l: 'Runtime', hint: 'embedded Postgres · no Docker' };
+    }
+    // Unknown: say so rather than guessing 'local'.
+    return { n: '—', l: 'Runtime', hint: 'runtime unavailable' };
+  }
   function renderKpis(m){
     const items = [
       { n: fmt(m.total), l: 'Memories', hint: 'observations stored', accent: true },
       { n: fmt(m.decisions), l: 'Decisions', hint: 'reasoning recorded' },
       { n: Math.round(m.embeddedPct*100)+'%', l: 'Embedded', hint: 'semantic-searchable' },
-      { n: 'local', l: 'Runtime', hint: 'embedded Postgres · no Docker' },
+      runtimeTile(),
     ];
     $('kpis').innerHTML = items.map(k =>
       `<div class="kpi"><div class="n ${k.accent?'accent':''}">${esc(k.n)}</div><div class="l">${esc(k.l)}</div><div class="hint">${esc(k.hint)}</div></div>`
@@ -269,6 +285,9 @@
   }
 
   async function load(){
+    // Resolve the runtime BEFORE the first render, so the tile is never briefly
+    // wrong. Failure leaves it null and the tile reads "—".
+    try { RUNTIME = (await j('/v1/info')).runtime ?? null; } catch { RUNTIME = null; }
     try {
       const m = await j(apiUrl('/dashboard/metrics'));
       $('sub').innerHTML = `<b>${fmt(m.total)}</b> memories · <b>${m.byType.length}</b> types · <b>${fmt(m.decisions)}</b> decisions`;
