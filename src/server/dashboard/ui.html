@@ -287,7 +287,12 @@
   async function load(){
     // Resolve the runtime BEFORE the first render, so the tile is never briefly
     // wrong. Failure leaves it null and the tile reads "—".
-    try { RUNTIME = (await j('/v1/info')).runtime ?? null; } catch { RUNTIME = null; }
+    //
+    // /v1/IDENTITY, not /v1/info: info reports the SERVER's runtime — one value
+    // for the whole process — so once any project converted, every project's tile
+    // read "team", including still-local ones. identity resolves the requested
+    // project's own marker.
+    try { RUNTIME = (await j('/v1/identity')).runtime ?? null; } catch { RUNTIME = null; }
     try {
       const m = await j(apiUrl('/dashboard/metrics'));
       $('sub').innerHTML = `<b>${fmt(m.total)}</b> memories · <b>${m.byType.length}</b> types · <b>${fmt(m.decisions)}</b> decisions`;
