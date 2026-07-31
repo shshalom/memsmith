@@ -1668,24 +1668,41 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           teamId: input.teamId,
         });
         try {
-          // The team key for the destination. Reuse this team's existing key when
-          // there is one, else mint against the remote. Minting seeds the
-          // destination team+project first so the api_keys FK holds on a fresh DB.
-          const existingKey = credStore.resolveKeyForTeam(input.teamId);
-          const apiKey = existingKey ?? await (async () => {
-            const cfg = parsePostgresConfig({
-              env: { MEMSMITH_SERVER_DATABASE_URL: input.databaseUrl } as NodeJS.ProcessEnv,
-            });
-            if (!cfg) throw new Error('invalid databaseUrl for key mint');
-            const remotePool = createPostgresPool(cfg);
-            try {
-              await bootstrapServerPostgresSchema(remotePool);
-              await upsertTeamAndProject(remotePool, input.teamId, input.projectId);
-              return await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
-            } finally {
-              await remotePool.end();
-            }
-          })();
+          // Prepare the destination, THEN resolve the key.
+          //
+          // These two used to share a branch: bootstrap + team/project upsert
+          // lived inside the else-arm of `existingKey ?? ...`, so schema creation
+          // silently depended on whether this machine happened to hold a cached
+          // credential for the destination team — two entirely unrelated concerns.
+          //
+          // With a key cached, the whole block was skipped and the copy ran
+          // against a database with zero tables. It worked exactly once: a
+          // first-ever convert from a machine that had never held the team key,
+          // which is the demo path. A RETRY fails (the first attempt cached the
+          // key), and so does any machine that already joined this team. Measured
+          // on the live rig: key cached, destination at 0 tables.
+          //
+          // bootstrapServerPostgresSchema is idempotent by design (every step is
+          // IF NOT EXISTS, version markers are ON CONFLICT DO NOTHING), and
+          // upsertTeamAndProject is likewise — so running both unconditionally is
+          // free, and it is what the route comment above already promised.
+          const cfg = parsePostgresConfig({
+            env: { MEMSMITH_SERVER_DATABASE_URL: input.databaseUrl } as NodeJS.ProcessEnv,
+          });
+          if (!cfg) throw new Error('invalid databaseUrl for convert');
+          const remotePool = createPostgresPool(cfg);
+          let apiKey: string;
+          try {
+            await bootstrapServerPostgresSchema(remotePool);
+            // `projects` is the first COPY_TABLES entry and every other copied
+            // table FKs to it, so the destination needs the team+project rows
+            // before the copy regardless of how the key was obtained.
+            await upsertTeamAndProject(remotePool, input.teamId, input.projectId);
+            apiKey = credStore.resolveKeyForTeam(input.teamId)
+              ?? await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
+          } finally {
+            await remotePool.end();
+          }
 
           const serverUrl = deriveServerUrl(input.databaseUrl);
           const result = await runConvert({ copyDeps: deps }, { ...input, serverUrl, apiKey });
