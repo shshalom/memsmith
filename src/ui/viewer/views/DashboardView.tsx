@@ -46,12 +46,42 @@ const REASON_BADGE: Record<string, { cls: string; label: string }> = {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function KpiHero({ m }: { m: Metrics }) {
+/**
+ * The Runtime tile.
+ *
+ * This was the literal string 'local' with the hint 'embedded Postgres · no
+ * Docker'. It never read anything, so it displayed "local" on a team install
+ * too — and it was accidentally correct right up until someone ran Go Team,
+ * which is exactly the moment the answer matters.
+ *
+ * Reported live: a project whose marker said runtime=server, whose rows were
+ * verifiably on the shared database, still showed "local" on the dashboard. The
+ * wizard said "This project is now in Team mode" and the dashboard contradicted
+ * it, with the dashboard being wrong.
+ *
+ * `/v1/info` already returned the truth (`runtime: 'server-beta'`) the whole
+ * time — the data was one fetch away.
+ */
+function runtimeTile(runtime: string | null): { n: string; l: string; hint: string; accent: boolean } {
+  // 'server-beta' is the legacy literal for the server runtime; treat both as
+  // team so the tile does not read "server-beta" at the user.
+  if (runtime === 'server' || runtime === 'server-beta') {
+    return { n: 'team', l: 'Runtime', hint: 'shared Postgres · team workspace', accent: false };
+  }
+  if (runtime === 'local') {
+    return { n: 'local', l: 'Runtime', hint: 'embedded Postgres · no Docker', accent: false };
+  }
+  // Unknown/unreachable: say so rather than guessing 'local'. Claiming a runtime
+  // we could not read is what made this tile misleading in the first place.
+  return { n: '—', l: 'Runtime', hint: 'runtime unavailable', accent: false };
+}
+
+function KpiHero({ m, runtime }: { m: Metrics; runtime: string | null }) {
   const cards = [
     { n: m.total.toLocaleString(), l: 'Memories', hint: 'observations stored', accent: true },
     { n: m.decisions.toLocaleString(), l: 'Decisions', hint: 'reasoning recorded', accent: false },
     { n: Math.round(m.embeddedPct * 100) + '%', l: 'Embedded', hint: 'semantic-searchable', accent: false },
-    { n: 'local', l: 'Runtime', hint: 'embedded Postgres · no Docker', accent: false },
+    runtimeTile(runtime),
   ];
   return (
     <div className="dash-kpis">
@@ -335,6 +365,7 @@ export function DashboardView() {
   const [notes, setNotes] = useState<UserNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -359,6 +390,16 @@ export function DashboardView() {
     // Spend loads separately — ccusage can take ~2s, so it shouldn't block the
     // rest of the dashboard; it fills in when ready.
     fetchDashboard('spend').then(s => { if (!cancelled) setSpend(dataOrNull(s) as Spend | null); }).catch(() => {});
+    // Runtime comes from /v1/info, which is the only party that actually knows.
+    // Loaded separately and non-blocking: an unreachable server must leave the
+    // tile reading "—", never a fabricated "local".
+    fetch('/v1/info')
+      .then(r => (r.ok ? r.json() : null))
+      .then((info: { runtime?: unknown } | null) => {
+        if (cancelled) return;
+        setRuntime(typeof info?.runtime === 'string' ? info.runtime : null);
+      })
+      .catch(() => { /* tile shows "runtime unavailable" */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -368,7 +409,7 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-view">
-      <KpiHero m={metrics} />
+      <KpiHero m={metrics} runtime={runtime} />
       <div className="dash-grid">
         <WorkInFlight work={metrics.work} />
         <Composition byType={metrics.byType} />
