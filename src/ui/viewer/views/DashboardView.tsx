@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchDashboard, isUnauthorized, dataOrNull } from '../utils/serverData';
+import { fetchIdentity } from '../utils/settingsData.js';
 
 // Shown instead of the generic load failure when the server rejected our
 // credentials, so an auth problem does not read as missing data.
@@ -390,14 +391,25 @@ export function DashboardView() {
     // Spend loads separately — ccusage can take ~2s, so it shouldn't block the
     // rest of the dashboard; it fills in when ready.
     fetchDashboard('spend').then(s => { if (!cancelled) setSpend(dataOrNull(s) as Spend | null); }).catch(() => {});
-    // Runtime comes from /v1/info, which is the only party that actually knows.
-    // Loaded separately and non-blocking: an unreachable server must leave the
-    // tile reading "—", never a fabricated "local".
-    fetch('/v1/info')
-      .then(r => (r.ok ? r.json() : null))
-      .then((info: { runtime?: unknown } | null) => {
+    // Runtime comes from /v1/IDENTITY, which reports THIS PROJECT's runtime.
+    //
+    // My first version read /v1/info — that is the SERVER's runtime, one value
+    // for the whole process ('server-beta' whenever the server runtime is up).
+    // So after one project converted, every project's tile read "team",
+    // including the still-local dogfood. Reported immediately: switching to the
+    // MemSmith project showed "team" when it is local.
+    //
+    // /v1/identity resolves runtime from the requested project's own marker via
+    // its recorded path (see settingsRoutes: "never from the server's cwd"), and
+    // the viewer's project cookie scopes the request — the same source Settings
+    // already uses to gate the GO TEAM button, so the two cannot disagree.
+    //
+    // Non-blocking: an unreachable server must leave the tile reading "—", never
+    // a fabricated "local".
+    fetchIdentity()
+      .then(id => {
         if (cancelled) return;
-        setRuntime(typeof info?.runtime === 'string' ? info.runtime : null);
+        setRuntime(id && typeof id.runtime === 'string' ? id.runtime : null);
       })
       .catch(() => { /* tile shows "runtime unavailable" */ });
     return () => { cancelled = true; };

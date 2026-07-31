@@ -3609,6 +3609,22 @@
       background: var(--settings-teal-hover);
     }
 
+    /* Scope notice on the Context pane in team mode. The context keys write to
+       ~/.memsmith/settings.json (per-machine); team overrides cover a disjoint
+       set (provider, model, search, cost caps). Users reasonably assume
+       everything under Settings follows the project into team mode, so the
+       boundary has to be stated rather than left implicit. */
+    .settings-note--scope {
+      margin: 0 0 16px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid color-mix(in srgb, var(--settings-teal) 30%, transparent);
+      background: color-mix(in srgb, var(--settings-teal) 8%, transparent);
+      color: var(--settings-text, inherit);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     /* Shown in place of GO TEAM once a project is already in team mode. Reads as
        a state, not an action, so it is not mistaken for a button. */
     .settings-badge--team {

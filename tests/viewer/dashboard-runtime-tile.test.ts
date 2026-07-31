@@ -88,9 +88,25 @@ describe('both dashboards read the runtime instead of hardcoding it', () => {
       expect(cardArray).not.toMatch(/l:\s*'Runtime'/);
     });
 
-    it(`${rel} sources the runtime from /v1/info`, () => {
+    it(`${rel} sources the runtime PER PROJECT, not from the server`, () => {
       const src = readFileSync(join(REPO, rel), 'utf-8');
-      expect(src).toContain('/v1/info');
+      // My first fix read /v1/info — the SERVER's runtime, ONE value for the
+      // whole process ('server-beta' whenever the server runtime is up). So the
+      // moment any single project converted, EVERY project's tile read "team",
+      // including the still-local dogfood. Reported immediately by the user.
+      //
+      // /v1/identity resolves the requested project's own marker and is scoped by
+      // the viewer's project cookie — the same source Settings uses to gate the
+      // GO TEAM button, so the two views cannot disagree.
+      expect(src).toMatch(/v1\/identity|fetchIdentity/);
+      // The server-wide endpoint must not FEED this tile. Checked against code
+      // lines only — the comments here deliberately mention /v1/info to explain
+      // why it is the wrong source, and a naive substring check flags those.
+      const feedsFromInfo = src
+        .split('\n')
+        .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .some(line => line.includes('/v1/info') && /runtime|RUNTIME/i.test(line));
+      expect(feedsFromInfo).toBe(false);
     });
   }
 });
