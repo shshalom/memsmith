@@ -1656,6 +1656,60 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     const credStore = new CredentialStore();
     registerConvertRoutes(app, {
       authMiddleware: [...writeAuth, requireRole('owner')],
+      // Joining is what a NON-owner does, so it must not require owner —
+      // otherwise only the person who already has the workspace could join it.
+      // Possession of the team key is the authorization, verified against the
+      // remote's api_keys by runJoin.
+      joinAuthMiddleware: writeAuth,
+      join: async (input) => {
+        const { runJoin } = await import('../../convert/join-service.js');
+        const result = await runJoin({
+          connect: async (databaseUrl) => {
+            const cfg = parsePostgresConfig({
+              env: { MEMSMITH_SERVER_DATABASE_URL: databaseUrl } as NodeJS.ProcessEnv,
+            });
+            if (!cfg) throw new Error('invalid database URL');
+            return createPostgresPool(cfg) as never;
+          },
+          // Same hash the api_keys table stores, so the lookup can match.
+          hashKey: (raw) => createHash('sha256').update(raw).digest('hex'),
+          deriveServerUrl,
+          bootstrapSchema: (p) => bootstrapServerPostgresSchema(p as never),
+          upsertProject: (p, teamId, projectId, name) =>
+            upsertTeamAndProject(p as never, teamId, projectId, name),
+        }, input);
+
+        // Apply locally on success, exactly as convert does: cache the team's
+        // key and flip this project's marker. applyConvertJoin independently
+        // refuses if the marker at that path belongs to a different project, and
+        // writes the key BEFORE the marker so the project is never in team mode
+        // without a resolvable credential.
+        if (result.status === 'joined' && result.join) {
+          try {
+            const pathRow = await this.options.pool.query(
+              'SELECT metadata FROM projects WHERE id = $1', [input.projectId],
+            );
+            const meta = (pathRow.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+            const projectPath = meta?.[PROJECT_PATH_KEY];
+            if (typeof projectPath === 'string' && projectPath.trim()) {
+              applyConvertJoin(
+                {
+                  readProjectMarker: readProjectMarkerForRuntime,
+                  writeProjectRuntime,
+                  storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                },
+                projectPath,
+                result.join,
+              );
+            }
+          } catch {
+            // The join itself succeeded remotely; a local apply failure is
+            // recoverable on the next session rather than a reason to report
+            // the whole join as failed.
+          }
+        }
+        return result;
+      },
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
       // Reuses the probe's connection deps: the same credentials that diagnosed
       // the gap are the ones that must be able to close it.

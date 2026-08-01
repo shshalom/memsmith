@@ -40,11 +40,17 @@ export default function InviteCard({ baseKey, onNext, onBack }: InviteCardProps)
       <div className="wizard-invite-steps">
         <h3 className="wizard-invite-steps-title">How teammates join</h3>
         <ol className="wizard-invite-list">
+          {/* These steps previously said to run
+              `memsmith join --key <k> --url <u>` — a command that does not exist
+              in the CLI, so every teammate following them hit "unknown command".
+              Joining now happens in the dashboard, on the Runtime tile, which is
+              also where they can see which mode they are in. */}
           <li>Install MemSmith on their machine.</li>
+          <li>Open their MemSmith dashboard.</li>
           <li>
-            Run <code>memsmith join --key &lt;base-key&gt; --url &lt;postgres-url&gt;</code>
+            Press <strong>Join</strong> on the <strong>Runtime</strong> tile, then paste
+            the key above and the database URL.
           </li>
-          <li>Sign in at <code>/api/auth</code> in their local viewer.</li>
           <li>Their observations will be scoped to this team automatically.</li>
         </ol>
       </div>
