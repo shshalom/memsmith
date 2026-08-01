@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchDashboard, isUnauthorized, dataOrNull } from '../utils/serverData';
 import { fetchIdentity } from '../utils/settingsData.js';
+import { JoinTeamModal } from '../components/JoinTeamModal.js';
 
 // Shown instead of the generic load failure when the server rejected our
 // credentials, so an auth problem does not read as missing data.
@@ -88,18 +89,28 @@ function runtimeTile(runtime: string | null): { n: string; l: string; hint: stri
   return { n: '—', l: 'Runtime', hint: 'runtime unavailable', accent: false };
 }
 
-function KpiHero({ m, runtime }: { m: Metrics; runtime: string | null }) {
+function KpiHero({ m, runtime, onJoin }: { m: Metrics; runtime: string | null; onJoin: () => void }) {
   const cards = [
     { n: m.total.toLocaleString(), l: 'Memories', hint: 'observations stored', accent: true },
     { n: m.decisions.toLocaleString(), l: 'Decisions', hint: 'reasoning recorded', accent: false },
     { n: Math.round(m.embeddedPct * 100) + '%', l: 'Embedded', hint: 'semantic-searchable', accent: false },
     runtimeTile(runtime),
   ];
+  // Joining belongs ON the Runtime tile, not buried in Settings: the tile is
+  // already where you look to see which mode you are in, so it is where you
+  // reach when you want to change it. Offered only on a LOCAL project — a
+  // project already in team mode has nothing to join.
+  const canJoin = runtime === 'local';
   return (
     <div className="dash-kpis">
       {cards.map((k, i) => (
         <div className="dash-kpi" key={k.l} style={{ animationDelay: `${0.03 + i * 0.06}s` }}>
-          <div className={`dash-kpi-n${k.accent ? ' dash-kpi-n--accent' : ''}`}>{k.n}</div>
+          <div className="dash-kpi-top">
+            <div className={`dash-kpi-n${k.accent ? ' dash-kpi-n--accent' : ''}`}>{k.n}</div>
+            {k.l === 'Runtime' && canJoin && (
+              <button type="button" className="dash-kpi-action" onClick={onJoin}>Join</button>
+            )}
+          </div>
           <div className="dash-kpi-l">{k.l}</div>
           <div className="dash-kpi-hint">{k.hint}</div>
         </div>
@@ -378,6 +389,7 @@ export function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<string | null>(null);
+  const [joinOpen, setJoinOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -432,7 +444,14 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-view">
-      <KpiHero m={metrics} runtime={runtime} />
+      <JoinTeamModal
+        open={joinOpen}
+        onClose={() => setJoinOpen(false)}
+        // Reload rather than patching state: joining changes the runtime, the
+        // credential, and every scoped read on the page at once.
+        onJoined={() => location.reload()}
+      />
+      <KpiHero m={metrics} runtime={runtime} onJoin={() => setJoinOpen(true)} />
       <div className="dash-grid">
         <WorkInFlight work={metrics.work} />
         <Composition byType={metrics.byType} />
