@@ -57,10 +57,21 @@ describe('Join is offered on the Runtime tile', () => {
     expect(dash).toMatch(/k\.l === 'Runtime'/);
   });
 
-  it('offers it ONLY on a local project', () => {
-    // A project already in team mode has nothing to join; showing the button
-    // there is the same mistake as leaving GO TEAM visible after converting.
-    expect(dash).toMatch(/canJoin\s*=\s*runtime === 'local'/);
+  it('gates the action through canJoinFromIdentity, not a runtime literal', () => {
+    // This case previously asserted `canJoin = runtime === 'local'`, and that
+    // assertion encoded an assumption of mine that was exactly backwards:
+    //
+    //   LOCAL -> no team exists yet, so there is nothing to join. The local
+    //            route to a team is GO TEAM (convert), in Settings.
+    //   TEAM  -> a workspace exists and a NEW MEMBER can join it; the OWNER is
+    //            already in by construction.
+    //
+    // So the old gating showed the button where there was nothing to join and
+    // hid it where joining is the point. The WHEN now lives in
+    // canJoinFromIdentity, covered directly by join-button-team-mode.test.ts;
+    // this file keeps asserting WHERE it renders.
+    expect(dash).not.toMatch(/canJoin\s*=\s*runtime === 'local'/);
+    expect(dash).toContain('canJoinFromIdentity');
   });
 
   it('mounts the join modal', () => {

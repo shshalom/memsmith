@@ -89,7 +89,39 @@ function runtimeTile(runtime: string | null): { n: string; l: string; hint: stri
   return { n: '—', l: 'Runtime', hint: 'runtime unavailable', accent: false };
 }
 
-function KpiHero({ m, runtime, onJoin }: { m: Metrics; runtime: string | null; onJoin: () => void }) {
+/**
+ * Should the Runtime tile offer Join?
+ *
+ * The rule, from the product owner:
+ *
+ *   "when project is on local mode (Not team) - there's nothing to join to.
+ *    the moment the project gets converted to team, the join button should
+ *    appear to new members (not to the owner - the owner is by nature already in)"
+ *
+ *   LOCAL -> no team exists yet. Nothing to join. The local route to a team is
+ *            GO TEAM (convert), which lives in Settings.
+ *   TEAM  -> a workspace exists; a NEW MEMBER on this machine can join it. The
+ *            OWNER is already in it by construction.
+ *
+ * This was previously `runtime === 'local'`, which is the exact inverse: it
+ * showed the button where there was nothing to join and hid it where joining is
+ * the whole point. That gating was an assumption of mine, not a requirement —
+ * the mockup always showed the button on the tile reading "Team".
+ *
+ * Exported so the rule can be tested directly; the tile only renders it.
+ */
+export function canJoinFromIdentity(runtime: string | null, role: string | null): boolean {
+  // Same normalisation the runtime tile uses. /v1/identity says 'team', while
+  // the marker and older responses say 'server'/'server-beta'; if this gate
+  // disagreed with the tile the button would appear on some team projects only.
+  const isTeam = runtime === 'team' || runtime === 'server' || runtime === 'server-beta';
+  if (!isTeam) return false;
+  // An unreadable role is treated as "not the owner" — a new member is exactly
+  // the case where no team_members row exists yet, so role resolves to null.
+  return role !== 'owner';
+}
+
+function KpiHero({ m, runtime, role, onJoin }: { m: Metrics; runtime: string | null; role: string | null; onJoin: () => void }) {
   const cards = [
     { n: m.total.toLocaleString(), l: 'Memories', hint: 'observations stored', accent: true },
     { n: m.decisions.toLocaleString(), l: 'Decisions', hint: 'reasoning recorded', accent: false },
@@ -98,9 +130,8 @@ function KpiHero({ m, runtime, onJoin }: { m: Metrics; runtime: string | null; o
   ];
   // Joining belongs ON the Runtime tile, not buried in Settings: the tile is
   // already where you look to see which mode you are in, so it is where you
-  // reach when you want to change it. Offered only on a LOCAL project — a
-  // project already in team mode has nothing to join.
-  const canJoin = runtime === 'local';
+  // reach when you want to change it. See canJoinFromIdentity for WHEN.
+  const canJoin = canJoinFromIdentity(runtime, role);
   return (
     <div className="dash-kpis">
       {cards.map((k, i) => (
@@ -389,6 +420,9 @@ export function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<string | null>(null);
+  // Role decides whether Join is offered: in team mode the OWNER is already in,
+  // so the button is for new members only.
+  const [role, setRole] = useState<string | null>(null);
   const [joinOpen, setJoinOpen] = useState(false);
 
   useEffect(() => {
@@ -433,6 +467,9 @@ export function DashboardView() {
       .then(id => {
         if (cancelled) return;
         setRuntime(id && typeof id.runtime === 'string' ? id.runtime : null);
+        // Same payload already carries the role postgres-auth resolved, so
+        // gating Join costs no extra request.
+        setRole(id && typeof id.role === 'string' ? id.role : null);
       })
       .catch(() => { /* tile shows "runtime unavailable" */ });
     return () => { cancelled = true; };
@@ -451,7 +488,7 @@ export function DashboardView() {
         // credential, and every scoped read on the page at once.
         onJoined={() => location.reload()}
       />
-      <KpiHero m={metrics} runtime={runtime} onJoin={() => setJoinOpen(true)} />
+      <KpiHero m={metrics} runtime={runtime} role={role} onJoin={() => setJoinOpen(true)} />
       <div className="dash-grid">
         <WorkInFlight work={metrics.work} />
         <Composition byType={metrics.byType} />

@@ -10,6 +10,12 @@ export interface IdentityPayload {
   keyPlaintext?: string;
   /** Optional so an older server response still parses; absent means 'local'. */
   runtime?: 'local' | 'team';
+  /**
+   * Team role resolved by postgres-auth (api_keys.user_id -> team_members).
+   * Order: viewer < member < admin < owner. Null when unresolvable — which is
+   * exactly the new-member case, since no membership row exists yet.
+   */
+  role?: string | null;
 }
 
 export async function fetchIdentity(reveal?: boolean): Promise<IdentityPayload | null> {
