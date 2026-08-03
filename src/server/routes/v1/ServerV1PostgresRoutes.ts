@@ -68,7 +68,8 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
-import { repointLocalKeyToTeam } from '../../convert/repoint-local-key.js';
+import { repointLocalKeyToTeam, repointProjectDatabaseTeam } from '../../convert/repoint-local-key.js';
+import { listTeamProjects, readAcrossTeam, mergeTeamResults } from '../../retrieval/team-scope.js';
 import { resolveProjectRuntime } from './project-runtime.js';
 import { readProjectMarker as readProjectMarkerForRuntime } from '../../../services/identity/project-identity.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
@@ -1104,26 +1105,42 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             // lifecycle filters are applied IN SQL (not in-memory over a recent
             // window) so a rare type like `decision` is found across the whole
             // table, not just among the most recent rows.
-            const repo = new PostgresObservationRepository(req.databasePool ?? this.options.pool);
-            results = await repo.listByProject({
-              projectId,
-              teamId,
+            // Team-wide: each project in the team contributes its own recent
+            // rows, then readTeamWide re-sorts and cuts to `limit`. For a
+            // single-project team this is exactly the previous single query.
+            results = await this.readTeamWide(
+              { projectId, teamId },
+              req.databasePool ?? this.options.pool,
               limit,
-              obsType,
-              lifecycleState,
-            });
+              (pool, pid) => new PostgresObservationRepository(pool).listByProject({
+                projectId: pid,
+                teamId,
+                limit,
+                obsType,
+                lifecycleState,
+              }),
+            );
           } else {
             // Hybrid (FTS+vector via RRF) is the default ranking; force plain FTS
             // with MEMSMITH_SEARCH_HYBRID=0. See resolveSearchResults.
-            results = await this.resolveSearchResults({
-              projectId,
-              teamId,
-              query,
+            // Team-wide, ranked per project then merged. Each project's ranking
+            // is computed against its own corpus (RRF positions are not
+            // comparable across corpora), so the merge falls back to recency —
+            // the honest ordering for a union of independently-ranked lists.
+            results = await this.readTeamWide(
+              { projectId, teamId },
+              req.databasePool ?? this.options.pool,
               limit,
-              platformSource,
-              mode: 'search',
-              userDirected,
-            }, req.databasePool ?? this.options.pool);
+              (pool, pid) => this.resolveSearchResults({
+                projectId: pid,
+                teamId,
+                query,
+                limit,
+                platformSource,
+                mode: 'search',
+                userDirected,
+              }, pool),
+            );
             if (obsType) results = results.filter(o => o.obsType === obsType);
             if (lifecycleState) results = results.filter(o => o.lifecycleState === lifecycleState);
           }
@@ -1698,6 +1715,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           // remote held the team's memory. Never throws; the remote side is
           // already committed by here.
           await repointLocalKeyToTeam(this.options.pool, result.join.teamId, input.projectId);
+          // The project's OWN database carries its own teams/projects FK anchors
+          // (seedHinge writes them at provision time), and the data tables FK to
+          // projects(id, team_id) locally. Leaving those on the old team makes
+          // the joined project unable to WRITE: the first observation insert
+          // fails with observations_project_id_team_id_fkey. Reads worked, which
+          // is why this survived the first round of join testing.
+          try {
+            const projectPool = await this.resolveLocalPoolForConvert({
+              projectId: input.projectId, teamId: result.join.teamId,
+            });
+            if (projectPool !== this.options.pool) {
+              await repointProjectDatabaseTeam(projectPool, result.join.teamId, input.projectId);
+            }
+          } catch { /* logged inside; a local anchor failure must not fail the join */ }
           try {
             const pathRow = await this.options.pool.query(
               'SELECT metadata FROM projects WHERE id = $1', [input.projectId],
@@ -1873,6 +1904,55 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   // baseProjectId, else the registry-resolved per-project pool. Falls back to
   // the base pool when no registry was constructed (matches every other
   // DATA-site fallback in this file).
+  /**
+   * Run a read against EVERY project in the caller's team and merge the results.
+   *
+   * Team mode's whole point is that a teammate can see the team's memory, but
+   * reads route to one msp_<projectId> database, so a joined project queried its
+   * own — empty — database. Measured live: a successful join followed by
+   * POST /v1/search returning [].
+   *
+   * SECURITY: the team comes from authContext (the caller passes `teamId`, which
+   * every route already sources from requireTeamId), and the project list is
+   * derived by asking the ACCOUNT database which projects belong to that team.
+   * No client-supplied value reaches the database choice, so
+   * resolveRequestDatabase's invariant is preserved — the widening is "one
+   * project in my team" -> "all projects in my team", never across teams.
+   *
+   * Falls back to the caller's own pool when there is no registry (single-pool
+   * deployments) or when the account lookup finds nothing, so a failure here
+   * degrades to today's behaviour rather than an error.
+   */
+  private async readTeamWide<T extends { createdAtEpoch?: number }>(
+    scope: { projectId: string; teamId: string },
+    ownPool: PostgresPool,
+    limit: number,
+    read: (pool: PostgresPool, projectId: string) => Promise<T[]>,
+  ): Promise<T[]> {
+    const registry = this.options.poolRegistry;
+    if (!registry) return read(ownPool, scope.projectId);
+
+    const targets = await listTeamProjects(this.options.pool, scope.teamId, {
+      baseProjectId: this.options.baseProjectId ?? null,
+      baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
+    });
+    // A team of one, or an account lookup that failed: nothing to fan out to.
+    if (targets.length <= 1) return read(ownPool, scope.projectId);
+
+    const rows = await readAcrossTeam(
+      targets,
+      async (databaseName, projectId) =>
+        projectId === scope.projectId ? ownPool
+          : databaseName === (this.options.baseDatabaseName ?? 'postgres') ? this.options.pool
+          : registry.getPool(databaseName, { teamId: scope.teamId, projectId }),
+      read,
+    );
+    // Each project applied `limit` itself, so re-sort before cutting: otherwise
+    // the caller gets one project's newest rows followed by another's, which is
+    // not a recency ordering.
+    return mergeTeamResults(rows, limit);
+  }
+
   private async resolveLocalPoolForConvert(scope: { projectId: string; teamId: string }): Promise<PostgresPool> {
     if (!this.options.poolRegistry) return this.options.pool;
     if (scope.projectId === this.options.baseProjectId) return this.options.pool;
