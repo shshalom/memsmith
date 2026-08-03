@@ -2989,6 +2989,21 @@
       letter-spacing: -0.02em; color: var(--color-text-primary);
     }
     .dash-kpi-n--accent { color: #c2410c; }
+    /* Runtime tile: the value on the left, its action on the right. Joining is
+       offered where the mode is displayed, rather than buried in Settings. */
+    .dash-kpi-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .dash-kpi-action {
+      flex: 0 0 auto;
+      border: none; border-radius: 6px; cursor: pointer;
+      padding: 6px 14px;
+      font-family: var(--font-body); font-size: 13px; font-weight: 600;
+      background: #c2410c; color: #fff;
+      transition: background 0.15s ease;
+    }
+    .dash-kpi-action:hover { background: #9a3412; }
+    .dash-kpi-action:focus-visible { outline: 2px solid #c2410c; outline-offset: 2px; }
     .dash-kpi-l {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
       color: var(--color-text-muted); margin-top: 10px;

@@ -256,87 +256,42 @@ export function ContextSettingsPane({
             </FormField>
           </CollapsibleSection>
 
-          {/* Section 2: Display */}
-          <CollapsibleSection
-            title="Display"
-            description="What to show in context tables"
-          >
-            <div className="display-subsection">
-              <span className="subsection-label">Full Observations</span>
-              <FormField
-                label="Count"
-                tooltip="How many observations show expanded details (0-20)"
-              >
-                <input
-                  type="number"
-                  min="0"
-                  max="20"
-                  value={formState.MEMSMITH_CONTEXT_FULL_COUNT || '5'}
-                  onChange={(e) => updateSetting('MEMSMITH_CONTEXT_FULL_COUNT', e.target.value)}
-                />
-              </FormField>
-              <FormField
-                label="Field"
-                tooltip="Which field to expand for full observations"
-              >
-                <select
-                  value={formState.MEMSMITH_CONTEXT_FULL_FIELD || 'narrative'}
-                  onChange={(e) => updateSetting('MEMSMITH_CONTEXT_FULL_FIELD', e.target.value)}
-                >
-                  <option value="narrative">Narrative</option>
-                  <option value="facts">Facts</option>
-                </select>
-              </FormField>
-            </div>
+          {/* The "Display" section is gone entirely. It held five controls, all
+              dead since the worker was deleted (a41c8578):
 
-            <div className="display-subsection">
-              <span className="subsection-label">Token Economics</span>
-              <div className="toggle-group">
-                <ToggleSwitch
-                  id="ctx-show-read-tokens"
-                  label="Read cost"
-                  description="Tokens to read this observation"
-                  checked={formState.MEMSMITH_CONTEXT_SHOW_READ_TOKENS === 'true'}
-                  onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_READ_TOKENS')}
-                />
-                <ToggleSwitch
-                  id="ctx-show-work-tokens"
-                  label="Work investment"
-                  description="Tokens spent creating this observation"
-                  checked={formState.MEMSMITH_CONTEXT_SHOW_WORK_TOKENS === 'true'}
-                  onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_WORK_TOKENS')}
-                />
-                <ToggleSwitch
-                  id="ctx-show-savings-amount"
-                  label="Savings"
-                  description="Total tokens saved by reusing context"
-                  checked={formState.MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT === 'true'}
-                  onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT')}
-                />
-              </div>
-            </div>
-          </CollapsibleSection>
+                - Full Observations count/field — chose how much of each
+                  observation the worker's banner expanded. The equivalent today
+                  is src/server/retrieval/tiering.ts, which already renders L0–L3
+                  against a character budget. Wiring these to it would be a new
+                  feature, not a repair.
+                - Token Economics (read cost / work investment / savings) —
+                  rendered lines in that same banner. The dashboard reports cost
+                  and savings properly now.
 
-          {/* Section 3: Advanced */}
+              An empty section header is its own small lie, so the header went
+              with its contents rather than staying as a hollow affordance. */}
+
+          {/* Advanced */}
           <CollapsibleSection
             title="Advanced"
             description="Session context inclusions"
             defaultOpen={false}
           >
             <div className="toggle-group">
+              {/* "Include last summary" and "Include last message" lived here.
+                  Both were read only by the worker's context-generator and have
+                  controlled nothing since it was deleted.
+
+                  This one is the inverse case: MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT
+                  is genuinely read (context.ts:149) but had no control at all —
+                  a working setting with no way to reach it, sitting beside
+                  controls that reached nothing. */}
               <ToggleSwitch
-                id="ctx-show-last-summary"
-                label="Include last summary"
-                description="Add previous session's summary to context"
-                checked={formState.MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY === 'true'}
-                onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY')}
-              />
-              <ToggleSwitch
-                id="ctx-show-last-message"
-                label="Include last message"
-                description="Add previous session's final message"
-                checked={formState.MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE === 'true'}
-                onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE')}
+                id="ctx-show-terminal-output"
+                label="Include terminal output"
+                description="Add recent terminal output to session-start context"
+                checked={formState.MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true'}
+                onChange={() => toggleBoolean('MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT')}
               />
             </div>
           </CollapsibleSection>
