@@ -26,6 +26,7 @@ import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js'
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
 import { CredentialStore } from '../../services/identity/credential-store.js';
+import { hashApiKey } from '../../services/hooks/server-bootstrap.js';
 import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
@@ -353,6 +354,29 @@ export class ServerService {
                 'SELECT team_id FROM projects WHERE id = $1', [projectId],
               );
               return (r.rows[0] as { team_id?: string } | undefined)?.team_id ?? null;
+            },
+            // Per-project first: after a JOIN two local projects share one team,
+            // and CredentialStore is keyed by team alone, so the team lookup
+            // below would hand both projects the same key. api_keys is
+            // per-project and is what authContext already derives from.
+            //
+            // The stored key_hash is a SHA-256 of the plaintext and cannot be
+            // reversed, so this matches the project's row against the plaintexts
+            // this machine actually holds — issuing only a credential already on
+            // this disk, exactly as the team path does.
+            resolveKeyForProject: async (projectId: string) => {
+              const r = await this.graph.postgres.pool.query(
+                'SELECT key_hash FROM api_keys WHERE project_id = $1', [projectId],
+              );
+              const hashes = new Set(
+                (r.rows as Array<{ key_hash?: string }>).map(x => x.key_hash).filter(Boolean) as string[],
+              );
+              if (!hashes.size) return null;
+              for (const teamId of store.listTeamIdsWithKeys()) {
+                const plaintext = store.resolveKeyForTeam(teamId);
+                if (plaintext && hashes.has(hashApiKey(plaintext))) return plaintext;
+              }
+              return null;
             },
             resolveKeyForTeam: (teamId: string) => store.resolveKeyForTeam(teamId),
           });

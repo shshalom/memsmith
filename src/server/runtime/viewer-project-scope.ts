@@ -25,6 +25,12 @@ export interface ViewerProjectScopeDeps {
   serverTeamId: string | null;
   lookupTeamForProject: (projectId: string) => Promise<string | null>;
   resolveKeyForTeam: (teamId: string) => string | null;
+  /**
+   * The key belonging to THIS project specifically, from the local api_keys
+   * table. Optional so existing callers keep working; when absent the team
+   * lookup below is the only path (the pre-join behaviour).
+   */
+  resolveKeyForProject?: (projectId: string) => Promise<string | null>;
 }
 
 export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): Promise<string | null> {
@@ -34,6 +40,28 @@ export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): 
   if (!requested) return fallback;
 
   try {
+    // PER-PROJECT FIRST. Resolving by team alone was correct only while every
+    // local project minted its own randomUUID team — one team, one project, so
+    // "the team's key" WAS "the project's key".
+    //
+    // A JOIN breaks that: two local projects then share one team, and
+    // CredentialStore is keyed by team alone (there is no per-project entry), so
+    // both projects resolved to whichever key happened to be stored first.
+    // Measured after a live join: /?project=<joiner> handed back the OWNER's key
+    // and /v1/identity reported the owner's projectId on the joiner's dashboard.
+    //
+    // Not cosmetic. The Go Team wizard and every scoped write act on
+    // req.authContext.projectId, which comes from the key that was issued — so
+    // acting on the joiner's dashboard would have operated on the OWNER's
+    // project. That is the convert-scope leak ?project= exists to close,
+    // reopened by join making team -> project one-to-many.
+    //
+    // api_keys is per-project and is already what authContext derives from, so
+    // it is the authoritative answer to "which key is this project's".
+    if (deps.resolveKeyForProject) {
+      const own = await deps.resolveKeyForProject(requested);
+      if (own) return own;
+    }
     const teamId = await deps.lookupTeamForProject(requested);
     if (!teamId) return fallback;
     // Only hand over a credential this machine already holds.
