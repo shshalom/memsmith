@@ -27,6 +27,31 @@ import { INJECTED_DIRECTIVES } from '../../services/retrieval/directive.js';
 const SESSION_START_RECENT_LIMIT = 10;
 
 /**
+ * How many observations SessionStart injects, from MEMSMITH_CONTEXT_SESSION_COUNT.
+ *
+ * This was hardcoded at 10 while a control for it sat in Settings doing nothing:
+ * the Context pane rendered MEMSMITH_CONTEXT_SESSION_COUNT and saved it, but its
+ * only reader was the worker's context-generator, deleted with the worker. So the
+ * user could set the value, see it persist, and have it change nothing — a
+ * setting and a hardcoded constant describing the same quantity, disagreeing in
+ * silence.
+ *
+ * Clamped rather than trusted: a 0 would inject nothing (memory silently
+ * disabled), and a very large value would blow the session-start budget on a
+ * corpus of thousands. Both are worse failures than ignoring a bad input.
+ */
+const MIN_SESSION_OBSERVATIONS = 1;
+const MAX_SESSION_OBSERVATIONS = 50;
+
+export function resolveSessionStartLimit(raw: string | undefined | null): number {
+  const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
+  if (!Number.isFinite(parsed)) return SESSION_START_RECENT_LIMIT;
+  if (parsed < MIN_SESSION_OBSERVATIONS) return MIN_SESSION_OBSERVATIONS;
+  if (parsed > MAX_SESSION_OBSERVATIONS) return MAX_SESSION_OBSERVATIONS;
+  return parsed;
+}
+
+/**
  * Mint this project's identity so the dashboard link can be scoped.
  *
  * Injectable because it WRITES: a successful mint inserts a `projects` row into
@@ -169,6 +194,9 @@ export const contextHandler: EventHandler = {
       const runtime = dependencies.resolveRuntimeContext();
       additionalContext = (await fetchPrimaryInjection(runtime, {
         projectId: context.primary,
+        // Honour MEMSMITH_CONTEXT_SESSION_COUNT. `settings` is already loaded
+        // above for showTerminalOutput, so this costs nothing.
+        limit: resolveSessionStartLimit(settings.MEMSMITH_CONTEXT_SESSION_COUNT),
         ...(normalizedPlatformSource ? { platformSource: normalizedPlatformSource } : {}),
       })).trim();
     }

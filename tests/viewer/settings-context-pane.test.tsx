@@ -40,19 +40,46 @@ describe('ContextSettingsPane', () => {
     expect(html).toContain('Save');
   });
 
-  it('renders toggle switches for SHOW_ settings (Token Economics section)', () => {
+  it('does NOT render the dead Token Economics toggles', () => {
+    // This test previously asserted these controls EXIST. They rendered lines in
+    // the legacy worker's context banner, and that banner went with the worker
+    // (a41c8578) — so the toggles outlived their only reader and controlled
+    // nothing. A user could set them, watch them save, and see no effect.
+    //
+    // The test kept passing throughout, because it only ever checked that the
+    // markup was present. Rendering is not wiring: a control can be perfectly
+    // rendered and connected to nothing, and that is exactly what it was
+    // guarding in place.
     const html = renderToString(
       React.createElement(ContextSettingsPane, {
-        settings: { ...baseSettings, MEMSMITH_CONTEXT_SHOW_READ_TOKENS: 'true' },
+        settings: baseSettings,
         onSave: () => {},
         isSaving: false,
         saveStatus: null,
       })
     );
-    // Toggle labels from the Token Economics section
-    expect(html).toContain('Read cost');
-    expect(html).toContain('Work investment');
-    expect(html).toContain('Savings');
+    expect(html).not.toContain('Read cost');
+    expect(html).not.toContain('Work investment');
+    expect(html).not.toContain('Token Economics');
+  });
+
+  it('offers a control for the terminal-output setting, which IS read at runtime', () => {
+    // The inverse case: MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT is genuinely read
+    // (context.ts) but had no control at all — a working setting with no way to
+    // reach it, sitting beside controls that reached nothing.
+    //
+    // Asserted against the SOURCE, not the SSR output: the control lives in the
+    // "Advanced" section, which is defaultOpen={false}, so server rendering
+    // legitimately omits its children. Asserting on rendered HTML here would
+    // fail for a reason that has nothing to do with the control existing.
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const src = readFileSync(
+      join(import.meta.dir, '..', '..', 'src/ui/viewer/components/ContextSettingsPane.tsx'),
+      'utf-8',
+    );
+    expect(src).toContain('MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT');
+    expect(src).toContain('Include terminal output');
   });
 
   it('editing a field routes to onSave (settings.json path), not /v1', () => {

@@ -70,6 +70,9 @@ export interface ProjectCatalog {
 export interface Settings {
   MEMSMITH_MODEL: string;
   MEMSMITH_CONTEXT_OBSERVATIONS: string;
+  // Genuinely read at context.ts:149 — unlike the six display toggles removed
+  // alongside this, which had no reader after the worker was deleted.
+  MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT?: string;
   MEMSMITH_WORKER_PORT: string;
   MEMSMITH_WORKER_HOST: string;
 
@@ -82,15 +85,7 @@ export interface Settings {
   MEMSMITH_OPENROUTER_SITE_URL?: string;
   MEMSMITH_OPENROUTER_APP_NAME?: string;
 
-  MEMSMITH_CONTEXT_SHOW_READ_TOKENS?: string;
-  MEMSMITH_CONTEXT_SHOW_WORK_TOKENS?: string;
-  MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT?: string;
-  MEMSMITH_CONTEXT_SHOW_SAVINGS_PERCENT?: string;
 
-  MEMSMITH_CONTEXT_FULL_COUNT?: string;
-  MEMSMITH_CONTEXT_FULL_FIELD?: string;
   MEMSMITH_CONTEXT_SESSION_COUNT?: string;
 
-  MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY?: string;
-  MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE?: string;
 }
