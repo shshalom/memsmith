@@ -1752,8 +1752,29 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             // table FKs to it, so the destination needs the team+project rows
             // before the copy regardless of how the key was obtained.
             await upsertTeamAndProject(remotePool, input.teamId, input.projectId);
-            apiKey = credStore.resolveKeyForTeam(input.teamId)
-              ?? await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
+            // Unconditional, for the same reason bootstrap above is: a cached
+            // credential says nothing about whether the REMOTE can validate it.
+            //
+            // This previously read `credStore.resolveKeyForTeam(teamId) ?? await
+            // ensureBaseKey(...)`. A local install ALWAYS has a cached key for
+            // its own team (local mode mints one at first boot), so the left side
+            // always won and ensureBaseKey — the only writer of the remote's
+            // api_keys — never ran against the destination. The owner never
+            // noticed, because the owner authenticates against their LOCAL base
+            // database where the hash does exist. But runJoin validates a
+            // teammate's key on the REMOTE, so with zero api_keys rows there
+            // every genuine invite was rejected as "not valid for this
+            // workspace": the join accept path could not succeed for anyone.
+            // Measured on the rig after two converts: projects 2, team_members 1,
+            // api_keys 0.
+            //
+            // Calling ensureBaseKey unconditionally does NOT rotate the key. Its
+            // cache/DB-drift branch returns the cached plaintext unchanged and
+            // only re-inserts the missing hash, so this reuses the invited key
+            // and is idempotent across retries and re-converts. Minting a second
+            // key would be the actual bug — it orphans a credential whose
+            // plaintext is gone, which can be neither used nor revoked.
+            apiKey = await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
           } finally {
             await remotePool.end();
           }
