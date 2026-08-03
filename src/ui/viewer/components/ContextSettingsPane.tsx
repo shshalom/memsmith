@@ -145,17 +145,7 @@ export function ContextSettingsPane({
     setFormState(settings);
   }, [settings]);
 
-  const {
-    preview,
-    isLoading,
-    error,
-    projects,
-    sources,
-    selectedSource,
-    setSelectedSource,
-    selectedProject,
-    setSelectedProject,
-  } = useContextPreview(formState);
+  const { preview, isLoading, error, count, refresh } = useContextPreview(formState);
 
   const updateSetting = useCallback(
     (key: keyof Settings, value: string) => {
@@ -180,32 +170,22 @@ export function ContextSettingsPane({
 
   return (
     <div className="context-settings-pane">
-      {/* Preview selectors row */}
+      {/* The Source and Project dropdowns that were here came from the worker's
+          /api/projects catalog. That endpoint died with the worker, so both were
+          permanently empty and permanently disabled — two selectors that could
+          never be used. The preview is scoped by the dashboard's current project
+          (the request cookie) instead, which is the project you are looking at. */}
       <div className="context-pane-header">
-        <label className="preview-selector">
-          Source:
-          <select
-            value={selectedSource || ''}
-            onChange={(e) => setSelectedSource(e.target.value)}
-            disabled={sources.length === 0}
-          >
-            {sources.map(source => (
-              <option key={source} value={source}>{source}</option>
-            ))}
-          </select>
-        </label>
-        <label className="preview-selector">
-          Project:
-          <select
-            value={selectedProject || ''}
-            onChange={(e) => setSelectedProject(e.target.value)}
-            disabled={projects.length === 0}
-          >
-            {projects.map(project => (
-              <option key={project} value={project}>{project}</option>
-            ))}
-          </select>
-        </label>
+        <span className="preview-caption">
+          {isLoading
+            ? 'Loading preview…'
+            : error
+            ? 'Preview unavailable'
+            : `Exactly what SessionStart injects — ${count} observation${count === 1 ? '' : 's'}`}
+        </span>
+        <button type="button" className="preview-refresh" onClick={refresh} disabled={isLoading}>
+          Refresh
+        </button>
       </div>
 
       {/* Body — 2 columns matching the modal layout */}
