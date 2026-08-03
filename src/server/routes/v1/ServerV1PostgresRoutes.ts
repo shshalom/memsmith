@@ -68,6 +68,7 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
+import { repointLocalKeyToTeam } from '../../convert/repoint-local-key.js';
 import { resolveProjectRuntime } from './project-runtime.js';
 import { readProjectMarker as readProjectMarkerForRuntime } from '../../../services/identity/project-identity.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
@@ -1685,6 +1686,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         // writes the key BEFORE the marker so the project is never in team mode
         // without a resolvable credential.
         if (result.status === 'joined' && result.join) {
+          // Re-point this project's LOCAL api_keys row at the joined team.
+          //
+          // A join changes which team the project belongs to, and that has to
+          // land in FOUR places: the marker, the CredentialStore, the remote's
+          // projects table, and this row. It was landing in three. postgres-auth
+          // builds authContext.teamId straight from api_keys, and every scoped
+          // read filters on it — so the joiner authenticated as its OLD self
+          // against its OLD team: /v1/identity reported runtime "team" with the
+          // stale teamId and /v1/search returned zero observations while the
+          // remote held the team's memory. Never throws; the remote side is
+          // already committed by here.
+          await repointLocalKeyToTeam(this.options.pool, result.join.teamId, input.projectId);
           try {
             const pathRow = await this.options.pool.query(
               'SELECT metadata FROM projects WHERE id = $1', [input.projectId],

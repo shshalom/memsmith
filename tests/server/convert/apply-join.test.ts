@@ -24,7 +24,7 @@ const JOIN = {
 
 function deps(markerProjectId: string | null, markerTeamId = 'team-a') {
   const calls = {
-    runtime: [] as Array<{ cwd: string; runtime: string; serverUrl?: string }>,
+    runtime: [] as Array<{ cwd: string; runtime: string; serverUrl?: string; teamId?: string }>,
     keys: [] as Array<{ teamId: string; key: string }>,
   };
   return {
@@ -32,8 +32,10 @@ function deps(markerProjectId: string | null, markerTeamId = 'team-a') {
     readProjectMarker: () => markerProjectId
       ? { projectId: markerProjectId, teamId: markerTeamId }
       : null,
-    writeProjectRuntime: (cwd: string, r: { runtime: 'local' | 'server'; serverUrl?: string }) => {
-      calls.runtime.push({ cwd, runtime: r.runtime, serverUrl: r.serverUrl });
+    // teamId is recorded because a JOIN must write the NEW team into the marker;
+    // dropping it here would let a stale-team regression pass unnoticed.
+    writeProjectRuntime: (cwd: string, r: { runtime: 'local' | 'server'; serverUrl?: string; teamId?: string }) => {
+      calls.runtime.push({ cwd, runtime: r.runtime, serverUrl: r.serverUrl, teamId: r.teamId });
     },
     storeKeyForTeam: (teamId: string, key: string) => { calls.keys.push({ teamId, key }); },
   };
@@ -45,7 +47,9 @@ describe('applyConvertJoin', () => {
     const r = applyConvertJoin(d, '/proj/a', JOIN);
     expect(r.applied).toBe(true);
     expect(d.calls.runtime).toEqual([
-      { cwd: '/proj/a', runtime: 'server', serverUrl: 'http://team-a:38890' },
+      // teamId is passed through even for convert, where it equals the marker's
+      // existing team — writeProjectRuntime merges it, so this is a no-op here.
+      { cwd: '/proj/a', runtime: 'server', serverUrl: 'http://team-a:38890', teamId: 'team-a' },
     ]);
     expect(d.calls.keys).toEqual([{ teamId: 'team-a', key: 'cmem_teamkey' }]);
   });
@@ -61,12 +65,30 @@ describe('applyConvertJoin', () => {
     expect(d.calls.keys).toEqual([]);
   });
 
-  it('REFUSES when the marker team differs from the join team', () => {
+  it('ALLOWS a differing marker team — that is what a JOIN is', () => {
+    // This case previously asserted a REFUSAL, and that assertion was wrong once
+    // /v1/join started sharing this function.
+    //
+    // The guard's documented intent (see the header above) is "the marker at cwd
+    // must belong to the PROJECT named in the join". The team comparison rode
+    // along because convert happens to preserve the team — it was never the
+    // safety property. But a join moves a project into SOMEONE ELSE'S team, so
+    // requiring the teams to match made every join fail: /v1/join returned 200
+    // {"status":"joined"} while the marker never flipped, leaving the joiner on
+    // the local runtime permanently (measured live against the rig).
+    //
+    // The cross-project protection is unchanged and still asserted by the
+    // 'REFUSES when the marker is a different project' case above.
     const d = deps('proj-a', 'team-OTHER');
     const r = applyConvertJoin(d, '/proj/a', JOIN);
-    expect(r.applied).toBe(false);
-    expect(d.calls.runtime).toEqual([]);
-    expect(d.calls.keys).toEqual([]);
+    expect(r.applied).toBe(true);
+    // The marker must adopt the join's team, matching the team the key is cached
+    // under — buildServerContext resolves the credential by marker.teamId, so a
+    // stale team here means team mode with no resolvable key.
+    expect(d.calls.runtime).toEqual([
+      { cwd: '/proj/a', runtime: 'server', serverUrl: 'http://team-a:38890', teamId: 'team-a' },
+    ]);
+    expect(d.calls.keys).toEqual([{ teamId: 'team-a', key: 'cmem_teamkey' }]);
   });
 
   it('REFUSES when there is no marker at all rather than creating one', () => {
