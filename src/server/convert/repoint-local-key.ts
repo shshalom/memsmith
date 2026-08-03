@@ -38,6 +38,87 @@ interface QueryablePool {
 }
 
 /**
+ * Move the FK anchor rows INSIDE a project's own database to the joined team.
+ *
+ * Every msp_<projectId> database carries its own `teams` and `projects` rows —
+ * seedHinge writes them at provision time — because the data tables FK to
+ * projects(id, team_id) locally. Those anchors are NOT the base database's rows,
+ * so repointing the account tables leaves them behind, still naming the old team.
+ *
+ * The symptom is a write failure, not a read failure, which is why it survived
+ * the first round of join testing: reads worked, and the first attempt to insert
+ * an observation as the joined teammate failed with
+ *   "insert or update on table observations violates foreign key constraint
+ *    observations_project_id_team_id_fkey"
+ * because (project, NEW team) had no projects row in that database.
+ *
+ * Same detach/move/re-attach dance as the base database, and for the same
+ * reason: the composite FK is not deferrable, so the children have to let go of
+ * the project before it can move.
+ *
+ * Never throws — see repointLocalKeyToTeam.
+ */
+export async function repointProjectDatabaseTeam(
+  pool: QueryablePool,
+  teamId: string,
+  projectId: string,
+): Promise<void> {
+  if (!teamId?.trim() || !projectId?.trim()) return;
+  // A project database holds only the DATA tables — account tables (api_keys,
+  // team_members, audit_log) live in the base database. Which tables exist also
+  // varies with schema version, and a SELECT against a missing one aborts the
+  // whole transaction in Postgres (every later statement fails with "current
+  // transaction is aborted"). That is exactly how the first version of this
+  // silently did nothing: audit_log does not exist here, so the very first scan
+  // threw and the anchors never moved. Discover the list instead of assuming it.
+  const present = await pool.query(
+    `SELECT table_name AS id FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = ANY($1::text[])`,
+    [['agent_events', 'observation_generation_jobs', 'observations', 'server_sessions']],
+  );
+  const CHILD_TABLES = (present.rows ?? []).map(r => r.id);
+  try {
+    await pool.query('BEGIN', []);
+    try {
+      await pool.query(
+        `INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`,
+        [teamId],
+      );
+      const detached: Array<{ table: string; ids: string[] }> = [];
+      for (const table of CHILD_TABLES) {
+        const found = await pool.query(`SELECT id FROM ${table} WHERE project_id = $1`, [projectId]);
+        const ids = (found.rows ?? []).map(r => r.id);
+        if (!ids.length) continue;
+        detached.push({ table, ids });
+        await pool.query(
+          `UPDATE ${table} SET project_id = NULL, team_id = $1 WHERE id = ANY($2::text[])`,
+          [teamId, ids],
+        );
+      }
+      await pool.query(
+        'UPDATE projects SET team_id = $1, updated_at = now() WHERE id = $2',
+        [teamId, projectId],
+      );
+      for (const { table, ids } of detached) {
+        await pool.query(
+          `UPDATE ${table} SET project_id = $1 WHERE id = ANY($2::text[])`,
+          [projectId, ids],
+        );
+      }
+      await pool.query('COMMIT', []);
+    } catch (inner) {
+      await pool.query('ROLLBACK', []).catch(() => {});
+      throw inner;
+    }
+    logger.info('IDENTITY', 'repointed project database anchors to joined team', { teamId, projectId });
+  } catch (error) {
+    logger.warn('IDENTITY', 'could not repoint project database anchors', { teamId, projectId },
+      error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
  * Point the given project's local API key at `teamId`.
  *
  * Never throws: by the time this runs the remote side of the join is already
