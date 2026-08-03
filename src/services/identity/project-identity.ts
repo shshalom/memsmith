@@ -62,9 +62,22 @@ export function readProjectMarker(cwd: string): ProjectMarker | null {
 // Merge runtime fields into an EXISTING marker. Requires the identity marker to
 // already exist (throws otherwise — never writes an identity-less partial).
 // NEVER writes a key/secret: the team credential lives in CredentialStore.
+// `teamId` is optional and exists for JOIN: a joining project moves into someone
+// else's team, so the marker's team must be updated alongside the runtime flip.
+// Without it the `...existing` spread below silently preserved the joiner's
+// ORIGINAL teamId while flipping runtime to 'server' — and buildServerContext
+// resolves the credential with resolveKeyForTeam(projectMarker.teamId)
+// (src/services/hooks/runtime-selector.ts:121), so the project booted in team
+// mode looking up a key for a team it no longer belonged to, found none, and
+// silently dropped observations.
+//
+// Convert omits it (the team does not change there), so its behaviour is
+// unchanged. projectId is deliberately NOT settable: re-pointing a directory at
+// a different project is the cross-project flip that applyConvertJoin's guard
+// exists to refuse.
 export function writeProjectRuntime(
   cwd: string,
-  runtime: { runtime: 'local' | 'server'; serverUrl?: string },
+  runtime: { runtime: 'local' | 'server'; serverUrl?: string; teamId?: string },
 ): void {
   const existing = readMarker(cwd);
   if (!existing) {
@@ -74,6 +87,7 @@ export function writeProjectRuntime(
     ...existing,
     runtime: runtime.runtime,
     ...(runtime.serverUrl ? { serverUrl: runtime.serverUrl } : {}),
+    ...(runtime.teamId?.trim() ? { teamId: runtime.teamId } : {}),
   };
   writeMarker(cwd, merged);
 }

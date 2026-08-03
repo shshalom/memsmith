@@ -68,6 +68,7 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
+import { repointLocalKeyToTeam } from '../../convert/repoint-local-key.js';
 import { resolveProjectRuntime } from './project-runtime.js';
 import { readProjectMarker as readProjectMarkerForRuntime } from '../../../services/identity/project-identity.js';
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
@@ -1685,6 +1686,18 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         // writes the key BEFORE the marker so the project is never in team mode
         // without a resolvable credential.
         if (result.status === 'joined' && result.join) {
+          // Re-point this project's LOCAL api_keys row at the joined team.
+          //
+          // A join changes which team the project belongs to, and that has to
+          // land in FOUR places: the marker, the CredentialStore, the remote's
+          // projects table, and this row. It was landing in three. postgres-auth
+          // builds authContext.teamId straight from api_keys, and every scoped
+          // read filters on it — so the joiner authenticated as its OLD self
+          // against its OLD team: /v1/identity reported runtime "team" with the
+          // stale teamId and /v1/search returned zero observations while the
+          // remote held the team's memory. Never throws; the remote side is
+          // already committed by here.
+          await repointLocalKeyToTeam(this.options.pool, result.join.teamId, input.projectId);
           try {
             const pathRow = await this.options.pool.query(
               'SELECT metadata FROM projects WHERE id = $1', [input.projectId],
@@ -1752,8 +1765,29 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             // table FKs to it, so the destination needs the team+project rows
             // before the copy regardless of how the key was obtained.
             await upsertTeamAndProject(remotePool, input.teamId, input.projectId);
-            apiKey = credStore.resolveKeyForTeam(input.teamId)
-              ?? await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
+            // Unconditional, for the same reason bootstrap above is: a cached
+            // credential says nothing about whether the REMOTE can validate it.
+            //
+            // This previously read `credStore.resolveKeyForTeam(teamId) ?? await
+            // ensureBaseKey(...)`. A local install ALWAYS has a cached key for
+            // its own team (local mode mints one at first boot), so the left side
+            // always won and ensureBaseKey — the only writer of the remote's
+            // api_keys — never ran against the destination. The owner never
+            // noticed, because the owner authenticates against their LOCAL base
+            // database where the hash does exist. But runJoin validates a
+            // teammate's key on the REMOTE, so with zero api_keys rows there
+            // every genuine invite was rejected as "not valid for this
+            // workspace": the join accept path could not succeed for anyone.
+            // Measured on the rig after two converts: projects 2, team_members 1,
+            // api_keys 0.
+            //
+            // Calling ensureBaseKey unconditionally does NOT rotate the key. Its
+            // cache/DB-drift branch returns the cached plaintext unchanged and
+            // only re-inserts the missing hash, so this reuses the invited key
+            // and is idempotent across retries and re-converts. Minting a second
+            // key would be the actual bug — it orphans a credential whose
+            // plaintext is gone, which can be neither used nor revoked.
+            apiKey = await ensureBaseKey(remotePool, input.teamId, input.projectId, credStore);
           } finally {
             await remotePool.end();
           }
