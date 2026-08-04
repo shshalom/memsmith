@@ -54,6 +54,20 @@ export interface JoinResult {
   join?: { teamId: string; projectId: string; serverUrl: string; apiKey: string };
   /** Present on failure — a reason a person can act on. */
   error?: string;
+  /**
+   * Present ONLY when the team accepted the join but the LOCAL apply did not
+   * happen — the marker was not flipped, or was never attempted.
+   *
+   * status stays 'joined' because the remote side is committed and the local
+   * half is recoverable on the project's next session. But it must not be
+   * reported as unqualified success: repointLocalKeyToTeam has already moved the
+   * local api_keys row to the new team, while the credential is looked up by the
+   * MARKER's teamId — so without the flip the project authenticates as nobody
+   * and silently drops observations.
+   */
+  localApplied?: false;
+  /** Why the local apply did not happen. Present whenever localApplied is. */
+  localReason?: string;
 }
 
 export interface JoinDeps {
