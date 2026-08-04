@@ -317,7 +317,7 @@ rather than asserted:
 
 | Write path | Does it persist a DB credential? |
 |---|---|
-| `ProjectMarker` (`project-identity.ts:23-30`) | **No** — the type has no field for one (§8.2) |
+| `ProjectMarker` (`project-identity.ts:23-30`) | **No** — the type has no field for one (§8, invariant 2) |
 | `flipToTeam` (`flip-to-team.ts:27-30`) | **No** — writes marker + `CredentialStore` only |
 | `writeServerModeSettings` (`settings-writer.ts:13`) | **Would** write `MEMSMITH_SERVER_DATABASE_URL` — but has **zero call sites** |
 | `CredentialStore` | Team API key only, keyed by teamId |
