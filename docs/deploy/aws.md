@@ -323,35 +323,45 @@ postgres://cmem:pw@memsmith-prod.abc123.us-east-1.rds.amazonaws.com:5432/memsmit
 Nothing serves `/v1` there. A convert run that falls back to this will write a marker
 pointing at the database host, and every subsequent request from that project fails.
 
-**There is currently NO supported override, and that is a real gap — not a
-configuration step you can work around.** Verified in the code:
+**So set `MEMSMITH_SERVER_URL` in the task definition. This is required for AWS, not
+optional:**
 
-- `deriveServerUrl`'s first branch returns an `existingServerUrl` argument verbatim,
-  which would be exactly the right escape hatch.
-- But its only consumer, `makeResolveConvertContext` (`convert-context.ts:34`), has
-  **zero call sites**.
-- And the live convert path calls `deriveServerUrl(input.databaseUrl)` with **one
-  argument** (`ServerV1PostgresRoutes.ts:1866`), so branch 1 is unreachable.
-- `MEMSMITH_SERVER_URL` exists as a setting but is **not** wired into this path. It
-  feeds the hook/client transports, not convert's URL derivation.
+```json
+{ "name": "MEMSMITH_SERVER_URL", "value": "https://memory.yourcompany.com" }
+```
 
-**What this means for an AWS deployment:** running the owner's convert against RDS will
-stamp a marker pointing at the RDS hostname, and that project's requests will fail
-until the marker is corrected by hand. Editing `.memsmith/project.json`'s `serverUrl`
-after the convert is the current manual remedy.
+Use your own CNAME rather than the raw ALB hostname, so the value survives an ALB
+replacement. Include a port only if your API is not on 443.
 
-**Who is affected:**
+Convert resolves its server URL in this order
+(`src/server/convert/resolve-convert-server-url.ts`):
+
+1. **The project's marker `serverUrl`** — per-project, and written by a real previous
+   convert or join, so it reflects observed reality. A stale recorded path that names a
+   *different* project is ignored.
+2. **`MEMSMITH_SERVER_URL`** — the machine-wide setting above.
+3. **`deriveServerUrl(databaseUrl)`** — the unchanged fallback, so no existing install
+   changes behaviour.
+
+**One guard worth knowing about.** `MEMSMITH_SERVER_URL` is **not** unset by default —
+`SettingsDefaultsManager` gives it `http://127.0.0.1:<uid-derived port>`. Honouring
+that for a remote database would point your convert at the operator's own laptop, which
+is worse than the RDS hostname and completely silent. So a **loopback value is
+discarded when the database is remote**, and honoured only when the database is also
+local (the rig, and single-machine teams). If you set this variable and convert still
+derives from RDS, check that you set a real hostname.
+
+**Who was affected before this:**
 
 | Path | Exposed? |
 |---|---|
-| Owner's **convert** (`ServerV1PostgresRoutes.ts:1866`) | **Yes** — always passes a `postgres://` URL |
-| Retained `postgres://` **join fallback** (`join-service.ts:201`) | **Yes** |
-| **HTTPS join** (the new path) | **No** — uses the invite URL verbatim, never calls `deriveServerUrl` |
+| Owner's **convert** | Yes — fixed by the resolution order above |
+| Retained `postgres://` **join fallback** (`join-service.ts:201`) | Yes — still derives; prefer an HTTPS invite |
+| **HTTPS join** | No — uses the invite URL verbatim, never calls `deriveServerUrl` |
 
-So teammates joining over HTTPS are safe; the owner converting is not.
-
-The exact behaviour of all three branches, including this hazard, is pinned in
-`tests/server/convert/derive-server-url-production.test.ts`.
+Behaviour is pinned in `tests/server/convert/derive-server-url-production.test.ts`
+(the derivation itself) and `tests/server/convert/resolve-convert-server-url.test.ts`
+(the override precedence and the loopback guard).
 
 ---
 
@@ -363,6 +373,7 @@ The exact behaviour of all three branches, including this hazard, is pinned in
 | `MEMSMITH_QUEUE_ENGINE` | — | Must be `bullmq` when using Valkey/Redis |
 | `MEMSMITH_AUTH_MODE` | — | Set to `api-key` in production |
 | `MEMSMITH_SERVER_DATABASE_URL` | — | Postgres connection string (required). In AWS, inject from Secrets Manager via the task definition's `secrets`/`valueFrom` — never inline it in `environment`. |
+| `MEMSMITH_SERVER_URL` | `http://127.0.0.1:<uid-derived port>` | Public base URL of this server. **Set it explicitly on AWS** (§2f): otherwise convert derives a URL from the *database* host and stamps a marker pointing at RDS. A loopback value is ignored when the database is remote, so the default cannot silently win. |
 | `MEMSMITH_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
 | `MEMSMITH_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
 | `MEMSMITH_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |

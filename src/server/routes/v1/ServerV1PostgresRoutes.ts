@@ -72,6 +72,7 @@ import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
 import { summariseLocalApply } from '../../convert/local-apply-report.js';
+import { resolveConvertServerUrl } from '../../convert/resolve-convert-server-url.js';
 import { repointLocalKeyToTeam, repointProjectDatabaseTeam } from '../../convert/repoint-local-key.js';
 import { listTeamProjects, readAcrossTeam, mergeTeamResults } from '../../retrieval/team-scope.js';
 import { resolveProjectRuntime } from './project-runtime.js';
@@ -1863,7 +1864,34 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             await remotePool.end();
           }
 
-          const serverUrl = deriveServerUrl(input.databaseUrl);
+          // Prefer an EXPLICIT server URL over deriving one from the database.
+          //
+          // deriveServerUrl keeps the DATABASE hostname and drops the port for a
+          // non-localhost host, so on AWS — API behind an ALB, database on RDS —
+          // it produces https://<rds-host>, where nothing serves /v1. The convert
+          // would stamp a marker that breaks every later request from this
+          // project, and the only remedy was hand-editing project.json.
+          //
+          // deriveServerUrl always had an override branch, but nothing reached it:
+          // its only consumer (makeResolveConvertContext) has no call sites and
+          // this line passed a single argument. resolveConvertServerUrl supplies
+          // the override, preferring the project's own marker, then
+          // MEMSMITH_SERVER_URL, then the unchanged derivation — so no existing
+          // install changes behaviour.
+          const markerServerUrl = await this.readMarkerServerUrl(input.projectId);
+          const serverUrl = resolveConvertServerUrl({
+            databaseUrl: input.databaseUrl,
+            markerServerUrl,
+            // NOTE this setting has a LOCALHOST default, so it cannot simply be
+            // trusted; resolveConvertServerUrl discards a loopback value when the
+            // database is remote.
+            settingServerUrl: process.env.MEMSMITH_SERVER_URL,
+          });
+          if (serverUrl !== deriveServerUrl(input.databaseUrl)) {
+            logger.info('IDENTITY', 'using an explicit server URL instead of deriving from the database', {
+              projectId: input.projectId, serverUrl,
+            });
+          }
           const result = await runConvert({ copyDeps: deps }, { ...input, serverUrl, apiKey });
 
           // Leave the note for the project's own session hook to claim.
@@ -2015,6 +2043,39 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // the caller gets one project's newest rows followed by another's, which is
     // not a recency ordering.
     return mergeTeamResults(rows, limit);
+  }
+
+  /**
+   * This project's marker `serverUrl`, if it has one.
+   *
+   * Used to override convert's URL derivation, which keeps the DATABASE hostname
+   * and would point an AWS deployment at RDS instead of the ALB. The marker is
+   * the best-evidenced source: it was written by a real previous convert or join.
+   *
+   * Reads the project's directory from projects.metadata the same way the join
+   * path does (PROJECT_PATH_KEY), because the server does not otherwise know
+   * where a project lives on disk. Never throws — a missing path, a missing
+   * marker, or an unreadable one all mean "no override", and the caller falls
+   * back to deriving. That path is stale-tolerant by design: applyConvertJoin
+   * independently verifies the marker belongs to this project before writing it.
+   */
+  private async readMarkerServerUrl(projectId: string): Promise<string | undefined> {
+    try {
+      const row = await this.options.pool.query(
+        'SELECT metadata FROM projects WHERE id = $1', [projectId],
+      );
+      const meta = (row.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+      const projectPath = meta?.[PROJECT_PATH_KEY];
+      if (typeof projectPath !== 'string' || !projectPath.trim()) return undefined;
+      const marker = readProjectMarkerForRuntime(projectPath);
+      // Only trust a marker that names THIS project. A stale recorded path can
+      // point at another project's directory, and adopting its serverUrl would
+      // send this convert to the wrong server.
+      if (!marker || marker.projectId !== projectId) return undefined;
+      return marker.serverUrl?.trim() || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private async resolveLocalPoolForConvert(scope: { projectId: string; teamId: string }): Promise<PostgresPool> {
