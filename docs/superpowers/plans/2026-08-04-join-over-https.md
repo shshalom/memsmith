@@ -18,7 +18,7 @@
 - **The team API key must never be written to `.memsmith/project.json`.** It lives only in `CredentialStore` (`~/.memsmith/credentials.json`), keyed by teamId.
 - **`writeServerModeSettings` must never be called on the join path.** It writes `MEMSMITH_SERVER_DATABASE_URL` to `~/.memsmith/settings.json`. It currently has zero call sites; keep it that way.
 - **`teamId` always comes from the authenticated key's own `api_keys` row**, never from a request body or query param.
-- Test gates: `bun test` must not exceed the **13-failure baseline** (A/B against a pre-change capture); `npx tsc --noEmit` must not add new errors. Known pre-existing `tsc` false positives to ignore: `bun:test` module resolution, `ZodTypeAny` deprecation, `import.meta.dir`, `Cannot find name 'Bun'`.
+- Test gates: `bun test` must not exceed the **measured baseline of 12 failures** (captured 2026-08-04 at `8f6dd145`: `2662 pass / 36 skip / 12 fail`). The named failure set is at `/tmp/baseline-failures.txt` — **A/B against the named set, not the count**, because two of these (`EmbeddedPostgresManager lifecycle`) are port-contention-sensitive and flap. `npx tsc --noEmit` must not add new errors. Known pre-existing `tsc` false positives to ignore: `bun:test` module resolution, `ZodTypeAny` deprecation, `import.meta.dir`, `Cannot find name 'Bun'`.
 - **Do not delete the Postgres fallback transport** (spec §4.1, decided 2026-08-04).
 - ESM imports use `.js` extensions even for `.ts` sources (e.g. `from '../../convert/join-service.js'`).
 - Every new file starts with `// SPDX-License-Identifier: Apache-2.0`.
