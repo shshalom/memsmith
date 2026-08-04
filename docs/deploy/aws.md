@@ -154,6 +154,40 @@ On first run the task needs **outbound HTTPS (port 443) to huggingface.co** to d
 
 Save as `task-def.json`:
 
+**The database URL must not be inlined here.** A value in `environment` is
+plaintext in the task definition and readable by anyone with
+`ecs:DescribeTaskDefinition`. Put it in Secrets Manager and reference it from
+`secrets` — ECS resolves `valueFrom` at task start and injects it as an ordinary
+environment variable, so the application sees exactly what it would have seen
+either way. No code change is required.
+
+Create the secret and grant access first:
+
+```bash
+aws secretsmanager create-secret \
+  --name memsmith/db-url \
+  --secret-string 'postgresql://cmem:YOUR_DB_PASSWORD@memsmith-prod.abcdefghijk.us-east-1.rds.amazonaws.com:5432/memsmith'
+```
+
+The grant goes on the **task execution role** (the role ECS itself uses to start
+the task), not the task role — a common mix-up that surfaces as
+`ResourceInitializationError` at startup:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["secretsmanager:GetSecretValue"],
+    "Resource": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:memsmith/db-url-*"
+  }]
+}
+```
+
+Rotation is deliberately out of scope: env-var injection is the smallest change
+that removes the plaintext password, and rotation can be added later without
+touching application code.
+
 ```json
 {
   "family": "memsmith-server",
@@ -172,13 +206,18 @@ Save as `task-def.json`:
         { "name": "MEMSMITH_RUNTIME",            "value": "server-beta" },
         { "name": "MEMSMITH_QUEUE_ENGINE",        "value": "bullmq" },
         { "name": "MEMSMITH_AUTH_MODE",           "value": "api-key" },
-        { "name": "MEMSMITH_SERVER_DATABASE_URL", "value": "postgresql://cmem:YOUR_DB_PASSWORD@memsmith-prod.cabcdefghijk.us-east-1.rds.amazonaws.com:5432/memsmith" },
         { "name": "MEMSMITH_REDIS_URL",           "value": "redis://your-valkey-or-elasticache:6379" },
         { "name": "MEMSMITH_GENERATION_DISABLED", "value": "true" },
         { "name": "TRANSFORMERS_CACHE",             "value": "/mnt/model-cache" },
         { "name": "MEMSMITH_FTS_WEIGHT",          "value": "0.3" },
         { "name": "MEMSMITH_VEC_WEIGHT",          "value": "1" },
         { "name": "MEMSMITH_RRF_K",               "value": "60" }
+      ],
+      "secrets": [
+        {
+          "name": "MEMSMITH_SERVER_DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:memsmith/db-url"
+        }
       ],
       "mountPoints": [
         {
@@ -274,7 +313,7 @@ Your server endpoint is `https://memsmith-alb-XXXXXXXXXX.us-east-1.elb.amazonaws
 | `MEMSMITH_RUNTIME` | — | Must be `server-beta` in Docker/Fargate |
 | `MEMSMITH_QUEUE_ENGINE` | — | Must be `bullmq` when using Valkey/Redis |
 | `MEMSMITH_AUTH_MODE` | — | Set to `api-key` in production |
-| `MEMSMITH_SERVER_DATABASE_URL` | — | Postgres connection string (required) |
+| `MEMSMITH_SERVER_DATABASE_URL` | — | Postgres connection string (required). In AWS, inject from Secrets Manager via the task definition's `secrets`/`valueFrom` — never inline it in `environment`. |
 | `MEMSMITH_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
 | `MEMSMITH_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
 | `MEMSMITH_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
