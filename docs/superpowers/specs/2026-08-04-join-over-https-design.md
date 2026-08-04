@@ -53,9 +53,15 @@ the code:
   the authenticated key's own team. A caller naming a fresh id cannot read anyone's
   data, because nothing exists at that id.
 
-So this work is a **transport change to an already-authorized operation**. It does
-not introduce a new authorization model, and it does not need an unauthenticated
-endpoint or new rate limiting.
+So this work is a **transport change to an already-authorized operation**. It does not
+introduce a new authorization model.
+
+It does, however, need **one piece of new security-relevant code**: because the remote
+route must return specific error reasons (§2.1), it inspects the team key as a body
+parameter rather than delegating to the auth middleware — which makes it reachable
+without prior authentication and therefore requires rate limiting (§3.2). An earlier
+draft claimed no rate limiting was needed; that was true only of a design that
+sacrificed the specific error messages.
 
 ---
 
@@ -77,26 +83,39 @@ browser                            browser
 LOCAL server                       LOCAL server
   │                                  │
   │ pg://user:PASSWORD@team:5432      │ HTTPS  POST /v1/join/register
-  ▼                                  │ Authorization: Bearer <team key>
+  ▼                                  │ body: { teamKey, projectId }  (§2.1)
 TEAM Postgres  ◄── direct           ▼
                                    TEAM server
-                                     │ (password from Secrets Manager,
+                                     │ rate-limited (§3.2)
+                                     │ (DB password from Secrets Manager,
                                      │  injected as env at task start)
                                      ▼
                                    TEAM Postgres  ◄── server-side only
 ```
 
-### 2.1 Why the two-key model survives — and why it must
+The joiner's machine holds the **team key** and nothing else. No database password
+crosses the boundary in either direction, at any point in the project's lifecycle
+(§4.2).
 
-The joiner authenticates to their **own local** server with their **own local** key.
-The pasted **team key** travels as a body parameter on that local request, then as a
-`Bearer` token on the outward HTTPS hop. Two keys, two layers, two different servers.
+### 2.1 The two layers, and where specific errors come from
 
-This separation is what makes **specific error messages safe**. Because the caller has
-already authenticated to a server they control, the team server can answer "that key
-has been revoked" rather than a flat 401, without becoming a key-guessing oracle for
-an unauthenticated stranger. `join-service.ts:110-126` already returns those four
-distinct reasons and the UI shows them inline.
+The joiner authenticates to their **own local** server with their **own local** key
+(`writeAuth`). The pasted **team key** travels as a body parameter on that local
+request, and then — deliberately **also as a body parameter**, not a `Bearer` token —
+on the outward HTTPS hop.
+
+That last choice needs stating plainly, because the obvious design is wrong. If the
+team key were presented as `Authorization: Bearer`, the existing auth middleware would
+evaluate it, and `postgres-auth.ts:360-370` returns `null` for **missing, revoked,
+expired, and insufficient-scope** alike → one flat `401` at line 222. The four
+distinct reasons `join-service.ts:110-126` produces today would be destroyed:
+a teammate whose key was revoked would see only "unauthorized" and have to go ask the
+owner why.
+
+So the remote route takes the team key as **data it inspects**, performing the same
+hash lookup `runJoin` does today, and returns the specific reason. This is a
+deliberate, narrow exception to "credentials go in the Authorization header," and its
+cost is that the route is reachable without prior authentication — addressed in §3.2.
 
 A note on why the remote route is **not** gated by the joiner's own key: a brand-new
 teammate has **no credential on the team server**. Their local key exists only in
@@ -112,7 +131,9 @@ before the handler ran. The team key is necessarily the credential on the outwar
 | Join orchestration | `src/server/convert/join-service.ts` | swap deps, keep logic |
 | **New:** HTTPS join client | `src/server/convert/join-transport-https.ts` | create |
 | **New:** remote register route | `src/server/routes/v1/ServerV1PostgresRoutes.ts` | add `POST /v1/join/register` |
+| **New:** join rate limiter | `src/server/middleware/join-rate-limit.ts` | create (§3.2) |
 | Deps wiring | `ServerV1PostgresRoutes.ts:1676-1690` | choose transport |
+| Join form | `src/ui/viewer/…` (join dialog) | HTTPS-only URL field (§4.1) |
 | Deploy | `docs/deploy/aws.md` | Secrets Manager `valueFrom` |
 
 The design keeps `runJoin`'s five-step contract and its ordering guarantee (§2.3),
@@ -134,29 +155,50 @@ must preserve this: no local state changes until the remote returns 200.
 
 ```
 POST /v1/join/register            (on the TEAM server)
-Authorization: Bearer <team key>
 Content-Type: application/json
 
-{ "projectId": "<uuid>", "projectName": "my-service" }
+{ "teamKey": "<team key>", "projectId": "<uuid>", "projectName": "my-service" }
 
 200 { "status": "joined", "teamId": "<uuid>" }
 422 { "status": "failed", "error": "that key has been revoked" }
+429 { "status": "failed", "error": "too many attempts" }
 ```
 
 Handler logic — the same four checks `runJoin` performs today, moved server-side:
 
-1. `teamId` comes from `authContext.teamId`, resolved by the standard auth
-   middleware from the presented key's `api_keys` row
-   (`postgres-auth.ts:340-377`). Never from the body.
-2. Reject a key with no team → `422 "that key is not scoped to a team"`. Revoked and
-   expired keys are already rejected by the auth middleware itself, which returns
-   `null` → 401; the handler's own checks cover the teamless case and any future
-   drift.
-3. `upsertTeamAndProject(pool, authContext.teamId, body.projectId, body.projectName)`
+1. Look up `hashKey(body.teamKey)` in `api_keys`, reading `team_id`, `revoked_at`,
+   `expires_at` — the identical query at `join-service.ts:105-108`. `teamId` therefore
+   comes from **the key's own row**, never from the body.
+2. Return the specific reason on failure, all `422`:
+   no row → `"that key is not valid for this workspace"`; `revoked_at` set →
+   `"that key has been revoked"`; `expires_at` past → `"that key has expired"`;
+   `team_id` null → `"that key is not scoped to a team"`.
+3. `upsertTeamAndProject(pool, row.team_id, body.projectId, body.projectName)`
    — the existing idempotent function. Re-joining and two simultaneous joins both
    succeed.
 4. Return `teamId` and nothing secret. **The response must never carry the database
    URL or password** — that is the whole point of the change.
+
+### 3.2 Rate limiting — required, and scoped to the team
+
+Because §2.1 puts the team key in the body rather than the `Authorization` header,
+this route is reachable **without prior authentication**. Untreated, it is a
+key-guessing oracle that helpfully distinguishes "no such key" from "revoked key."
+
+The limit is keyed on **`hashKey(teamKey)` first, falling back to source IP** when the
+key matches no row. Keying on the team is what makes the limit meaningful: a
+legitimate join is a handful of attempts by one person against one team, while an
+attacker probing for valid keys produces many *distinct* hashes from one source — so
+the IP fallback is the branch that actually catches guessing, and the team-keyed
+branch keeps one noisy teammate from locking out their colleagues behind the same NAT.
+
+Budget: 10 attempts per 15 minutes per bucket, `429` beyond. The key space is a
+SHA-256 of a random key, so this is not the primary defence — it is there so that
+distinguishing the four reasons cannot be amplified.
+
+**This is the one piece of genuinely new security-relevant code in the design**, and
+it must not be deferred: without it, choosing specific error messages is strictly
+worse than a flat 401.
 
 **`projectId` from the body is correct here, and is the only place in the codebase
 where that is true.** The justification, restated so a future reader does not
@@ -166,11 +208,13 @@ half non-negotiable, and the team half comes from the credential. A caller can o
 ever create a project inside its own team. Add a regression test asserting exactly
 this (§5).
 
-### 3.1 Auth gate
+### 3.3 Why no role gate
 
-`writeAuth` — matching the local `/v1/join`, and for the identical documented reason:
-requiring `admin`/`owner` would mean only someone who already has the workspace could
-join it. A team key is by construction a credential the owner chose to hand out.
+Possession of a valid, unrevoked, unexpired, team-scoped key **is** the authorization —
+exactly as it is today. Requiring `admin`/`owner` would mean only someone who already
+has the workspace could join it (`ConvertRoutes.ts:102-104`,
+`ServerV1PostgresRoutes.ts:1681`). A team key is by construction a credential the owner
+chose to hand out, and revoking it is a row update.
 
 ---
 
@@ -184,17 +228,56 @@ Per the agreed scope: **HTTPS preferred, Postgres fallback.**
 - The invite carries a `postgres://` URL → existing direct-Postgres transport,
   unchanged, so today's rig and any existing team keep working.
 
-This keeps the change additive. No existing join path regresses, and the fallback is
-the migration story for a team already converted against a raw Postgres URL.
+### 4.1 The fallback is migration-only, and must be labelled as such
 
-**Known rig limitation (must be handled during implementation):** `deriveServerUrl`
-(`src/server/convert/convert-context.ts:25`) maps a localhost database URL to
-`http://127.0.0.1:38879` — the *same* server the joiner is running. So the local rig
-cannot exercise the HTTPS path end-to-end without **two servers on different ports**.
-The implementation plan must stand up a second server instance rather than asserting
-the HTTPS path works from a single-server rig. This is exactly the mistake made
-earlier in this project when "two machines" was claimed from two projects on one
-server.
+Presenting the Postgres fallback as cost-free back-compat would be a mistake, so state
+the cost explicitly: **the fallback is the only path that still requires a teammate to
+hold a database password.** It therefore preserves, for anyone who uses it, the exact
+vulnerability this work exists to remove.
+
+It is retained for one situation: a team already converted against a raw Postgres URL,
+whose owner necessarily *already* has that URL. That is a migration path for the owner,
+not an onboarding path for teammates.
+
+Consequences the implementation must honour:
+
+- The dashboard join form offers **HTTPS only**. A `postgres://` URL is reachable via
+  the fallback but is not advertised in the teammate-facing UI.
+- When the fallback is used, log a warning naming it as deprecated.
+- Once a team is reachable over HTTPS, nothing should hand a teammate a pg URL again.
+
+### 4.2 Steady state after joining is already HTTPS-only
+
+Worth recording because it makes the win larger than the handshake alone: the joiner
+needs no Postgres URL **after** the join either. `flip-to-team.ts:28` writes the marker
+as `{ runtime: 'server', serverUrl }` and puts the key in `CredentialStore` — it never
+persists a `databaseUrl`. `server-client.ts:216` builds its transport from
+`serverBaseUrl` with `Authorization: Bearer` at line 384.
+
+So with the HTTPS join path, a teammate's machine never holds a database credential at
+any point in its lifecycle. The handshake was the only remaining place one was needed.
+
+### 4.3 Rig limitation — and why a second server alone is not enough
+
+`deriveServerUrl` (`convert-context.ts:25-32`) resolves in this order:
+
+1. `existingServerUrl` argument, if non-empty → **returned verbatim** (line 26).
+2. host is `localhost`/`127.0.0.1` → `http://${host}:38879` — **port hard-coded**.
+3. otherwise → `https://${host}` — **port dropped entirely**.
+
+Two consequences for testing, and the second is the one that bites:
+
+- The local rig cannot exercise the HTTPS path from a single server: branch 2 returns
+  `:38879`, the very server the joiner is running.
+- **Standing up a second server on another port does not fix it by itself.** Branch 2
+  ignores the real port, so a second local server is unreachable unless
+  `existingServerUrl` is threaded through explicitly (the code comment at line 30 says
+  as much). An integration test that boots a second server and relies on
+  `deriveServerUrl` will silently address the *first* one and report a false pass.
+
+The implementation plan must therefore specify how `existingServerUrl` reaches
+`deriveServerUrl` in the test rig. This is the same failure mode as the earlier "two
+machines verified" claim in this project, which was really two projects on one server.
 
 ---
 
@@ -206,14 +289,20 @@ Unit (no live infrastructure):
 - **Cross-team refusal:** a key for team A sending `projectId` of an existing team-B
   project must not move or read it. This is the guard for §3's body-`projectId`
   decision.
-- Teamless key → 422 with that specific reason.
+- **All four reasons distinctly:** unknown / revoked / expired / teamless key each
+  return `422` with their own message. This is the §2.1 property; if a change ever
+  collapses them to a flat 401, these tests are what catches it.
+- **Rate limit:** the 11th attempt in the window returns `429`; attempts against a
+  *valid* key for one team do not exhaust another team's budget.
 - Idempotency: two identical register calls both return 200, one `projects` row.
 - Ordering: on a non-200 from the remote, no local marker write and no credential
   cached (the §2.3 guarantee).
 - Response shape: assert the 200 body contains no `password`, no `databaseUrl`, no
   `postgres://` substring.
+- The response body for every failure path likewise contains no `postgres://`
+  substring — an error message must not leak the connection string.
 
-Integration (two servers, different ports):
+Integration (two servers, different ports, `existingServerUrl` threaded per §4.3):
 
 - Full join over HTTPS: joiner ends with correct marker `teamId`, credential in
   `CredentialStore` only, **no credential in `.memsmith/project.json`**.
@@ -278,6 +367,11 @@ can be added later without touching application code.
    (`~/.memsmith/credentials.json`), keyed by teamId — **never** in
    `.memsmith/project.json`, which is committed to git and would put the credential
    in git history, every clone, CI, and the git host permanently.
+   This is **structural, not conventional**: `ProjectMarker`
+   (`project-identity.ts:23-30`) has no credential field to write one into —
+   `projectId`, `teamId`, `note`, `runtime?`, `serverUrl?`, `databaseName?` — and the
+   marker's own `note` says so. Adding such a field would break this invariant, so
+   don't.
 3. `teamId` is always derived from the presented credential, never from a request.
 4. `projectId` from the body is accepted at exactly one route, for creation only,
    always inside the authenticated key's own team, with a regression test pinning it.
