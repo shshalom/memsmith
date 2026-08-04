@@ -131,7 +131,7 @@ before the handler ran. The team key is necessarily the credential on the outwar
 | Join orchestration | `src/server/convert/join-service.ts` | swap deps, keep logic |
 | **New:** HTTPS join client | `src/server/convert/join-transport-https.ts` | create |
 | **New:** remote register route | `src/server/routes/v1/ServerV1PostgresRoutes.ts` | add `POST /v1/join/register` |
-| **New:** join rate limiter | `src/server/middleware/join-rate-limit.ts` | create (§3.2) |
+| Rate limiting | `src/server/middleware/rate-limit.ts` + `storage/postgres/rate-limit.ts` | **reuse**; add only a subject-derivation middleware (§3.2) |
 | Deps wiring | `ServerV1PostgresRoutes.ts:1676-1690` | choose transport |
 | Join form | `src/ui/viewer/…` (join dialog) | HTTPS-only URL field (§4.1) |
 | Deploy | `docs/deploy/aws.md` | Secrets Manager `valueFrom` |
@@ -161,10 +161,16 @@ Content-Type: application/json
 
 200 { "status": "joined", "teamId": "<uuid>" }
 422 { "status": "failed", "error": "that key has been revoked" }
-429 { "status": "failed", "error": "too many attempts" }
+429 { "error": "rate_limited", "message": "Rate limit exceeded (10 requests / 900s)" }
 ```
 
-Handler logic — the same four checks `runJoin` performs today, moved server-side:
+The `429` body is **not invented for this route** — it is the shape the existing
+limiter already emits (`rate-limit.ts:42-45`), along with `X-RateLimit-Limit`,
+`X-RateLimit-Remaining`, `X-RateLimit-Reset` and `Retry-After` headers. See §3.2.
+
+### 3.1 Handler logic
+
+The same four checks `runJoin` performs today, moved server-side:
 
 1. Look up `hashKey(body.teamKey)` in `api_keys`, reading `team_id`, `revoked_at`,
    `expires_at` — the identical query at `join-service.ts:105-108`. `teamId` therefore
@@ -179,36 +185,66 @@ Handler logic — the same four checks `runJoin` performs today, moved server-si
 4. Return `teamId` and nothing secret. **The response must never carry the database
    URL or password** — that is the whole point of the change.
 
-### 3.2 Rate limiting — required, and scoped to the team
+### 3.2 Rate limiting — required, and mostly already built
 
 Because §2.1 puts the team key in the body rather than the `Authorization` header,
 this route is reachable **without prior authentication**. Untreated, it is a
 key-guessing oracle that helpfully distinguishes "no such key" from "revoked key."
 
-The limit is keyed on **`hashKey(teamKey)` first, falling back to source IP** when the
-key matches no row. Keying on the team is what makes the limit meaningful: a
-legitimate join is a handful of attempts by one person against one team, while an
-attacker probing for valid keys produces many *distinct* hashes from one source — so
-the IP fallback is the branch that actually catches guessing, and the team-keyed
-branch keeps one noisy teammate from locking out their colleagues behind the same NAT.
+**Prior art, and the trap in reusing it.** A limiter already exists —
+`requireRateLimit(pool, { windowSec, max })` in `src/server/middleware/rate-limit.ts`:
+fixed-window, atomic, cross-instance-correct, with the headers and `429` body above.
+But it **cannot be used on this route as written**. Lines 54-55 read the subject from
+`req.authContext?.apiKeyId` and `return next()` when it is absent — an intentional
+"unauthenticated / local-dev bypass: nothing to limit." On a deliberately
+unauthenticated route `authContext` is undefined, so **every request would pass
+through unlimited**: the reuse looks safe and is a silent no-op. This is worth naming
+because it is the project's recurring failure mode — the plausible-looking path that
+quietly does nothing.
 
-Budget: 10 attempts per 15 minutes per bucket, `429` beyond. The key space is a
-SHA-256 of a random key, so this is not the primary defence — it is there so that
-distinguishing the four reasons cannot be amplified.
+**What is actually new is small.** The storage layer is reusable as-is:
+`PostgresRateLimitRepository.hit({ subjectId, windowStart, limit })` does one atomic
+UPSERT, and `schema.ts:287-291` declares `subject_id TEXT NOT NULL` with
+`PRIMARY KEY (subject_id, window_start)` and **no foreign key** — so an arbitrary
+subject string is already legal. **No schema change, no new table, no new limiter.**
+The only new code is a middleware that derives the subject from the request instead
+of from `authContext`:
 
-**This is the one piece of genuinely new security-relevant code in the design**, and
-it must not be deferred: without it, choosing specific error messages is strictly
-worse than a flat 401.
+- `joinkey:<hashKey(teamKey)>` when the body carries a key, else
+- `joinip:<source ip>`.
 
-**`projectId` from the body is correct here, and is the only place in the codebase
-where that is true.** The justification, restated so a future reader does not
-"fix" it: the row is being *created* under the authenticated key's own team, not
-*read* from another team. The composite FK `projects(id, team_id)` makes the team
-half non-negotiable, and the team half comes from the credential. A caller can only
-ever create a project inside its own team. Add a regression test asserting exactly
-this (§5).
+Keying on the key hash keeps one noisy teammate from locking out colleagues behind the
+same NAT; the IP bucket is the branch that actually catches guessing, since an attacker
+probing for valid keys produces many *distinct* hashes from one source.
 
-### 3.3 Why no role gate
+Budget: 10 attempts per 900s per bucket. The key space is a SHA-256 of a random key,
+so this is not the primary defence — it exists so that distinguishing the four reasons
+cannot be amplified.
+
+**Failure mode — a stated decision, not an inherited one.** The existing limiter
+**fails open** by design (`rate-limit.ts:58-63`: "a limiter/quota storage hiccup must
+never take the API down"). This route keeps that behaviour: a database blip must not
+make joining impossible, and the guessing resistance given up is marginal against a
+256-bit key space. Recorded explicitly because fail-open is the *wrong* default for
+most anti-guessing controls, and a future reader should see that it was chosen rather
+than inherited by accident.
+
+### 3.3 Why `projectId` may come from the body here
+
+**This is the only place in the codebase where that is true**, so the justification is
+stated here rather than left to a code comment. The row is being *created* under the
+authenticated key's own team, not *read* from another team. The composite FK
+`projects(id, team_id)` makes the team half non-negotiable, and the team half comes
+from the key's own row (§3.1 step 1). A caller can therefore only ever create a project
+inside its own team, and naming a fresh id reveals nothing because nothing exists at
+it yet.
+
+Contrast `resolve-requested-project.ts`, whose rule this appears to cross but does not:
+that middleware exists to stop a request **widening a read to an existing project**
+(`WHERE id = $1 AND team_id = $2`, miss → `source: 'denied'`). Creation under your own
+team is the opposite operation. §5 pins this with a cross-team regression test.
+
+### 3.4 Why no role gate
 
 Possession of a valid, unrevoked, unexpired, team-scoped key **is** the authorization —
 exactly as it is today. Requiring `admin`/`owner` would mean only someone who already
@@ -287,13 +323,17 @@ Unit (no live infrastructure):
 
 - Transport selection: `https://` → HTTPS client; `postgres://` → pg client.
 - **Cross-team refusal:** a key for team A sending `projectId` of an existing team-B
-  project must not move or read it. This is the guard for §3's body-`projectId`
-  decision.
+  project must not move or read it. This is the guard for §3.3.
 - **All four reasons distinctly:** unknown / revoked / expired / teamless key each
   return `422` with their own message. This is the §2.1 property; if a change ever
   collapses them to a flat 401, these tests are what catches it.
-- **Rate limit:** the 11th attempt in the window returns `429`; attempts against a
-  *valid* key for one team do not exhaust another team's budget.
+- **Rate limit actually engages on an unauthenticated request.** The 11th attempt in
+  the window returns `429` **with no `authContext` present** — this is the specific
+  trap in §3.2: the existing limiter's `authContext` bypass would make the limit a
+  silent no-op, and only a test that omits authentication catches it.
+- **Rate limit buckets are independent:** attempts against one team's key do not
+  exhaust another team's budget, and a bad-key IP bucket does not exhaust a valid
+  team's.
 - Idempotency: two identical register calls both return 200, one `projects` row.
 - Ordering: on a non-200 from the remote, no local marker write and no credential
   cached (the §2.3 guarantee).
