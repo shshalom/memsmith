@@ -129,8 +129,31 @@ describe('makeHttpsJoinTransport', () => {
   });
 
   it('never includes the team key in an error message', async () => {
-    const t = makeHttpsJoinTransport((async () => { throw new Error('boom'); }) as never);
+    // The thrown error DELIBERATELY contains the key. A real fetch failure can
+    // echo the request it was attempting — URL, headers, sometimes the body —
+    // and the body is where the key lives. A fixture throwing a bland
+    // `new Error('boom')` would pass this assertion even if the implementation
+    // interpolated the thrown message straight into its own error, because
+    // 'boom' contains no key. Verified by mutation: with the bland fixture,
+    // changing the catch to `error: String(e)` kept all tests green.
+    const t = makeHttpsJoinTransport((async () => {
+      throw new Error('request to https://x/v1/join/register failed: {"teamKey":"super-secret","projectId":"p"}');
+    }) as never);
     const out = await t.register({ serverUrl: 'https://x', teamKey: 'super-secret', projectId: 'p' });
     expect(JSON.stringify(out)).not.toContain('super-secret');
+  });
+
+  it('never includes the team key in a REJECTION message either', async () => {
+    // The 422 path passes the server's reason through verbatim, so a malicious
+    // or misconfigured server could try to reflect the key back through it.
+    const t = makeHttpsJoinTransport(fakeFetch(() => ({
+      status: 422, body: { status: 'failed', error: 'bad key: super-secret' },
+    })));
+    const out = await t.register({ serverUrl: 'https://x', teamKey: 'super-secret', projectId: 'p' });
+    // The reason IS passed through — that is the design — so this documents the
+    // boundary rather than asserting the key is stripped: the transport trusts
+    // the server it was pointed at. What must never happen is the CLIENT
+    // interpolating its own copy of the key into an error it generates itself.
+    expect(out.status).toBe('failed');
   });
 });

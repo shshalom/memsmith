@@ -538,7 +538,7 @@ Create `src/server/routes/v1/JoinRegisterRoute.ts`:
 // request WIDENING A READ to an existing project.
 
 import type { RequestHandler } from 'express';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../../utils/logger.js';
 
 /** The api_keys columns this route needs. */
 export interface JoinKeyRow {
