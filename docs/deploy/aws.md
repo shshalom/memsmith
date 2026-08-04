@@ -304,6 +304,55 @@ The ALB security group should allow inbound TCP 443 from `0.0.0.0/0`. The Fargat
 
 Your server endpoint is `https://memsmith-alb-XXXXXXXXXX.us-east-1.elb.amazonaws.com` — map your DNS CNAME to this.
 
+### 2f. Set the team's server URL explicitly — do NOT let it be derived
+
+**This is the one AWS-specific footgun in the whole deployment.** Your API is now on
+the ALB hostname above. Your database is on a *completely different* hostname (RDS).
+Those two facts are the problem.
+
+`deriveServerUrl` (`src/server/convert/convert-context.ts:25-32`) computes a server
+URL from a database URL when nothing better is available, and for any non-localhost
+host it returns `https://<database-host>` — dropping the port and keeping the *database*
+hostname:
+
+```
+postgres://cmem:pw@memsmith-prod.abc123.us-east-1.rds.amazonaws.com:5432/memsmith
+  ->  https://memsmith-prod.abc123.us-east-1.rds.amazonaws.com     # WRONG: that's RDS
+```
+
+Nothing serves `/v1` there. A convert run that falls back to this will write a marker
+pointing at the database host, and every subsequent request from that project fails.
+
+**There is currently NO supported override, and that is a real gap — not a
+configuration step you can work around.** Verified in the code:
+
+- `deriveServerUrl`'s first branch returns an `existingServerUrl` argument verbatim,
+  which would be exactly the right escape hatch.
+- But its only consumer, `makeResolveConvertContext` (`convert-context.ts:34`), has
+  **zero call sites**.
+- And the live convert path calls `deriveServerUrl(input.databaseUrl)` with **one
+  argument** (`ServerV1PostgresRoutes.ts:1866`), so branch 1 is unreachable.
+- `MEMSMITH_SERVER_URL` exists as a setting but is **not** wired into this path. It
+  feeds the hook/client transports, not convert's URL derivation.
+
+**What this means for an AWS deployment:** running the owner's convert against RDS will
+stamp a marker pointing at the RDS hostname, and that project's requests will fail
+until the marker is corrected by hand. Editing `.memsmith/project.json`'s `serverUrl`
+after the convert is the current manual remedy.
+
+**Who is affected:**
+
+| Path | Exposed? |
+|---|---|
+| Owner's **convert** (`ServerV1PostgresRoutes.ts:1866`) | **Yes** — always passes a `postgres://` URL |
+| Retained `postgres://` **join fallback** (`join-service.ts:201`) | **Yes** |
+| **HTTPS join** (the new path) | **No** — uses the invite URL verbatim, never calls `deriveServerUrl` |
+
+So teammates joining over HTTPS are safe; the owner converting is not.
+
+The exact behaviour of all three branches, including this hazard, is pinned in
+`tests/server/convert/derive-server-url-production.test.ts`.
+
 ---
 
 ## 3. Environment Variable Reference
