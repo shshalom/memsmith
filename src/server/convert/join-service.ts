@@ -30,6 +30,9 @@
 // before the credential resolves leaves the project in team mode with no key —
 // authenticated as nobody, silently dropping every observation.
 
+import { isHttpUrl } from './join-transport-https.js';
+import type { JoinRegisterResult } from './join-transport.js';
+
 export interface JoinQueryable {
   query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
 }
@@ -51,6 +54,20 @@ export interface JoinResult {
   join?: { teamId: string; projectId: string; serverUrl: string; apiKey: string };
   /** Present on failure — a reason a person can act on. */
   error?: string;
+  /**
+   * Present ONLY when the team accepted the join but the LOCAL apply did not
+   * happen — the marker was not flipped, or was never attempted.
+   *
+   * status stays 'joined' because the remote side is committed and the local
+   * half is recoverable on the project's next session. But it must not be
+   * reported as unqualified success: repointLocalKeyToTeam has already moved the
+   * local api_keys row to the new team, while the credential is looked up by the
+   * MARKER's teamId — so without the flip the project authenticates as nobody
+   * and silently drops observations.
+   */
+  localApplied?: false;
+  /** Why the local apply did not happen. Present whenever localApplied is. */
+  localReason?: string;
 }
 
 export interface JoinDeps {
@@ -64,6 +81,15 @@ export interface JoinDeps {
   upsertProject: (pool: JoinQueryable, teamId: string, projectId: string, name?: string) => Promise<void>;
   /** Ensure the remote has MemSmith's schema (idempotent). */
   bootstrapSchema?: (pool: JoinQueryable) => Promise<void>;
+  /**
+   * Reach the remote over HTTPS instead of opening a Postgres pool.
+   *
+   * When present AND the invite URL is HTTP(S), steps 2-4 (verify the key,
+   * verify the team, register the project) all happen server-side, so the
+   * joiner never possesses a database credential. Absent — or given a
+   * postgres:// URL — the direct-Postgres path below is used unchanged.
+   */
+  transport?: import('./join-transport.js').JoinTransport;
 }
 
 /**
@@ -81,6 +107,40 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
   if (!databaseUrl) return { status: 'failed', error: 'database URL is required' };
   if (!apiKey) return { status: 'failed', error: 'team key is required' };
   if (!input.projectId?.trim()) return { status: 'failed', error: 'no local project to join with' };
+
+  // HTTPS path: hand the whole remote interaction to the transport. Chosen by
+  // the URL scheme, so an existing postgres:// invite keeps working (spec §4.1
+  // — the fallback is retained deliberately).
+  if (deps.transport && isHttpUrl(databaseUrl)) {
+    let result: JoinRegisterResult;
+    try {
+      result = await deps.transport.register({
+        serverUrl: databaseUrl,
+        teamKey: apiKey,
+        projectId: input.projectId,
+        projectName: input.projectName,
+      });
+    } catch (err) {
+      // A transport that throws must read as a failed join, not a 500.
+      return { status: 'failed', error: `could not register this project: ${message(err)}` };
+    }
+    if (result.status !== 'joined') {
+      // No `join` payload on failure: applyConvertJoin must have nothing to act
+      // on, or the marker could flip into team mode with no resolvable key.
+      return { status: 'failed', error: result.error };
+    }
+    return {
+      status: 'joined',
+      join: {
+        teamId: result.teamId,
+        projectId: input.projectId,
+        // Already an HTTP(S) base URL — deriveServerUrl exists to turn a
+        // DATABASE url into one, so it must not be applied here.
+        serverUrl: databaseUrl.replace(/\/+$/, ''),
+        apiKey,
+      },
+    };
+  }
 
   let pool: (JoinQueryable & { end?: () => Promise<void> }) | null = null;
   try {

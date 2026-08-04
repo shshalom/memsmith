@@ -52,6 +52,9 @@ import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
+import { registerJoinRegisterRoute } from './JoinRegisterRoute.js';
+import { requireJoinRateLimit } from '../../middleware/join-rate-limit-subject.js';
+import { makeHttpsJoinTransport } from '../../convert/join-transport-https.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { applyPgvectorFix } from '../../convert/apply-fix.js';
 import { runConvert } from '../../convert/convert-service.js';
@@ -68,6 +71,7 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
+import { summariseLocalApply } from '../../convert/local-apply-report.js';
 import { repointLocalKeyToTeam, repointProjectDatabaseTeam } from '../../convert/repoint-local-key.js';
 import { listTeamProjects, readAcrossTeam, mergeTeamResults } from '../../retrieval/team-scope.js';
 import { resolveProjectRuntime } from './project-runtime.js';
@@ -1695,6 +1699,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           bootstrapSchema: (p) => bootstrapServerPostgresSchema(p as never),
           upsertProject: (p, teamId, projectId, name) =>
             upsertTeamAndProject(p as never, teamId, projectId, name),
+          // Prefer HTTPS: with it the joiner needs only the team key and never a
+          // database password. isHttpUrl inside runJoin decides per invite, so a
+          // postgres:// invite still takes the retained fallback.
+          transport: makeHttpsJoinTransport(),
         }, input);
 
         // Apply locally on success, exactly as convert does: cache the team's
@@ -1735,8 +1743,22 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             );
             const meta = (pathRow.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
             const projectPath = meta?.[PROJECT_PATH_KEY];
-            if (typeof projectPath === 'string' && projectPath.trim()) {
-              applyConvertJoin(
+            // CAPTURE the outcome. applyConvertJoin returns { applied, reason }
+            // rather than throwing, and this call discarded it while the convert
+            // path below captures it — so all four local failure modes (no
+            // marker, marker names another project, no apiKey/serverUrl, and the
+            // no-recorded-path skip handled by the null below) answered a clean
+            // 200 {"status":"joined"}.
+            //
+            // That silence is worse than a visible failure: repointLocalKeyToTeam
+            // never throws, so the local api_keys row has ALREADY moved to the new
+            // team and authContext.teamId follows it, while runtime-selector
+            // resolves the credential by the MARKER's teamId. Without the flip the
+            // key is cached under one team and looked up by another — team mode
+            // with no resolvable credential, silently dropping every observation
+            // while the user was told the join succeeded.
+            const localApply = (typeof projectPath === 'string' && projectPath.trim())
+              ? applyConvertJoin(
                 {
                   readProjectMarker: readProjectMarkerForRuntime,
                   writeProjectRuntime,
@@ -1744,12 +1766,30 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                 },
                 projectPath,
                 result.join,
-              );
+              )
+              // null, not a synthesised failure: applyConvertJoin never ran, which
+              // summariseLocalApply reports with its own distinct reason.
+              : null;
+            if (localApply === null || !localApply.applied) {
+              logger.warn('IDENTITY', 'join succeeded remotely but did not apply locally', {
+                projectId: input.projectId,
+                teamId: result.join.teamId,
+                reason: localApply?.reason ?? 'no recorded project path',
+              });
             }
-          } catch {
+            Object.assign(result, summariseLocalApply(localApply));
+          } catch (error) {
             // The join itself succeeded remotely; a local apply failure is
             // recoverable on the next session rather than a reason to report
-            // the whole join as failed.
+            // the whole join as failed. Still say so, for the same reason as
+            // above — an unreported local failure is indistinguishable from
+            // success to the caller.
+            logger.warn('IDENTITY', 'join local apply threw', { projectId: input.projectId },
+              error instanceof Error ? error : new Error(String(error)));
+            Object.assign(result, summariseLocalApply({
+              applied: false,
+              reason: 'the local apply failed on this machine — start a session in the project to finish joining',
+            }));
           }
         }
         return result;
@@ -1892,6 +1932,30 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         } finally {
           await dispose();
         }
+      },
+    });
+
+    // The REMOTE half of join-over-HTTPS. Unauthenticated by design (the team
+    // key is a body parameter so the four rejection reasons stay distinct), so
+    // the rate limiter is mandatory rather than optional here.
+    registerJoinRegisterRoute(app, {
+      rateLimit: [requireJoinRateLimit(
+        this.options.pool,
+        { windowSec: 900, max: 10 },
+        (raw) => createHash('sha256').update(raw).digest('hex'),
+      )],
+      hashKey: (raw) => createHash('sha256').update(raw).digest('hex'),
+      lookupKey: async (keyHash) => {
+        const r = await this.options.pool.query(
+          'SELECT team_id, revoked_at, expires_at FROM api_keys WHERE key_hash = $1 LIMIT 1',
+          [keyHash],
+        );
+        const row = r.rows[0] as { team_id: string | null; revoked_at: Date | null; expires_at: Date | null } | undefined;
+        if (!row) return null;
+        return { teamId: row.team_id, revokedAt: row.revoked_at, expiresAt: row.expires_at };
+      },
+      upsertProject: async (teamId, projectId, name) => {
+        await upsertTeamAndProject(this.options.pool, teamId, projectId, name);
       },
     });
   }
