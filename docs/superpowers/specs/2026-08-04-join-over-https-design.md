@@ -1,7 +1,13 @@
 # Join over HTTPS + Secrets Manager — Design
 
 **Date:** 2026-08-04
-**Status:** Approved design, not yet implemented
+**Status:** Design complete, reviewed, awaiting user approval. Not implemented.
+
+**Evidence standard used here:** every file-and-line reference was read in the current
+tree, not recalled. Claims are marked where they rest on a code audit rather than a
+live run — the design's central security claim (§4.2) is one of those, because §4.3
+establishes the current rig cannot exercise the HTTPS path at all. Nothing in this
+document has been observed working end to end, and it should not be read as if it had.
 **Scope:** Replace the joiner's direct Postgres connection to the team database with
 an authenticated HTTPS call. Keep the team database password out of every client and
 out of the Fargate task definition.
@@ -275,6 +281,18 @@ It is retained for one situation: a team already converted against a raw Postgre
 whose owner necessarily *already* has that URL. That is a migration path for the owner,
 not an onboarding path for teammates.
 
+**Measured: the fallback currently protects nothing.** On the development machine,
+`~/.memsmith/settings.json` has `MEMSMITH_RUNTIME: local` and **no**
+`MEMSMITH_SERVER_DATABASE_URL`, and nothing is pointed at a remote Postgres URL (52
+teams / 16 projects / 5 team-scoped keys, all local). So **deleting the fallback
+outright carries no migration cost today** — and deleting it is the cleaner design,
+since it is the only path that still hands a teammate a database password.
+
+This is deliberately left as an open decision rather than settled here, because it
+trades a simpler, strictly-safer system against the ability to onboard onto a team that
+is already running on a raw Postgres URL somewhere this audit cannot see. Retaining it
+is the conservative default; the measurement above is what makes removal a real option.
+
 Consequences the implementation must honour:
 
 - The dashboard join form offers **HTTPS only**. A `postgres://` URL is reachable via
@@ -292,6 +310,30 @@ persists a `databaseUrl`. `server-client.ts:216` builds its transport from
 
 So with the HTTPS join path, a teammate's machine never holds a database credential at
 any point in its lifecycle. The handshake was the only remaining place one was needed.
+
+**Status of this claim: verified by exhaustive audit of the write paths, not by a live
+run.** It is the strongest security claim in this document, so the evidence is listed
+rather than asserted:
+
+| Write path | Does it persist a DB credential? |
+|---|---|
+| `ProjectMarker` (`project-identity.ts:23-30`) | **No** — the type has no field for one (§8.2) |
+| `flipToTeam` (`flip-to-team.ts:27-30`) | **No** — writes marker + `CredentialStore` only |
+| `writeServerModeSettings` (`settings-writer.ts:13`) | **Would** write `MEMSMITH_SERVER_DATABASE_URL` — but has **zero call sites** |
+| `CredentialStore` | Team API key only, keyed by teamId |
+| `server-bootstrap.ts:161` | Writes `MEMSMITH_SERVER_URL` — an **HTTP** base URL |
+
+The third row is the near-miss and the reason this table exists. `settings-writer.ts`
+persists `MEMSMITH_SERVER_DATABASE_URL` into `~/.memsmith/settings.json`, and if it
+were ever wired into the join path the claim above would be **false**. Today it is
+unreachable — `grep` finds no call site, and `flip-to-team.ts:22-25` documents that it
+is deliberately not invoked, keeping a `writeGlobalSettings` dep present purely as a
+test spy to assert it stays uncalled.
+
+**Therefore this is a live invariant with a loaded gun next to it.** The implementation
+must add a test asserting `writeServerModeSettings` is not called on the join path
+(§5), because a future change that wires it in would silently write a database password
+to disk on every teammate's machine and nothing else would catch it.
 
 ### 4.3 Rig limitation — and why a second server alone is not enough
 
@@ -341,6 +383,11 @@ Unit (no live infrastructure):
   `postgres://` substring.
 - The response body for every failure path likewise contains no `postgres://`
   substring — an error message must not leak the connection string.
+- **`writeServerModeSettings` is never called on the join path.** This is the guard for
+  the §4.2 near-miss: that function writes `MEMSMITH_SERVER_DATABASE_URL` to
+  `~/.memsmith/settings.json`, and wiring it into join would put a database password on
+  every teammate's disk. `flipToTeam` already accepts a `writeGlobalSettings` dep
+  purely so a spy can assert it stays uncalled — use it.
 
 Integration (two servers, different ports, `existingServerUrl` threaded per §4.3):
 
