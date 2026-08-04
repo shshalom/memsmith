@@ -67,7 +67,10 @@ Create `tests/server/middleware/join-rate-limit-subject.test.ts`:
 import { describe, it, expect } from 'bun:test';
 import { joinRateLimitSubject } from '../../../src/server/middleware/join-rate-limit-subject.js';
 
-const hash = (raw: string) => `H(${raw})`;
+// Deterministic stand-in for sha256 that does NOT embed its input, matching the
+// real hash's property. (An `H(${raw})` mock would silently defeat any assertion
+// about the raw key not appearing in output.)
+const hash = (raw: string) => `h${[...raw].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16)}`;
 
 describe('joinRateLimitSubject', () => {
   it('buckets by the key hash when a team key is present', () => {
@@ -307,7 +310,10 @@ function res() {
   };
   return r;
 }
-const hash = (raw: string) => `H(${raw})`;
+// Deterministic stand-in for sha256 that does NOT embed its input, matching the
+// real hash's property. (An `H(${raw})` mock would silently defeat any assertion
+// about the raw key not appearing in output.)
+const hash = (raw: string) => `h${[...raw].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16)}`;
 
 const GOOD = { teamId: 'team-1', revokedAt: null, expiresAt: null };
 
@@ -359,7 +365,7 @@ describe('POST /v1/join/register', () => {
       lookupKey: async (h) => { seenHash = h; return GOOD; },
     }));
     await routes['/v1/join/register']({ body: { teamKey: 'k1', projectId: 'p1' } }, res());
-    expect(seenHash).toBe('H(k1)');
+    expect(seenHash).toBe(hash('k1'));
   });
 
   it('rejects an unknown key with its own reason', async () => {
