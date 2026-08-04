@@ -284,14 +284,13 @@ not an onboarding path for teammates.
 **Measured: the fallback currently protects nothing.** On the development machine,
 `~/.memsmith/settings.json` has `MEMSMITH_RUNTIME: local` and **no**
 `MEMSMITH_SERVER_DATABASE_URL`, and nothing is pointed at a remote Postgres URL (52
-teams / 16 projects / 5 team-scoped keys, all local). So **deleting the fallback
-outright carries no migration cost today** — and deleting it is the cleaner design,
-since it is the only path that still hands a teammate a database password.
+teams / 16 projects / 5 team-scoped keys, all local). So deleting the fallback would
+carry no migration cost today.
 
-This is deliberately left as an open decision rather than settled here, because it
-trades a simpler, strictly-safer system against the ability to onboard onto a team that
-is already running on a raw Postgres URL somewhere this audit cannot see. Retaining it
-is the conservative default; the measurement above is what makes removal a real option.
+**DECIDED (2026-08-04): the fallback is retained. Do not delete it.** This is settled,
+not open. That removal happens to be cheap is not a reason to remove it — the audit
+above covers one machine and cannot see a team already running on a raw Postgres URL
+elsewhere. A later review pass must not reopen this as "free to remove."
 
 Consequences the implementation must honour:
 
@@ -436,13 +435,45 @@ can be added later without touching application code.
 
 - **No AWS deployment.** This is code plus a corrected deploy doc. Actually standing
   up RDS/Fargate/ACM remains a separate step needing an account, a domain, and
-  ~$50-100/mo.
+  ~$50-100/mo. See §7.1 — AWS is **not** a prerequisite for building or testing this.
 - **No per-user identity.** The joiner is still `LOCAL_OWNER_USER_ID` locally. Per-user
   identity is a later step in the agreed order.
 - **No Incognito.** MemSmith's privacy toggle is unrelated to this work. (Noting it
   because "Incognito" and AWS "Cognito" were conflated earlier in this project.)
 - **No sync-on-join.** Local observations stay local until the user chooses to share,
   per the agreed semantics. The banner offering that choice is a later step.
+
+### 7.1 AWS is a deployment target, not the goal
+
+Worth stating because it is easy to invert: this work is **not** being built in order to
+test AWS. The deliverable is *a joining teammate needs only the team key, never a
+database password* — which holds on a VPS, on Fly, or on a machine in an office.
+AWS is simply where this team intends to run it. Reading it the other way would make an
+AWS account a blocker for the whole piece of work, which it is not.
+
+**When AWS access is actually required:**
+
+| Stage | AWS needed? |
+|---|---|
+| HTTPS join route + HTTPS join client | No |
+| Rate-limit subject-derivation middleware (§3.2) | No |
+| Every unit test (§5) | No |
+| Full integration test — real join over HTTPS | No — two local servers, §4.3 |
+| Secrets Manager change itself (§6) | No — a task-definition JSON edit + an IAM grant |
+| **Verify TLS terminates against a real cert** | **Yes** |
+| **Verify ECS resolves `valueFrom` into the env** | **Yes** |
+
+So AWS is needed only at the end, and only to **confirm** two things. Everything
+functional is provable locally first.
+
+**One seam this cannot close locally.** `deriveServerUrl` (`convert-context.ts:25-32`)
+returns `https://${host}` with **no port** for a non-localhost host (branch 3), but the
+local rig necessarily exercises `http` on a nonstandard port via `existingServerUrl`
+(branch 1). **The URL-shaping branch used in production is not the branch the tests
+exercise.** It is small and inspectable, but it is exactly the "verified locally,
+differs in production" shape that produced false verification claims earlier in this
+project — so the first action once AWS exists is a smoke check of branch 3, before
+anything else is trusted.
 
 ---
 
