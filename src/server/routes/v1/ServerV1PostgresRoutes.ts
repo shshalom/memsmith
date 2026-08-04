@@ -52,6 +52,9 @@ import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
+import { registerJoinRegisterRoute } from './JoinRegisterRoute.js';
+import { requireJoinRateLimit } from '../../middleware/join-rate-limit-subject.js';
+import { makeHttpsJoinTransport } from '../../convert/join-transport-https.js';
 import { probeConnection, makeRealProbeDeps } from '../../convert/connection-probe.js';
 import { applyPgvectorFix } from '../../convert/apply-fix.js';
 import { runConvert } from '../../convert/convert-service.js';
@@ -1695,6 +1698,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           bootstrapSchema: (p) => bootstrapServerPostgresSchema(p as never),
           upsertProject: (p, teamId, projectId, name) =>
             upsertTeamAndProject(p as never, teamId, projectId, name),
+          // Prefer HTTPS: with it the joiner needs only the team key and never a
+          // database password. isHttpUrl inside runJoin decides per invite, so a
+          // postgres:// invite still takes the retained fallback.
+          transport: makeHttpsJoinTransport(),
         }, input);
 
         // Apply locally on success, exactly as convert does: cache the team's
@@ -1892,6 +1899,30 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         } finally {
           await dispose();
         }
+      },
+    });
+
+    // The REMOTE half of join-over-HTTPS. Unauthenticated by design (the team
+    // key is a body parameter so the four rejection reasons stay distinct), so
+    // the rate limiter is mandatory rather than optional here.
+    registerJoinRegisterRoute(app, {
+      rateLimit: [requireJoinRateLimit(
+        this.options.pool,
+        { windowSec: 900, max: 10 },
+        (raw) => createHash('sha256').update(raw).digest('hex'),
+      )],
+      hashKey: (raw) => createHash('sha256').update(raw).digest('hex'),
+      lookupKey: async (keyHash) => {
+        const r = await this.options.pool.query(
+          'SELECT team_id, revoked_at, expires_at FROM api_keys WHERE key_hash = $1 LIMIT 1',
+          [keyHash],
+        );
+        const row = r.rows[0] as { team_id: string | null; revoked_at: Date | null; expires_at: Date | null } | undefined;
+        if (!row) return null;
+        return { teamId: row.team_id, revokedAt: row.revoked_at, expiresAt: row.expires_at };
+      },
+      upsertProject: async (teamId, projectId, name) => {
+        await upsertTeamAndProject(this.options.pool, teamId, projectId, name);
       },
     });
   }
