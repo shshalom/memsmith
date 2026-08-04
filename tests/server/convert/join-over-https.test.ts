@@ -8,7 +8,13 @@ import { runJoin } from '../../../src/server/convert/join-service.js';
 const baseDeps = {
   connect: async () => { throw new Error('connect must NOT be called on the HTTPS path'); },
   hashKey: (r: string) => `H(${r})`,
-  deriveServerUrl: (u: string) => u,
+  // NOT the identity function, deliberately. deriveServerUrl exists to turn a
+  // DATABASE url into an HTTP one, and applying it on the HTTPS path would
+  // mangle the invite: the real one (convert-context.ts:25-32) hard-codes :38879
+  // for localhost and DROPS the port entirely for any other host. An identity
+  // stub here would make that mutation invisible — verified: with `u => u`, a
+  // mutation applying deriveServerUrl on the HTTPS branch kept all 8 tests green.
+  deriveServerUrl: () => 'http://DERIVE-SHOULD-NOT-RUN:38879',
   upsertProject: async () => { throw new Error('upsertProject must NOT be called on the HTTPS path'); },
 };
 
@@ -39,6 +45,18 @@ describe('runJoin over HTTPS', () => {
     expect(seen).toEqual({
       serverUrl: 'https://x', teamKey: 'k1', projectId: 'p1', projectName: 'svc',
     });
+  });
+
+  it('preserves a NONSTANDARD PORT in the serverUrl', async () => {
+    // The case deriveServerUrl would destroy: for a non-localhost host it returns
+    // `https://${host}` with the port dropped, so a team server on :8443 would
+    // become unreachable. The invite URL is already an HTTP base URL and must be
+    // used as given.
+    const out = await runJoin(
+      { ...baseDeps, transport: transport({ status: 'joined', teamId: 't1' }) } as never,
+      { databaseUrl: 'https://team.example.com:8443/', apiKey: 'k1', projectId: 'p1' },
+    );
+    expect(out.join?.serverUrl).toBe('https://team.example.com:8443');
   });
 
   it('passes a rejection reason through unchanged', async () => {
