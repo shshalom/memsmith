@@ -6,7 +6,16 @@ default, always-on discipline — not an opt-in feature. Files, specs, and code 
 *fallback*, consulted only when memory is insufficient. This applies to the main agent AND
 to spawned sub-agents.
 
-**Status:** Design approved section-by-section (2026-07-15). Next step: implementation plan.
+**Status:** Design approved section-by-section (2026-07-15). Built and shipped; enforcement
+reverted to soft after live over-blocking (2026-07-16).
+
+**AMENDED 2026-08-11** — two amendments, both user-approved, both binding over the original
+text where they conflict:
+- **Amendment 1: always-memory-first** — replaces the hit-count-keyed hard mode. Memory is
+  consulted first unconditionally; code becomes the second/verification pass. Gate keys on
+  "not yet consulted," not on "memory has hits."
+- **Amendment 2: fail open, but never fail silent** — when memory is unavailable, the user is
+  told visibly and the answer is marked code-only. Fail-open is retained; fail-silent is not.
 
 ---
 
@@ -239,14 +248,17 @@ public shape. One knob, not scattered magic numbers.
 
 ## Enforcement Variants
 
-Both variants are designed; the enforcement mode is a per-mechanism setting chosen at review.
+> **AMENDED 2026-08-11 — see "Amendment 1: always-memory-first" below.** The hit-count-keyed
+> hard mode described here was built, proven to block live (2026-07-16), and then reverted for
+> over-blocking. It is superseded. The sections below are retained as the record of what was
+> tried and why it failed; the governing design is Amendment 1.
 
 ### Soft (inject-only, non-blocking) — the safe default
 Broker injects memory (or a "memory has X, consult first" pointer) but never blocks a tool.
 Memory is made impossible to miss; the model retains final control. Zero friction, cannot
 wedge the agent. Relies on the model heeding the injection (hence the reliability harness).
 
-### Hard (block-eligible, PreToolUse only)
+### Hard (block-eligible, PreToolUse only) — SUPERSEDED, see Amendment 1
 On a search where memory returns a **strong hit** (≥ `MEMSMITH_RETRIEVAL_MIN_HITS` results) AND the
 agent has NOT yet consulted memory this turn, `PreToolUse` returns a single deny with a
 message: "Consult MemSmith memory first — relevant recorded context exists. Query
@@ -260,6 +272,101 @@ avoid friction.
 (blocking to force a consult that returns nothing = pure friction). Hard-block fires ONLY on
 a strong hit the agent is about to bypass. **Fail open:** if enforcement cannot verify a hit
 (query errored/timed out), it must NOT block.
+
+---
+
+## Amendment 1: always-memory-first (2026-08-11)
+
+**Status:** approved by the user 2026-08-11, superseding the hit-count-keyed hard mode above.
+
+### Why the original hard mode failed
+
+Keying the block on *"memory returned a strong hit"* inverts the incentive. With
+`MEMSMITH_RETRIEVAL_MIN_HITS=1` and a rich corpus, nearly every query returns something, so
+nearly every tool call was blocked — including routine `Bash` that was never a why-question.
+The agent could barely work, and enforcement was reverted to soft. **The richer memory got,
+the more it punished you.**
+
+This spec already anticipated the remedy, in Testing → directive-reliability harness:
+
+> *"Threshold: ≥ 90% of why-class prompts consult memory first. **Below → flip that surface to
+> always-memory-first** (memory consulted first for everything, files always the fallback)."*
+
+Soft mode has now failed that criterion at least three recorded times — the 2026-07-27
+allowlist incident (note `924c96d2`) and two failures on 2026-08-11 on the Ollama
+auto-recovery question, where the agent grepped superseded code and told the user they were
+misremembering. The flip was pre-authorized and never happened. Amendment 1 performs it.
+
+### The rule
+
+**Memory is consulted first, unconditionally, whenever the agent seeks information. Code is
+the second pass.**
+
+```
+agent reaches for a discovery tool
+  → has memory been consulted for this topic this session?
+      NO  → block once: "consult memory first"
+      YES → allow
+```
+
+Then, having consulted memory:
+- **memory has the answer** → use it; the search is often unnecessary
+- **memory is thin, OR the agent wants to validate a recalled claim against reality** → go to
+  the code. This is legitimate and expected — as the *second* pass.
+
+Code is not forbidden. It is demoted from first resort to **verification pass**. Recalled
+memory remains *authoritative-but-verifiable*; validating it against current code is
+encouraged, not penalised.
+
+### Why this fixes over-blocking (counter-intuitive but load-bearing)
+
+The gate keys on **"not yet consulted"**, not on **"memory has hits."** Once the agent has
+asked memory, everything flows. So:
+
+- friction is bounded to **one memory call per topic per session**, not a fight per tool call
+- **the block count falls as the corpus grows** — a good memory answer means the agent never
+  reaches for the grep at all
+
+This is the exact inverse of the reverted design's failure curve.
+
+### No classifier
+
+Two alternatives were considered and rejected on 2026-08-11: gating on hit-count (a proxy that
+already failed), and gating on why-phrasing detected from the prompt text. Both are
+**classifiers** — machinery whose only job is to guess when the rule applies, and which can
+therefore guess wrong. Always-memory-first removes the classifier entirely: there is no *when*
+to get wrong. This also resolves the tension in Trigger Definitions between the
+"model-judged" (B) definition and the "strong hit" (A)/(C) definition — neither is needed for
+the enforcement decision.
+
+### Scope of "seeking information"
+
+- **`Grep`, `Glob`** — always. Unambiguous discovery.
+- **`Bash`** — only search-shaped commands (`grep`/`rg`/`find`/`ag` prefix), as the original
+  `SEARCH_INTENT_TOOLS` already specified but the live matcher never implemented. Routine
+  `Bash` is never gated; it was the largest source of over-blocking.
+- **`Read`** — only a *cold* read (opening a spec or file not already in context). Re-reading a
+  file already in context is not seeking information. Use the existing file-context stat-gate
+  pattern to tell them apart.
+
+The live matcher today is the blunt `Grep|Glob|Read|Bash`. Narrowing it per the above is part
+of this amendment.
+
+### What clears the gate
+
+Any memory tool call in the session, **topic-scoped**, persisted in the session file that
+already exists for dedup (`~/.memsmith/sessions/<sessionId>/shown.json`). Topic is keyed on the
+derived query stem, so consulting memory about generation does not unlock searches about
+authentication.
+
+### Prerequisite: the dashboard toggle ships first
+
+`MEMSMITH_RETRIEVAL_ENFORCEMENT` must be settable from the dashboard Settings UI **before**
+enforcement is enabled. Per note `924c96d2`: disabling hard mode from inside a hard-mode
+session requires a **non-gated write path**, because a gated tool call to change the setting
+gets blocked by the very mode being disabled. Hand-editing `settings.json` is how it was
+reverted last time. The browser write path is not tool-gated, which makes the toggle the safe
+escape hatch — a prerequisite, not a nice-to-have.
 
 ---
 
@@ -285,17 +392,62 @@ best-effort: a failed write swallows and still injects the ephemeral note.
 ## Error Handling & Failure Modes
 
 Overriding rule: **retrieval-first must NEVER block the agent from working due to its own
-failure.** Fail open, everywhere; loud in logs, invisible to the agent's ability to proceed.
+failure.** Fail open, everywhere; invisible to the agent's *ability to proceed* — but NOT
+invisible to the user (see Amendment 2).
 
 | Failure | Behavior |
 |---|---|
-| Server unreachable (`:38879` down / cold boot) | Broker returns empty → inject nothing → proceed. Log once at debug. |
-| `/v1/context` slow | Hard timeout `MEMSMITH_RETRIEVAL_TIMEOUT_MS` (default ~2000ms) → proceed without injection. |
-| Missing/unresolvable key | Skip gracefully (log fallback reason — never the old silent drop). |
-| Hard-mode block but server errored | **Fail OPEN** — cannot verify a hit → do NOT block. |
-| Session dedup file corrupt/unwritable | Treat as empty set (may re-inject) → proceed, never throw. |
+| Server unreachable (`:38879` down / cold boot) | Broker returns empty → inject nothing → proceed. **Surface visibly to the user** (Amendment 2). |
+| `/v1/context` slow | Hard timeout `MEMSMITH_RETRIEVAL_TIMEOUT_MS` (default ~2000ms) → proceed without injection. **Surface visibly** (Amendment 2). |
+| Missing/unresolvable key | Skip gracefully (log fallback reason — never the old silent drop). **Surface visibly** (Amendment 2). |
+| Hard-mode block but server errored | **Fail OPEN** — cannot verify state → do NOT block. **Surface visibly** (Amendment 2). |
+| Session dedup file corrupt/unwritable | Treat as empty set (may re-inject) → proceed, never throw. Not user-surfaced: degrades to noise, not to a wrong answer. |
 | Sub-agent, directive not propagated | (C) interception still fires in-child; CLAUDE.md baseline still present. Degraded, not broken. |
-| Gap-record write fails | Swallow → inject ephemeral note anyway → proceed. |
+| Gap-record write fails | Swallow → inject ephemeral note anyway → proceed. Not user-surfaced. |
+
+---
+
+## Amendment 2: fail open, but never fail silent (2026-08-11)
+
+**Status:** approved by the user 2026-08-11.
+
+The table above originally specified, for an unreachable server: *"Log once at debug."* That is
+**fail-silent**, and it is rejected. The agent would quietly revert to grep-first behaviour with
+no signal to the user that memory was skipped.
+
+The distinction that governs:
+
+- **Fail open** = the agent can still proceed. **Keep this.** It is a global constraint.
+- **Fail silent** = nobody knows memory was skipped. **Eliminate this.**
+
+### Required behaviour when memory is unavailable
+
+When retrieval cannot be consulted — server unreachable, timeout, unresolvable key, any error
+that means memory was not actually queried:
+
+1. **Tell the user visibly.** In the transcript, not a debug log line they will never read.
+2. **Mark the answer's provenance.** State plainly that the response is code-only and was not
+   checked against memory.
+3. **Suggest the search rather than silently performing it.** The fallback to grep becomes an
+   explicit, visible step — not an invisible default.
+
+### Rationale
+
+The user's framing: *"otherwise it won't be different from relying on an Alzheimer's patient to
+get information. An agent with no memory is a dumb one."* An agent that has lost its memory and
+does not say so is worse than one with no memory at all, because the failure is
+indistinguishable from working correctly.
+
+Second-order: if the local server were down for a week, **every** answer in that period would
+silently be code-only, and the user would have no way to know retrospectively which conclusions
+to distrust. Visible degradation makes the blast radius knowable.
+
+### Note on the `memory_gap` distinction
+
+This is **not** the same as On-Miss / Gap Handling above. A *gap* means memory was successfully
+consulted and genuinely had nothing recorded — a real signal about un-captured rationale, worth
+persisting. An *unavailability* means memory was never asked. Conflating them would poison the
+gap corpus with false gaps, so unavailability must NOT write a `memory_gap` record.
 
 **Latency budget:** (A) and (C) each add one `/v1/context` call, bounded by the timeout. If
 latency and completeness conflict, latency wins (also why verification is deferred).
@@ -357,6 +509,15 @@ Determines directive-based (keep) vs. always-memory-first (fallback), per surfac
 4. On a miss, a gap note is injected and a `memory_gap` record persisted; the agent always
    proceeds.
 5. Every failure mode fails open — the agent is never blocked by retrieval-first's own error.
+8. **(Amendment 1)** With enforcement on, a discovery tool call on a topic where memory has not
+   yet been consulted this session is blocked exactly once; after any memory call on that topic,
+   subsequent calls pass. Routine (non-search) `Bash` and warm re-`Read`s are never gated.
+   Blocking does NOT depend on how many results memory returns.
+9. **(Amendment 1)** `MEMSMITH_RETRIEVAL_ENFORCEMENT` is settable from the dashboard Settings UI
+   before enforcement is enabled — the non-gated escape hatch.
+10. **(Amendment 2)** When memory is unavailable, the user sees a visible notice, the answer is
+    marked code-only/unverified, the grep is suggested rather than silently run, and NO
+    `memory_gap` record is written (unavailability ≠ a real gap).
 6. The directive-reliability harness runs, scores the eval set, and its threshold drives the
    always-memory-first fallback per surface.
 7. Nothing about capture regresses; retrieval reuses `/v1/context` + the fixed key path.
