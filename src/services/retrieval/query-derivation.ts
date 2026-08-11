@@ -35,6 +35,10 @@ export function deriveQueryFromTool(
     case 'Read': {
       const fp = args.file_path;
       if (typeof fp !== 'string' || fp.length === 0) return null;
+      // Amendment 1: only a COLD read is discovery. Re-reading a file already in
+      // context is not seeking information and must not be gated — gating it was
+      // a needless share of the July over-blocking.
+      if (opts.warmPaths?.has(fp)) return null;
       // basename (sans extension) + parent dir name make decent query terms.
       const base = basename(fp).replace(/\.[^.]+$/, '');
       const dir = basename(dirname(fp));

@@ -26,3 +26,42 @@ describe('deriveQueryFromTool', () => {
     expect(deriveQueryFromTool('Grep', {})).toBeNull();
   });
 });
+
+// ── Amendment 1 (2026-08-11): Read is gated to COLD reads only ───────────────
+describe('Amendment 1 — Read gating', () => {
+  it('derives a query for a COLD read', () => {
+    const q = deriveQueryFromTool('Read', { file_path: '/a/generation-health.ts' }, { warmPaths: new Set() });
+    expect(q).toContain('generation-health');
+  });
+
+  it('returns null for a WARM read — re-reading is not seeking information', () => {
+    expect(deriveQueryFromTool('Read', { file_path: '/a/generation-health.ts' },
+      { warmPaths: new Set(['/a/generation-health.ts']) })).toBeNull();
+  });
+
+  it('gates a DIFFERENT file even when another is warm', () => {
+    expect(deriveQueryFromTool('Read', { file_path: '/a/other.ts' },
+      { warmPaths: new Set(['/a/generation-health.ts']) })).not.toBeNull();
+  });
+
+  it('is unchanged when warmPaths is omitted (back-compat)', () => {
+    expect(deriveQueryFromTool('Read', { file_path: '/a/x.ts' })).not.toBeNull();
+  });
+});
+
+// Regression pin: Bash search-shaping was ALREADY implemented before this
+// amendment (query-derivation.ts BASH_SEARCH_PREFIX). The amended spec wrongly
+// claimed it was missing. These tests pin it so it cannot silently regress into
+// gating routine commands — the largest source of the July over-blocking.
+describe('Bash search-shaping (regression pin)', () => {
+  for (const cmd of ['grep -rn foo src/', 'rg foo', 'find . -name x', 'ag foo']) {
+    it(`treats "${cmd}" as search intent`, () => {
+      expect(deriveQueryFromTool('Bash', { command: cmd })).not.toBeNull();
+    });
+  }
+  for (const cmd of ['npm test', 'git status', 'bun run build', 'ls -la', 'npm run build-and-sync']) {
+    it(`does NOT gate routine command "${cmd}"`, () => {
+      expect(deriveQueryFromTool('Bash', { command: cmd })).toBeNull();
+    });
+  }
+});
