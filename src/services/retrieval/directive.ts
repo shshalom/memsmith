@@ -62,3 +62,21 @@ export function frameMemory(memories: ProvenancedMemory[]): string {
 export function frameGapNote(): string {
   return '⚠ No MemSmith memory found for this — the rationale may not have been captured. Proceeding to files/specs.';
 }
+
+/**
+ * Amendment 2 (2026-08-11) — memory could not be consulted, and the USER must know.
+ *
+ * Fail-open keeps the agent working; this keeps the failure visible. The original
+ * spec logged this at debug level, so an agent whose memory was unreachable would
+ * silently revert to grep-first with no signal — indistinguishable from working
+ * correctly. If the server were down for a week, every answer in that period would
+ * be quietly code-only and the user could not tell which conclusions to distrust.
+ */
+export function frameUnavailableNotice(): string {
+  return [
+    '⚠ MemSmith memory is UNAVAILABLE for this query (server unreachable or timed out).',
+    'This answer will be code-only and has NOT been checked against recorded memory.',
+    'Tell the user memory is unavailable BEFORE answering, and propose the code search',
+    'explicitly rather than silently falling back to it.',
+  ].join('\n');
+}
