@@ -174,6 +174,14 @@ async function main(): Promise<void> {
       break;
     }
 
+    // The non-gated escape hatch for memory-first enforcement. Runs in the user's
+    // shell, so it still works while hard mode is denying tool calls.
+    case 'enforcement': {
+      const { runEnforcementCommand } = await import('./commands/enforcement.js');
+      runEnforcementCommand(args.slice(1));
+      break;
+    }
+
     case 'server': {
       const { runServerCommand } = await import('./commands/server.js');
       await runServerCommand(args.slice(1));
