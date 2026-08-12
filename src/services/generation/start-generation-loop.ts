@@ -112,6 +112,24 @@ async function runOneDrainPass(): Promise<void> {
     return;
   }
 
+  // LOAD THE MODE BEFORE PARSING. parseAgentXml -> parseObservationBlocks
+  // (parser.ts:112) calls ModeManager.getActiveMode(), which THROWS
+  // 'No mode loaded. Call loadMode() first.' when nothing has loaded one. The
+  // server boot path does this in createServerService (loadServerMode,
+  // create-server-service.ts:187-195), but this laptop loop deliberately avoids
+  // that module — so nothing loaded a mode and EVERY generated observation was
+  // discarded as unparseable, leaving events queued forever.
+  //
+  // CAUGHT LIVE in Task 7: Ollama generated a perfectly good observation
+  // ("Increase OIDC Provider Timeout…"), yet the production loop reported
+  // {generated:0, failed:1, kept:1} while a manual drain succeeded — because my
+  // manual harness happened to call loadMode() and the real loop never did. A
+  // test harness masking a production bug.
+  //
+  // Idempotent, so calling it once per pass is safe.
+  const { loadServerMode } = await import('../../server/runtime/create-server-service.js');
+  loadServerMode();
+
   const result = await drainGenerationQueue({
     read: () => readGenerationQueue(),
     clear: () => clearGenerationQueue(),
