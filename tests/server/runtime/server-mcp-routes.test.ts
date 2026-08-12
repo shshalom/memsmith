@@ -133,7 +133,10 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
       projectId,
       content: 'Manual observation about login bug',
       kind: 'manual',
-      metadata: { tag: 'mcp' },
+      // facts/narrative are the structured fields the ingest quality gate
+      // (task 3) scores; without them this manual insert would score below
+      // the default floor of 20 and be rejected with 422.
+      metadata: { tag: 'mcp', facts: ['Login bug reported by user'], narrative: 'A manual observation recorded about a login bug encountered in production.' },
     });
     expect(result.memory.id).toBeTruthy();
     expect(result.memory.projectId).toBe(projectId);
@@ -172,8 +175,9 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
   it('observation_search path: POST /v1/search returns FTS-ranked observations from PostgresObservationRepository', async () => {
     // Seed two observations directly via REST so we exercise the same write path.
     const c = buildClient();
-    await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual' });
-    await c.addObservation({ projectId, content: 'Fixed flaky test in payment processing', kind: 'manual' });
+    // facts/narrative clear the task-3 ingest quality floor (score >= 20).
+    await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual', metadata: { facts: ['Switched middleware to JWT'], narrative: 'Refactored the authentication middleware layer to use JWT-based verification instead of sessions.' } });
+    await c.addObservation({ projectId, content: 'Fixed flaky test in payment processing', kind: 'manual', metadata: { facts: ['Stabilized a flaky test'], narrative: 'Fixed a flaky test in the payment processing suite caused by a race condition.' } });
 
     const matches = await c.searchObservations({ projectId, query: 'authentication', limit: 10 });
     expect(matches.observations.length).toBeGreaterThanOrEqual(1);
@@ -185,8 +189,9 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
 
   it('observation_context path: POST /v1/context returns observations + concatenated context', async () => {
     const c = buildClient();
-    await c.addObservation({ projectId, content: 'first observation about deployment pipeline', kind: 'manual' });
-    await c.addObservation({ projectId, content: 'second observation about deployment pipeline', kind: 'manual' });
+    // facts/narrative clear the task-3 ingest quality floor (score >= 20).
+    await c.addObservation({ projectId, content: 'first observation about deployment pipeline', kind: 'manual', metadata: { facts: ['Deployment pipeline updated'], narrative: 'First observation describing a change to the deployment pipeline.' } });
+    await c.addObservation({ projectId, content: 'second observation about deployment pipeline', kind: 'manual', metadata: { facts: ['Deployment pipeline reviewed'], narrative: 'Second observation describing a review of the deployment pipeline.' } });
 
     const result = await c.contextObservations({ projectId, query: 'deployment', limit: 5 });
     expect(result.observations.length).toBeGreaterThanOrEqual(2);
@@ -197,7 +202,8 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
 
   it('/v1/search and /v1/context default to hybrid ranking; MEMSMITH_SEARCH_HYBRID=0 forces FTS', async () => {
     const c = buildClient();
-    await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual' });
+    // facts/narrative clear the task-3 ingest quality floor (score >= 20).
+    await c.addObservation({ projectId, content: 'Refactored authentication middleware to use JWT verification', kind: 'manual', metadata: { facts: ['Switched middleware to JWT'], narrative: 'Refactored the authentication middleware layer to use JWT-based verification instead of sessions.' } });
 
     const prevFlag = process.env.MEMSMITH_SEARCH_HYBRID;
     const hybridSpy = spyOn(PostgresObservationRepository.prototype, 'hybridSearch');
@@ -263,6 +269,8 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
       projectId,
       content: 'End-to-end harness verifies idempotent search round-trip',
       kind: 'manual',
+      // facts/narrative clear the task-3 ingest quality floor (score >= 20).
+      metadata: { facts: ['Round-trip verified'], narrative: 'The end-to-end harness confirms an idempotent search round-trip after insertion.' },
     });
     const found = await c.searchObservations({ projectId, query: 'harness verifies idempotent', limit: 5 });
     expect(found.observations.some(observation => observation.id === inserted.memory.id)).toBe(true);

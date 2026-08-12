@@ -46,6 +46,7 @@ import { CredentialStore } from '../../../services/identity/credential-store.js'
 import { scrubEventPayload } from '../../services/event-payload-scrub.js';
 import { embedForPersist } from '../../generation/embed-for-persist.js';
 import { boostUserDirected } from './user-note-boost.js';
+import { scoreSubmittedObservation, meetsFloor, isExemptUserNote } from './ingest-quality.js';
 import { classifyAndComposeRecordIntent } from './record-intent.js';
 import { stripMemoryTags } from '../../../utils/tag-stripping.js';
 import { providerComplete } from '../../generation/provider-complete.js';
@@ -969,6 +970,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         projectId: z.string().min(1),
         serverSessionId: z.string().min(1).nullable().optional(),
         kind: z.string().min(1).optional(),
+        obsType: z.string().min(1).optional(),
         content: z.string().min(1),
         metadata: z.record(z.string(), z.unknown()).optional(),
         idempotencyKey: z.string().min(1).optional(),
@@ -977,6 +979,25 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
         if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        // Local generation moved the quality bar here — see spec §5. Score is
+        // ALWAYS computed server-side; a client-supplied value is ignored.
+        // EXEMPTION: note_add (buildUserNoteRequest) posts kind='user_note' +
+        // metadata.userDirected=true with no facts/narrative/concepts — it
+        // scores ~0 and must bypass the floor, or "remember this" 422s.
+        // Both conditions are required together so relabelling alone can't
+        // dodge the bar.
+        const md = body.metadata ?? {};
+        const quality = scoreSubmittedObservation(md);
+        const exempt = isExemptUserNote(body.kind, md);
+        if (!exempt) {
+          const floor = this.options.settingsResolver
+            ? await this.options.settingsResolver.qualityFloor(teamId)
+            : Number.parseInt(process.env.MEMSMITH_QUALITY_FLOOR ?? '20', 10) || 20;
+          if (!meetsFloor(quality, floor)) {
+            res.status(422).json({ error: 'BelowQualityFloor', quality, floor });
+            return;
+          }
+        }
         // Embed on write so manual/direct inserts are semantically searchable,
         // same as the generation path. Best-effort (never throws); computed
         // BEFORE repo.create so a cold-start model load never holds the insert.
@@ -986,8 +1007,10 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           teamId,
           serverSessionId: body.serverSessionId ?? null,
           kind: body.kind ?? 'manual',
+          obsType: body.obsType ?? null,
+          quality,
           content: body.content,
-          metadata: stampAttribution(body.metadata ?? {}, req.authContext ?? { userId: null }),
+          metadata: stampAttribution(md, req.authContext ?? { userId: null }),
           embeddingVec,
           idempotencyKey: body.idempotencyKey ?? null,
         };
