@@ -497,10 +497,40 @@ Then take the observations off `parsed`, matching how `processGeneratedResponse`
 (see its flatten at `:123-126`). Do not invent a different accessor — read the existing
 consumer and mirror it.
 
-The `job` field of `genContext` is typed as a generation-job row. Construct a minimal
-synthetic value carrying only the fields the providers actually read; if the type does
-not permit that, define a narrower context type in this module rather than widening the
-shared one.
+**The `job` and `events` shapes — RESOLVED, no judgement call required.**
+
+`ServerGenerationContext` (`providers/shared/types.ts:9-18`) types `job` as a full
+`PostgresObservationGenerationJob`, but an exhaustive grep of every provider and the shared
+prompt builder shows exactly **one** field is ever read:
+
+```
+job.id     — prompt-builder.ts:90, emitted as <generation_job_id> (a correlation id only)
+```
+
+Nothing else on `job` is consumed. So construct a synthetic job carrying a correlation id and
+cast at the single construction point, with a comment explaining why it is safe:
+
+```ts
+// Only job.id is ever read (prompt-builder.ts:90, as <generation_job_id>).
+// A laptop has no outbox row, so we synthesise a correlation id. Verified by
+// exhaustive grep of providers/ + shared/ — no other job field is consumed.
+const job = { id: correlationId } as unknown as PostgresObservationGenerationJob;
+```
+
+Do **not** widen `ServerGenerationContext` or make its fields optional: the server path
+genuinely has a real job row, and loosening the shared type would remove that guarantee for
+the code that depends on it.
+
+`events` must be an array of `PostgresAgentEvent`. The prompt builder reads exactly:
+
+```
+event.id, event.eventType, event.occurredAtEpoch, event.payload, event.sourceAdapter
+```
+
+The queued event already carries `eventType`, `occurredAtEpoch`, and `payload`; supply `id`
+(the correlation id) and `sourceAdapter` (the platform source, or `'hook'`) when building the
+context. A test must assert the generated prompt is non-empty for a queued event, which fails
+if any of those five is missing.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -530,6 +560,14 @@ git commit -m "feat(generation): extract a pool-free generate-one-event core"
 - Produces: `drainGenerationQueue(deps): Promise<{ generated: number; failed: number; kept: number }>`
 
 Inject every dependency (queue read/clear, provider, poster) so the loop is testable without Ollama or a server.
+
+**Where the provider comes from — resolved.** `resolveGenerationProviderName(env, settings)`
+(`src/server/runtime/resolve-generation-provider.ts:34-42`) reads
+`MEMSMITH_SERVER_PROVIDER` from env or settings and falls back to
+`DEFAULT_GENERATION_PROVIDER`. It takes **no pool** and works unchanged on a laptop, so the
+loop resolves its provider the same way the server does — no new configuration surface, and a
+teammate who has set a provider keeps it. `ensureOllamaRunning` is invoked by
+`OllamaObservationProvider` itself at `:65`, so the loop does not call it directly.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -592,7 +630,21 @@ describe('drainGenerationQueue', () => {
 
 - [ ] **Step 2: Run test to verify it fails** — module not found.
 
-- [ ] **Step 3: Implement.** Partition the queue into consumed vs kept, rewrite the file with only the kept entries, and treat a `422` as consumed (a correct drop) rather than failed. Add `createMemory(input)` to `ServerClient` posting to `/v1/memories`, surfacing the HTTP status on the thrown error so the loop can distinguish 422 from a network failure.
+- [ ] **Step 3: Implement.** Partition the queue into consumed vs kept, rewrite the file with only the kept entries, and treat a `422` as consumed (a correct drop) rather than failed.
+
+**Status discrimination needs no new plumbing.** `ServerClientError` already carries
+`readonly status: number | null` (`server-client.ts:29`, set at `:39`), and
+`isFallbackEligible()` already treats `>=500` and `429` as retryable (`:50-51`). So the loop
+reads `err.status === 422` directly. Do not invent a parallel error type.
+
+Add `createMemory(input)` to `ServerClient` posting to `/v1/memories`, following the shape of
+the existing `addObservation` (`:252`) which targets the same route — reuse its request
+construction rather than writing a second one.
+
+**Reuse `addObservation` if it already fits.** Check its request type
+(`ServerAddObservationRequest`) before adding `createMemory`: if it already accepts
+`projectId`/`content`/`kind`/`metadata`/`idempotencyKey`, the only gap is the new `obsType`
+field from Task 3, and extending it beats adding a near-duplicate method.
 
 - [ ] **Step 4: Run tests** — PASS, 5 tests.
 
