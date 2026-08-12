@@ -130,6 +130,11 @@ describe('observationHandler — team-mode local generation enqueue (Task 6)', (
     mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
       ...realRuntimeSelectorSnapshot,
       resolveRuntimeContext: () => makeServerRuntimeContext(),
+      // Real team mode has BOTH 'server': the marker says team, and the engine
+      // is reachable. Stubbing only the context left the gate reading the REAL
+      // selectRuntime (which resolves '/tmp' to local) — a fixture that did not
+      // match reality.
+      selectRuntime: () => 'server' as const,
       logServerFallback: () => {},
     }));
 
@@ -167,6 +172,11 @@ describe('observationHandler — team-mode local generation enqueue (Task 6)', (
     mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
       ...realRuntimeSelectorSnapshot,
       resolveRuntimeContext: () => makeServerRuntimeContext(),
+      // Real team mode has BOTH 'server': the marker says team, and the engine
+      // is reachable. Stubbing only the context left the gate reading the REAL
+      // selectRuntime (which resolves '/tmp' to local) — a fixture that did not
+      // match reality.
+      selectRuntime: () => 'server' as const,
       logServerFallback: () => {},
     }));
 
@@ -185,10 +195,11 @@ describe('observationHandler — team-mode local generation enqueue (Task 6)', (
     expect(readQueue()).toHaveLength(1);
   });
 
-  it('local mode does NOT enqueue (unchanged behavior)', async () => {
+  it('local mode with no reachable engine does NOT enqueue', async () => {
     mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
       ...realRuntimeSelectorSnapshot,
       resolveRuntimeContext: () => ({ runtime: 'local' as const, reason: 'server_context_unavailable' as const }),
+      selectRuntime: () => 'local' as const,
       logServerFallback: () => {},
     }));
 
@@ -197,8 +208,42 @@ describe('observationHandler — team-mode local generation enqueue (Task 6)', (
 
     expect(result.continue).toBe(true);
     expect(recordedEvents).toHaveLength(0);
-    // Local mode generates in-process; it must not also enqueue for a
-    // separate local-generation drain loop.
+    expect(readQueue()).toHaveLength(0);
+  });
+
+  // REGRESSION GUARD — the shape that actually shipped a bug (caught live in
+  // Task 7: two dogfood events were queued on a LOCAL project).
+  //
+  // The test above could never have caught it, because its fixture is not what
+  // local mode really looks like. In REAL local mode resolveRuntimeContext
+  // returns runtime: 'server' — the in-process server IS reachable over HTTP
+  // (runtime-selector.ts:155-157). Only selectRuntime distinguishes local from
+  // team. So the honest local-mode fixture is: context 'server', selector
+  // 'local'. Verified live before writing this: selectRuntime(repo) === 'local'
+  // while resolveRuntimeContext(repo).runtime === 'server'.
+  it('local mode with a REACHABLE in-process engine still does NOT enqueue', async () => {
+    mock.module('../../../src/services/hooks/runtime-selector.js', () => ({
+      ...realRuntimeSelectorSnapshot,
+      // What real local mode returns: the engine IS reachable over HTTP.
+      resolveRuntimeContext: () => ({
+        runtime: 'server' as const,
+        client: { recordEvent: async (e: never) => { recordedEvents.push(e); return { event: { id: "e1" } }; } },
+        projectId: 'local-project',
+        serverBaseUrl: 'http://127.0.0.1:38879',
+      }),
+      // ...but the project is NOT in team mode.
+      selectRuntime: () => 'local' as const,
+      logServerFallback: () => {},
+    }));
+
+    const { observationHandler } = await import('../../../src/cli/handlers/observation.js');
+    const result = await observationHandler.execute(baseInput as any);
+
+    expect(result.continue).toBe(true);
+    // The event still reaches the in-process server, exactly as before.
+    expect(recordedEvents).toHaveLength(1);
+    // But it must NOT be queued for laptop-side generation: local mode already
+    // generates in-process, so enqueuing would double-generate.
     expect(readQueue()).toHaveLength(0);
   });
 });

@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
+import { resolveRuntimeContext, logServerFallback, selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { isIncognito } from '../incognito.js';
 import { scrubEventPayload } from '../../server/services/event-payload-scrub.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
@@ -138,7 +138,18 @@ export const observationHandler: EventHandler = {
       // can never skip it. Team mode generates on this laptop now; this
       // queue write is the only thing that schedules that generation, so it
       // must not share fate with the network call.
-      enqueueForLocalGeneration(event);
+      //
+      // GATE ON selectRuntime, NOT on runtime.runtime. They are NOT the same
+      // question, and using the wrong one enqueued local-mode events (caught
+      // live in Task 7: two dogfood events queued on a local project).
+      // runtime.runtime === 'server' only means "the engine is reachable over
+      // HTTP", which is TRUE IN LOCAL MODE TOO — local runs the same server
+      // in-process (see resolveRuntimeContext's own comment,
+      // runtime-selector.ts:155-157). selectRuntime(cwd) is the actual
+      // local-vs-team decision, read from the project marker.
+      if (selectRuntime(cwd) === 'server') {
+        enqueueForLocalGeneration(event);
+      }
       try {
         await runtime.client.recordEvent(event);
         logger.debug('HOOK', 'Observation sent successfully via server', { toolName });
