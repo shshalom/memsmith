@@ -143,6 +143,15 @@ export interface ServerAddObservationRequest {
   content: string;
   metadata?: Record<string, unknown>;
   idempotencyKey?: string | null;
+  // Task 5 — laptop-side generation loop. /v1/memories' quality gate
+  // (Task 3, ingest-quality.ts) scores metadata.obsType alongside
+  // facts/narrative/title/concepts, NOT this top-level field; obsType is
+  // accepted here as a convenience so callers that already have a
+  // ParsedObservation's `type` can pass it once and have
+  // buildAddObservationPayload fold it into `metadata.obsType` (what the
+  // gate reads) instead of duplicating that mapping at every call site.
+  // Does NOT affect `kind`, which keeps its own independent default.
+  obsType?: string;
 }
 
 export interface ServerAddObservationResponse {
@@ -329,12 +338,18 @@ export class ServerClient {
     // caller runs in 'server'/Postgres mode). Title, when present, already
     // rides along inside `metadata`, which the route stores verbatim.
     const kind = input.kind ?? 'manual';
+    // obsType rides into metadata (what ingest-quality.ts's scoreSubmittedObservation
+    // reads) without clobbering any obsType the caller already put in metadata
+    // directly — an explicit metadata.obsType wins over the convenience field.
+    const metadata = input.obsType !== undefined
+      ? { obsType: input.obsType, ...(input.metadata ?? {}) }
+      : input.metadata;
     return {
       projectId: input.projectId,
       kind,
       content: input.content,
       ...(input.serverSessionId !== undefined ? { serverSessionId: input.serverSessionId } : {}),
-      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
     };
   }
