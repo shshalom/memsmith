@@ -56,6 +56,34 @@ function spoolFailedEvent(event: unknown): void {
   }
 }
 
+/**
+ * Enqueue an event for LOCAL generation (Task 1's durable queue), drained by
+ * Task 5's local generation loop.
+ *
+ * Team mode moves generation off the server and onto this machine — the
+ * server now records events with `generate=false` (set centrally in
+ * ServerClient via delegateGeneration) and never enqueues its own
+ * generation job for them. This is the ONLY thing that queues the event for
+ * generation on a laptop, so it must run regardless of whether the POST to
+ * the server succeeded: an outage that prevents the raw event from reaching
+ * the server must not also cost the observation itself.
+ *
+ * Best-effort and never throws, matching spoolFailedEvent's contract and for
+ * the same reason: this runs inside a PostToolUse hook, so breaking the
+ * user's tool call over a queue-write failure would be a worse trade than
+ * losing the event. Lazily imported so the queue module is never loaded on
+ * the local-mode happy path.
+ */
+function enqueueForLocalGeneration(event: unknown): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const queue = require('../../services/generation/local-queue.js') as typeof import('../../services/generation/local-queue.js');
+    queue.enqueueForGeneration(event);
+  } catch {
+    // Nothing further to do — see spoolFailedEvent's identical rationale.
+  }
+}
+
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
@@ -105,6 +133,12 @@ export const observationHandler: EventHandler = {
           platformSource,
         },
       };
+      // Enqueue for local generation FIRST, before the POST attempt below —
+      // and outside its try/catch — so a server outage during recordEvent
+      // can never skip it. Team mode generates on this laptop now; this
+      // queue write is the only thing that schedules that generation, so it
+      // must not share fate with the network call.
+      enqueueForLocalGeneration(event);
       try {
         await runtime.client.recordEvent(event);
         logger.debug('HOOK', 'Observation sent successfully via server', { toolName });

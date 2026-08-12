@@ -677,12 +677,19 @@ export async function runServerForegroundForLocal(): Promise<void> {
 
 // Runtime-aware foreground entry used by `start` (foreground) and the internal
 // `--daemon` child. When the resolved runtime is local, boot the embedded PG +
-// server loop (startLocalRuntime); otherwise run the server foreground. The
-// deps object is a test seam; production omits it.
+// server loop (startLocalRuntime). When it is 'server' (team mode), start the
+// local generation loop instead of a full server — createServerService()
+// hard-requires MEMSMITH_SERVER_DATABASE_URL and MEMSMITH_REDIS_URL
+// (create-server-service.ts), which a laptop never has configured, so
+// falling through to startServer() there fails outright. Team mode's
+// generation now runs on THIS machine (Task 1/4/5's queue + pool-free
+// generator), so the laptop only needs to drain that queue, not host the
+// whole server stack. The deps object is a test seam; production omits it.
 export interface RuntimeForegroundDeps {
   selectRuntime?: (cwd: string) => 'local' | 'server';
   startLocal?: () => Promise<void>;
   startServer?: (port: number, host: string) => Promise<void>;
+  startGenerationLoop?: () => Promise<void>;
 }
 export async function runRuntimeForeground(
   port: number,
@@ -699,8 +706,33 @@ export async function runRuntimeForeground(
     await startLocal();
     return;
   }
-  const startServer = deps.startServer ?? runServerForeground;
-  await startServer(port, host);
+  // 'server' runtime covers TWO very different machines, and they need
+  // different things:
+  //
+  //   a real server (AWS Fargate, systemd) — has MEMSMITH_SERVER_DATABASE_URL
+  //     and MEMSMITH_REDIS_URL injected, and must run the HTTP server. The
+  //     container entrypoint reaches here via `--daemon`, so returning the
+  //     generation loop instead would leave the deployment with no HTTP
+  //     listener at all.
+  //
+  //   a teammate's laptop in team mode — has NEITHER of those, so
+  //     createServerService() throws (create-server-service.ts:151-158). That
+  //     failure is the bug this whole change exists to fix; the laptop should
+  //     run the local generation loop instead.
+  //
+  // selectRuntime cannot tell them apart (both are 'server'), so discriminate
+  // on the database URL: its presence is what makes startServer viable at all.
+  const hasServerDatabase = Boolean((process.env.MEMSMITH_SERVER_DATABASE_URL ?? '').trim());
+  if (hasServerDatabase) {
+    const startServer = deps.startServer ?? runServerForeground;
+    await startServer(port, host);
+    return;
+  }
+  const startGenerationLoop = deps.startGenerationLoop ?? (async () => {
+    const { startGenerationLoop: run } = await import('../../services/generation/start-generation-loop.js');
+    await run();
+  });
+  await startGenerationLoop();
 }
 
 // Phase 10 — Postgres-backed `server api-key create|list|revoke` CLI. The
