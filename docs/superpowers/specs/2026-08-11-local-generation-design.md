@@ -44,13 +44,81 @@ A teammate's laptop has neither. So the accurate statement is:
 > **In team mode the laptop attempts to start a FULL SERVER (Postgres + Redis) instead of a
 > generation-only loop, and that attempt fails.**
 
-Nothing generates. Events reach the team server (`serverBaseUrl`) and sit there as raw
-events, because the AWS side is not running a generation worker either — by design, per §1.
+### What happens to the events instead
+
+The first draft of this spec claimed *"events sit there as raw events."* **That is wrong**,
+and the correction changes the scope of the work.
+
+`POST /v1/events` (`ServerV1PostgresRoutes.ts:334`) routes to `IngestEventsService`, which by
+its own header comment centralizes *"the transactional write (event row + outbox row +
+lifecycle log) and the post-commit BullMQ enqueue."* So a team-mode event **does** create an
+outbox row and **does** get enqueued for generation server-side.
+
+And generation is **enabled by default** on a server: `create-server-service.ts:230-231` only
+disables it when `MEMSMITH_GENERATION_DISABLED` is `1`/`true`, and
+`ActiveServerGenerationWorkerManager.start()` is called otherwise (`:257-258`).
+
+So the true statement of today's behavior is:
+
+> **Team-mode events are enqueued for SERVER-SIDE generation. Whether they are actually
+> generated depends on the deployment's env.** The documented AWS topology
+> (`docs/deploy/aws.md:210`, `:378`) sets `MEMSMITH_GENERATION_DISABLED=true` on the HTTP task
+> and expects a separate `memsmith server worker start` task to consume the queues.
+
+**UNVERIFIED (AWS session expired at review time):** whether the *live* `memsmith-prod` task
+definition sets `MEMSMITH_GENERATION_DISABLED`, and whether a separate worker task exists.
+Two possibilities, and they have different consequences:
+
+- **Generation disabled and no worker task** → events accumulate as `queued` outbox rows
+  forever. Silent, and the backlog is invisible until someone queries the queue depth.
+- **Generation enabled on the HTTP task** → AWS *is* calling an LLM, which is precisely the
+  cost the user wants eliminated, and it needs an LLM provider reachable from Fargate.
+
+**This must be checked before implementation begins** — it is Task 0 of the plan. It does not
+change the chosen shape (§3), but it determines whether this work also has to *stop* existing
+server-side generation and drain an accumulated backlog, or merely redirect new events.
+
+### `?generate=false` already exists — use it
+
+The second review pass found a supported server contract the first draft missed.
+`ServerClient.recordEvent` already sends `/v1/events?generate=false` when
+`input.generate === false` (`src/services/hooks/server-client.ts:228`), and the route honours
+it (`ServerV1PostgresRoutes.ts:340`): with `generate=false` the event row is still written but
+`outbox` stays `null` and `enqueueState` is `'skipped'` — **no outbox row, no BullMQ enqueue**.
+
+This is materially better than the first draft's plan of "stop posting the raw event":
+
+- The **event row still reaches the server**, so the team keeps a shared record of what
+  happened, and a future server-side backfill remains possible.
+- **No server-side generation is triggered**, which is the actual goal.
+- It is an existing, supported contract — no new endpoint, no schema change, and it cannot
+  strand the events the way "don't post at all" would.
+
+**Revision to §3:** a team-mode hook does **not** stop posting. It posts with
+`generate: false` AND enqueues locally for generation. The two are complementary: the server
+gets the raw event for the record, the laptop generates the observation.
+
+### There are FIVE event-posting call sites, not one
+
+`recordEvent` is called from `observation.ts`, `summarize.ts`, `session-init.ts`,
+`file-edit.ts`, and `mcp-server.ts`. The first draft discussed only `observation.ts`. Any
+call site left un-redirected keeps enqueueing server-side generation, which would leave the
+cost problem half-solved and produce a confusing split where some observation types generate
+remotely and others locally.
+
+**Decision: set `generate: false` centrally, not per call site.** The team-mode decision
+belongs in one place — `ServerClient.recordEvent` — defaulted by runtime, so a sixth call site
+added later inherits the correct behavior rather than silently reintroducing server-side
+generation. Per-call-site flags are how this regresses.
 
 ## 3. Chosen shape
 
 ```
-team-mode hook ──▶ event ──▶ local generation queue (file, durable, bounded)
+                       ┌──▶ POST /v1/events?generate=false ──HTTPS──▶ event row stored,
+                       │                                              NO outbox, NO enqueue
+team-mode hook ──▶ event
+                       │
+                       └──▶ local generation queue (file, durable, bounded)
                                    │
                                    ▼  drained by a local generation loop
                      generate(event) ──▶ Ollama  (ensureOllamaRunning)
@@ -61,12 +129,10 @@ team-mode hook ──▶ event ──▶ local generation queue (file, durable, 
 
 The server's role shrinks to storage, embedding, and search. It never calls an LLM.
 
-**Note the redirect.** Today a team-mode hook posts the raw event to `/v1/events` and only
-falls back to the spool when that call FAILS (`observation.ts:109-122`). Under this design a
-team-mode hook must enqueue **locally instead of** posting the raw event — the happy path
-changes, not just the failure path. This is the second-largest change in the design after the
-generator extraction, and §4.1 explains why the existing spool is nonetheless the right
-mechanism.
+**Both arms matter.** The event still reaches the server so the team keeps a shared record of
+what happened and a future server-side backfill stays possible; `generate=false` ensures it
+does not trigger server-side generation. The laptop separately generates the observation and
+posts the finished result. See "`?generate=false` already exists" in §2.
 
 ### Why this shape and not the alternatives
 
@@ -109,9 +175,8 @@ This removes the only real objection to keeping a local queue.
 
 1. **It is currently a FAILURE path, not a normal path.** `observation.ts:109-122` posts the
    raw event to the server first and spools only when that call fails and the error
-   `isFallbackEligible()`. Team mode must enqueue locally on the *happy* path instead of
-   posting the raw event. Concretely, the team-mode branch of the observation handler
-   changes from "send, spool on failure" to "enqueue".
+   `isFallbackEligible()`. Team mode must enqueue locally on the *happy* path — in addition
+   to posting with `generate=false`, per §3, not instead of posting.
 2. **Its drain currently forwards raw events to the server** (`spool-flush.ts` →
    `flushSpooledEvents`, called from `session-init.ts:185`). That is the correct behavior for
    its original purpose and the WRONG behavior here — it would ship the raw event to the
@@ -261,6 +326,7 @@ retrieval failures fail open.
 | Spool full (5,000 entries) | Existing trim behavior applies; the bound exists so an extended outage cannot fill the disk. |
 | Observation scores below the team floor | Server rejects `422`. The event is consumed, not retried — a low-signal observation is a correct drop, matching today's behavior. |
 | Laptop never generates (machine off) | The event is never observed. **Accepted limitation — see §9.** |
+| A client posts without `generate=false` | The server enqueues its own generation for that event, and if the laptop also generates it, the observation is produced TWICE. Prevented by defaulting the flag centrally in `ServerClient.recordEvent` (§2) rather than per call site; a regression test must assert that a team-mode `recordEvent` sends `generate=false`. |
 
 ## 8. Testing
 
