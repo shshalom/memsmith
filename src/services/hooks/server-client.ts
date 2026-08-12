@@ -11,7 +11,6 @@
 // API key, etc.) callers receive a typed `ServerClientError` so the
 // hook handler can decide whether to fall back to the worker path.
 
-import { fetchWithTimeout } from '../../shared/worker-utils.js';
 import { HOOK_TIMEOUTS, getTimeout } from '../../shared/hook-constants.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 
@@ -58,6 +57,14 @@ export interface ServerClientConfig {
   serverBaseUrl: string;
   apiKey: string;
   timeoutMs?: number;
+  /** Team mode: generation happens on this machine, so events are recorded
+   *  WITHOUT enqueuing server-side generation. Set centrally rather than at
+   *  each of recordEvent's five call sites, so a new call site inherits it. */
+  delegateGeneration?: boolean;
+  // Test seam: inject a fetch implementation instead of relying on the
+  // process-global fetch (which fetchWithTimeout wraps for timeout handling).
+  // Defaults to the global fetch.
+  fetchImpl?: typeof fetch;
 }
 
 export interface ServerStartSessionRequest {
@@ -211,11 +218,15 @@ export class ServerClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly timeoutMs: number;
+  private readonly delegateGeneration: boolean;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(config: ServerClientConfig) {
     this.baseUrl = stripTrailingSlash(config.serverBaseUrl);
     this.apiKey = config.apiKey;
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.delegateGeneration = config.delegateGeneration ?? false;
+    this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
   async startSession(input: ServerStartSessionRequest): Promise<ServerStartSessionResponse> {
@@ -225,7 +236,8 @@ export class ServerClient {
 
   async recordEvent(input: ServerRecordEventRequest): Promise<ServerRecordEventResponse> {
     const body = this.buildEventPayload(input);
-    const path = input.generate === false ? '/v1/events?generate=false' : '/v1/events';
+    const generate = input.generate ?? !this.delegateGeneration;
+    const path = generate === false ? '/v1/events?generate=false' : '/v1/events';
     return this.request<ServerRecordEventResponse>('POST', path, body);
   }
 
@@ -364,6 +376,20 @@ export class ServerClient {
     };
   }
 
+  // Mirrors shared/worker-utils.js#fetchWithTimeout's abort/error-normalization
+  // semantics, but goes through the injected fetchImpl (test seam) rather than
+  // hardcoding the process-global fetch.
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+    try {
+      return await this.fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        throw new Error(`Request timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    }
+  }
+
   private async request<T>(
     method: 'GET' | 'POST',
     path: string,
@@ -390,7 +416,7 @@ export class ServerClient {
 
     let response: Response;
     try {
-      response = await fetchWithTimeout(url, init, this.timeoutMs);
+      response = await this.fetchWithTimeout(url, init, this.timeoutMs);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const isTimeout = /timed out|timeout/i.test(message);

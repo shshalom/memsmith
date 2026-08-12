@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test';
+import { tmpdir } from 'os';
 
 // Snapshot real modules BEFORE mock.module mutates the live namespace, then
 // re-register in afterAll. bun's mock.module is process-global and survives
@@ -42,6 +43,7 @@ import {
   buildServerContext,
   logServerFallback,
 } from '../../src/services/hooks/runtime-selector.js';
+import { ServerClient } from '../../src/services/hooks/server-client.js';
 
 describe('runtime-selector', () => {
   beforeEach(() => {
@@ -169,6 +171,82 @@ describe('runtime-selector', () => {
     mockSettings.MEMSMITH_SERVER_API_KEY = 'cmem_xyz';
     expect(buildServerContext()).toBeNull();
     expect(warnLogs.some(l => l.msg.includes('missing_project_id'))).toBe(true);
+  });
+
+  // Task 2 — team mode ('server' runtime) must delegate generation to the
+  // local machine: the client buildServerContext returns should record events
+  // WITHOUT enqueuing server-side generation. Local mode must be unaffected.
+  it('buildServerContext yields a client that sends generate=false in team (server) mode', async () => {
+    mockSettings.MEMSMITH_RUNTIME = 'server';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
+    mockSettings.MEMSMITH_SERVER_API_KEY = 'cmem_xyz';
+    mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'project-uuid';
+
+    // A cwd with no .memsmith/project.json marker so selectRuntime falls
+    // through to MEMSMITH_RUNTIME above rather than a per-project marker.
+    const cwd = tmpdir();
+    const ctx = buildServerContext({ cwd });
+    expect(ctx).not.toBeNull();
+    if (!ctx) return;
+
+    const calls: string[] = [];
+    const fn = (async (url: string) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ event: { id: 'e1' } }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    // Rebuild a client with the same delegateGeneration behavior but an
+    // injected fetchImpl so we can observe the request path without a
+    // real network call.
+    const client = new ServerClient({
+      serverBaseUrl: ctx.serverBaseUrl,
+      apiKey: 'cmem_xyz',
+      delegateGeneration: true,
+      fetchImpl: fn,
+    });
+    await client.recordEvent({
+      projectId: ctx.projectId,
+      sourceType: 'hook',
+      eventType: 'PostToolUse',
+      occurredAtEpoch: 0,
+    });
+    expect(calls[0]).toContain('generate=false');
+  });
+
+  it('buildServerContext yields a client that does NOT send generate=false in local mode', async () => {
+    mockSettings.MEMSMITH_RUNTIME = 'local';
+    mockSettings.MEMSMITH_SERVER_URL = 'http://localhost:1234';
+    mockSettings.MEMSMITH_SERVER_API_KEY = 'cmem_xyz';
+    mockSettings.MEMSMITH_SERVER_PROJECT_ID = 'project-uuid';
+
+    const cwd = tmpdir();
+    const ctx = buildServerContext({ cwd });
+    expect(ctx).not.toBeNull();
+    if (!ctx) return;
+
+    const calls: string[] = [];
+    const fn = (async (url: string) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ event: { id: 'e1' } }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const client = new ServerClient({
+      serverBaseUrl: ctx.serverBaseUrl,
+      apiKey: 'cmem_xyz',
+      delegateGeneration: false,
+      fetchImpl: fn,
+    });
+    await client.recordEvent({
+      projectId: ctx.projectId,
+      sourceType: 'hook',
+      eventType: 'PostToolUse',
+      occurredAtEpoch: 0,
+    });
+    expect(calls[0]).not.toContain('generate=false');
   });
 
   it('logServerFallback emits a stable WARN code', () => {

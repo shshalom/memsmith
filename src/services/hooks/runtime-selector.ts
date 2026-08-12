@@ -135,9 +135,14 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
     return null;
   }
 
+  // Team mode ('server' runtime): generation runs on this machine (local
+  // generation), so events must be recorded WITHOUT enqueuing server-side
+  // generation. Set centrally here rather than at each recordEvent call
+  // site, so a new call site inherits the correct behavior automatically.
   const config: ServerClientConfig = {
     serverBaseUrl,
     apiKey,
+    delegateGeneration: selectRuntime(markerCwd) === 'server',
   };
   return {
     runtime: 'server',
