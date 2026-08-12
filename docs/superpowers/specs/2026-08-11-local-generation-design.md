@@ -65,18 +65,34 @@ So the true statement of today's behavior is:
 > (`docs/deploy/aws.md:210`, `:378`) sets `MEMSMITH_GENERATION_DISABLED=true` on the HTTP task
 > and expects a separate `memsmith server worker start` task to consume the queues.
 
-**UNVERIFIED (AWS session expired at review time):** whether the *live* `memsmith-prod` task
-definition sets `MEMSMITH_GENERATION_DISABLED`, and whether a separate worker task exists.
-Two possibilities, and they have different consequences:
+**VERIFIED against live AWS, 2026-08-11** (account `191421492724`, `us-west-2`):
 
-- **Generation disabled and no worker task** → events accumulate as `queued` outbox rows
-  forever. Silent, and the backlog is invisible until someone queries the queue depth.
-- **Generation enabled on the HTTP task** → AWS *is* calling an LLM, which is precisely the
-  cost the user wants eliminated, and it needs an LLM provider reachable from Fargate.
+| Check | Finding |
+|---|---|
+| ECS services in cluster `memsmith` | **one** (`memsmith`) — there is NO separate worker task |
+| `MEMSMITH_GENERATION_DISABLED` on task def `memsmith:6` | **`"true"`** |
+| `/v1/info` → `boundaries.generationWorkerManager.status` | **`disabled`** |
+| `/v1/info` → `generation.providerReachable` | **`false`** |
+| `/v1/info` → `generation.queued` | **`0`** |
 
-**This must be checked before implementation begins** — it is Task 0 of the plan. It does not
-change the chosen shape (§3), but it determines whether this work also has to *stop* existing
-server-side generation and drain an accumulated backlog, or merely redirect new events.
+So the live server enqueues nothing and generates nothing, and **no backlog has
+accumulated**. Three consequences, all simplifying:
+
+1. **There is no server-side LLM cost to stop.** Fargate already does storage and embedding
+   only.
+2. **There is no migration.** `queued: 0` means this work is purely "redirect new events" —
+   no drain task, no backfill.
+3. **`generate=false` is belt-and-braces, not load-bearing.** With generation disabled
+   server-side, an event posted without the flag would not generate anyway. Still set it:
+   the flag is an *explicit* contract, whereas the current behavior depends on a deployment
+   env var someone could flip. But it downgrades the duplicate-generation risk in §7 from
+   real to hypothetical.
+
+**Follow-up noted, not scoped here:** `/v1/info` reports this server's generation as
+`stalled` with *"generation provider is unreachable"*. For a team server under this design
+that is the INTENDED state, not a fault. Reporting a healthy configuration as `stalled`
+trains operators to ignore the indicator — the exact failure the health check was built to
+prevent. A team server should report something like "generation delegated to clients".
 
 ### `?generate=false` already exists — use it
 
