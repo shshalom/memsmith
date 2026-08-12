@@ -92,7 +92,7 @@ async function runOneDrainPass(): Promise<void> {
   const { readProjectMarker } = await import('../identity/project-identity.js');
   const { readGenerationQueue, writeGenerationQueue, clearGenerationQueue } = await import('./local-queue.js');
   const { drainGenerationQueue } = await import('./local-generation-loop.js');
-  const { generateOne } = await import('./generate-one.js');
+  const { generateOneWithOutcome } = await import('./generate-one.js');
 
   const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
   const runtime = resolveRuntimeContext(cwd);
@@ -116,7 +116,25 @@ async function runOneDrainPass(): Promise<void> {
     read: () => readGenerationQueue(),
     clear: () => clearGenerationQueue(),
     writeKept: (kept) => writeGenerationQueue(kept),
-    generate: (event) => generateOne({ provider, event, projectId, teamId }),
+    // Use the outcome-aware variant so a deliberate `<skip_summary />` is
+    // CONSUMED while an empty/garbled response is RETRIED. The bare-array
+    // form cannot tell those apart, and conflating them either loses work or
+    // loops forever.
+    generate: (event) => generateOneWithOutcome({ provider, event, projectId, teamId }),
+    // A fault — keep it queued, but say so. An empty response on every pass
+    // means something real is wrong (wrong model, unreachable endpoint) and
+    // would otherwise look identical to an idle queue.
+    onEmptyGeneration: (event) => {
+      logger.warn('SYSTEM', 'generation returned nothing usable; event kept queued for retry', {
+        projectId: (event as { projectId?: string })?.projectId ?? projectId,
+      });
+    },
+    // A verdict, not a fault — debug level, and the event is consumed.
+    onSkippedGeneration: (event) => {
+      logger.debug('SYSTEM', 'generation skipped this event as not worth recording', {
+        projectId: (event as { projectId?: string })?.projectId ?? projectId,
+      });
+    },
     post: async (observation) => {
       await runtime.client.addObservation({
         projectId: observation.projectId ?? projectId,

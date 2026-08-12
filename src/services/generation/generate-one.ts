@@ -39,7 +39,12 @@ interface QueuedEventShape {
 
 export async function generateOne(input: GenerateOneInput): Promise<ParsedObservation[]> {
   const correlationId = `laptop:${cryptoRandomId()}`;
+  return (await generateOneWithOutcome(input, buildContext(input, correlationId), correlationId)).observations;
+}
 
+/** Build the provider context for one queued event. Shared by both entry
+ *  points so the synthesised `job`/`events` shapes exist in exactly one place. */
+function buildContext(input: GenerateOneInput, correlationId: string): ServerGenerationContext {
   const rawEvent = (input.event ?? {}) as QueuedEventShape;
 
   // Only these five fields are ever read by the shared prompt builder
@@ -64,7 +69,7 @@ export async function generateOne(input: GenerateOneInput): Promise<ParsedObserv
   // consumed.
   const job = { id: correlationId } as unknown as PostgresObservationGenerationJob;
 
-  const context: ServerGenerationContext = {
+  return {
     job,
     events: [event],
     project: {
@@ -74,15 +79,58 @@ export async function generateOne(input: GenerateOneInput): Promise<ParsedObserv
       projectName: input.projectName ?? null,
     },
   };
+}
+
+/**
+ * Why a generation attempt produced what it did.
+ *
+ * Zero observations is AMBIGUOUS, and the two causes need OPPOSITE handling:
+ *   'skipped'     — the model emitted a valid `<skip_summary />`: a deliberate
+ *                   "this event is not worth recording", which
+ *                   prompt-builder.ts:82 explicitly asks for. CONSUME the
+ *                   event; retrying would loop forever on every trivial tool
+ *                   call.
+ *   'unparseable' — empty or malformed provider output: a FAULT. KEEP the event
+ *                   queued and retry.
+ *
+ * Verified against the real parser: parseAgentXml('<skip_summary />') is valid
+ * with 0 observations, while parseAgentXml('') is invalid. The server path
+ * relies on the same distinction (ProviderObservationGenerator.ts:328-330).
+ */
+export type GenerateOneOutcome = 'generated' | 'skipped' | 'unparseable';
+
+export interface GenerateOneResult {
+  observations: ParsedObservation[];
+  outcome: GenerateOneOutcome;
+}
+
+/**
+ * Generate for one event and report WHY the result is what it is.
+ *
+ * The outcome travels in the RETURN VALUE, not module-level state: the drain
+ * loop is sequential today so a "last outcome" global would work, and would
+ * corrupt silently the moment anyone parallelises it.
+ */
+export async function generateOneWithOutcome(
+  input: GenerateOneInput,
+  prebuiltContext?: ServerGenerationContext,
+  prebuiltCorrelationId?: string,
+): Promise<GenerateOneResult> {
+  const correlationId = prebuiltCorrelationId ?? `laptop:${cryptoRandomId()}`;
+  const context = prebuiltContext ?? buildContext(input, correlationId);
 
   // Errors propagate: the caller decides whether to requeue. Swallowing here
-  // would silently drop events that the provider failed to generate for.
+  // would silently drop events the provider failed to generate for.
   const result = await input.provider.generate(context);
 
   const parsed = parseAgentXml(result.rawText, correlationId);
-  if (!parsed.valid) return [];
+  if (!parsed.valid) return { observations: [], outcome: 'unparseable' };
 
-  return parsed.observations ?? [];
+  const observations = parsed.observations ?? [];
+  return {
+    observations,
+    outcome: observations.length === 0 ? 'skipped' : 'generated',
+  };
 }
 
 function cryptoRandomId(): string {

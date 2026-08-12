@@ -50,11 +50,21 @@ export interface DrainGenerationQueueDeps {
   writeKept?: (kept: QueuedEntry[]) => void;
   /** Generate observations for one queued event. Propagates provider
    *  errors by design (Task 4) — the loop is what decides to keep-vs-drop. */
-  generate: (event: QueuedEntry) => Promise<ParsedObservation[]>;
+  generate: (event: QueuedEntry) => Promise<ParsedObservation[] | GenerateResultLike>;
   /** POST one finished observation to the server. Throws on failure; a
    *  thrown error with `status === 422` is a quality-floor rejection
    *  (correct drop), anything else means the event must stay queued. */
   post: (observation: BuiltObservationRequest) => Promise<void>;
+  /** Optional observer for the empty-generation case, so the caller can log
+   *  it without this module importing a logger (it is deliberately free of
+   *  filesystem/network/logging dependencies so it stays trivially testable).
+   *  A provider that returns nothing is a real condition worth surfacing —
+   *  silently retrying forever would be its own stranding bug. */
+  onEmptyGeneration?: (event: QueuedEntry) => void;
+  /** Optional observer for a DELIBERATE skip (`<skip_summary />`). Distinct
+   *  from onEmptyGeneration: this event is consumed, not retried, so it should
+   *  be logged at debug level rather than as a warning. */
+  onSkippedGeneration?: (event: QueuedEntry) => void;
 }
 
 /** The payload handed to `post`, carrying the parsed observation's
@@ -67,6 +77,17 @@ export interface BuiltObservationRequest {
   content: string;
   obsType?: string;
   metadata: Record<string, unknown>;
+}
+
+/**
+ * What `generate` may resolve with. A bare array keeps every existing caller
+ * and test working; the richer shape lets the caller distinguish a deliberate
+ * `<skip_summary />` (consume) from an empty/garbled provider response (retry).
+ * Both yield zero observations, so the array alone cannot tell them apart.
+ */
+export interface GenerateResultLike {
+  observations: ParsedObservation[];
+  outcome: 'generated' | 'skipped' | 'unparseable';
 }
 
 export interface DrainGenerationQueueResult {
@@ -135,11 +156,44 @@ export async function drainGenerationQueue(
 
   for (const event of queued) {
     let observations: ParsedObservation[];
+    let outcome: GenerateResultLike['outcome'];
     try {
-      observations = await deps.generate(event);
+      const raw = await deps.generate(event);
+      if (Array.isArray(raw)) {
+        observations = raw;
+        // A bare array cannot say WHY it is empty. Assume the safe reading —
+        // 'unparseable', i.e. retry — so a caller that has not adopted the
+        // richer shape never silently discards an event.
+        outcome = raw.length > 0 ? 'generated' : 'unparseable';
+      } else {
+        observations = raw.observations;
+        outcome = raw.outcome;
+      }
     } catch {
       // Generation failed (e.g. Ollama down). Keep the event queued —
       // durability is the whole point of the queue.
+      kept.push(event);
+      continue;
+    }
+
+    // ZERO OBSERVATIONS HAS TWO CAUSES THAT NEED OPPOSITE HANDLING.
+    // Both were conflated in the first cut of this loop, and CAUGHT LIVE in
+    // Task 7: Ollama replied `<skip_summary />`, the post loop below never ran,
+    // nothing was posted — and the event was still counted as generated and
+    // DELETED. Work vanished with no error and no trace, the stranding failure
+    // class this project has hit repeatedly.
+    if (observations.length === 0) {
+      if (outcome === 'skipped') {
+        // The model deliberately declined this event (a valid
+        // `<skip_summary />`, which prompt-builder.ts:82 explicitly asks for on
+        // trivial events). CONSUME it: retrying a considered "no" would loop
+        // forever on every uninteresting tool call.
+        deps.onSkippedGeneration?.(event);
+        continue;
+      }
+      // Empty or malformed provider output is a FAULT, not a verdict. Keep the
+      // event queued so a transient fault is retried rather than swallowed.
+      deps.onEmptyGeneration?.(event);
       kept.push(event);
       continue;
     }
