@@ -1,0 +1,21 @@
+# MemSmith AWS state — rollback point before building the REST API
+# captured 2026-08-08T20:34:59Z, git main @ 9a26b871
+
+## Working endpoint (HTTP API v2) — KEEP UNTIL REST IS PROVEN
+apigw_http_id      = yy8b6ov8v3
+apigw_http_url     = https://yy8b6ov8v3.execute-api.us-west-2.amazonaws.com
+vpclink_v2_id      = 4ks1du
+
+## Backend (unchanged by the REST work)
+alb_arn            = arn:aws:elasticloadbalancing:us-west-2:191421492724:loadbalancer/app/memsmith-internal/8ed9474fc05dfbea
+alb_dns            = internal-memsmith-internal-456494127.us-west-2.elb.amazonaws.com
+target_group       = arn:aws:elasticloadbalancing:us-west-2:191421492724:targetgroup/memsmith-tg/f8d2fc8ba4498145
+app_sg             = sg-0941d33431ceb1cfc
+alb_sg             = sg-0327c940ccc1b2e99
+db_sg              = sg-00b7335a2bd1a1140
+ecs_taskdef        = memsmith:6  (512 cpu / 1024 mem)
+rds                = memsmith-dev  db.t4g.small
+
+## WAF (built, not yet attached)
+waf_ipset_id       = 125a4208-acda-493d-be6f-928862c6e7b6
+waf_acl_arn        = arn:aws:wafv2:us-west-2:191421492724:regional/webacl/memsmith-acl/b95a4bff-adc6-4dab-8595-4e26570a3a9c

@@ -172,7 +172,21 @@ export class SettingsDefaultsManager {
     MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
     MEMSMITH_RETRIEVAL_MIN_HITS: '1',              // Min /v1/context results to count as a "strong hit" (else gap)
     MEMSMITH_RETRIEVAL_TIMEOUT_MS: '2000',         // Hot-path timeout; on timeout, proceed with no injection
-    MEMSMITH_RETRIEVAL_ENFORCEMENT: 'soft',        // 'soft' = inject-only; 'hard' = block-eligible on strong hit
+    // Memory-first is CORE BEHAVIOR, on by default — an instruction the agent can
+    // ignore is not a guarantee (three recorded failures: 2026-07-27 allowlist,
+    // twice on 2026-08-11 re Ollama auto-recovery, each time with the correct
+    // answer sitting in memory unread).
+    //
+    // 'hard' blocks a discovery tool ONCE per topic per session until memory has
+    // been consulted for it. It does NOT key on hit count — the July 2026 revert
+    // was caused by blocking whenever memory returned >=1 result, which with a
+    // rich corpus blocked nearly everything. The current predicate makes blocks
+    // RARER as memory grows. Routine Bash, warm re-reads, and non-search tools are
+    // never gated, and every failure path fails open.
+    //
+    // Escape hatch (non-gated, works while hard mode is denying tool calls):
+    //   npx memsmith enforcement off
+    MEMSMITH_RETRIEVAL_ENFORCEMENT: 'hard',        // 'soft' = inject-only; 'hard' = block until the topic's memory is consulted
     MEMSMITH_TIER_ROUTING_ENABLED: 'true',         // Route observations to models by complexity
     MEMSMITH_TIER_SIMPLE_MODEL: 'haiku', // Portable tier alias — works across Direct API, Bedrock, Vertex, Azure (see #1463)
     MEMSMITH_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
