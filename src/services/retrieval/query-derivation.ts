@@ -1,19 +1,29 @@
-import { basename, dirname } from 'path';
-
 /** Tools whose purpose is discovery/search — the ones retrieval-first intercepts.
- *  Bash is handled specially (only search commands count). */
-export const SEARCH_INTENT_TOOLS: ReadonlySet<string> = new Set(['Grep', 'Glob', 'Read', 'Bash']);
+ *  Bash is handled specially (only search commands count). Read was REMOVED
+ *  2026-08-11: see the `case 'Read'` comment below. */
+export const SEARCH_INTENT_TOOLS: ReadonlySet<string> = new Set(['Grep', 'Glob', 'Bash']);
 
-const BASH_SEARCH_PREFIX = /(^|\s)(grep|rg|ag|find)\b/;
+/**
+ * A Bash command counts as search intent only when a search tool is the FIRST
+ * thing invoked — the command actually being run, not any substring.
+ *
+ * The previous pattern was /(^|\s)(grep|rg|ag|find)\b/, matching a search word
+ * anywhere. Found live 2026-08-11: a mutation-test script
+ * (`cp && perl && grep -c && bun test`) was gated as a discovery search, as was
+ * any build piping through grep. Anchoring to the start (after optional leading
+ * whitespace or an absolute path) keeps real searches gated while routine
+ * pipelines that merely mention grep are not.
+ */
+const BASH_SEARCH_PREFIX = /^\s*(?:[\w./-]*\/)?(grep|rg|ag|find)\b/;
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
 }
 
 export interface DeriveOpts {
-  /** Absolute paths already in the agent's context. A re-read of one of these is
-   *  not "seeking information", so it is not gated (Amendment 1, 2026-08-11).
-   *  Omit to keep the pre-amendment behavior. */
+  /** Retained for call-site compatibility; unused since Read stopped being gated.
+   *  Kept so the broker's `{ warmPaths }` call site needs no change and so a
+   *  future path-aware gate has somewhere to land. */
   warmPaths?: ReadonlySet<string>;
 }
 
@@ -22,7 +32,7 @@ export interface DeriveOpts {
 export function deriveQueryFromTool(
   toolName: string,
   toolArgs: unknown,
-  opts: DeriveOpts = {},
+  _opts: DeriveOpts = {},
 ): string | null {
   const args = asRecord(toolArgs);
   if (!args) return null;
@@ -32,18 +42,18 @@ export function deriveQueryFromTool(
       const p = args.pattern;
       return typeof p === 'string' && p.length > 0 ? p : null;
     }
-    case 'Read': {
-      const fp = args.file_path;
-      if (typeof fp !== 'string' || fp.length === 0) return null;
-      // Amendment 1: only a COLD read is discovery. Re-reading a file already in
-      // context is not seeking information and must not be gated — gating it was
-      // a needless share of the July over-blocking.
-      if (opts.warmPaths?.has(fp)) return null;
-      // basename (sans extension) + parent dir name make decent query terms.
-      const base = basename(fp).replace(/\.[^.]+$/, '');
-      const dir = basename(dirname(fp));
-      return `${base} ${dir}`.trim();
-    }
+    // Read is NOT gated (changed 2026-08-11 after live friction).
+    //
+    // It was gated to cold reads only, but even that taxed normal work: opening a
+    // spec or a source file is a routine part of any investigation and is rarely a
+    // why-question, so the block bought little signal for real cost. Grep and Glob
+    // remain gated because they ARE search intent. Narrowing to Grep/Glob was also
+    // the fix direction recorded in the July over-blocking notes.
+    //
+    // Kept as an explicit case rather than falling through to default, so the
+    // decision is visible at the point someone would try to re-add it.
+    case 'Read':
+      return null;
     case 'Bash': {
       const cmd = args.command;
       if (typeof cmd !== 'string' || !BASH_SEARCH_PREFIX.test(cmd)) return null;

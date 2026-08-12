@@ -17,6 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { sameTopic } from './topic-key.js';
 
 export class SessionTopicStore {
   private readonly file: string;
@@ -38,9 +39,17 @@ export class SessionTopicStore {
     }
   }
 
+  /**
+   * Has memory been consulted for this subject?
+   *
+   * Uses OVERLAP matching, not exact key equality: one investigation produces
+   * several rephrased searches, and exact matching made each rephrasing a fresh
+   * block (measured live — three consecutive blocks on a single investigation).
+   * See sameTopic().
+   */
   hasConsulted(topic: string): boolean {
     if (!topic) return false;
-    return this.read().has(topic);
+    return sameTopic(topic, [...this.read()]);
   }
 
   markConsulted(topic: string): void {
