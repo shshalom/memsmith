@@ -817,11 +817,25 @@ export async function runServerApiKeyCli(argv: string[]): Promise<void> {
       // which is the wrong default for an arbitrary CLI-issued key).
       let teamId = options.team ?? null;
       let projectId = options.project ?? null;
-      if (!teamId || !projectId) {
+      // TEAM-WIDE KEYS. project_id IS NULL is not "unset" — it is the documented
+      // way a key spans every project in its team (see the entitlement rule in
+      // resolve-requested-project.ts: a team-scoped key may narrow to any project
+      // belonging to its team, and never to another team's).
+      //
+      // `--team X` with no `--project` used to fall into the bootstrap branch and
+      // silently OVERWRITE both ids with a locally-created team+project, so the
+      // caller got a key for the wrong tenant and team-wide keys were unmintable.
+      // An explicit --team is now honoured on its own; bootstrap applies only
+      // when the caller named neither.
+      if (!teamId && !projectId) {
         const { bootstrapServerApiKey } = await import('../../services/hooks/server-bootstrap.js');
         const result = await bootstrapServerApiKey({ pool, closePool: false });
         teamId = result.teamId;
         projectId = result.projectId;
+      } else if (!teamId) {
+        // A project without its team cannot be scoped or ownership-checked.
+        console.error('--project requires --team');
+        process.exit(1);
       }
       // ROLE-BEARING KEYS. Role is NOT a property of the key: postgres-auth.ts
       // resolves it by joining team_members on the key's user_id. A key minted

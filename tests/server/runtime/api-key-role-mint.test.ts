@@ -84,6 +84,29 @@ describe('role-bearing api-key mint', () => {
     expect(client.statements.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('supports a team-wide key: project_id null, role still resolved', async () => {
+    const client = makeFakeClient();
+
+    // project_id IS NULL is not "unset" — resolve-requested-project.ts treats it
+    // as the entitlement that lets one key span every project in its team. The
+    // CLI previously could not mint this: `--team X` with no `--project` fell into
+    // the bootstrap branch and silently replaced BOTH ids with a locally created
+    // team+project, yielding a working key scoped to the WRONG tenant.
+    await new PostgresTeamsRepository(client as never).addMember({
+      teamId: 't1', userId: 'u-wide', role: 'owner',
+    });
+    const key = await new PostgresAuthRepository(client as never).createApiKey({
+      keyHash: 'hash-wide', teamId: 't1', projectId: null,
+      userId: 'u-wide', actorId: 'system:server-cli', scopes: ['memories:read'],
+    });
+
+    expect(key.projectId ?? null).toBeNull();
+    expect(key.userId).toBe('u-wide');
+    // A null project must NOT skip the ownership assert by accident — with no
+    // project there is nothing to assert, so the probe should not have run.
+    expect(client.statements.some(s => /SELECT id FROM projects/i.test(s))).toBe(false);
+  });
+
   it('leaves user_id null when no user is supplied (unchanged legacy behaviour)', async () => {
     const client = makeFakeClient();
     const key = await new PostgresAuthRepository(client as never).createApiKey({
