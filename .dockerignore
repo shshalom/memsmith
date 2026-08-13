@@ -1,4 +1,18 @@
-node_modules/
+# `node_modules/` alone is ANCHORED at the build context root, so it does NOT
+# match the nested `plugin/node_modules/`. That gap cost twice:
+#   1. Earlier session: the host's macOS-arm64 tree was copied into a
+#      linux/amd64 image, npm then saw every dep satisfied and installed
+#      NOTHING, and the server crashed on boot with "Could not load the sharp
+#      module using the linux-x64 runtime". Worked around in the Dockerfile by
+#      deleting node_modules before installing.
+#   2. Measured 2026-08-13: that workaround fixes CORRECTNESS but not SIZE. The
+#      941 MB still lands in the `COPY plugin/ /opt/memsmith/` layer — a Docker
+#      layer is a diff, so deleting the files in a later RUN leaves the bytes in
+#      place. `docker history` showed that COPY at 996 MB, the single largest
+#      layer in the image.
+# `**/node_modules/` matches at any depth and excludes it from the context
+# entirely, so the bytes are never sent to the daemon.
+**/node_modules/
 .git/
 logs/
 .docker-memsmith-data/

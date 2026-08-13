@@ -73,11 +73,90 @@ USER node
 # --include=optional is explicit because sharp's platform binaries are OPTIONAL
 # deps; omitting them is exactly how a "successful" install yields a broken
 # image. Registry comes from NPM_CONFIG_REGISTRY, set above.
+# NOTE: the prune below runs in THIS SAME `RUN`, not a later one. A Docker layer
+# is a diff — deleting a file in a subsequent layer records a whitebout marker
+# and the bytes STAY in the earlier layer, so the image does not shrink. Measured
+# exactly that way first: node_modules went 1220 MB -> 406 MB inside the
+# container while `docker image inspect` still reported 1.61 GB for both tags.
+# Install and prune must therefore be one layer.
+#
+# Prune targets are what a LINUX SERVER container can never execute or never loads.
+#
+# Measured on memsmith:v3 (1.61 GB image, 1.54 GB node_modules layer): ~650 MB
+# of it is dead weight, which is why a push over a ~10 Mbps VPN link took ~20
+# minutes. Two categories, both verified before removal rather than assumed:
+#
+# 1. onnxruntime-node's NON-LINUX binaries. `du` inside the image:
+#      linux 354 MB | win32 124 MB | darwin 35 MB
+#    The win32/darwin blobs cannot run in a linux/amd64 container. The LINUX
+#    directory is LOAD-BEARING — it is the engine behind
+#    @huggingface/transformers, which the embedder imports (embedder.ts:4) to
+#    run all-MiniLM-L6-v2 locally. Deleting that would give a container that
+#    boots fine and then fails on the first embed, so the guard below asserts
+#    the linux binary survives.
+#
+# 2. tree-sitter grammars (~500 MB across ~15 packages: swift 96 MB, scala 53,
+#    cpp 50, haskell 47, …). These power smart_search / smart_outline, which
+#    are CLIENT-side code parsing. Verified absent from the server path:
+#      grep -c tree-sitter plugin/scripts/server-service.cjs  -> 0
+#      grep -rn tree-sitter src/server/                       -> no matches
+#    and the entrypoint only ever runs `server`, `worker`, or `shell` — never
+#    the MCP server, which is the real tree-sitter consumer.
+#
+# onnxruntime-web (130 MB) is the browser build of the same runtime; the Node
+# server uses onnxruntime-node, never the WASM one.
+#
+# CAVEAT, deliberately accepted: MEMSMITH_CONTAINER_MODE=shell drops to a bash
+# prompt for ad-hoc tooling. Anything run there that wants tree-sitter will now
+# fail. That is the right trade for a server image — reinstall in the shell if
+# ever needed.
+# DROP the tree-sitter grammars from package.json BEFORE installing, rather than
+# installing and deleting them.
+#
+# Two reasons, both measured:
+#  - SIZE: 24 grammar packages are hard `dependencies` (~500 MB installed:
+#    swift 96 MB, scala 53, cpp 50, haskell 47, …). Installing then deleting
+#    leaves the bytes in the layer anyway (a layer is a diff).
+#  - BUILD FAILURE: with the host node_modules correctly excluded from the build
+#    context, npm actually COMPILES them — and tree-sitter-kotlin's
+#    `node-gyp-build` SEGFAULTS (exit 139) under linux/amd64 emulation on an
+#    arm64 host. The old build only "worked" because the copied-in macOS tree
+#    made npm think everything was already satisfied.
+#
+# Safe for a SERVER image, verified rather than assumed:
+#   grep -c tree-sitter plugin/scripts/server-service.cjs  -> 0
+#   grep -rn tree-sitter src/server/                       -> no matches
+# The grammars back smart_search / smart_outline, which are CLIENT-side code
+# parsing run by the MCP server. The entrypoint only ever runs `server`,
+# `worker`, or `shell` — never the MCP server.
+RUN cd /opt/memsmith \
+ && node -e "const fs=require('fs');const p='package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));let n=0;for(const s of ['dependencies','optionalDependencies']){if(!j[s])continue;for(const k of Object.keys(j[s])){if(k.includes('tree-sitter')){delete j[s][k];n++;}}}fs.writeFileSync(p,JSON.stringify(j,null,2));console.log('dropped '+n+' tree-sitter deps for the server image');"
+
+# Install with the host tree absent (see .dockerignore's **/node_modules/ note).
+# The rm -rf stays as a belt-and-braces guard: if the ignore rule ever regresses,
+# a stale macOS-arm64 tree would otherwise make npm a no-op and ship a broken
+# image (that exact failure happened once — "Could not load the sharp module
+# using the linux-x64 runtime").
+#
+# --include=optional is explicit because sharp's platform binaries are OPTIONAL
+# deps; omitting them is how a "successful" install yields a broken image.
+#
+# The prune runs in THIS SAME RUN: a Docker layer is a diff, so deleting in a
+# later layer records a whiteout and the bytes stay. Measured exactly that way —
+# node_modules 1220 MB -> 406 MB inside the container while the image size stayed
+# at 1.61 GB for both tags.
 RUN rm -rf /opt/memsmith/node_modules \
  && cd /opt/memsmith \
  && npm install --omit=dev --include=optional --legacy-peer-deps \
- && test -d node_modules/@img/sharp-linux-x64 \
-    || (echo "FATAL: sharp linux-x64 binary missing after install" >&2; exit 1)
+ && cd /opt/memsmith/node_modules \
+ && rm -rf onnxruntime-node/bin/napi-v6/win32 \
+           onnxruntime-node/bin/napi-v6/darwin \
+           onnxruntime-web \
+ && test -d onnxruntime-node/bin/napi-v6/linux \
+    || (echo "FATAL: onnxruntime linux binary missing — the embedder would fail at runtime" >&2; exit 1) \
+ && test -d @img/sharp-linux-x64 \
+    || (echo "FATAL: sharp linux-x64 binary missing after install" >&2; exit 1) \
+ && echo "post-prune node_modules size:" && du -sh /opt/memsmith/node_modules
 
 USER root
 RUN mkdir -p /home/node/.claude /home/node/.memsmith /data/memsmith \
