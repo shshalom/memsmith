@@ -823,15 +823,68 @@ export async function runServerApiKeyCli(argv: string[]): Promise<void> {
         teamId = result.teamId;
         projectId = result.projectId;
       }
+      // ROLE-BEARING KEYS. Role is NOT a property of the key: postgres-auth.ts
+      // resolves it by joining team_members on the key's user_id. A key minted
+      // without --user therefore has user_id=null -> role=null -> every
+      // requireRole() route 403s, including POST /v1/keys.
+      //
+      // That was a bootstrap dead end on a private-RDS deployment: the only way
+      // to mint an admin key was POST /v1/keys, which itself requires admin.
+      // `--user <id> [--role <role>]` breaks the cycle by writing the
+      // team_members row and linking the key to it in ONE transaction, so a
+      // deployment can create its first owner without direct SQL access.
+      const userId = options.user ?? options.userId ?? null;
+      const role = options.role ?? (userId ? 'owner' : null);
+      const VALID_ROLES = ['owner', 'admin', 'member', 'viewer'];
+      if (role != null && !VALID_ROLES.includes(role)) {
+        console.error(`Invalid --role '${role}'. Expected one of: ${VALID_ROLES.join(', ')}`);
+        process.exit(1);
+      }
+      if (role != null && userId == null) {
+        console.error('--role requires --user (role lives on the team_members row, not the key)');
+        process.exit(1);
+      }
+
       const rawKey = `cmem_${randomBytes(24).toString('hex')}`;
       const keyHash = createHash('sha256').update(rawKey).digest('hex');
-      const created = await repo.createApiKey({
-        keyHash,
-        teamId,
-        projectId,
-        scopes,
-        actorId: 'system:server-cli',
-      });
+
+      // Membership and key must land together: a key linked to a user with no
+      // team_members row is exactly the roleless state this flag exists to fix.
+      let created: Awaited<ReturnType<typeof repo.createApiKey>>;
+      if (userId != null) {
+        const { PostgresTeamsRepository } = await import('../../storage/postgres/teams.js');
+        const { withPostgresTransaction } = await import('../../storage/postgres/pool.js');
+        // withPostgresTransaction pins ONE connection for the whole unit of
+        // work. Issuing BEGIN/COMMIT via pool.query() would not: a pg Pool may
+        // hand each call a different connection, so the statements could land on
+        // separate sessions and the "transaction" would not be atomic.
+        created = await withPostgresTransaction(pool, async (client) => {
+          const teamsRepo = new PostgresTeamsRepository(client);
+          await teamsRepo.addMember({
+            teamId: teamId!,
+            userId,
+            role: role as 'owner' | 'admin' | 'member' | 'viewer',
+          });
+          const { PostgresAuthRepository: TxAuthRepo } = await import('../../storage/postgres/auth.js');
+          return await new TxAuthRepo(client).createApiKey({
+            keyHash,
+            teamId,
+            projectId,
+            scopes,
+            userId,
+            actorId: 'system:server-cli',
+          });
+        });
+      } else {
+        created = await repo.createApiKey({
+          keyHash,
+          teamId,
+          projectId,
+          scopes,
+          actorId: 'system:server-cli',
+        });
+      }
+
       console.log(JSON.stringify({
         id: created.id,
         key: rawKey,
@@ -839,6 +892,7 @@ export async function runServerApiKeyCli(argv: string[]): Promise<void> {
         teamId,
         projectId,
         scopes,
+        ...(userId != null ? { userId, role } : {}),
       }, null, 2));
       return;
     }
@@ -1056,6 +1110,11 @@ interface CliFlagValues {
   offset?: string;
   status?: string;
   active?: boolean;
+  // Role-bearing key mint (`api-key create --user <id> [--role <role>]`).
+  // `userId` is the camelCase alias; both spellings are accepted.
+  user?: string;
+  userId?: string;
+  role?: string;
 }
 
 function parseFlagArgs(argv: string[]): CliFlagValues {
@@ -1071,6 +1130,9 @@ function parseFlagArgs(argv: string[]): CliFlagValues {
       offset: { type: 'string' },
       status: { type: 'string' },
       active: { type: 'boolean' },
+      user: { type: 'string' },
+      userId: { type: 'string' },
+      role: { type: 'string' },
     },
     strict: false,
     allowPositionals: true,
