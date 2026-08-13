@@ -20,7 +20,15 @@ RIG_PG_IMAGE="${RIG_PG_IMAGE:-pgvector/pgvector:pg17}"
 RIG_DB_URL="postgres://${RIG_PG_USER}:${RIG_PG_PASSWORD}@127.0.0.1:${RIG_PG_PORT}/${RIG_PG_DB}"
 
 # Hard preflight — refuse if this would touch the dogfood.
-node "$(dirname "$0")/preflight.mjs" --data-dir "$RIG_DATA_DIR" --db-url "$RIG_DB_URL" --http-port "$RIG_HTTP_PORT"
+#
+# --credentials-path is checked explicitly because it used to be the one piece of
+# state MEMSMITH_DATA_DIR could not move: CredentialStore hardcoded homedir(), so
+# a rig pointed at /tmp still wrote the developer's real credentials.json, and a
+# clobbered key silently stops capture for a live project. CredentialStore now
+# derives from the data dir; passing the derived path here asserts that rather
+# than trusting it.
+RIG_CREDENTIALS_PATH="${RIG_DATA_DIR%/}/credentials.json"
+node "$(dirname "$0")/preflight.mjs" --data-dir "$RIG_DATA_DIR" --db-url "$RIG_DB_URL" --http-port "$RIG_HTTP_PORT" --credentials-path "$RIG_CREDENTIALS_PATH"
 
 # Colima up (idempotent).
 if ! colima status >/dev/null 2>&1; then colima start; fi

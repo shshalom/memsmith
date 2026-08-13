@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSync, rmSync, openSync, closeSync, unlinkSync, statSync } from 'fs';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
+import { resolveDataDir } from '../../shared/paths.js';
 
 interface CredentialFile { keys: Record<string, string>; }
 
@@ -41,7 +41,26 @@ const LOCK_STALE_MS = 10_000;
 export class CredentialStore {
   private readonly path: string;
 
-  constructor(path: string = join(homedir(), '.memsmith', 'credentials.json')) {
+  /**
+   * Defaults to `<data dir>/credentials.json`, NOT `~/.memsmith/credentials.json`.
+   *
+   * ISOLATION. Every other piece of state honours MEMSMITH_DATA_DIR; this file
+   * hardcoded homedir(), so it was the one thing an isolated run could not move.
+   * The team-mode rig sets MEMSMITH_DATA_DIR (scripts/rig/team-up.sh) and its
+   * preflight guard refuses the dogfood data dir and ports — yet every
+   * production caller constructs `new CredentialStore()` with no argument, so a
+   * rig or test that minted a key still wrote the DEVELOPER'S REAL credentials
+   * file. Verified before this change:
+   *   MEMSMITH_DATA_DIR=/tmp/x -> /Users/<me>/.memsmith/credentials.json
+   * The dogfood project is a live workspace whose keys live in that file, and a
+   * lost or clobbered key silently stops capture (see the "dark capture" note
+   * above) — so this was a real path to breaking a working install from a test.
+   *
+   * resolveDataDir() is called per-construction rather than read from the DATA_DIR
+   * constant, so a process that sets MEMSMITH_DATA_DIR before constructing the
+   * store is honoured regardless of module import order.
+   */
+  constructor(path: string = join(resolveDataDir(), 'credentials.json')) {
     this.path = path;
   }
 

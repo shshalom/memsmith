@@ -28,6 +28,28 @@ describe('checkRigSafe', () => {
   it('accepts a clean /tmp + :55440 + :38890 target', () => {
     expect(checkRigSafe(OK)).toEqual({ safe: true });
   });
+
+  // The credentials file was the hole this guard did not cover: CredentialStore
+  // hardcoded homedir(), so a rig with MEMSMITH_DATA_DIR=/tmp still wrote the
+  // developer's REAL credentials.json. A clobbered key silently stops capture for
+  // a live project, so this is a data-loss path, not a tidiness issue.
+  it('rejects the dogfood credential store by explicit path', () => {
+    const r = checkRigSafe({ ...OK, credentialsPath: join(DOGFOOD_DATA, 'credentials.json') });
+    expect(r.safe).toBe(false);
+    expect(r.reason).toMatch(/credential/i);
+  });
+
+  it('rejects a data dir that DERIVES the dogfood credential store', () => {
+    // Half-isolated run: no explicit credentials path, but the data dir would
+    // resolve into the dogfood store.
+    const r = checkRigSafe({ dbUrl: OK.dbUrl, httpPort: OK.httpPort, dataDir: DOGFOOD_DATA });
+    expect(r.safe).toBe(false);
+  });
+
+  it('accepts a credentials path derived from a throwaway data dir', () => {
+    const r = checkRigSafe({ ...OK, credentialsPath: '/tmp/ms-team-server/credentials.json' });
+    expect(r).toEqual({ safe: true });
+  });
 });
 
 describe('assertRigSafe', () => {
