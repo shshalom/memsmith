@@ -20,3 +20,4 @@ rds                = memsmith-dev  db.t4g.small
 waf_ipset_id       = 125a4208-acda-493d-be6f-928862c6e7b6
 waf_acl_arn        = arn:aws:wafv2:us-west-2:191421492724:regional/webacl/memsmith-acl/b95a4bff-adc6-4dab-8595-4e26570a3a9c
 ROLLBACK: aws ecs update-service --cluster memsmith --service memsmith --task-definition memsmith:6 --region us-west-2
+ROLLBACK (slim image v5 -> v3): aws ecs update-service --cluster memsmith --service memsmith --task-definition memsmith:7 --region us-west-2

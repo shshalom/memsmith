@@ -348,6 +348,23 @@ export class ServerClient {
       projectId: input.projectId,
       kind,
       content: input.content,
+      // obsType goes to BOTH homes, deliberately (spec 2026-08-13):
+      //   TOP-LEVEL -> the route writes the obs_type COLUMN
+      //                (ServerV1PostgresRoutes.ts:1010 reads body.obsType). The
+      //                column is what /v1/search filters on (:1172) and what the
+      //                dashboard reads, and it is what SERVER-side generation
+      //                already populates (processGeneratedResponse.ts:155).
+      //                Sending only metadata left every locally generated row
+      //                with obs_type NULL — invisible to type filtering, and a
+      //                different row shape than the server produces for the
+      //                same logical observation.
+      //   IN METADATA -> scoreSubmittedObservation reads the metadata bag
+      //                (ingest-quality.ts). obsType is worth exactly 10 points
+      //                (measured: 85 with, 75 without), so removing it would
+      //                move every observation 10 closer to the floor of 20.
+      // The guard means callers that omit obsType (MCP server, note_add) emit a
+      // byte-identical payload — no new key appears.
+      ...(input.obsType !== undefined ? { obsType: input.obsType } : {}),
       ...(input.serverSessionId !== undefined ? { serverSessionId: input.serverSessionId } : {}),
       ...(metadata !== undefined ? { metadata } : {}),
       ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),

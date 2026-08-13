@@ -343,3 +343,47 @@ describe('ServerClient', () => {
     });
   });
 });
+
+// obs_type canonical column (spec 2026-08-13). Locally generated observations
+// were landing in AWS with obsType NULL while metadata.obsType was correct,
+// because this builder folded obsType into metadata ONLY — so the route's
+// `body.obsType ?? null` always resolved to null. /v1/search filters on the
+// column (ServerV1PostgresRoutes.ts:1172) and the dashboard reads it, so those
+// rows were invisible to type filtering.
+describe('buildAddObservationPayload — obsType goes to BOTH homes', () => {
+  const client = new ServerClient({ serverBaseUrl: 'http://x', apiKey: 'k' });
+
+  it('emits a TOP-LEVEL obsType so the route can write the column', () => {
+    const p = client.buildAddObservationPayload({ projectId: 'p', content: 'c', obsType: 'decision' }) as Record<string, unknown>;
+    expect(p.obsType).toBe('decision');
+  });
+
+  it('STILL emits metadata.obsType so the quality gate keeps scoring it', () => {
+    // Worth exactly 10 points (measured: 85 with, 75 without). Dropping it would
+    // move every observation 10 closer to the floor of 20.
+    const p = client.buildAddObservationPayload({ projectId: 'p', content: 'c', obsType: 'decision' }) as Record<string, unknown>;
+    expect((p.metadata as Record<string, unknown>).obsType).toBe('decision');
+  });
+
+  it('emits NEITHER key when the caller omits obsType (MCP server, note_add)', () => {
+    const p = client.buildAddObservationPayload({ projectId: 'p', content: 'c' }) as Record<string, unknown>;
+    expect('obsType' in p).toBe(false);
+    expect(p.metadata).toBeUndefined();
+  });
+
+  it('an explicit metadata.obsType still wins over the convenience field', () => {
+    const p = client.buildAddObservationPayload({
+      projectId: 'p', content: 'c', obsType: 'decision',
+      metadata: { obsType: 'discovery' },
+    }) as Record<string, unknown>;
+    expect((p.metadata as Record<string, unknown>).obsType).toBe('discovery');
+  });
+
+  it('leaves a user note payload byte-identical (note_add must not change shape)', () => {
+    const note = { projectId: 'p', content: 'remember this', kind: 'user_note', metadata: { userDirected: true } };
+    expect(client.buildAddObservationPayload(note)).toEqual({
+      projectId: 'p', kind: 'user_note', content: 'remember this',
+      metadata: { userDirected: true },
+    });
+  });
+});
