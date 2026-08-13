@@ -25,7 +25,22 @@
  */
 export const STALL_THRESHOLD_MINUTES = 15;
 
-export type GenerationHealthStatus = 'healthy' | 'idle' | 'stalled' | 'unknown';
+/**
+ * `delegated` — generation happens on the CLIENTS, not here.
+ *
+ * Under local generation (shipped 2026-08-12) a team server runs with
+ * MEMSMITH_GENERATION_DISABLED: laptops generate observations against their own
+ * Ollama and POST the finished result to /v1/memories. Such a server has no
+ * reachable provider and may hold queued rows nothing server-side will drain —
+ * both of which the original logic reported as `stalled`.
+ *
+ * That mattered: the live AWS server reported "generation provider is
+ * unreachable" while working exactly as designed. Describing a healthy
+ * configuration as broken trains operators to ignore the indicator, which is the
+ * precise failure this module exists to prevent (see the header: 15 silent hours,
+ * 6,958 piled-up jobs).
+ */
+export type GenerationHealthStatus = 'healthy' | 'idle' | 'stalled' | 'unknown' | 'delegated';
 
 export interface GenerationHealth {
   status: GenerationHealthStatus;
@@ -43,6 +58,14 @@ export interface GenerationHealthDeps {
   counts: () => Promise<{ queued: number; processing: number; completedLastHour: number }>;
   lastCompletedAt: () => Promise<Date | null>;
   providerReachable: () => Promise<boolean>;
+  /**
+   * True when this server intentionally does NOT generate — generation is
+   * delegated to the clients (MEMSMITH_GENERATION_DISABLED on a team server).
+   * Suppresses the unreachable-provider and stalled-backlog findings, because
+   * neither is a fault in that topology. Defaults to false, so every existing
+   * caller keeps today's behaviour.
+   */
+  generationDelegated?: boolean;
 }
 
 const UNKNOWN: GenerationHealth = {
@@ -85,10 +108,15 @@ export async function assessGenerationHealth(
   }
 
   const problems: string[] = [];
+  const delegated = deps.generationDelegated === true;
 
   // An unreachable provider is a failure NOW, even with an empty backlog —
   // waiting for one to build just delays the discovery.
-  if (providerReachable === false) {
+  //
+  // UNLESS generation is delegated: a team server under local generation has no
+  // provider BY DESIGN, and saying so as a "problem" is how a correct steady
+  // state gets reported as broken.
+  if (providerReachable === false && !delegated) {
     problems.push('generation provider is unreachable — no observations can be produced');
   }
 
@@ -99,7 +127,9 @@ export async function assessGenerationHealth(
 
   // Work waiting + nothing completing = stalled. Either half alone is fine: a
   // moving backlog is merely slow, and an empty queue is merely quiet.
-  if (hasWork && stale && counts.completedLastHour === 0) {
+  // Same exemption: on a delegated server nothing here is meant to drain the
+  // queue, so a standing backlog is not evidence of a stall.
+  if (hasWork && stale && counts.completedLastHour === 0 && !delegated) {
     problems.push(
       lastCompletedMinutesAgo === null
         ? `${counts.queued} jobs queued and no observation has ever completed`
@@ -109,6 +139,7 @@ export async function assessGenerationHealth(
 
   let status: GenerationHealthStatus;
   if (problems.length > 0) status = 'stalled';
+  else if (delegated) status = 'delegated';
   else if (!hasWork && counts.completedLastHour === 0) status = 'idle';
   else status = 'healthy';
 

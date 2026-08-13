@@ -125,8 +125,16 @@ class ServerRuntimeInfoRoutes implements RouteHandler {
 // route must never throw on a probe blip.
 async function collectGenerationHealth(graph: ServerServiceGraph) {
   const pool = graph.postgres.pool;
+  // Is generation delegated to the clients? A team server under local generation
+  // runs with MEMSMITH_GENERATION_DISABLED and has no provider BY DESIGN, so the
+  // unreachable-provider and standing-backlog findings are not faults there.
+  // Read from the same env the disable decision uses
+  // (create-server-service.ts:230-231) so the two can never disagree.
+  const generationDelegated = process.env.MEMSMITH_GENERATION_DISABLED === '1'
+    || process.env.MEMSMITH_GENERATION_DISABLED === 'true';
   return assessGenerationHealth({
     now: () => new Date(),
+    generationDelegated,
     counts: async () => {
       const r = await pool.query(
         `SELECT

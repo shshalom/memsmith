@@ -145,3 +145,47 @@ describe('assessGenerationHealth', () => {
     expect(h.status).toBe('stalled');
   });
 });
+
+// A team server under local generation (shipped 2026-08-12) has generation
+// DISABLED on purpose: the laptops generate and POST finished observations, and
+// the server only stores and embeds. It therefore has no reachable provider —
+// which the original logic reported as `stalled` with "generation provider is
+// unreachable".
+//
+// That is a healthy configuration described as a fault. Reporting a correct
+// steady state as broken trains operators to ignore the indicator, which is the
+// EXACT failure generation-health.ts was built to prevent (its header documents
+// 15 silent hours and 6,958 piled-up jobs). Observed live on the deployed AWS
+// server, which reported `stalled` while working perfectly.
+describe('assessGenerationHealth — delegated generation is not a fault', () => {
+  const base = {
+    now: () => new Date('2026-08-13T00:00:00Z'),
+    counts: async () => ({ queued: 0, processing: 0, completedLastHour: 0 }),
+    lastCompletedAt: async () => null,
+    providerReachable: async () => false,
+  };
+
+  it('reports `delegated`, not `stalled`, when generation is delegated', async () => {
+    const h = await assessGenerationHealth({ ...base, generationDelegated: true } as never);
+    expect(h.status).toBe('delegated');
+    expect(h.problems).toEqual([]);
+  });
+
+  it('still reports `stalled` when NOT delegated (the original 15-hour case)', async () => {
+    const h = await assessGenerationHealth(base as never);
+    expect(h.status).toBe('stalled');
+    expect(h.problems.join(' ')).toContain('unreachable');
+  });
+
+  it('a delegated server with a real backlog is still NOT stalled', async () => {
+    // Queued rows on a delegated server are not evidence of a fault: nothing
+    // server-side is meant to drain them.
+    const h = await assessGenerationHealth({
+      ...base,
+      counts: async () => ({ queued: 42, processing: 0, completedLastHour: 0 }),
+      generationDelegated: true,
+    } as never);
+    expect(h.status).toBe('delegated');
+    expect(h.problems).toEqual([]);
+  });
+});

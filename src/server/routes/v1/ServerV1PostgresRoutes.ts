@@ -3205,6 +3205,7 @@ function serializeObservation(observation: {
   obsType?: string | null;
   lifecycleState?: string | null;
   supersededBy?: string | null;
+  quality?: number | null;
 }): Record<string, unknown> {
   return {
     id: observation.id,
@@ -3218,6 +3219,12 @@ function serializeObservation(observation: {
     // tab shows typed, correctly-bucketed rows instead of untyped blanks.
     obsType: observation.obsType ?? null,
     lifecycleState: observation.lifecycleState ?? null,
+    // Expose the quality score the ingest gate computed (ingest-quality.ts) and
+    // the generation path stamps (processGeneratedResponse.ts). Without it a
+    // client could not tell whether scoring ran at all — only that a submission
+    // was not 422'd, which proves it met the floor but not what it scored. That
+    // ambiguity cost real diagnosis time on 2026-08-13.
+    quality: observation.quality ?? null,
     metadata: observation.metadata,
     createdAtEpoch: observation.createdAtEpoch,
     updatedAtEpoch: observation.updatedAtEpoch,
