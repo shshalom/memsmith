@@ -149,7 +149,17 @@ export class SettingsDefaultsManager {
     MEMSMITH_OPENROUTER_APP_NAME: 'memsmith',  // App name for OpenRouter analytics
     MEMSMITH_OLLAMA_URL: 'http://localhost:11434/v1',  // Ollama local base URL (OpenAI-compatible)
     MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b',  // Default Ollama model
-    MEMSMITH_DATA_DIR: join(homedir(), '.memsmith'),
+    // An isolated install's settings must describe ITSELF, not the developer's
+    // home. This baked join(homedir(), '.memsmith') into every settings file it
+    // wrote — including one written INTO a throwaway data dir. Because
+    // resolveDataDir() falls back to reading settings.json when the env var is
+    // absent (paths.ts:27), an isolated install carried a pointer straight back
+    // to the real one, and any later process that lost the env var silently
+    // resolved to it. Measured on the team rig: /tmp/ms-team-server/settings.json
+    // contained MEMSMITH_DATA_DIR=/Users/<me>/.memsmith, so the rig server looked
+    // for its credentials in the DOGFOOD store and handed the dashboard no
+    // cookie at all.
+    MEMSMITH_DATA_DIR: process.env.MEMSMITH_DATA_DIR || join(homedir(), '.memsmith'),
     MEMSMITH_LOG_LEVEL: 'INFO',
     MEMSMITH_PYTHON_VERSION: '3.13',
     CLAUDE_CODE_PATH: '', // Empty means auto-detect via 'which claude'
@@ -160,7 +170,12 @@ export class SettingsDefaultsManager {
     MEMSMITH_FOLDER_CLAUDEMD_ENABLED: 'false',
     MEMSMITH_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
     MEMSMITH_TRANSCRIPTS_ENABLED: 'true',
-    MEMSMITH_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.memsmith', 'transcript-watch.json'),
+    // Same reason as MEMSMITH_DATA_DIR above: keep per-install state inside the
+    // install, so an isolated run does not write into the real data dir.
+    MEMSMITH_TRANSCRIPTS_CONFIG_PATH: join(
+      process.env.MEMSMITH_DATA_DIR || join(homedir(), '.memsmith'),
+      'transcript-watch.json',
+    ),
     MEMSMITH_CODEX_TRANSCRIPT_INGESTION: 'false',
     MEMSMITH_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
     MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
