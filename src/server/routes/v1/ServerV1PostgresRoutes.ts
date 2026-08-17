@@ -53,6 +53,7 @@ import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
+import { registerConvertImportRoutes } from './ConvertImportRoutes.js';
 import { registerJoinRegisterRoute } from './JoinRegisterRoute.js';
 import { requireJoinRateLimit } from '../../middleware/join-rate-limit-subject.js';
 import { makeHttpsJoinTransport } from '../../convert/join-transport-https.js';
@@ -1984,6 +1985,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           await dispose();
         }
       },
+    });
+
+    // The REMOTE half of convert-over-HTTPS: /v1/convert/import + /v1/convert/verify.
+    //
+    // OWNER-GATED, exactly like registerConvertRoutes above. Not requireWriteRole():
+    // that treats role == null as member-equivalent (postgres-auth.ts), and this route
+    // writes RAW ROWS into seven tables, so a roleless key must never reach it. The
+    // route additionally refuses a team-scoped key (project_id IS NULL), because such a
+    // key reaches every project in its team and so has not identified which one to
+    // import into.
+    registerConvertImportRoutes(app, {
+      authMiddleware: [...writeAuth, requireRole('owner')],
+      pool: this.options.pool as never,
     });
 
     // The REMOTE half of join-over-HTTPS. Unauthenticated by design (the team
