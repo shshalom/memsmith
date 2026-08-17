@@ -3,7 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import type { PostgresQueryable } from './utils.js';
 
-export const SERVER_POSTGRES_SCHEMA_VERSION = 6;
+export const SERVER_POSTGRES_SCHEMA_VERSION = 7;
 
 // Phase 1b (cmem-sdk rename): the TS constant is renamed but the table-name
 // strings remain on `server_beta_*` since they are persisted DDL identifiers.
@@ -170,6 +170,41 @@ async function applyPhase1Migration(client: PostgresQueryable, mode: SchemaMode 
       ON CONFLICT (version) DO NOTHING
     `,
     [6, 'identity-core: api_keys.user_id nullable owning-user column']
+  );
+
+  // Migration 007: convert-over-HTTPS support.
+  //
+  // promoted_at — LOCAL bookkeeping only. NULL means "this row is not in the team
+  // yet" and drives the wizard's sync count. It is never read on the remote: a row in
+  // the team database is by definition already there, so this is not replicated state.
+  //
+  // convert_import_batches — per-BATCH idempotency for the HTTPS import. Row-level
+  // idempotency cannot carry this: only 3.4% of observations in a real long-lived
+  // project have an idempotency_key, and its unique index is partial
+  // (WHERE idempotency_key IS NOT NULL), so the other 96.6% bypass it and a retried
+  // batch would duplicate them. The token is what makes a retry a no-op.
+  //
+  // Both statements are additive and idempotent, so re-running the bootstrap on an
+  // already-migrated database is a no-op.
+  await client.query(
+    `ALTER TABLE observations ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMPTZ`
+  );
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS convert_import_batches (
+       project_id TEXT NOT NULL,
+       table_name TEXT NOT NULL,
+       batch_token TEXT NOT NULL,
+       applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       PRIMARY KEY (project_id, table_name, batch_token)
+     )`
+  );
+  await client.query(
+    `
+      INSERT INTO server_beta_schema_migrations (version, description)
+      VALUES ($1, $2)
+      ON CONFLICT (version) DO NOTHING
+    `,
+    [7, 'convert-over-https: observations.promoted_at + convert_import_batches']
   );
 }
 
