@@ -167,6 +167,17 @@ export class PostgresObservationRepository {
     supersedes?: string | null;
     quality?: number | null;
     embeddingVec?: number[] | null;
+    /**
+     * Original creation time, for RELOCATING a row rather than creating one.
+     *
+     * Omit it for normal ingest: `created_at` is `NOT NULL DEFAULT now()`, and letting
+     * the database supply it keeps the value database-authoritative instead of
+     * app-clock-dependent. Supply it only when migrating rows that already exist
+     * somewhere else, where the original timestamp IS the data — a convert that drops it
+     * collapses a project's entire history to the migration date and breaks the recency
+     * ordering readTeamWide falls back to when merging ranked results across projects.
+     */
+    createdAt?: Date | string | null;
   }): Promise<PostgresObservation> {
     await assertProjectOwnership(this.client, input.projectId, input.teamId);
     if (input.serverSessionId) {
@@ -177,6 +188,14 @@ export class PostgresObservationRepository {
     }
 
     const idempotencyKey = input.idempotencyKey ?? null;
+    // MIGRATION-ONLY created_at. The column and its $17 placeholder are appended only
+    // when a timestamp was supplied, so ordinary ingest emits the exact statement it
+    // always did and keeps `DEFAULT now()`. Passing an explicit null instead would
+    // violate NOT NULL; passing the app clock would replace a database-authoritative
+    // value with a skewed one. Both INSERT branches interpolate these two fragments, so
+    // neither can be patched without the other — the half-fix this design avoids.
+    const createdAtColumn = input.createdAt != null ? ', created_at' : '';
+    const createdAtPlaceholder = input.createdAt != null ? ', $17' : '';
     const commonValues = [
       input.id ?? newId(),
       input.projectId,
@@ -195,6 +214,14 @@ export class PostgresObservationRepository {
       input.quality ?? null,
       input.embeddingVec == null ? null : '[' + input.embeddingVec.join(',') + ']'
     ];
+    // Appended LAST so it lands on $17, matching createdAtPlaceholder above. Only pushed
+    // when supplied, keeping the parameter list the same length as before for ingest.
+    // Normalised to an ISO string: TIMESTAMPTZ parses it unambiguously (explicit UTC
+    // offset), and it keeps commonValues homogeneous rather than widening the array type
+    // for one migration-only field.
+    if (input.createdAt != null) {
+      commonValues.push(new Date(input.createdAt).toISOString());
+    }
 
     let row: ObservationRow | null;
 
@@ -208,10 +235,10 @@ export class PostgresObservationRepository {
           INSERT INTO observations (
             id, project_id, team_id, server_session_id, kind, content,
             generation_key, idempotency_key, metadata, embedding, created_by_job_id,
-            obs_type, lifecycle_state, supersedes, quality, embedding_vec
+            obs_type, lifecycle_state, supersedes, quality, embedding_vec${createdAtColumn}
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11,
-                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector)
+                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector${createdAtPlaceholder})
           ON CONFLICT (team_id, project_id, idempotency_key) WHERE idempotency_key IS NOT NULL
           DO NOTHING
           RETURNING *
@@ -234,10 +261,10 @@ export class PostgresObservationRepository {
           INSERT INTO observations (
             id, project_id, team_id, server_session_id, kind, content,
             generation_key, idempotency_key, metadata, embedding, created_by_job_id,
-            obs_type, lifecycle_state, supersedes, quality, embedding_vec
+            obs_type, lifecycle_state, supersedes, quality, embedding_vec${createdAtColumn}
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11,
-                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector)
+                  $12, COALESCE($13, 'open'), $14, $15, $16::public.vector${createdAtPlaceholder})
           ON CONFLICT (team_id, project_id, generation_key) WHERE generation_key IS NOT NULL DO UPDATE SET
             updated_at = observations.updated_at
           RETURNING *
