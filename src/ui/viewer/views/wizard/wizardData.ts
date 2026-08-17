@@ -22,9 +22,26 @@ export interface ConvertResult {
 
 const NOT_GREEN: ProbeResult = { connectivity: { reachable: false, authenticates: false }, fitness: { writable: false, pgvector: false, versionOk: false, schemaReady: false }, allGreen: false, fixable: [] };
 
-export async function testConnection(databaseUrl: string, fetchImpl: typeof fetch = fetch): Promise<ProbeResult> {
+/**
+ * Where this project is going.
+ *
+ * The HTTPS shape is the one a managed database requires: a private RDS is unreachable
+ * from the machine running convert (measured — the direct probe times out even on VPN),
+ * so the destination is the team server's endpoint plus the team key, and no database
+ * password is involved at any point.
+ *
+ * The databaseUrl shape is retained for a self-hosted database the owner CAN reach.
+ */
+export type Destination =
+  | { serverUrl: string; teamKey: string }
+  | { databaseUrl: string };
+
+export async function testConnection(dest: Destination, fetchImpl: typeof fetch = fetch): Promise<ProbeResult> {
   try {
-    const res = await fetchImpl('/v1/convert/test-connection', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ databaseUrl }) });
+    // Relative path on purpose: the request goes to the LOCAL server, which holds the
+    // credential and makes any outbound call. The browser never talks to the team
+    // server directly.
+    const res = await fetchImpl('/v1/convert/test-connection', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(dest) });
     if (!res.ok) return { ...NOT_GREEN, error: `HTTP ${res.status}` };
     return (await res.json()) as ProbeResult;
   } catch (e) {
@@ -92,9 +109,9 @@ export async function fetchOwnerEstablished(fetchImpl: typeof fetch = fetch): Pr
   }
 }
 
-export async function migrate(databaseUrl: string, fetchImpl: typeof fetch = fetch): Promise<ConvertResult> {
+export async function migrate(dest: Destination, fetchImpl: typeof fetch = fetch): Promise<ConvertResult> {
   try {
-    const res = await fetchImpl('/v1/convert/migrate', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ databaseUrl }) });
+    const res = await fetchImpl('/v1/convert/migrate', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(dest) });
     if (!res.ok) {
       // Keep the server's own message. A convert can fail for reasons that have
       // nothing to do with verification (a foreign-key crash, a 403, a bad URL),

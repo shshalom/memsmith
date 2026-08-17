@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   WizardStep, nextStep, prevStep, canAdvance, buildWizardOrder, resolveOrphanedStep,
 } from './wizardState.js';
-import { fetchOwnerEstablished, fetchBaseKey } from './wizardData.js';
+import { fetchOwnerEstablished, fetchBaseKey, type Destination } from './wizardData.js';
 import WelcomeCard    from './cards/WelcomeCard.js';
 import DestinationCard from './cards/DestinationCard.js';
 import ConvertCard    from './cards/ConvertCard.js';
@@ -47,6 +47,10 @@ interface GoTeamWizardProps {
 export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWizardProps) {
   const [step, setStep]               = useState<WizardStep>('welcome');
   const [databaseUrl, setDatabaseUrl] = useState('');
+  // The destination is chosen on the destination step and USED on the convert step, so
+  // it lives here rather than in either card — otherwise convert would post a different
+  // destination than the one the probe went green against.
+  const [destination, setDestination] = useState<Destination>({ databaseUrl: '' });
   // Fetched rather than taken from the prop: the prop was only populated when the
   // user had already flipped "reveal" in Identity settings, so the Invite card
   // showed "(base key not available)" on every normal run.
@@ -135,6 +139,7 @@ export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWi
             onProbeGreen={handleProbeGreen}
             onUrlChange={handleUrlChange}
             databaseUrl={databaseUrl}
+            onDestinationChange={setDestination}
             probeAllGreen={wizardState.probeAllGreen}
           />
         );
@@ -142,6 +147,7 @@ export default function GoTeamWizard({ open, onClose, baseKey = null }: GoTeamWi
         return (
           <ConvertCard
             databaseUrl={databaseUrl}
+            destination={destination}
             onNext={handleNext}
             onBack={handleBack}
             onRestartRequired={handleRestartRequired}

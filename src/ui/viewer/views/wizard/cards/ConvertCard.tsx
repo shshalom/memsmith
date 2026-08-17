@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import React, { useState } from 'react';
-import { migrate, ConvertResult } from '../wizardData.js';
+import { migrate, ConvertResult, type Destination } from '../wizardData.js';
 
 // 'failed' = the copy ran but verification found missing rows.
 // 'errored' = the request itself did not complete (crash, 403, transport).
@@ -10,6 +10,11 @@ type Phase = 'idle' | 'copying' | 'verifying' | 'flipping' | 'done' | 'failed' |
 
 interface ConvertCardProps {
   databaseUrl: string;
+  /**
+   * The destination chosen on the previous step. Passed in rather than re-derived here,
+   * so convert targets exactly what the probe went green against.
+   */
+  destination: Destination;
   onNext: () => void;
   onBack: () => void;
   onRestartRequired: (required: boolean) => void;
@@ -25,7 +30,7 @@ const PHASE_LABELS: Record<Phase, string> = {
   errored:   'Conversion could not run. Local data is unchanged.',
 };
 
-export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequired }: ConvertCardProps) {
+export default function ConvertCard({ databaseUrl, destination, onNext, onBack, onRestartRequired }: ConvertCardProps) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -36,7 +41,7 @@ export default function ConvertCard({ databaseUrl, onNext, onBack, onRestartRequ
     const phaseTimer = setTimeout(() => setPhase('verifying'), 1500);
     const flipTimer  = setTimeout(() => setPhase('flipping'),  3000);
 
-    const res = await migrate(databaseUrl);
+    const res = await migrate(destination);
 
     clearTimeout(phaseTimer);
     clearTimeout(flipTimer);

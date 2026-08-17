@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-import React, { useState } from 'react';
-import { testConnection, applyFix, ProbeResult } from '../wizardData.js';
+import React, { useState, useEffect } from 'react';
+import { testConnection, applyFix, ProbeResult, type Destination } from '../wizardData.js';
 
 interface DestinationCardProps {
   onNext: () => void;
   onBack: () => void;
   onProbeGreen: (green: boolean) => void;
   onUrlChange: (url: string) => void;
+  /**
+   * Report the destination upward. The CONVERT step is what posts it, so it cannot live
+   * only in this card — otherwise convert would target a different destination than the
+   * one the probe went green against.
+   */
+  onDestinationChange: (dest: Destination) => void;
   databaseUrl: string;
   probeAllGreen: boolean;
 }
@@ -53,17 +59,35 @@ function CheckRow({ name, ok, fixable, onFix, fixing }: {
   );
 }
 
-export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlChange, databaseUrl, probeAllGreen }: DestinationCardProps) {
+export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlChange, onDestinationChange, databaseUrl, probeAllGreen }: DestinationCardProps) {
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [fixing, setFixing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // HTTPS is the default because it is the only shape that works for a managed
+  // database: a private RDS is unreachable from this machine, so a database URL
+  // would simply time out. The direct shape stays available behind the toggle for a
+  // self-hosted Postgres the owner can actually reach.
+  const [serverUrl, setServerUrl] = useState('');
+  const [teamKey, setTeamKey] = useState('');
+  const [useDirect, setUseDirect] = useState(false);
+
+  /** The destination as the server expects it — see wizardData's Destination union. */
+  function destination(): Destination {
+    return useDirect ? { databaseUrl } : { serverUrl, teamKey };
+  }
+
+  // Report on every edit rather than only on a successful probe: the convert step reads
+  // this, and a stale value there is the scope-leak class of bug.
+  useEffect(() => {
+    onDestinationChange(useDirect ? { databaseUrl } : { serverUrl, teamKey });
+  }, [useDirect, databaseUrl, serverUrl, teamKey, onDestinationChange]);
 
   async function handleTest() {
     setTesting(true);
     setError(null);
     setProbe(null);
-    const result = await testConnection(databaseUrl);
+    const result = await testConnection(destination());
     setProbe(result);
     onProbeGreen(result.allGreen);
     if (result.error) setError(result.error);
@@ -82,7 +106,7 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
       setFixing(null);
       return;
     }
-    const reprobed = await testConnection(databaseUrl);
+    const reprobed = await testConnection(destination());
     setProbe(reprobed);
     onProbeGreen(reprobed.allGreen);
     if (reprobed.error) setError(reprobed.error);
@@ -93,27 +117,81 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
 
   return (
     <div className="wizard-card">
-      <h2 className="wizard-card-title">Destination Database</h2>
+      <h2 className="wizard-card-title">Destination</h2>
       <p className="wizard-card-body">
-        Enter your remote Postgres connection URL. MemSmith will test connectivity
-        and verify the database meets all requirements before proceeding.
+        {useDirect
+          ? 'Enter the Postgres connection URL. Only works if this machine can reach the database directly.'
+          : 'Enter your team server’s address and team key. MemSmith checks that the server is reachable and the key is valid before proceeding.'}
       </p>
 
-      <div className="wizard-field">
-        <label className="wizard-field-label" htmlFor="wizard-pg-url">
-          Postgres URL
-        </label>
-        <input
-          id="wizard-pg-url"
-          type="text"
-          className="wizard-input"
-          placeholder="postgres://user:pass@host:5432/db"
-          value={databaseUrl}
-          onChange={e => onUrlChange(e.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-        />
-      </div>
+      {useDirect ? (
+        <div className="wizard-field">
+          <label className="wizard-field-label" htmlFor="wizard-pg-url">
+            Postgres URL
+          </label>
+          <input
+            id="wizard-pg-url"
+            type="text"
+            className="wizard-input"
+            placeholder="postgres://user:pass@host:5432/db"
+            value={databaseUrl}
+            onChange={e => onUrlChange(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+      ) : (
+        <>
+          <div className="wizard-field">
+            <label className="wizard-field-label" htmlFor="wizard-server-url">
+              Team server URL
+            </label>
+            <input
+              id="wizard-server-url"
+              type="text"
+              className="wizard-input"
+              placeholder="https://your-team-server.example.com"
+              value={serverUrl}
+              onChange={e => setServerUrl(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          <div className="wizard-field">
+            <label className="wizard-field-label" htmlFor="wizard-team-key">
+              Team key
+            </label>
+            <input
+              id="wizard-team-key"
+              type="password"
+              className="wizard-input"
+              placeholder="cmem_…"
+              value={teamKey}
+              onChange={e => setTeamKey(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+        </>
+      )}
+
+      <button
+        type="button"
+        className="wizard-text-button"
+        onClick={() => {
+          // Switching destination invalidates any probe result, and Next unlocks only
+          // on all-green — leaving a stale green would let a user proceed on evidence
+          // gathered about a different destination.
+          setUseDirect(!useDirect);
+          setProbe(null);
+          setError(null);
+          onProbeGreen(false);
+        }}
+      >
+        {useDirect
+          ? 'Use a team server URL instead'
+          : 'I have a database URL instead'}
+      </button>
 
       {error && (
         <div className="wizard-error" role="alert">{error}</div>
