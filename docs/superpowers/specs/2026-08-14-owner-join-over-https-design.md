@@ -1,5 +1,12 @@
 # Owner Join-Over-HTTPS + Promote-to-Sync — Design
 
+> **WITHDRAWN 2026-08-17.** Superseded by `2026-08-17-convert-over-https-design.md`.
+> Its central premise was wrong: it treated a per-project team id as "silent isolation"
+> when that is the access boundary working as designed, and its "39% fail the quality
+> floor" figure came from measuring the dogfood project's entire history instead of a
+> representative project (the real figure on current code is 0%). Retained only as a
+> record of the error — see §9 of the replacement. Do not implement.
+
 **Date:** 2026-08-14
 **Status:** Proposed
 **Supersedes part of:** `2026-07-21-go-team-wizard-design.md` (the owner/convert path)
