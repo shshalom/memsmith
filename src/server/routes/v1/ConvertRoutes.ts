@@ -4,9 +4,63 @@ import type { ProbeResult } from '../../convert/connection-probe.js';
 import type { ConvertResult } from '../../convert/convert-service.js';
 import type { JoinResult } from '../../convert/join-service.js';
 
+export type ConvertTransport =
+  | { kind: 'https'; serverUrl: string; teamKey: string }
+  | { kind: 'postgres'; databaseUrl: string }
+  | { kind: 'error'; message: string };
+
+/**
+ * Decide which transport a convert request is asking for, from the shape of its input.
+ *
+ * A `postgres://` value in the serverUrl field is an ERROR, not a fallback. The HTTPS
+ * path exists because the machine running convert cannot open a Postgres socket to a
+ * managed database — measured: a direct probe of the real RDS returns
+ * "Connection terminated due to connection timeout" even on VPN. Silently taking the
+ * direct path would turn a nameable mistake into a hang.
+ *
+ * When both are supplied, HTTPS wins: it is the path that works for a managed database,
+ * and the direct path remains available by omitting the server URL.
+ */
+export function selectConvertTransport(input: {
+  serverUrl?: unknown;
+  teamKey?: unknown;
+  databaseUrl?: unknown;
+}): ConvertTransport {
+  const serverUrl = typeof input.serverUrl === 'string' ? input.serverUrl.trim() : '';
+  const teamKey = typeof input.teamKey === 'string' ? input.teamKey.trim() : '';
+  const databaseUrl = typeof input.databaseUrl === 'string' ? input.databaseUrl.trim() : '';
+
+  if (serverUrl) {
+    if (/^postgres(ql)?:\/\//i.test(serverUrl)) {
+      return {
+        kind: 'error',
+        message: 'serverUrl must be an https:// endpoint, not a postgres:// connection string',
+      };
+    }
+    if (!/^https?:\/\//i.test(serverUrl)) {
+      return { kind: 'error', message: 'serverUrl must start with https://' };
+    }
+    if (!teamKey) {
+      return { kind: 'error', message: 'a team key is required with a server URL' };
+    }
+    return { kind: 'https', serverUrl, teamKey };
+  }
+  if (databaseUrl) return { kind: 'postgres', databaseUrl };
+  return {
+    kind: 'error',
+    message: 'provide either a server URL and team key, or a database URL',
+  };
+}
+
 export interface ConvertRoutesDeps {
   authMiddleware: RequestHandler[]; // [writeAuth..., requireRole('owner')]
   probe: (databaseUrl: string) => Promise<ProbeResult>;
+  /**
+   * Probe an HTTPS destination: is the team server reachable, and does this key
+   * authenticate against it? Optional so an older caller that only wires `probe`
+   * keeps working — the route reports that clearly rather than crashing.
+   */
+  probeHttps?: (serverUrl: string, teamKey: string) => Promise<unknown>;
   applyFix: (databaseUrl: string, fix: string) => Promise<{ ok: boolean; error?: string }>;
   convert: (input: {
     databaseUrl: string;
@@ -31,10 +85,25 @@ export interface ConvertRoutesDeps {
 
 export function registerConvertRoutes(app: import('express').Application, deps: ConvertRoutesDeps): void {
   app.post('/v1/convert/test-connection', ...deps.authMiddleware, async (req: any, res: any) => {
-    const url = String(req.body?.databaseUrl ?? '');
-    if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
+    const transport = selectConvertTransport(req.body ?? {});
+    if (transport.kind === 'error') {
+      res.status(400).json({ error: transport.message });
+      return;
+    }
     try {
-      res.json(await deps.probe(url));
+      if (transport.kind === 'https') {
+        // An HTTPS destination is probed by asking the SERVER about itself. The owner
+        // never touches the destination database on this path, so pgvector/schema
+        // fitness are the team server's own guarantees — it reports them from
+        // /v1/info — rather than something to verify by connecting.
+        if (!deps.probeHttps) {
+          res.status(400).json({ error: 'this server cannot probe an https destination' });
+          return;
+        }
+        res.json(await deps.probeHttps(transport.serverUrl, transport.teamKey));
+        return;
+      }
+      res.json(await deps.probe(transport.databaseUrl));
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'probe failed' });
     }

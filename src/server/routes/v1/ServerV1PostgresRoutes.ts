@@ -1820,6 +1820,61 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         return result;
       },
       probe: (url) => probeConnection(url, makeRealProbeDeps()),
+      // HTTPS destinations are probed by asking the team server about itself, because
+      // the owner never opens a connection to the destination database on that path.
+      // /v1/info answers reachability and schema readiness; /v1/identity answers whether
+      // this key authenticates. pgvector and version fitness are the remote's own
+      // guarantees, reported rather than tested from here.
+      probeHttps: async (serverUrl: string, teamKey: string) => {
+        const base = serverUrl.replace(/\/+$/, '');
+        try {
+          const info = await fetch(`${base}/v1/info`);
+          if (!info.ok) {
+            return {
+              connectivity: { reachable: false, authenticates: false },
+              fitness: { writable: false, pgvector: false, versionOk: false, schemaReady: false },
+              allGreen: false, fixable: [],
+              error: `that server answered HTTP ${info.status}`,
+            };
+          }
+          const body = await info.json() as {
+            postgres?: { initialized?: boolean; reachable?: boolean };
+          };
+          // An authenticated call is the only way to know the KEY works: /v1/info is
+          // deliberately unauthenticated, so a 200 there proves nothing about the key.
+          //
+          // /v1/connect is the right probe because it needs only a TEAM, not a project.
+          // A team-wide key (project_id IS NULL) — which is exactly what an owner
+          // converting a project holds — gets 404/400 from /v1/identity and /v1/usage
+          // because those resolve a project first. Measured against the live server:
+          //   valid key -> 400 (reached the handler, no project named)
+          //   bogus key -> 403 (rejected by auth)
+          // So 403 is the only status that means "this key is not valid"; anything else
+          // means the credential passed the auth layer.
+          const probe = await fetch(`${base}/v1/connect`, {
+            headers: { authorization: `Bearer ${teamKey}` },
+          });
+          const authenticates = probe.status !== 403 && probe.status !== 401;
+          const schemaReady = body.postgres?.initialized === true;
+          const reachable = body.postgres?.reachable !== false;
+          return {
+            connectivity: { reachable, authenticates },
+            fitness: { writable: authenticates, pgvector: schemaReady, versionOk: true, schemaReady },
+            allGreen: reachable && authenticates && schemaReady,
+            fixable: [],
+            ...(authenticates ? {} : { error: 'that key is not valid for this server' }),
+          };
+        } catch {
+          // Never echo the thrown message: it can contain the request, and the request
+          // carries the team key.
+          return {
+            connectivity: { reachable: false, authenticates: false },
+            fitness: { writable: false, pgvector: false, versionOk: false, schemaReady: false },
+            allGreen: false, fixable: [],
+            error: `cannot reach that server at ${base}`,
+          };
+        }
+      },
       // Reuses the probe's connection deps: the same credentials that diagnosed
       // the gap are the ones that must be able to close it.
       applyFix: (url, fix) => fix === 'pgvector'
