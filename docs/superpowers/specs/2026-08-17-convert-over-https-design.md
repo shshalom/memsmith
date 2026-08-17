@@ -17,10 +17,19 @@ AWS DB ─┬─ Project A   ← users A, B
         └─ Project C   ← user E (owner), plus whoever E grants access
 ```
 
-Users A and B reach project A and **not** project B. This is already enforced:
-`resolve-requested-project.ts:86-88` denies a project-scoped key any other project,
-verified live — a key scoped to project A got
-`403 API key is scoped to a different project` writing to project B.
+Users A and B reach project A and **not** project B. This is enforced by **two distinct
+mechanisms**, and the difference matters for §10.5:
+
+- `resolveRequestedProject` (`resolve-requested-project.ts:84-88`) returns
+  `source: 'denied'` and **falls back to the key's own project**. No HTTP status, no
+  error message — a denial degrades scope rather than failing the request.
+- `ensureProjectAllowed` (`ServerV1PostgresRoutes.ts:2333-2339`) is what returns
+  `403 API key is scoped to a different project` — but **only when the key already has a
+  project scope**. A team-scoped key (`project_id IS NULL`) passes it for any project in
+  its team.
+
+Verified live: a key scoped to project A got that 403 writing to project B
+(reproduce: `POST {endpoint}/v1/memories` with `projectId` = B using an A-scoped key).
 
 **Consequence for this design:** GO TEAM has exactly one meaning — publish this project.
 There is no "create a team vs join a team" choice, and a per-project team id is the
@@ -65,30 +74,46 @@ TCP  memsmith-dev…:5432           → timeout
 ```
 
 **Where the connection is made.** The browser never touches Postgres: `wizardData.ts:27`
-posts `{databaseUrl}` to a *relative* path, and the **local server** opens the pool
-(`ServerV1PostgresRoutes.ts:1821`). The blocker is the local server's reach, not the
-browser's.
+posts `{databaseUrl}` to a *relative* path. The **local server** opens the connection —
+the probe at `ServerV1PostgresRoutes.ts:1821` (`probeConnection`) and the copy pool at
+`:2126` (`createPostgresPool(remoteConfig)`). The blocker is the local server's reach, not
+the browser's.
 
-## 3. Second blocker: the stamped server URL
+## 3. The server-URL problem is ALREADY FIXED — do not re-fix it
 
-`deriveServerUrl` (`convert-context.ts:31`) returns `https://${host}` where `host` is the
-**database** hostname. Executed against a realistic RDS URL:
+An earlier draft of this spec listed the stamped server URL as a second blocker. **That
+was wrong, and the error is worth recording because of how it happened.**
 
-```
-input : postgres://…@memsmith-db.cluster-abc123.us-west-2.rds.amazonaws.com:5432/memsmith
-output: https://memsmith-db.cluster-abc123.us-west-2.rds.amazonaws.com
-actual: https://a9usu1xbrh.execute-api.us-west-2.amazonaws.com/prod
-```
+`resolveConvertServerUrl` (`resolve-convert-server-url.ts`) exists and **is wired into
+the live convert path** (`ServerV1PostgresRoutes.ts:1904-1912`), with precedence:
 
-That host speaks Postgres, not HTTP. Even with connectivity, the converted project flips
-to team mode pointing at a non-existent API. The escape hatch exists —
-`deriveServerUrl` honours an explicit `existingServerUrl` first
-(`convert-context.ts:26`) — but is **unreachable from the UI**, because the wizard posts
-only `{databaseUrl}` (`wizardData.ts:97`).
+1. the project marker's `serverUrl` — per-project, written by an actual previous
+   convert/join, so it reflects observed reality
+2. `MEMSMITH_SERVER_URL` — machine-wide operator configuration, **discarded when it is
+   loopback and the database is remote**, because `SettingsDefaultsManager` gives that
+   setting a `http://127.0.0.1:<uid-port>` default and reading it unconditionally would
+   silently point every remote convert at the operator's own laptop
+3. `deriveServerUrl(databaseUrl)` — the unchanged fallback
 
-The `2026-08-04` spec predicted this: *"the URL-shaping branch used in production is not
-the branch the tests exercise… the first action once AWS exists is a smoke check of
-branch 3, before anything else is trusted."* That check has now run and branch 3 fails.
+`deriveServerUrl` still returns `https://${host}` for a remote host
+(`convert-context.ts:31`), but at `:1913` it is called **only to log when the resolved URL
+differs from the derived one**. It is no longer the value that gets stamped.
+
+It is also **already tested**: `tests/server/convert/derive-server-url-production.test.ts`
+pins branch 3 against a realistic RDS hostname, and
+`tests/server/convert/resolve-convert-server-url.test.ts` covers the precedence chain
+including loopback rejection — 20 tests, all passing.
+
+**How the error happened.** The withdrawn text was near-verbatim from
+`resolve-convert-server-url.ts`'s own header comment — which is written in the **past
+tense, describing the bug it fixed**. Reading it as a present-tense finding is the same
+mistake this project has made before: *code shows what exists, not what superseded what.*
+A comment explaining why something was built reads exactly like a description of a live
+defect.
+
+**Consequence for this design:** the HTTPS path needs an explicit server URL because the
+laptop cannot reach the database (§2), **not** because the derived URL is wrong. One
+blocker, not two.
 
 ## 4. Design: convert speaks HTTPS, like everything else
 
@@ -148,6 +173,27 @@ retried duplicates everything already sent.
 to the events that produced it) would be dropped, leaving copied memory with no
 traceable origin.
 
+**Gap 4 — embeddings are silently lost, and no count check can detect it.**
+`observations.embedding_vec` is a `public.vector(384)` column with an HNSW index
+(`schema.ts:99,102-103`). Today's copy preserves it verbatim: `buildConvertCopyDeps` does
+`SELECT *` and raw-INSERTs every non-generated column, so the vector crosses as-is. Over
+HTTPS it must be JSON-serialised and re-cast (`$16::public.vector`,
+`observations.ts:196`), which makes carrying `embeddingVec` a **second** repository
+change — an earlier draft claimed `createdAt` was "the only repository change", which was
+wrong.
+
+The alternative — regenerating embeddings on import — is worse: `embedForPersist`
+**degrades to NULL when the embedder is unavailable**, so a migration run while the
+embedder is down produces a team project whose semantic search returns nothing. And
+because `verifyCopy` compares only row counts, **that loss passes verification silently**.
+Import therefore carries the vector; it never regenerates.
+
+**Gap 5 — `created_at` is not the only defaulted timestamp.** `updated_at` also defaults
+to `now()` (`schema.ts:386`), and six of the seven tables have defaulted timestamp
+columns — not just `observations`. `agent_events` additionally has `occurred_at`, which is
+a *distinct* column from `created_at` (when the event happened vs when the row was
+written) and must be preserved separately.
+
 ### 5.1 A migration transport, not fresh ingest
 
 Copy therefore gets its own authenticated route rather than reusing the ingest path:
@@ -181,10 +227,69 @@ Distinct from ingest in exactly the ways migration requires:
   (2 rows) in one database, a scoped read for A returned exactly A's rows and none of
   B's.
 
-`runCopy`/`verifyCopy` keep their logic; only `CopyDeps` changes — `upsertRows` POSTs a
-batch instead of executing INSERTs, and the count check calls a scoped count endpoint
-instead of querying the remote directly. This mirrors how the joiner's transport was
-swapped without rewriting `runJoin`.
+### 5.2 What a `CopyDeps` swap does NOT cover
+
+An earlier draft claimed "`runCopy`/`verifyCopy` keep their logic; only `CopyDeps`
+changes." **That is false**, and the gaps are where the real implementation risk lives.
+
+**Verification cannot be a simple count call.** `buildScopedCountQuery`
+(`convert-scope.ts:39-57`) emits *different SQL for local vs remote*, and the remote
+variant needs `team_id`. But `observation_sources` has **no `project_id` and no `team_id`
+column at all** — its remote count is a correlated subquery through the parent table
+(`convert-scope.ts:29-31`). A generic "scoped count endpoint" cannot express that from the
+caller's side. The server must therefore own verification: import exposes
+`GET /v1/convert/verify?projectId=` that runs the *existing* remote count queries
+server-side and returns per-table counts, because only the server can join through the
+parent tables.
+
+**`verifyCopy` only detects under-copy.** It flags `remote < local` (`copy-engine.ts:66`).
+With per-batch idempotency and no cross-batch transaction, a partially-applied retry can
+leave `remote > local` and **pass verification while being wrong**. Verification must
+compare for equality, not sufficiency.
+
+**Batching is byte-bounded, not row-bounded.** `COPY_BATCH_SIZE` is **200**
+(`copy-engine.ts:27`), and the server's JSON body limit is **5 MB**
+(`services/server/middleware.ts:9`). An observations row carries `content`, a `metadata`
+JSONB blob, and a 384-float vector (several KB as JSON), so 200 rows can exceed the limit
+and return `413` — a failure mode the row count alone never predicts. Import batches to a
+**byte budget** with a row cap as a secondary bound, and `413` is handled by halving the
+batch and retrying.
+
+**FK order within a table matters, not just across tables.** `runCopy` iterates
+`COPY_TABLES` in FK order, but `observations` has a **self-referential FK**
+(`supersedes → observations(id)`, `schema.ts:471-472`), so a superseding row can land in
+batch N while its target sits in batch N+1 *of the same table*. `observation_sources` FKs
+to both `observations` and `agent_events` (`schema.ts:392-394`). Import therefore defers
+`supersedes` — inserting rows with it NULL, then applying the links in a final pass once
+all rows exist. Nothing in today's code does this, because a single-connection copy never
+had to.
+
+**Generated columns must be stripped server-side.** `discoverGeneratedColumns`
+(`generated-columns.ts:25-42`) queries `information_schema` on the **destination**
+connection, deliberately — so a future migration adding a generated column cannot
+silently reintroduce the insert crash. An HTTPS client has no such connection.
+`observations.content_search` is `GENERATED ALWAYS` (`schema.ts:380`) and comes back from
+`SELECT *`. Stripping therefore moves to the receiving end, where the destination schema
+is knowable; the client must not hardcode a column list, as that is exactly the silent-
+crash class the existing code was written to prevent.
+
+**Import bypasses more than the quality floor.** Today's copy also bypasses
+`assertProjectOwnership`, `assertSessionOwnership`, `assertJobOwnership`
+(`observations.ts:171-177`), attribution stamping, and embed-on-write. Each must be
+classified as *safety* (keep) or *ingest policy* (bypass). The ownership asserts are
+safety and stay: they are what stops a row naming a project or session the caller does not
+own. Attribution and embed-on-write are ingest policy and are bypassed, because the rows
+already carry their own attribution and vector.
+
+**Applied-token storage needs a table.** Per-batch idempotency requires the server to
+remember which tokens it has applied. No such table exists; the design adds one
+(`convert_import_batches`: `project_id`, `table_name`, `batch_token`, `applied_at`, with a
+unique constraint on the first three). An earlier draft named the mechanism without
+defining where it lives.
+
+Only after all of the above does the `CopyDeps` shape change: `upsertRows` POSTs a
+byte-bounded batch, and the count check calls the server-side verify endpoint. The
+`runCopy` control flow survives; its *assumptions about being one connection* do not.
 
 ## 6. The sync banner
 
@@ -197,12 +302,19 @@ One-click promotes everything unsynced; per-observation selection is out of scop
 **Local rows are never deleted** — a successful batch marks them, so a failed or partial
 promote cannot lose data and the project still reads locally.
 
-Marking requires one migration (current version is 6, so this is **7**, with
-`SERVER_POSTGRES_SCHEMA_VERSION` bumped in the same change or it never runs):
+Marking requires one migration — **two edits in one place, not a new file.** The
+`src/storage/postgres/migrations/` directory holds only `002`–`005` and each file declares
+itself "source-of-truth SQL; **not loaded by code**"; the DDL that actually executes is
+embedded in `schema.ts` (migration 6 exists only there, `schema.ts:157-173`, with no
+`.sql` counterpart). So:
 
 ```sql
 ALTER TABLE observations ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMPTZ;
 ```
+
+goes into the embedded migration list in `schema.ts` as entry **7**, **and**
+`SERVER_POSTGRES_SCHEMA_VERSION` (`schema.ts:6`, currently 6) is bumped to 7 in the same
+change — without the bump the migration never runs.
 
 `promoted_at IS NULL` means unsynced and drives the count. The column is **local
 bookkeeping only** — a row in the team database is by definition already there, so it is
@@ -220,15 +332,26 @@ never read remotely.
 
 ## 8. Testing
 
+**Already covered — do not rewrite.** `deriveServerUrl` branch 3 and the
+`resolveConvertServerUrl` precedence chain are pinned by
+`tests/server/convert/derive-server-url-production.test.ts` and
+`tests/server/convert/resolve-convert-server-url.test.ts` (20 tests, passing). An earlier
+draft listed this as new work; it is not.
+
 **Unit**
-- `deriveServerUrl` branch 3 against a realistic RDS host, asserting the derived value is
-  **not** used when a server URL is supplied. This is the branch `2026-08-04` flagged as
-  untested-in-production; it gets a pinned test.
-- `createdAt` round-trip through `ObservationsRepository`: a row inserted with an
-  explicit past timestamp reads back with that timestamp, not `now()`. Mutation check —
-  reverting the column addition must fail this test.
+- `createdAt` round-trip through `ObservationsRepository`, on **both** insert branches
+  (`observations.ts:208` idempotency-key branch and `:234` generation-key branch — they
+  are separate because Postgres allows one `ON CONFLICT` per INSERT). A row inserted with
+  an explicit past timestamp reads back with that timestamp, not `now()`. Patching only
+  one branch is the specific half-fix this test exists to catch, so it must assert both.
+- `embedding_vec` round-trip: a vector supplied on insert reads back identical, and is
+  **not** regenerated.
+- `updated_at` and `agent_events.occurred_at` preserved as supplied.
 - Batch idempotency: replaying a `batchToken` inserts nothing and reports
   `already_applied`.
+- Byte-budget batching: a batch that would exceed 5 MB is split, not sent and 413'd.
+- `supersedes` deferral: importing a superseding row before its target succeeds, and the
+  link is present after the final pass.
 
 **Integration (isolated rig — never the dogfood project)**
 - Two projects in one rig database; import project A and assert none of project B's rows
@@ -270,8 +393,11 @@ single-table promote — are all measured, and are §5 of this spec.
 
 ## 10. Security invariants preserved
 
-1. The database password never reaches the owner's machine on the HTTPS path — there is
-   no database URL field on it at all.
+1. On the HTTPS path the database password never reaches the owner's machine — that path
+   has no database URL field at all. **This is a per-path guarantee, not a global one:**
+   §4 deliberately retains the direct-Postgres path for a reachable self-hosted database,
+   and that path still takes `{databaseUrl}` (`ConvertRoutes.ts:34,63`). The invariant is
+   "HTTPS convert never handles a password", not "MemSmith never handles one".
 2. The team key lives only in `CredentialStore`, keyed by `teamId`, never in
    `.memsmith/project.json` (which is committed to git). Structural: `ProjectMarker` has
    no credential field.
@@ -280,11 +406,129 @@ single-table promote — are all measured, and are §5 of this spec.
    and the server returned the key's own team.
 4. Key is written **before** the marker, so a project is never in team mode without a
    resolvable credential ("dark capture" prevention).
-5. `/v1/convert/import` is `writeAuth` + `requireWriteRole()` and scoped by the key's
-   own project, so it cannot write into a project the caller cannot reach — the same
-   `403` boundary proven for `/v1/memories`.
+5. `/v1/convert/import` is **`[...writeAuth, requireRole('owner')]`** — the same gate
+   every other convert route uses (`ServerV1PostgresRoutes.ts:1704`), and the project is
+   taken from `req.authContext.projectId` **only, never a body field**, exactly as
+   `/v1/convert/migrate` does (`ConvertRoutes.ts:80-87`).
 
-## 11. Known adjacent bug (not fixed here)
+   **An earlier draft of this spec specified `requireWriteRole()` instead, which was a
+   real security defect.** Three facts combine:
+   - `requireWriteRole()` treats `role == null` as member-equivalent
+     (`postgres-auth.ts:69`), so a scope-only key with no role passes.
+   - `ensureProjectAllowed` only rejects when the key HAS a project scope
+     (`ServerV1PostgresRoutes.ts:2334`), so a **team-scoped key** (`project_id IS NULL`)
+     passes for *any* `projectId` in its team.
+   - The team-wide key minted for this deployment has exactly `project_id: null`.
+
+   So the draft route would have let a roleless, team-scoped key write **raw rows** into
+   any project in the team — including `projects` itself, with a re-stamped `team_id`.
+   `/v1/memories` tolerates that middleware permissiveness only because it adds a
+   row-ownership check on top; a raw-row import route has no equivalent, so it must be
+   gated at the route.
+
+   **`ensureProjectAllowed` is therefore NOT sufficient for this route** and must not be
+   the only check. Import derives its project from the credential and refuses a
+   team-scoped key outright: a caller with no project scope has not identified which
+   project it is importing, and guessing is what the whole convert-scope history warns
+   against.
+
+## 10a. Implementation order — three plans, not one
+
+An adversarial review found this spec too large for a single plan, and it was right: the
+first unit is ready now while the second is where all the residual risk sits. Build in
+this order, each with its own plan:
+
+**Unit 1 — repository-layer fidelity.** Optional `createdAt`/`updatedAt` on **both**
+`observations` insert branches (`:208`, `:234`), `embeddingVec` passthrough, and the
+equivalent for the other five tables (`agent_events.occurred_at` included). No transport
+change, no new route, no migration. Independently testable, and needed by every later
+unit. **Start here.**
+
+**Unit 2 — the import route.** `POST /v1/convert/import` plus
+`GET /v1/convert/verify`: owner-gated authz (§10.5), server-side generated-column
+stripping, byte-budgeted batching with 413 handling, `supersedes` deferral, the
+`convert_import_batches` token table, and equality-not-sufficiency verification. This is
+the bulk of the work and the bulk of the risk.
+
+**Unit 3 — wizard destination + `promoted_at`.** §4 and §6. Depends on unit 2.
+
+## 11. Reproducing every measured number in this spec
+
+§9.2 withdraws a prior spec for a mismeasured denominator, so no number here ships
+without the command that produced it. Run these against the rig or a scratch project —
+never the dogfood project.
+
+**The A/B connectivity result (§2).** Same server, same route; only the URL changes:
+
+```bash
+# reachable
+curl -s -X POST -H "Authorization: Bearer $RIG_KEY" -H 'content-type: application/json' \
+  -d '{"databaseUrl":"postgres://memsmith:rig-throwaway@127.0.0.1:55441/memsmith"}' \
+  http://127.0.0.1:38890/v1/convert/test-connection
+# times out
+curl -s -X POST -H "Authorization: Bearer $RIG_KEY" -H 'content-type: application/json' \
+  -d '{"databaseUrl":"postgres://memsmith:x@memsmith-dev.c32kaqseed4v.us-west-2.rds.amazonaws.com:5432/memsmith"}' \
+  http://127.0.0.1:38890/v1/convert/test-connection
+```
+
+**That it is not VPN (§2).** On VPN, the Autodesk-only host resolves and the public one
+does not; the RDS times out either way:
+
+```bash
+python3 -c "import socket
+for h in ('npm.autodesk.com','registry.npmjs.org','memsmith-dev.c32kaqseed4v.us-west-2.rds.amazonaws.com'):
+    s=socket.socket(); s.settimeout(8)
+    try: s.connect((h, 443 if 'npm' in h else 5432)); print(h,'OK')
+    except Exception as e: print(h, type(e).__name__)
+    finally: s.close()"
+```
+
+**RDS is VPC-internal (§2).** `PubliclyAccessible: false`, private address:
+
+```bash
+aws rds describe-db-instances --region us-west-2 \
+  --query 'DBInstances[*].{public:PubliclyAccessible,host:Endpoint.Address}'
+dig +short memsmith-dev.c32kaqseed4v.us-west-2.rds.amazonaws.com   # -> 10.134.166.42
+```
+
+**Timestamps are destroyed (§5, Gap 1).** Post a past date and read back what was stored:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TEAM_KEY" -H 'content-type: application/json' \
+  -d '{"projectId":"<scratch>","content":"probe","kind":"user_note",
+       "metadata":{"userDirected":true},"createdAt":"2020-01-15T00:00:00Z"}' \
+  "$ENDPOINT/v1/memories"
+# observed: createdAtEpoch corresponds to the ingest date, not 2020-01-15
+```
+
+**Idempotency coverage (§5, Gap 2)** — 367 of 10,762 = 3.4% on a long-lived project:
+
+```sql
+SELECT count(*) AS total, count(idempotency_key) AS with_key
+FROM observations WHERE project_id = '<project>';
+```
+
+**Quality-floor exposure (§5.1)** — on current code, the only rows lacking
+facts/narrative are exempt user notes:
+
+```sql
+SELECT kind, count(*) FROM observations
+WHERE project_id = '<project>' AND created_at > now() - interval '7 days'
+  AND (metadata->'facts') IS NULL AND (metadata->'narrative') IS NULL
+GROUP BY kind;
+-- observed: user_note 125, of 1203 rows in the window; all with userDirected=true
+```
+
+Note the denominator: measured over a **7-day window on current code**, not a project's
+entire multi-month history. The all-time figure on a long-lived project is 39%, and using
+it would misstate what a real convert faces — that is precisely the error §9.2 records.
+
+**In-VPC reachability (§2).** A Fargate task with `assignPublicIp=DISABLED` running
+`server api-key create` against the same RDS host succeeds and returns a key; read the
+result from CloudWatch (`/ecs/memsmith`), never from the task's exit code, which is 0 even
+when the command inside fails.
+
+## 12. Known adjacent bug (not fixed here)
 
 `server api-key list` fails against schema v6 with
 `column "last_used_at" does not exist` — found when probing RDS reachability from
