@@ -63,7 +63,12 @@ export async function verifyCopy(
   for (const table of COPY_TABLES) {
     const local = await deps.countRows('local', table);
     const remote = await deps.countRows('remote', table);
-    if (remote < local) mismatches.push({ table, local, remote });
+    // EQUALITY, not sufficiency. `remote < local` alone missed the over-copy case: with
+    // per-batch idempotency and no cross-batch transaction, a partially-applied retry can
+    // leave MORE rows on the destination than the source, and that used to pass
+    // verification while being wrong. The flip to team mode is gated on this result, so
+    // "at least as many" is not good enough.
+    if (remote !== local) mismatches.push({ table, local, remote });
   }
   return { ok: mismatches.length === 0, mismatches };
 }
