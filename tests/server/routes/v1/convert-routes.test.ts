@@ -104,11 +104,14 @@ describe('convert routes', () => {
       convert: async () => ({ status: 'converted', restartRequired: false, copiedByTable: {} }),
     } as never);
 
-    // Missing databaseUrl entirely → 400
+    // Missing a destination entirely → 400. The MESSAGE changed when convert gained an
+    // HTTPS transport: two destination shapes are valid now (serverUrl+teamKey, or
+    // databaseUrl), so naming only one would misdirect the user. The status is
+    // unchanged, which is what this test is really pinning.
     const r = res();
     await routes['/v1/convert/migrate']({ body: {}, authContext: AUTH }, r);
     expect(r.code).toBe(400);
-    expect(r.body.error).toBe('databaseUrl required');
+    expect(r.body.error).toMatch(/server URL and team key, or a database URL/);
   });
 
   it('POST /v1/convert/migrate returns 400 when the credential carries no project scope', async () => {

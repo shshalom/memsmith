@@ -53,7 +53,10 @@ export function makeHttpsCopyDeps(input: HttpsCopyInput): CopyDeps {
           'content-type': 'application/json',
           authorization: `Bearer ${input.teamKey}`,
         },
-        body: JSON.stringify({ table, rows, batchToken }),
+        // projectId is the SOURCE project, sent so the destination lands rows where
+        // they belong instead of re-homing them under the key's project. The server
+        // validates it against the key's entitlement rather than trusting it.
+        body: JSON.stringify({ table, rows, batchToken, projectId: input.projectId }),
       });
     } catch {
       // Deliberately does NOT include the thrown message: a fetch error can echo the
@@ -103,6 +106,8 @@ export function makeHttpsCopyDeps(input: HttpsCopyInput): CopyDeps {
         let response: Response;
         try {
           response = await fetchImpl(
+            // Same project the copy wrote, so verification counts what was actually
+            // written rather than whatever the credential scopes to.
             `${base}/v1/convert/verify?projectId=${encodeURIComponent(input.projectId)}`,
             { headers: { authorization: `Bearer ${input.teamKey}` } },
           );

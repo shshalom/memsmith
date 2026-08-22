@@ -40,6 +40,61 @@ export const DEFERRED_COLUMNS: Record<string, string[]> = {
   observations: ['supersedes'],
 };
 
+/**
+ * Which project do these rows belong to?
+ *
+ * A migration RELOCATES rows, so the SOURCE project id is part of the data — overwriting
+ * it with the credential's project silently re-homes the whole import. Measured: source
+ * `rig-proj-A` with a key scoped to `dest-proj` put every observation under `dest-proj`
+ * while convert still reported success.
+ *
+ * But the row cannot simply be trusted either: rows arrive over the network, so an
+ * unvalidated project id would be a write-anywhere lever. The requested project is
+ * therefore checked against the credential's entitlement using the same rule as
+ * `resolveRequestedProject` — exact match, or the key is team-scoped and the project
+ * belongs to that team — and REJECTED otherwise.
+ *
+ * Fails closed: a probe error denies rather than granting.
+ */
+export async function resolveImportProject(
+  deps: ApplyDeps,
+  input: { requested?: string | null; keyProjectId: string | null; keyTeamId: string | null },
+): Promise<{ ok: true; projectId: string } | { ok: false; reason: string }> {
+  const requested = typeof input.requested === 'string' ? input.requested.trim() : '';
+
+  // Nothing requested: the key's own project stands. Keeps existing callers working.
+  if (!requested) {
+    if (!input.keyProjectId) {
+      return { ok: false, reason: 'no project scope on this credential and none requested' };
+    }
+    return { ok: true, projectId: input.keyProjectId };
+  }
+
+  // Exact match needs no probe.
+  if (input.keyProjectId && requested === input.keyProjectId) {
+    return { ok: true, projectId: requested };
+  }
+  // A project-scoped key may not reach a different project, whatever the body says.
+  if (input.keyProjectId) {
+    return { ok: false, reason: 'that project is not reachable with this credential' };
+  }
+  if (!input.keyTeamId) {
+    return { ok: false, reason: 'no team scope on this credential' };
+  }
+
+  try {
+    const r = await deps.query(
+      'SELECT id FROM projects WHERE id = $1 AND team_id = $2 LIMIT 1',
+      [requested, input.keyTeamId],
+    );
+    if (r.rows.length > 0) return { ok: true, projectId: requested };
+    return { ok: false, reason: 'that project does not belong to this team' };
+  } catch {
+    // Fail closed. A database error must never grant scope.
+    return { ok: false, reason: 'could not verify project entitlement' };
+  }
+}
+
 export async function applyImportBatch(
   deps: ApplyDeps,
   input: ApplyInput,
@@ -69,8 +124,15 @@ export async function applyImportBatch(
 
   for (const row of writable) {
     const scoped: Record<string, unknown> = { ...row };
-    // Authenticated scope wins over anything the payload claims. Only overwrite columns
-    // the table actually has, so a table without them is untouched.
+    // input.projectId is the RESOLVED project — already checked against the credential's
+    // entitlement by resolveImportProject — so this pins every row to one verified
+    // project without discarding the source id the caller asked for.
+    //
+    // It must NOT be the credential's project. Doing that silently re-homed an entire
+    // convert: source rig-proj-A with a key scoped to dest-proj landed all three
+    // observations under dest-proj while convert reported success. Trusting the row is
+    // equally wrong — that would be a write-anywhere lever — which is why the resolution
+    // happens at the route and only its verdict is applied here.
     if ('project_id' in scoped) scoped.project_id = input.projectId;
     if ('team_id' in scoped) scoped.team_id = input.teamId;
 

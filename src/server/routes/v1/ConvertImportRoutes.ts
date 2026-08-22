@@ -19,7 +19,7 @@
 
 import type { Application, RequestHandler, Request, Response } from 'express';
 import { COPY_TABLES } from '../../convert/copy-engine.js';
-import { applyImportBatch, type ApplyDeps } from '../../convert/import-apply.js';
+import { applyImportBatch, resolveImportProject, type ApplyDeps } from '../../convert/import-apply.js';
 import { buildScopedCountQuery } from './convert-scope.js';
 
 export interface ConvertImportDeps {
@@ -61,7 +61,9 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
       return;
     }
 
-    const body = (req.body ?? {}) as { table?: unknown; rows?: unknown; batchToken?: unknown };
+    const body = (req.body ?? {}) as {
+      table?: unknown; rows?: unknown; batchToken?: unknown; projectId?: unknown;
+    };
     const table = typeof body.table === 'string' ? body.table : '';
     // The table name is interpolated into SQL, so the allowlist is the boundary. It also
     // refuses the account tables (teams, team_members, api_keys, server_settings), which
@@ -82,15 +84,28 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
       return;
     }
 
+    // A migration relocates rows, so the SOURCE project is part of the data. Validated
+    // against the credential's entitlement rather than trusted or overwritten — see
+    // resolveImportProject. Overwriting silently re-homed an entire convert.
+    const resolved = await resolveImportProject(deps.pool, {
+      requested: typeof body.projectId === 'string' ? body.projectId : undefined,
+      keyProjectId: scope.projectId,
+      keyTeamId: scope.teamId,
+    });
+    if (!resolved.ok) {
+      res.status(403).json({ error: 'Forbidden', message: resolved.reason });
+      return;
+    }
+
     try {
       const result = await applyImportBatch(deps.pool, {
-        projectId: scope.projectId,
+        projectId: resolved.projectId,
         teamId: scope.teamId,
         table,
         rows: body.rows as Array<Record<string, unknown>>,
         batchToken,
       });
-      res.status(200).json(result);
+      res.status(200).json({ ...result, projectId: resolved.projectId });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'import failed' });
     }
@@ -103,15 +118,31 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
       return;
     }
 
+    // Count the project the caller ASKS about, not whatever the credential happens to
+    // scope to. Counting by the credential is what let a re-homed import pass
+    // verification: the copy wrote 3 rows under the key's project, verify counted the
+    // key's project, saw 3, and matched the source count of a DIFFERENT project.
+    const asked = typeof req.query?.projectId === 'string' ? req.query.projectId : undefined;
+    const resolved = await resolveImportProject(deps.pool, {
+      requested: asked,
+      keyProjectId: scope.projectId,
+      keyTeamId: scope.teamId,
+    });
+    if (!resolved.ok) {
+      res.status(403).json({ error: 'Forbidden', message: resolved.reason });
+      return;
+    }
+    const countScope = { projectId: resolved.projectId, teamId: scope.teamId };
+
     try {
       const counts: Record<string, number> = {};
       for (const table of COPY_TABLES) {
         // 'remote' because this server IS the destination for an import.
         const q = buildScopedCountQuery(table, 'remote');
-        const r = await deps.pool.query(q.text, q.params(scope));
+        const r = await deps.pool.query(q.text, q.params(countScope));
         counts[table] = Number((r.rows[0] as { count?: unknown } | undefined)?.count ?? 0);
       }
-      res.status(200).json({ counts });
+      res.status(200).json({ counts, projectId: resolved.projectId });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'verify failed' });
     }

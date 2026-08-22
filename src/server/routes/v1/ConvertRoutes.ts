@@ -63,7 +63,13 @@ export interface ConvertRoutesDeps {
   probeHttps?: (serverUrl: string, teamKey: string) => Promise<unknown>;
   applyFix: (databaseUrl: string, fix: string) => Promise<{ ok: boolean; error?: string }>;
   convert: (input: {
+    /** Empty on the HTTPS path — read `transport` instead. */
     databaseUrl: string;
+    /**
+     * Which transport to move the data over. The HTTPS destination has no database URL,
+     * so the implementation selects CopyDeps from this rather than from databaseUrl.
+     */
+    transport?: ConvertTransport;
     ownerUserId: string;
     teamId: string;
     projectId: string;
@@ -129,9 +135,12 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
   });
 
   app.post('/v1/convert/migrate', ...deps.authMiddleware, async (req: any, res: any) => {
-    const url = String(req.body?.databaseUrl ?? '');
+    // Same selector as test-connection, so the destination that was probed is the
+    // destination that gets converted. Diverging here is how a green probe could be
+    // followed by a convert against something else entirely.
+    const transport = selectConvertTransport(req.body ?? {});
+    if (transport.kind === 'error') { res.status(400).json({ error: transport.message }); return; }
     const ownerUserId = req.authContext?.userId;
-    if (!url) { res.status(400).json({ error: 'databaseUrl required' }); return; }
     if (!ownerUserId) { res.status(403).json({ error: 'no owner identity' }); return; }
 
     // WHICH project gets copied comes from authContext and nothing else.
@@ -156,7 +165,16 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
     }
 
     try {
-      res.json(await deps.convert({ databaseUrl: url, ownerUserId, teamId, projectId }));
+      // The transport is passed through rather than flattened to a databaseUrl: the
+      // HTTPS destination has no database URL at all, and inventing one would be the
+      // silent fallback this design exists to prevent.
+      res.json(await deps.convert({
+        databaseUrl: transport.kind === 'postgres' ? transport.databaseUrl : '',
+        transport,
+        ownerUserId,
+        teamId,
+        projectId,
+      }));
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'convert failed' });
     }

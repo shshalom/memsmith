@@ -94,11 +94,22 @@ describe('POST /v1/convert/import', () => {
     expect(res.body).toMatchObject({ status: 'applied' });
   });
 
-  it('ignores a projectId supplied in the body', async () => {
+  it('REFUSES a body projectId the credential cannot reach', async () => {
+    // This test previously asserted the body projectId was IGNORED — and that encoded a
+    // real bug: overwriting it with the key's project silently re-homed an entire
+    // convert (source rig-proj-A landed under dest-proj while convert reported success).
+    // A migration must PRESERVE the source project, so the id is now honoured — but only
+    // after an entitlement check, or it would be a write-anywhere lever.
     const res = await call(appWith(OWNER), 'POST', '/v1/convert/import',
       { table: 'observations', rows: [], batchToken: 'tok2', projectId: 'ATTACKER' });
+    expect(res.status).toBe(403);
+  });
+
+  it('honours a body projectId that matches the credential', async () => {
+    const res = await call(appWith(OWNER), 'POST', '/v1/convert/import',
+      { table: 'observations', rows: [], batchToken: 'tok3', projectId: 'p1' });
     expect(res.status).toBe(200);
-    expect(JSON.stringify(res.body)).not.toMatch(/ATTACKER/);
+    expect(res.body).toMatchObject({ projectId: 'p1' });
   });
 });
 

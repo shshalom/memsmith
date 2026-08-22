@@ -1881,6 +1881,55 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         ? applyPgvectorFix(url, makeRealProbeDeps())
         : Promise.resolve({ ok: false, error: `unknown fix: ${fix}` }),
       convert: async (input) => {
+        // HTTPS DESTINATION: no pool to the remote at all.
+        //
+        // A managed database is unreachable from this machine — a direct probe of a real
+        // private RDS times out even on VPN — so the copy goes over the same
+        // authenticated HTTPS API every other MemSmith operation uses. Reads and local
+        // counts still run against the LOCAL pool; only writes and remote counts cross
+        // the network. runCopy's control flow is unchanged, which is the point of the
+        // CopyDeps seam.
+        if (input.transport?.kind === 'https') {
+          const { makeHttpsCopyDeps } = await import('../../convert/copy-transport-https.js');
+          const localPool = await this.resolveLocalPoolForConvert({
+            projectId: input.projectId,
+            teamId: input.teamId,
+          });
+          const scope = { projectId: input.projectId, teamId: input.teamId };
+          const httpsDeps = makeHttpsCopyDeps({
+            serverUrl: input.transport.serverUrl,
+            teamKey: input.transport.teamKey,
+            projectId: input.projectId,
+            readLocalRows: async (table: string) => {
+              // Same scoped read the direct path uses, so the project-scoping property
+              // already proven for that path carries over unchanged.
+              const { text } = buildScopedReadQuery(table, scope.projectId);
+              const result = await localPool.query(text, [scope.projectId]);
+              return restampTeamId(table, result.rows as Array<Record<string, unknown>>, scope.teamId);
+            },
+            countLocalRows: async (table: string) => {
+              const q = buildScopedCountQuery(table, 'local');
+              const r = await localPool.query(q.text, q.params(scope));
+              return Number((r.rows[0] as { count?: unknown } | undefined)?.count ?? 0);
+            },
+          });
+          const { runConvert } = await import('../../convert/convert-service.js');
+          // serverUrl and apiKey are KNOWN here rather than derived: the user supplied
+          // them, which is exactly what makes deriveServerUrl irrelevant on this path.
+          // databaseUrl is empty because there is no database connection to describe.
+          return runConvert(
+            { copyDeps: httpsDeps },
+            {
+              databaseUrl: '',
+              ownerUserId: input.ownerUserId,
+              teamId: input.teamId,
+              projectId: input.projectId,
+              serverUrl: input.transport.serverUrl,
+              apiKey: input.transport.teamKey,
+            },
+          );
+        }
+
         const { deps, dispose } = await this.buildConvertCopyDeps(input.databaseUrl, {
           projectId: input.projectId,
           teamId: input.teamId,
