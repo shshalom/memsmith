@@ -18,11 +18,27 @@ import express from 'express';
 import { registerConvertImportRoutes } from '../../../../src/server/routes/v1/ConvertImportRoutes.js';
 
 /** Injects an authContext, standing in for the real auth middleware. */
-function appWith(authContext: Record<string, unknown> | null) {
+function appWith(
+  authContext: Record<string, unknown> | null,
+  opts: { projectPool?: { used: boolean } } = {},
+) {
   const app = express();
   app.use(express.json());
   const inject: express.RequestHandler = (req, _res, next) => {
     (req as unknown as { authContext: unknown }).authContext = authContext;
+    // resolveRequestDatabase (inside writeAuth) sets this per request. Simulated here so
+    // the route can be held to using it instead of the base pool.
+    if (opts.projectPool) {
+      (req as unknown as { databasePool: unknown }).databasePool = {
+        query: async (text: string) => {
+          opts.projectPool!.used = true;
+          if (/FROM convert_import_batches/i.test(text)) return { rows: [] };
+          if (/information_schema/i.test(text)) return { rows: [] };
+          if (/count\(\*\)/i.test(text)) return { rows: [{ count: '7' }] };
+          return { rows: [] };
+        },
+      };
+    }
     next();
   };
   registerConvertImportRoutes(app, {
@@ -110,6 +126,29 @@ describe('POST /v1/convert/import', () => {
       { table: 'observations', rows: [], batchToken: 'tok3', projectId: 'p1' });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ projectId: 'p1' });
+  });
+});
+
+describe('per-project database routing', () => {
+  // REGRESSION: the route hardcoded the BASE pool while MemSmith routes reads and writes
+  // to a per-project database (msp_<id>). Imported rows landed in the base database while
+  // every read looked in the project database — a direct COUNT found them and search
+  // returned nothing, so convert reported success against an apparently empty project.
+  it('imports through req.databasePool, not the base pool', async () => {
+    const marker = { used: false };
+    const res = await call(appWith(OWNER, { projectPool: marker }), 'POST', '/v1/convert/import',
+      { table: 'observations', rows: [{ id: 'o1', content: 'x' }], batchToken: 'routed-1' });
+    expect(res.status).toBe(200);
+    expect(marker.used).toBe(true);
+  });
+
+  it('verifies through req.databasePool, not the base pool', async () => {
+    const marker = { used: false };
+    const res = await call(appWith(OWNER, { projectPool: marker }), 'GET', '/v1/convert/verify');
+    expect(res.status).toBe(200);
+    // 7 comes from the project pool fake; the base pool fake returns 2. Counting the
+    // wrong database is exactly how the original bug hid.
+    expect((res.body as { counts: Record<string, number> }).counts.observations).toBe(7);
   });
 });
 

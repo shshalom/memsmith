@@ -25,7 +25,25 @@ import { buildScopedCountQuery } from './convert-scope.js';
 export interface ConvertImportDeps {
   /** Must be `[...writeAuth, requireRole('owner')]` — see the auth note above. */
   authMiddleware: RequestHandler[];
+  /**
+   * FALLBACK pool only. Per request, `req.databasePool` wins — see `poolFor`.
+   *
+   * MemSmith routes reads and writes to a PER-PROJECT database (`msp_<id>`), and
+   * `resolveRequestDatabase` (inside writeAuth) resolves it onto `req.databasePool`.
+   * Using this base pool unconditionally wrote imported rows into the BASE database
+   * while every read looked in the project database — the rows existed, a direct COUNT
+   * found them, and search returned nothing. 27 other routes already use the
+   * `req.databasePool ?? pool` form; this one must too.
+   */
   pool: ApplyDeps;
+}
+
+/**
+ * The database this request must act on: the per-project pool when routing resolved one,
+ * otherwise the base pool (single-database deployments, where they are the same thing).
+ */
+function poolFor(req: Request, fallback: ApplyDeps): ApplyDeps {
+  return ((req as unknown as { databasePool?: ApplyDeps }).databasePool) ?? fallback;
 }
 
 /**
@@ -87,7 +105,8 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
     // A migration relocates rows, so the SOURCE project is part of the data. Validated
     // against the credential's entitlement rather than trusted or overwritten — see
     // resolveImportProject. Overwriting silently re-homed an entire convert.
-    const resolved = await resolveImportProject(deps.pool, {
+    const db = poolFor(req, deps.pool);
+    const resolved = await resolveImportProject(db, {
       requested: typeof body.projectId === 'string' ? body.projectId : undefined,
       keyProjectId: scope.projectId,
       keyTeamId: scope.teamId,
@@ -98,7 +117,7 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
     }
 
     try {
-      const result = await applyImportBatch(deps.pool, {
+      const result = await applyImportBatch(db, {
         projectId: resolved.projectId,
         teamId: scope.teamId,
         table,
@@ -122,8 +141,9 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
     // scope to. Counting by the credential is what let a re-homed import pass
     // verification: the copy wrote 3 rows under the key's project, verify counted the
     // key's project, saw 3, and matched the source count of a DIFFERENT project.
+    const db = poolFor(req, deps.pool);
     const asked = typeof req.query?.projectId === 'string' ? req.query.projectId : undefined;
-    const resolved = await resolveImportProject(deps.pool, {
+    const resolved = await resolveImportProject(db, {
       requested: asked,
       keyProjectId: scope.projectId,
       keyTeamId: scope.teamId,
@@ -139,7 +159,7 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
       for (const table of COPY_TABLES) {
         // 'remote' because this server IS the destination for an import.
         const q = buildScopedCountQuery(table, 'remote');
-        const r = await deps.pool.query(q.text, q.params(countScope));
+        const r = await db.query(q.text, q.params(countScope));
         counts[table] = Number((r.rows[0] as { count?: unknown } | undefined)?.count ?? 0);
       }
       res.status(200).json({ counts, projectId: resolved.projectId });
