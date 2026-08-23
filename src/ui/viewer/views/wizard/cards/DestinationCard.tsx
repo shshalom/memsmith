@@ -77,6 +77,17 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
     return useDirect ? { databaseUrl } : { serverUrl, teamKey };
   }
 
+  /**
+   * Enough input to probe? Depends on WHICH destination is selected: the direct path
+   * needs a database URL, the HTTPS path needs both a server URL and a team key (the key
+   * is the authorization, so a URL alone cannot be tested).
+   */
+  function destinationReady(): boolean {
+    return useDirect
+      ? databaseUrl.trim().length > 0
+      : serverUrl.trim().length > 0 && teamKey.trim().length > 0;
+  }
+
   // Report on every edit rather than only on a successful probe: the convert step reads
   // this, and a stale value there is the scope-leak class of bug.
   useEffect(() => {
@@ -217,7 +228,10 @@ export default function DestinationCard({ onNext, onBack, onProbeGreen, onUrlCha
           type="button"
           className="wizard-btn wizard-btn--teal"
           onClick={handleTest}
-          disabled={testing || !databaseUrl.trim()}
+          // Gate on whichever destination is actually selected. This checked
+          // databaseUrl unconditionally, so filling in the HTTPS fields left the
+          // button dead — the one path a managed database can use.
+          disabled={testing || !destinationReady()}
         >
           {testing ? 'Testing…' : 'Test Connection'}
         </button>
