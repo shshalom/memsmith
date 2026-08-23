@@ -6,8 +6,12 @@ import { bootstrapServerPostgresSchema, SERVER_POSTGRES_SCHEMA_VERSION } from '.
 const CONN = process.env.TEST_PG_URL ?? 'postgres://postgres:postgres@localhost:55432/memsmith';
 
 describe('server_settings schema (migration 4)', () => {
-  it('bumps the schema version to 4', () => {
-    expect(SERVER_POSTGRES_SCHEMA_VERSION).toBe(4);
+  it('is at or past the version that introduced server_settings', () => {
+    // Migration 4 introduced server_settings. Pinning the CONSTANT to 4 made this test
+    // fail on every later migration — it was already red at version 6 before migration 7
+    // existed, so it had stopped testing anything and started reporting the calendar.
+    // What matters is that this migration is included, not that it is the newest.
+    expect(SERVER_POSTGRES_SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
   });
 
   it('creates server_settings with team_id PK and overrides jsonb', async () => {
