@@ -107,7 +107,21 @@ export async function applyImportBatch(
   // Idempotency is per BATCH, not per row: most observations carry no idempotency_key
   // and its unique index is partial, so row-level conflict handling cannot make a retry
   // safe on its own.
-  if (seen.rows.length > 0) return { applied: 0, status: 'already_applied' };
+  //
+  // BUT A TOKEN MUST NOT OUTLIVE THE DATA IT PROTECTS. A token records "this batch was
+  // applied"; if those rows are later removed — an admin memory-delete, a failed
+  // half-migration, a manual cleanup — the token still says applied, so every retry
+  // becomes a silent no-op and convert reports verify_failed FOREVER with no way out
+  // from the UI. Observed exactly that: local 3 vs remote 0, and the wizard's Retry
+  // button could never succeed.
+  //
+  // So the token is only honoured when the target still has rows. The check is a cheap
+  // existence probe, not a per-row reconciliation: the batch either landed and is still
+  // there (skip) or it is gone (re-apply, where ON CONFLICT DO NOTHING makes a partial
+  // survivor harmless).
+  if (seen.rows.length > 0 && await targetHasRows(deps, input)) {
+    return { applied: 0, status: 'already_applied' };
+  }
 
   if (input.rows.length === 0) {
     // Still record the token: an empty batch is a legitimate outcome (a table with no
@@ -172,6 +186,39 @@ export async function applyImportBatch(
 
   await recordToken(deps, input);
   return { applied: writable.length, status: 'applied' };
+}
+
+/**
+ * Does the table this batch targeted still hold rows for this project?
+ *
+ * Used to decide whether a recorded batch token is still meaningful. Deliberately a
+ * presence check rather than an exact count: the question is "did this import survive",
+ * not "is every individual row accounted for" — and re-applying is safe either way
+ * because the inserts are ON CONFLICT DO NOTHING.
+ *
+ * Fails OPEN (returns false → re-apply) on a probe error. The failure mode of
+ * re-applying is a no-op; the failure mode of wrongly skipping is a convert that can
+ * never succeed.
+ */
+async function targetHasRows(deps: ApplyDeps, input: ApplyInput): Promise<boolean> {
+  // observation_sources and observation_generation_job_events have no project_id column,
+  // so they cannot be probed this way — treat the token as authoritative for them. Their
+  // parents (observations, jobs) are probed, and a re-apply of a parent brings children
+  // with it on the next batch.
+  const SCOPED = new Set([
+    'projects', 'server_sessions', 'agent_events', 'observation_generation_jobs', 'observations',
+  ]);
+  if (!SCOPED.has(input.table)) return true;
+  try {
+    const column = input.table === 'projects' ? 'id' : 'project_id';
+    const r = await deps.query(
+      `SELECT count(*)::int AS count FROM ${input.table} WHERE ${column} = $1`,
+      [input.projectId],
+    );
+    return Number((r.rows[0] as { count?: unknown } | undefined)?.count ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function recordToken(deps: ApplyDeps, input: ApplyInput): Promise<void> {

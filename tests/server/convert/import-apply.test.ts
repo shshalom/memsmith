@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'bun:test';
 import { applyImportBatch, DEFERRED_COLUMNS } from '../../../src/server/convert/import-apply.js';
 
-function makeDeps(opts: { tokenSeen?: boolean } = {}) {
+function makeDeps(opts: { tokenSeen?: boolean; rowsPresent?: boolean } = {}) {
   const statements: Array<{ text: string; values: unknown[] }> = [];
   return {
     statements,
@@ -22,6 +22,10 @@ function makeDeps(opts: { tokenSeen?: boolean } = {}) {
       statements.push({ text, values: values ?? [] });
       if (/FROM convert_import_batches/i.test(text)) {
         return { rows: opts.tokenSeen ? [{ batch_token: 'tok' }] : [] };
+      }
+      // The "do the rows this token claims actually exist?" probe.
+      if (/count\(\*\)/i.test(text) && /observations/i.test(text)) {
+        return { rows: [{ count: opts.rowsPresent === false ? '0' : '5' }] };
       }
       if (/information_schema/i.test(text)) {
         // content_search is GENERATED ALWAYS (schema.ts:380) and must never be named
@@ -72,6 +76,19 @@ describe('applyImportBatch', () => {
     expect(insert.text).not.toMatch(/supersedes/);
     // The link must be recorded for the deferred pass, not discarded.
     expect(deps.statements.some(s => /UPDATE observations SET supersedes/i.test(s.text))).toBe(true);
+  });
+
+  it('RE-APPLIES a seen token when its rows are gone', async () => {
+    // A token means "this batch was applied". If the rows are later deleted, the token
+    // still says applied — so a retry became a permanent no-op and convert reported
+    // verify_failed forever with no way out from the UI. Idempotency must not outlive
+    // the data it protects.
+    const deps = makeDeps({ tokenSeen: true, rowsPresent: false });
+    const r = await applyImportBatch(deps, {
+      ...BASE, table: 'observations', rows: [{ id: 'o1', content: 'x' }],
+    });
+    expect(r.status).toBe('applied');
+    expect(deps.statements.some(s => /INSERT INTO observations/i.test(s.text))).toBe(true);
   });
 
   it('records the batch token so a retry is a no-op', async () => {
