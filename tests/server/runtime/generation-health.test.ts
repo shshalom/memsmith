@@ -188,4 +188,31 @@ describe('assessGenerationHealth — delegated generation is not a fault', () =>
     expect(h.status).toBe('delegated');
     expect(h.problems).toEqual([]);
   });
+
+  it('reports discarded captures as a problem, so the loss is not silent', async () => {
+    // The spool trims its OLDEST entries when it overflows, and in team mode those are
+    // observations that never reached the server. Bounding the file is right; losing
+    // work with no signal is not — this module exists precisely to catch the case where
+    // the machinery looks healthy while memory stops being recorded.
+    const health = await assessGenerationHealth({
+      now: () => new Date('2026-08-23T00:00:00Z'),
+      counts: async () => ({ queued: 0, processing: 0, completedLastHour: 5 }),
+      lastCompletedAt: async () => new Date('2026-08-23T00:00:00Z'),
+      providerReachable: async () => true,
+      droppedCaptures: () => ({ droppedTotal: 1200, lastDroppedAt: '2026-08-22T10:00:00Z' }),
+    });
+    expect(health.problems.join(' ')).toMatch(/1200/);
+    expect(health.status).toBe('stalled');
+  });
+
+  it('says nothing when no captures have been discarded', async () => {
+    const health = await assessGenerationHealth({
+      now: () => new Date('2026-08-23T00:00:00Z'),
+      counts: async () => ({ queued: 0, processing: 0, completedLastHour: 5 }),
+      lastCompletedAt: async () => new Date('2026-08-23T00:00:00Z'),
+      providerReachable: async () => true,
+      droppedCaptures: () => null,
+    });
+    expect(health.problems).toEqual([]);
+  });
 });

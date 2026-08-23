@@ -95,6 +95,53 @@ export function clearSpool(path: string): void {
  */
 export const TRIM_SLACK = 500;
 
+/** Where the drop counter for a given spool lives. */
+export function droppedCounterPath(spoolPath: string): string {
+  return `${spoolPath}.dropped.json`;
+}
+
+/**
+ * How much captured work this spool has discarded, or null when it has never dropped
+ * any. Callers use it to surface the loss — a health indicator, the dashboard, a warning
+ * on next connect.
+ */
+export function readDroppedCount(
+  spoolPath: string,
+): { droppedTotal: number; lastDroppedAt: string } | null {
+  try {
+    const raw = readFileSync(droppedCounterPath(spoolPath), 'utf-8');
+    const parsed = JSON.parse(raw) as { droppedTotal?: unknown; lastDroppedAt?: unknown };
+    const total = typeof parsed.droppedTotal === 'number' ? parsed.droppedTotal : 0;
+    if (total <= 0) return null;
+    return {
+      droppedTotal: total,
+      lastDroppedAt: typeof parsed.lastDroppedAt === 'string' ? parsed.lastDroppedAt : '',
+    };
+  } catch {
+    // No counter file is the normal, healthy case — not an error.
+    return null;
+  }
+}
+
+/**
+ * Accumulate a drop. ACCUMULATES rather than overwrites: two offline stretches must not
+ * let the second hide the first. Best-effort — failing to record a drop must never break
+ * capture, which is the thing actually worth protecting.
+ */
+function recordDropped(spoolPath: string, dropped: number): void {
+  if (dropped <= 0) return;
+  try {
+    const previous = readDroppedCount(spoolPath)?.droppedTotal ?? 0;
+    writeFileSync(
+      droppedCounterPath(spoolPath),
+      JSON.stringify({ droppedTotal: previous + dropped, lastDroppedAt: new Date().toISOString() }),
+      'utf-8',
+    );
+  } catch {
+    // Intentionally swallowed: see above.
+  }
+}
+
 function trimSpool(path: string): void {
   try {
     // Cheap guard: count newlines rather than parsing every line.
@@ -107,6 +154,17 @@ function trimSpool(path: string): void {
     if (events.length <= MAX_SPOOL_ENTRIES) return;
     const kept = events.slice(events.length - MAX_SPOOL_ENTRIES);
     writeFileSync(path, `${kept.map(e => JSON.stringify(e)).join('\n')}\n`, 'utf-8');
+    // RECORD THE LOSS. Trimming is correct — an unbounded file on a laptop is the worse
+    // failure — but it was silent, and in TEAM mode this spool holds observations that
+    // have not reached the server yet. A long offline stretch therefore discarded the
+    // user's oldest work with no log, no counter and no signal anywhere: the machinery
+    // looks healthy the whole time it is losing data, which is the exact failure mode
+    // this project treats as its worst.
+    //
+    // A sidecar counter, not a log line: it survives restarts, is trivially readable by
+    // a health check or the dashboard, and costs one small write only when a trim
+    // actually happens.
+    recordDropped(path, events.length - kept.length);
   } catch {
     // A trim failure is survivable; an unbounded file is the only real risk and
     // the next successful trim fixes it.

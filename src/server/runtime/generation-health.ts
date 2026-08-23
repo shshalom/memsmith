@@ -66,6 +66,16 @@ export interface GenerationHealthDeps {
    * caller keeps today's behaviour.
    */
   generationDelegated?: boolean;
+  /**
+   * Captured work the local spool DISCARDED, or null when none was.
+   *
+   * The spool is bounded and trims its oldest entries on overflow. That is the right
+   * trade — an unbounded file on a laptop is worse — but in team mode those entries are
+   * observations that never reached the server, so the trim silently loses the user's
+   * work. Reported here because this module exists for exactly that failure: memory
+   * quietly stopping while every other indicator looks fine.
+   */
+  droppedCaptures?: () => { droppedTotal: number; lastDroppedAt: string } | null;
 }
 
 const UNKNOWN: GenerationHealth = {
@@ -135,6 +145,21 @@ export async function assessGenerationHealth(
         ? `${counts.queued} jobs queued and no observation has ever completed`
         : `${counts.queued} jobs queued and nothing completed in ${lastCompletedMinutesAgo} minutes`,
     );
+  }
+
+  // Discarded captures are a problem even when everything else is healthy: the queue can
+  // be empty and the provider reachable precisely BECAUSE the work was thrown away.
+  try {
+    const dropped = deps.droppedCaptures?.() ?? null;
+    if (dropped && dropped.droppedTotal > 0) {
+      problems.push(
+        `${dropped.droppedTotal} captured events were discarded when the local spool overflowed`
+        + (dropped.lastDroppedAt ? ` (most recently ${dropped.lastDroppedAt})` : '')
+        + ' — they never reached the server',
+      );
+    }
+  } catch {
+    // Never let a health probe's own failure mask the health it reports.
   }
 
   let status: GenerationHealthStatus;

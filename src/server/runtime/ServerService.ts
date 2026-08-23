@@ -31,6 +31,8 @@ import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
 import type { ServerServiceGraph, ServerQueueLaneMetric } from './types.js';
 import { assessGenerationHealth } from './generation-health.js';
+import { defaultSpoolPath, readDroppedCount } from '../../cli/handlers/capture-spool.js';
+import { generationQueuePath } from '../../services/generation/local-queue.js';
 import { countEmbeddingCoverage } from './embedding-backfill.js';
 
 // Phase 1d retains the persisted runtime literal `'server-beta'`. Renaming the
@@ -135,6 +137,23 @@ async function collectGenerationHealth(graph: ServerServiceGraph) {
   return assessGenerationHealth({
     now: () => new Date(),
     generationDelegated,
+    // Surface work the local spool discarded. Reads BOTH spools: the capture spool
+    // (events that never reached the server) and the generation queue (team-mode
+    // observations awaiting delivery), since they overflow independently.
+    droppedCaptures: () => {
+      try {
+        const totals = [defaultSpoolPath(), generationQueuePath()]
+          .map(readDroppedCount)
+          .filter((d): d is { droppedTotal: number; lastDroppedAt: string } => d !== null);
+        if (totals.length === 0) return null;
+        return {
+          droppedTotal: totals.reduce((sum, d) => sum + d.droppedTotal, 0),
+          lastDroppedAt: totals.map(d => d.lastDroppedAt).sort().reverse()[0] ?? '',
+        };
+      } catch {
+        return null;
+      }
+    },
     counts: async () => {
       const r = await pool.query(
         `SELECT
