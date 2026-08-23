@@ -1917,7 +1917,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           // serverUrl and apiKey are KNOWN here rather than derived: the user supplied
           // them, which is exactly what makes deriveServerUrl irrelevant on this path.
           // databaseUrl is empty because there is no database connection to describe.
-          return runConvert(
+          const httpsResult = await runConvert(
             { copyDeps: httpsDeps },
             {
               databaseUrl: '',
@@ -1928,6 +1928,57 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               apiKey: input.transport.teamKey,
             },
           );
+
+          // APPLY THE FLIP LOCALLY, exactly as the join path does.
+          //
+          // runConvert deliberately does NOT write the marker — it hands back a `join`
+          // object, because on a real remote team server the server's cwd is a directory
+          // on someone else's machine (see convert-service.ts's note). But the caller
+          // must then USE it, and this branch previously returned the result and dropped
+          // it: the wizard reported "team", while the marker on disk still had no
+          // runtime and no serverUrl, so the project stayed local. The dashboard was
+          // right and the wizard was wrong.
+          //
+          // The project's own directory comes from its recorded metadata, never from the
+          // server's cwd — guessing the cwd is the convert-scope bug one step later.
+          if (httpsResult.status === 'converted' && httpsResult.join) {
+            try {
+              const pathRow = await this.options.pool.query(
+                'SELECT metadata FROM projects WHERE id = $1', [input.projectId],
+              );
+              const meta = (pathRow.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+              const projectPath = meta?.[PROJECT_PATH_KEY];
+              if (typeof projectPath === 'string' && projectPath.trim()) {
+                const localApply = applyConvertJoin(
+                  {
+                    readProjectMarker: readProjectMarkerForRuntime,
+                    writeProjectRuntime,
+                    storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  },
+                  projectPath,
+                  httpsResult.join,
+                );
+                if (!localApply.applied) {
+                  logger.warn('IDENTITY', 'convert copied but did not flip locally', {
+                    projectId: input.projectId, reason: localApply.reason,
+                  });
+                }
+              } else {
+                // Reported, not silent: the copy succeeded and the remote is populated,
+                // but this project has no recorded path so nothing can flip it here. The
+                // session hook in that project applies the join on its next run.
+                logger.warn('IDENTITY', 'convert copied but no project path is recorded — flip deferred', {
+                  projectId: input.projectId,
+                });
+              }
+            } catch (error) {
+              // Never fail a successful copy on a bookkeeping error: the data is already
+              // on the remote and the retry is safe.
+              logger.warn('IDENTITY', 'convert local flip failed', { projectId: input.projectId },
+                error instanceof Error ? error : new Error(String(error)));
+            }
+          }
+          return httpsResult;
         }
 
         const { deps, dispose } = await this.buildConvertCopyDeps(input.databaseUrl, {
