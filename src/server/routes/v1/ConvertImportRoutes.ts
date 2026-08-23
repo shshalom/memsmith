@@ -21,6 +21,8 @@ import type { Application, RequestHandler, Request, Response } from 'express';
 import { COPY_TABLES } from '../../convert/copy-engine.js';
 import { applyImportBatch, resolveImportProject, type ApplyDeps } from '../../convert/import-apply.js';
 import { buildScopedCountQuery } from './convert-scope.js';
+import { randomUUID } from 'crypto';
+import { LOCAL_OWNER_USER_ID } from '../../identity/providers/local-provider.js';
 
 export interface ConvertImportDeps {
   /** Must be `[...writeAuth, requireRole('owner')]` — see the auth note above. */
@@ -127,6 +129,76 @@ export function registerConvertImportRoutes(app: Application, deps: ConvertImpor
       res.status(200).json({ ...result, projectId: resolved.projectId });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'import failed' });
+    }
+  });
+
+  // POST /v1/convert/register-key — teach this server about the CONVERTING project's
+  // own key.
+  //
+  // A project's key is minted at creation and never changes; a convert changes where the
+  // project points, not who it is. The direct-Postgres path preserves that by inserting
+  // the project's existing key hash into api_keys over its pool (ensureBaseKey). The
+  // HTTPS path has no pool, so it asks the server to do the same insert.
+  //
+  // Only the HASH is accepted — never a plaintext key. The remote stores hashes, so a
+  // plaintext would be a live credential in a request body and in logs for no benefit.
+  app.post('/v1/convert/register-key', ...deps.authMiddleware, async (req: Request, res: Response) => {
+    const scope = readScope(req);
+    if (!scope) {
+      res.status(400).json({ error: 'no project scope on this credential' });
+      return;
+    }
+    const body = (req.body ?? {}) as { projectId?: unknown; keyHash?: unknown };
+    const keyHash = typeof body.keyHash === 'string' ? body.keyHash.trim().toLowerCase() : '';
+    // A SHA-256 hex digest and nothing else. This value is interpolated into an
+    // api_keys row that grants access, so its shape is validated rather than trusted.
+    if (!/^[0-9a-f]{64}$/.test(keyHash)) {
+      res.status(400).json({ error: 'keyHash must be a sha256 hex digest' });
+      return;
+    }
+
+    // api_keys is an ACCOUNT table: it lives in the BASE database, not the per-project
+    // one (schema.ts:161 — "api_keys is an ACCOUNT_SCHEMA_SQL table"). Using the
+    // per-project pool here failed with 'relation "api_keys" does not exist'. The
+    // entitlement probe reads `projects`, which the base database also holds, so both
+    // use the base pool on this route.
+    const db = deps.pool;
+    // Same entitlement rule as import: the project must be one this credential can
+    // reach, or registering a key would be a grant-anywhere lever.
+    const resolved = await resolveImportProject(db, {
+      requested: typeof body.projectId === 'string' ? body.projectId : undefined,
+      keyProjectId: scope.projectId,
+      keyTeamId: scope.teamId,
+    });
+    if (!resolved.ok) {
+      res.status(403).json({ error: 'Forbidden', message: resolved.reason });
+      return;
+    }
+
+    try {
+      const existing = await db.query(
+        'SELECT 1 FROM api_keys WHERE key_hash = $1 AND team_id = $2 LIMIT 1',
+        [keyHash, scope.teamId],
+      );
+      if (existing.rows.length > 0) {
+        res.status(200).json({ status: 'already_registered', projectId: resolved.projectId });
+        return;
+      }
+      // user_id must be set: authContext.role joins api_keys.user_id to team_members, so
+      // a NULL leaves the role unresolvable and owner-gated routes unsatisfiable.
+      await db.query(
+        `INSERT INTO api_keys (id, key_hash, team_id, project_id, user_id, actor_id, scopes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          randomUUID(), keyHash, scope.teamId, resolved.projectId,
+          LOCAL_OWNER_USER_ID, 'system:convert',
+          JSON.stringify(['memories:read', 'memories:write']),
+        ],
+      );
+      res.status(200).json({ status: 'registered', projectId: resolved.projectId });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'register-key failed' });
     }
   });
 

@@ -54,6 +54,7 @@ import type { GenerationProviderHolder } from '../../generation/GenerationProvid
 import { stampAttribution } from './attribution.js';
 import { registerConvertRoutes } from './ConvertRoutes.js';
 import { registerConvertImportRoutes } from './ConvertImportRoutes.js';
+import { hashApiKey } from '../../../services/hooks/server-bootstrap.js';
 import { registerJoinRegisterRoute } from './JoinRegisterRoute.js';
 import { requireJoinRateLimit } from '../../middleware/join-rate-limit-subject.js';
 import { makeHttpsJoinTransport } from '../../convert/join-transport-https.js';
@@ -1913,10 +1914,44 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               return Number((r.rows[0] as { count?: unknown } | undefined)?.count ?? 0);
             },
           });
+          // THE PROJECT KEEPS ITS OWN KEY. A project's key is minted when the project is
+          // created and never changes — a convert changes WHERE the project points, not
+          // WHO it is. The direct path preserves this via ensureBaseKey, whose comment
+          // calls the alternative out by name: "minting a second key would be the actual
+          // bug — it orphans a credential whose plaintext is gone".
+          //
+          // This previously passed input.transport.teamKey — the DESTINATION key pasted
+          // into the wizard — as the project's identity. applyConvertJoin then cached it
+          // under the team, overwriting the project's own key, and the local server
+          // cannot verify a key minted on the remote: the dashboard returned
+          // "Invalid API key or insufficient scope" on a convert that had succeeded.
+          //
+          // The destination key remains the AUTHORIZATION for the copy; it is simply not
+          // the project's identity.
+          const projectKey = credStore.resolveKeyForTeam(input.teamId);
+          if (!projectKey) {
+            // Flipping without a resolvable key strands the project in server mode with
+            // no credential — every hook then fails missing_api_key and silently drops
+            // observations. Refuse instead.
+            throw new Error('this project has no cached key — refusing to convert without one');
+          }
+          // Teach the remote this key's HASH so the project authenticates there too.
+          // Only the hash crosses the wire; the remote stores hashes.
+          const { registerProjectKeyHash } = await import('../../convert/register-project-key.js');
+          const registered = await registerProjectKeyHash({
+            serverUrl: input.transport.serverUrl,
+            teamKey: input.transport.teamKey,
+            projectId: input.projectId,
+            projectKeyHash: hashApiKey(projectKey),
+          });
+          if (!registered.ok) {
+            throw new Error(`could not register this project's key on the team server: ${registered.reason}`);
+          }
+
           const { runConvert } = await import('../../convert/convert-service.js');
-          // serverUrl and apiKey are KNOWN here rather than derived: the user supplied
-          // them, which is exactly what makes deriveServerUrl irrelevant on this path.
-          // databaseUrl is empty because there is no database connection to describe.
+          // serverUrl is KNOWN here rather than derived: the user supplied it, which is
+          // what makes deriveServerUrl irrelevant on this path. databaseUrl is empty
+          // because there is no database connection to describe.
           const httpsResult = await runConvert(
             { copyDeps: httpsDeps },
             {
@@ -1925,7 +1960,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
               teamId: input.teamId,
               projectId: input.projectId,
               serverUrl: input.transport.serverUrl,
-              apiKey: input.transport.teamKey,
+              apiKey: projectKey,
             },
           );
 
@@ -1942,6 +1977,24 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           // The project's own directory comes from its recorded metadata, never from the
           // server's cwd — guessing the cwd is the convert-scope bug one step later.
           if (httpsResult.status === 'converted' && httpsResult.join) {
+            // RE-POINT THE LOCAL api_keys ROW, exactly as the join path does
+            // (repoint-local-key.ts documents the "four places, three landed" bug this
+            // closes). A convert changes which team+server this project belongs to, and
+            // postgres-auth builds authContext straight from the local api_keys row.
+            //
+            // Without this the dashboard breaks the moment the convert succeeds: the
+            // flip caches the REMOTE key under the same teamId, overwriting the local
+            // one — CredentialStore is keyed by team alone — and resolveKeyForProject
+            // then matches cached keys against the LOCAL api_keys table, finds no row
+            // for the remote key, and hands the browser a credential this server cannot
+            // verify. Reported live as "Not Authenticated" on a convert that had
+            // otherwise fully succeeded.
+            try {
+              await repointLocalKeyToTeam(this.options.pool, httpsResult.join.teamId, input.projectId);
+            } catch (error) {
+              logger.warn('IDENTITY', 'convert could not repoint the local key', { projectId: input.projectId },
+                error instanceof Error ? error : new Error(String(error)));
+            }
             try {
               const pathRow = await this.options.pool.query(
                 'SELECT metadata FROM projects WHERE id = $1', [input.projectId],
