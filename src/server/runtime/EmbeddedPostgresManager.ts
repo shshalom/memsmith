@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
 import { isPidAlive } from '../../supervisor/process-registry.js';
+import { resolveDataDir } from '../../shared/paths.js';
 
 export interface EmbeddedPostgresPaths { binariesDir: string; dataDir: string; pidFile: string; }
 export interface EmbeddedPostgresInstance {
@@ -25,14 +26,44 @@ export interface EmbeddedPostgresManagerOptions {
   driver?: EmbeddedPostgresDriver;
 }
 
-const MEMSMITH_HOME = join(homedir(), '.memsmith');
+/**
+ * Where the postgres BINARIES live. Deliberately the shared home, not the
+ * per-run data dir: ~100MB of read-only content, identical for every data dir.
+ * Re-downloading them per isolated run would make isolation too slow to use,
+ * and nothing an isolated run does can corrupt another through them.
+ */
+const SHARED_HOME = join(homedir(), '.memsmith');
+
+/**
+ * Resolve the embedded PG paths, honouring MEMSMITH_DATA_DIR.
+ *
+ * These were built from a hardcoded `join(homedir(), '.memsmith')`, so the
+ * override that CredentialStore, the settings loader and the rig preflight all
+ * respect did nothing here. Observed live: a server started with
+ * MEMSMITH_DATA_DIR=/tmp/ms-teamtest and MEMSMITH_LOCAL_PG_PORT=55445 read the
+ * DOGFOOD's ~/.memsmith/local-pg.pid, saw that pid alive (the dogfood's
+ * postgres, on a different port), logged "embedded PG already running; reusing
+ * {port=55445}", and died pointing at a port nothing listened on.
+ *
+ * The near miss matters more than the crash: `dataDir` came from the same
+ * constant, so a path where isRunning() returned false would have pointed an
+ * "isolated" server at the dogfood's own pgdata.
+ *
+ * Resolved PER CALL rather than at module load — the old constant was
+ * evaluated at import time, so anything setting the env var afterwards silently
+ * got the default (the same import-order trap CredentialStore documents).
+ */
+export function embeddedPostgresDefaultPaths(): EmbeddedPostgresPaths {
+  const dataHome = resolveDataDir();
+  return {
+    binariesDir: join(SHARED_HOME, 'pg-binaries'),
+    dataDir: join(dataHome, 'pgdata'),
+    pidFile: join(dataHome, 'local-pg.pid'),
+  };
+}
 
 function defaultPaths(): EmbeddedPostgresPaths {
-  return {
-    binariesDir: join(MEMSMITH_HOME, 'pg-binaries'),
-    dataDir: join(MEMSMITH_HOME, 'pgdata'),
-    pidFile: join(MEMSMITH_HOME, 'local-pg.pid'),
-  };
+  return embeddedPostgresDefaultPaths();
 }
 
 // The real driver adapts @boomship/postgres-vector-embedded to our interface.
