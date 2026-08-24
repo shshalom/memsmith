@@ -99,3 +99,38 @@ describe('resolveTeamProxyTarget', () => {
     })).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Some endpoints answer about THIS MACHINE and must never be forwarded.
+//
+// The proxy forwarded every GET under /v1, including /v1/identity — which
+// reports the LOCAL marker's runtime and whether this machine holds the key.
+// Proxied, the team server answered about its own view (a plain server-side row,
+// no local marker), so a joined project came back `runtime: "local",
+// keyPresent: false` and the dashboard showed it as LOCAL while its data tiles
+// were simultaneously displaying the team's rows.
+//
+// Asserted through the exported path set rather than a live request, so the rule
+// is pinned even if the middleware is restructured.
+import { LOCAL_ONLY_PATHS } from '../../../src/server/middleware/team-read-proxy-middleware.js';
+
+describe('local-only endpoints', () => {
+  it('never proxies /v1/identity — it describes this machine, not the team', () => {
+    expect(LOCAL_ONLY_PATHS.has('/v1/identity')).toBe(true);
+  });
+
+  it('never proxies /v1/info — local ports, schema version, generation health', () => {
+    expect(LOCAL_ONLY_PATHS.has('/v1/info')).toBe(true);
+  });
+
+  it('never proxies /v1/projects — the local project switcher', () => {
+    // It lists projects THIS machine holds keys for; the team's list is a
+    // different question and would silently replace it.
+    expect(LOCAL_ONLY_PATHS.has('/v1/projects')).toBe(true);
+  });
+
+  it('still allows the data reads that the dashboard needs', () => {
+    expect(LOCAL_ONLY_PATHS.has('/v1/search')).toBe(false);
+    expect(LOCAL_ONLY_PATHS.has('/dashboard/metrics')).toBe(false);
+  });
+});

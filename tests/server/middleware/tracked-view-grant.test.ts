@@ -107,10 +107,25 @@ describe('evaluateTrackedViewGrant', () => {
     })).toBeNull();
   });
 
-  it('refuses when this machine ALREADY holds the team key', () => {
-    // Then the project is joined and normal auth applies. This branch exists
-    // only for the gap where no credential can possibly work.
-    expect(evaluateTrackedViewGrant({ ...ok(), machineHoldsTeamKey: true })).toBeNull();
+  it('GRANTS a joined project too, and reports it as joined', () => {
+    // This previously refused, on the reasoning that "the project is joined so
+    // normal auth applies". Wrong: the key a joined project holds is
+    // TEAM-ISSUED, and the local server validates against its own api_keys
+    // table, which has no such row. So a joined project had NO local auth path —
+    // /v1/identity answered 401 without a cookie and 403 with the team key, and
+    // the dashboard could not even ask which runtime it was on.
+    //
+    // The condition was meant to avoid shadowing a working credential, but a
+    // team key never works locally, so there is nothing to shadow.
+    const grant = evaluateTrackedViewGrant({ ...ok(), machineHoldsTeamKey: true });
+    expect(grant).not.toBeNull();
+    expect(grant!.joined).toBe(true);
+    // Still read-only: joining does not make the LOCAL server a write target.
+    expect(grant!.scopes).not.toContain('memories:write');
+  });
+
+  it('reports a tracked project as not joined', () => {
+    expect(evaluateTrackedViewGrant(ok())!.joined).toBe(false);
   });
 
   it('accepts the legacy server-beta marker literal', () => {

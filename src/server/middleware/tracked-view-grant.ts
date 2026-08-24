@@ -71,6 +71,12 @@ export interface TrackedViewGrant {
   scopes: readonly string[];
   /** Distinct so this grant is auditable and never mistaken for a credential. */
   mode: 'tracked-local-view';
+  /**
+   * Whether this machine holds the team's key — i.e. tracked (false) vs joined
+   * (true). Reported, not gating: a team key cannot be validated locally either
+   * way, so both states need this grant to read anything.
+   */
+  joined: boolean;
 }
 
 /**
@@ -110,14 +116,29 @@ export function evaluateTrackedViewGrant(input: TrackedViewInput): TrackedViewGr
   const isTeam = marker.runtime === 'server' || marker.runtime === 'server-beta';
   if (!isTeam) return null;
 
-  // Only when no credential could possibly work. If the key exists the project
-  // is joined and normal auth applies.
-  if (input.machineHoldsTeamKey) return null;
-
+  // A TEAM project is grantable whether or not the key is held.
+  //
+  // This used to refuse when a key existed, on the reasoning that "the project
+  // is joined so normal auth applies". That reasoning was wrong: the key a
+  // joined project holds is TEAM-ISSUED, and the local server validates keys
+  // against its OWN api_keys table, which has no such row. So a joined project
+  // had no local auth path at all — /v1/identity answered 401 with no cookie and
+  // 403 with the team key, and the dashboard could not even ask "which runtime
+  // am I on", let alone render.
+  //
+  // The condition was load-bearing for a reason that does not survive contact
+  // with the joined case: it was meant to avoid shadowing a working credential.
+  // But a team key never works locally, so there is nothing to shadow. What
+  // matters is unchanged — the marker on THIS machine says this is a team
+  // project, and the grant is read-only.
+  //
+  // `machineHoldsTeamKey` is still reported so callers can distinguish tracked
+  // from joined; it simply no longer gates the grant.
   return {
     teamId: marker.teamId,
     projectId: requested,
     scopes: ['memories:read'],
     mode: 'tracked-local-view',
+    joined: input.machineHoldsTeamKey,
   };
 }

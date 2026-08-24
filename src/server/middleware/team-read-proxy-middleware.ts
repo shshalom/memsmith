@@ -32,6 +32,22 @@ import { resolveTeamProxyTarget, type TeamProxyMarker } from './team-read-proxy.
  */
 const READ_ONLY_POST_PATHS = new Set<string>(['/v1/search', '/v1/context']);
 
+/**
+ * Endpoints that answer about THIS MACHINE and must never be forwarded.
+ *
+ * /v1/identity is the clearest case: it reports the local marker's runtime and
+ * whether this machine holds the key. Proxied, the team server answers about its
+ * OWN view — where the project is just a server-side row with no local marker —
+ * so a joined project came back `runtime: "local", keyPresent: false` and the
+ * dashboard displayed it as local right after a successful join. The data tiles
+ * were showing the team's rows at the same time, which is how the contradiction
+ * surfaced.
+ *
+ * /v1/info is the same shape: it describes the local process (ports, schema
+ * version, generation health), not the team's.
+ */
+export const LOCAL_ONLY_PATHS = new Set<string>(['/v1/identity', '/v1/info', '/v1/projects']);
+
 /** Path without the query string, from the ORIGINAL url (mount prefix intact). */
 function pathOf(req: Request): string {
   const i = req.originalUrl.indexOf('?');
@@ -62,6 +78,12 @@ export function teamReadProxy(deps: TeamReadProxyDeps): RequestHandler {
     // that only ever read. Everything else — every write, every route not named
     // here — is refused, so this cannot become an unaudited write channel just
     // because a future route happens to use POST.
+    // Never forward a question about THIS machine. /v1/identity reports the
+    // local marker's runtime and whether this machine holds the key — proxied,
+    // the team answered about its own view and a joined project came back
+    // "local, keyPresent:false" while its data tiles showed the team's rows.
+    if (LOCAL_ONLY_PATHS.has(pathOf(req))) return next();
+
     const isGet = req.method === 'GET';
     const isReadPost = req.method === 'POST' && READ_ONLY_POST_PATHS.has(pathOf(req));
     if (!isGet && !isReadPost) return next();
