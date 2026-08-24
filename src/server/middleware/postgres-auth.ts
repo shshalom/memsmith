@@ -143,6 +143,30 @@ export interface PostgresRequireAuthOptions {
   } | null>;
 }
 
+export type TrackedViewResolver = NonNullable<PostgresRequireAuthOptions['resolveTrackedView']>;
+
+/**
+ * Process-wide tracked-view resolver, applied to EVERY auth middleware that does
+ * not pass its own.
+ *
+ * Threading it per-construction-site does not work in practice. There are nine
+ * `requirePostgresServerAuth(...)` call sites across v1 routes, the dashboard
+ * routes and two compat adapters, and I wired it into two of them — so
+ * /v1/identity answered 200 for a tracked project while every /dashboard/*
+ * endpoint 401'd, and the UI rendered "Not authenticated" before it ever reached
+ * the Join button. Twice. A cross-cutting auth capability configured per-site is
+ * a capability that will be missing somewhere.
+ *
+ * One registration at server construction, inherited everywhere, with an
+ * explicit per-site override still available for tests.
+ */
+let globalTrackedViewResolver: TrackedViewResolver | null = null;
+
+/** Register (or clear, with null) the process-wide resolver. */
+export function setTrackedViewResolver(resolver: TrackedViewResolver | null): void {
+  globalTrackedViewResolver = resolver;
+}
+
 export function requirePostgresServerAuth(
   pool: PostgresPool,
   options: PostgresRequireAuthOptions = {},
@@ -237,8 +261,9 @@ async function authenticatePostgresRequest(
   // Opt-in via deps: a caller that does not supply resolveTrackedView gets the
   // old behaviour exactly, so this cannot alter any existing deployment that has
   // not wired it.
-  if (!rawKey && options.resolveTrackedView) {
-    const grant = await options.resolveTrackedView(req).catch(() => null);
+  const trackedViewResolver = options.resolveTrackedView ?? globalTrackedViewResolver;
+  if (!rawKey && trackedViewResolver) {
+    const grant = await trackedViewResolver(req).catch(() => null);
     if (grant) {
       req.authContext = {
         userId: LOCAL_OWNER_USER_ID,

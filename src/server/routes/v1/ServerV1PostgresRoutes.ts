@@ -204,6 +204,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   private readonly ingestEvents: IngestEventsService;
   private readonly endSession: EndSessionService;
 
+  /**
+   * The tracked-view resolver this instance was configured with, exposed so the
+   * server can register it PROCESS-WIDE (setTrackedViewResolver).
+   *
+   * Nine separate call sites construct auth middleware — these routes,
+   * /v1/identity's own, the dashboard routes, two compat adapters. Wiring the
+   * resolver into each by hand missed the dashboard twice, which made the UI
+   * render "Not authenticated" for a tracked project instead of showing Join.
+   */
+  get trackedViewResolver(): ServerV1PostgresRoutesOptions['resolveTrackedView'] {
+    return this.options.resolveTrackedView;
+  }
+
   constructor(private readonly options: ServerV1PostgresRoutesOptions) {
     this.ingestEvents = new IngestEventsService({
       pool: options.pool,

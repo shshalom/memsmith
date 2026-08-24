@@ -18,6 +18,7 @@ import {
 } from '../../supervisor/process-registry.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
+import { setTrackedViewResolver } from '../middleware/postgres-auth.js';
 import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
@@ -361,6 +362,19 @@ export class ServerService {
       baseDatabaseName: this.graph.baseDatabaseName,
       baseProjectId: this.graph.baseProjectId ?? null,
     });
+    // REGISTER THE TRACKED-VIEW RESOLVER PROCESS-WIDE.
+    //
+    // There are nine requirePostgresServerAuth(...) construction sites — the v1
+    // routes, /v1/identity's own middleware, the dashboard routes and two compat
+    // adapters. Threading the resolver through each one by hand failed twice:
+    // /v1/identity answered 200 for a tracked project while every /dashboard/*
+    // endpoint 401'd, so the UI rendered "Not authenticated" and never reached
+    // the Join button. A cross-cutting auth capability wired per-site is a
+    // capability that will be missing somewhere.
+    //
+    // One registration here; every middleware inherits it, and an explicit
+    // per-site option still wins for tests.
+    setTrackedViewResolver(v1Routes.trackedViewResolver ?? null);
     server.registerRoutes(v1Routes);
 
     // Phase 9 — legacy compatibility adapters. These translate the old
