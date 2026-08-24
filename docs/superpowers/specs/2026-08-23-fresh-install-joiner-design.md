@@ -1,7 +1,28 @@
 # Fresh-install joiner path — design
 
-**Status:** approved 2026-08-23
+**Status:** built 2026-08-23 — verified locally, NOT yet verified against the live AWS team
 **Branch:** `joiner-fresh-install`
+
+## Build result
+
+All five items implemented. Full suite: 2990 pass / 10 fail, and the failing
+list is byte-identical to the branch-point baseline — zero regressions.
+
+Verified against a real git clone (`/tmp/joiner-origin` → `/tmp/joiner-clone`,
+isolated `MEMSMITH_DATA_DIR`):
+
+| Step | Result |
+|---|---|
+| Before convert | marker does not ship |
+| After convert | `git add -A` stages the marker; `credentials.json` and `.bak` stay out |
+| Clone, no key | state `tracked`, runtime **local**, Join button shown |
+| Notice | names project + server, states capture is local until join |
+| After join | state `joined`, runtime `server`, Join button hidden |
+| Dogfood | `credentials.json` sha256 unchanged (`7eee46d2…`) |
+
+Still unproven, and only provable against the live team server: that a tracked
+clone's observations actually land locally during a real session, and that the
+pre-join sync prompt behaves correctly on join.
 
 ## Problem
 
@@ -98,13 +119,13 @@ if (marker?.runtime === 'server') {
 This is the data-loss fix: the read side now enforces the same invariant
 `applyConvertJoin:36` enforces on the write side.
 
-**Call-site audit (required, not optional).** `mcp-server.ts:76` and `:768` call
-`selectRuntime()` with **no cwd**, falling back to `process.cwd()` — the
-server's directory, not the project's. Once the gate consults `CredentialStore`
-for `marker.teamId`, a no-cwd call reads the *wrong project's* marker and gates
-on the wrong team's key. This is the same bug class `/v1/identity` documents at
-`settingsRoutes.ts:96`. Both sites must pass an explicit cwd, or be shown to be
-process-global by construction.
+**Call-site audit — completed, no change needed.** `mcp-server.ts:76` and `:768`
+call `selectRuntime()` with no cwd, which was flagged as a possible
+wrong-project read. Verified otherwise: the MCP server is spawned per project by
+the IDE with inherited cwd (`plugin/.mcp.json` launcher computes
+`const d=process.cwd()` and spawns with `stdio:'inherit'`), so `process.cwd()`
+*is* the project directory. `buildServerContext()` on the adjacent line already
+depends on the same fallback. Both sites are correct as written.
 
 **3. Convert writes the un-ignore rule — modify the convert flow**
 
