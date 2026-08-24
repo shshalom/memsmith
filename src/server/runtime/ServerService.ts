@@ -305,8 +305,29 @@ export class ServerService {
     // Task 8: build a GenerationProviderHolder from the settings resolver so
     // POST /v1/record-intent can resolve the live provider per request.
     const generationProviderHolder = new GenerationProviderHolder(settingsResolver);
+    // ONE proxy instance, shared by the /v1 and /dashboard route trees. A joined
+    // project's reads span both — the metrics tile is GET /dashboard/metrics, the
+    // Observations tab is POST /v1/search — and mounting it in only one place
+    // left the dashboard reporting counts it could not display.
+    const sharedTeamReadProxy = teamReadProxy({
+      lookupMarker: async (projectId: string) => {
+        try {
+          const r = await this.graph.postgres.pool.query(
+            'SELECT metadata FROM projects WHERE id = $1', [projectId],
+          );
+          const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+          const path = metadata?.[PROJECT_PATH_KEY];
+          if (typeof path !== 'string' || !path.trim()) return null;
+          return readProjectMarkerForTrackedView(path);
+        } catch {
+          return null;
+        }
+      },
+      resolveTeamKey: (teamId: string) => new CredentialStore().resolveKeyForTeam(teamId),
+    });
     const v1Routes = new ServerV1PostgresRoutes({
       pool: this.graph.postgres.pool,
+      teamReadProxy: sharedTeamReadProxy,
       queueManager: this.graph.queueManager,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
       allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
@@ -498,22 +519,7 @@ export class ServerService {
       // cannot validate a team-issued key — so without this the dashboard showed
       // "Not authenticated" and no data right after a successful join. Resolves
       // the marker via the path the PROJECT recorded, never the server's cwd.
-      teamReadProxy: teamReadProxy({
-        lookupMarker: async (projectId: string) => {
-          try {
-            const r = await this.graph.postgres.pool.query(
-              'SELECT metadata FROM projects WHERE id = $1', [projectId],
-            );
-            const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
-            const path = metadata?.[PROJECT_PATH_KEY];
-            if (typeof path !== 'string' || !path.trim()) return null;
-            return readProjectMarkerForTrackedView(path);
-          } catch {
-            return null;
-          }
-        },
-        resolveTeamKey: (teamId: string) => new CredentialStore().resolveKeyForTeam(teamId),
-      }),
+      teamReadProxy: sharedTeamReadProxy,
     }));
 
     server.finalizeRoutes();

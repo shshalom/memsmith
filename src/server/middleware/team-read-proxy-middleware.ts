@@ -21,6 +21,23 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { resolveTeamProxyTarget, type TeamProxyMarker } from './team-read-proxy.js';
 
+/**
+ * POST endpoints that only ever READ, so they are safe to forward.
+ *
+ * Explicit allow-list rather than a method rule: /v1/search is a read that uses
+ * POST (its filters do not fit a query string), and gating on GET alone left the
+ * Observations tab empty while the metrics tile showed the team's rows. Listing
+ * paths means a future POST route is refused by default instead of silently
+ * becoming a write channel to someone else's server.
+ */
+const READ_ONLY_POST_PATHS = new Set<string>(['/v1/search', '/v1/context']);
+
+/** Path without the query string, from the ORIGINAL url (mount prefix intact). */
+function pathOf(req: Request): string {
+  const i = req.originalUrl.indexOf('?');
+  return i === -1 ? req.originalUrl : req.originalUrl.slice(0, i);
+}
+
 export interface TeamReadProxyDeps {
   /** Marker for a project id, resolved via its recorded path. Null when unknown. */
   lookupMarker: (projectId: string) => Promise<TeamProxyMarker | null>;
@@ -36,8 +53,18 @@ export interface TeamReadProxyDeps {
 export function teamReadProxy(deps: TeamReadProxyDeps): RequestHandler {
   const fetchImpl = deps.fetchImpl ?? fetch;
   return async (req: Request, res: Response, next: NextFunction) => {
-    // GET only. A write must not be silently re-homed to another server.
-    if (req.method !== 'GET') return next();
+    // READS ONLY — but "read" is not the same as "GET". The Observations tab
+    // POSTs to /v1/search, so a GET-only rule left that tab empty while the
+    // metrics tile (a GET) showed the team's 14 rows: a dashboard reporting
+    // data it would not display.
+    //
+    // So the allowance is by PATH, not by method: an explicit list of endpoints
+    // that only ever read. Everything else — every write, every route not named
+    // here — is refused, so this cannot become an unaudited write channel just
+    // because a future route happens to use POST.
+    const isGet = req.method === 'GET';
+    const isReadPost = req.method === 'POST' && READ_ONLY_POST_PATHS.has(pathOf(req));
+    if (!isGet && !isReadPost) return next();
 
     const q = req.query as Record<string, unknown> | undefined;
     const projectId = typeof q?.projectId === 'string' ? q.projectId
@@ -68,13 +95,17 @@ export function teamReadProxy(deps: TeamReadProxyDeps): RequestHandler {
 
     try {
       const upstream = await fetchImpl(target.url, {
-        method: 'GET',
+        method: req.method,
         headers: {
           // Bearer, not the loopback cookie: the team server knows nothing about
           // this machine's cookie and would reject it.
           authorization: `Bearer ${target.key}`,
           accept: 'application/json',
+          ...(isReadPost ? { 'content-type': 'application/json' } : {}),
         },
+        // Forward the search filters. Without the body the team server would run
+        // an empty query and the tab would stay blank for a different reason.
+        ...(isReadPost ? { body: JSON.stringify(req.body ?? {}) } : {}),
         signal: AbortSignal.timeout(15_000),
       });
       const body = await upstream.text();

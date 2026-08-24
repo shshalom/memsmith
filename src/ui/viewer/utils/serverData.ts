@@ -40,8 +40,19 @@ export async function fetchObservations(
     if (opts.type) body.obsType = opts.type;
     if (opts.lifecycle) body.lifecycleState = opts.lifecycle;
     if (opts.userDirected) body.userDirected = true;
-    const res = await fetch(V1_ENDPOINTS.SEARCH, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    // Same two omissions fetchDashboard had: no cookie and no project. Without
+    // credentials the request is unauthenticated; without the project it is
+    // unscoped, so a joined project's Observations tab came back empty while the
+    // metrics tile showed the team's 14 rows.
+    const project = typeof location !== 'undefined' ? readProjectParam(location.search) : '';
+    const searchUrl = project
+      ? `${V1_ENDPOINTS.SEARCH}?projectId=${encodeURIComponent(project)}`
+      : V1_ENDPOINTS.SEARCH;
+    const res = await fetch(searchUrl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
     if (!res.ok) return [];
     const data = await res.json();

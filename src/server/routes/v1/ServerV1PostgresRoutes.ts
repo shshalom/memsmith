@@ -121,6 +121,8 @@ export interface ServerV1PostgresRoutesOptions {
    * omitting it leaves auth behaviour exactly as before.
    */
   resolveTrackedView?: PostgresRequireAuthOptions['resolveTrackedView'];
+  /** Forwards a JOINED project's reads to its team server. Optional. */
+  teamReadProxy?: import('express').RequestHandler;
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -248,6 +250,17 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // an inbound X-Request-Id header) so registering it multiple times for
     // overlapping route trees would still produce one canonical id per req.
     app.use('/v1', requestIdMiddleware());
+    // TEAM READS GO TO THE TEAM — /v1 too, not just /dashboard. The Observations
+    // tab POSTs to /v1/search, so mounting the proxy only under /dashboard left
+    // that tab empty for a joined project while the metrics tile showed the
+    // team's rows: a dashboard reporting counts it could not display.
+    //
+    // Before auth, deliberately: a joined project's request carries a
+    // team-issued credential this server cannot validate. The proxy itself
+    // forwards only an explicit allow-list of read paths.
+    if (this.options.teamReadProxy) {
+      app.use('/v1', this.options.teamReadProxy);
+    }
     const baseWrite = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
