@@ -63,11 +63,27 @@ export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): 
       if (own) return own;
     }
     const teamId = await deps.lookupTeamForProject(requested);
-    if (!teamId) return fallback;
-    // Only hand over a credential this machine already holds.
-    return deps.resolveKeyForTeam(teamId) ?? fallback;
+    // NO FALLBACK ONCE A PROJECT WAS NAMED.
+    //
+    // These three paths used to `?? fallback` — the SERVER's key. So asking for
+    // a project this machine holds no key for silently authenticated the browser
+    // as the server's project while the URL still named the requested one. That
+    // is the same view/credential disagreement behind every other bug in this
+    // area (bare-load re-scoping, sidebar vs Runtime tile, team-scoped keys
+    // leaking across a join), and it is what made the dashboard answer with the
+    // dogfood's project for a "tracked but not joined" project — the state the
+    // joiner feature is built on.
+    //
+    // Silently showing a DIFFERENT project than the one asked for is worse than
+    // showing none: the Go Team wizard acts on whatever the request
+    // authenticates as. Returning null makes the caller's failure explicit
+    // rather than mislabelling someone else's data.
+    if (!teamId) return null;
+    return deps.resolveKeyForTeam(teamId);
   } catch {
-    // A lookup failure must not break the page; degrade to the server project.
-    return fallback;
+    // A lookup failure must not break the page — but it must not mislabel the
+    // page either. No key: the viewer renders unauthenticated for the project
+    // that was asked for.
+    return null;
   }
 }

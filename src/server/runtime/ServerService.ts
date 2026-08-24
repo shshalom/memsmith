@@ -26,6 +26,16 @@ import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js'
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
 import { CredentialStore } from '../../services/identity/credential-store.js';
+import {
+  PROJECT_PATH_KEY,
+  readProjectMarker as readProjectMarkerForTrackedView,
+} from '../../services/identity/project-identity.js';
+import { evaluateTrackedViewGrant } from '../middleware/tracked-view-grant.js';
+import {
+  isLocalhost,
+  hasLoopbackHostHeader,
+  hasForwardedClientHeaders,
+} from '../middleware/request-auth-helpers.js';
 import { hashApiKey } from '../../services/hooks/server-bootstrap.js';
 import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
@@ -300,6 +310,41 @@ export class ServerService {
       allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
       localDevTeamId: this.graph.localDevTeamId,
       localDevProjectId: this.graph.localDevProjectId,
+      // Read-only view of a TRACKED project: a fresh clone of a team project,
+      // whose marker this machine can see but whose key it does not hold. No
+      // credential can authenticate such a project, so without this the
+      // dashboard cannot display it and its Join button never renders.
+      //
+      // Wired here because the gate needs the project's RECORDED path (from
+      // projects.metadata) — never the server's cwd, which names an unrelated
+      // project on a server that handles many.
+      resolveTrackedView: async (req) => {
+        const rawProjectId = (req.query as Record<string, unknown> | undefined)?.projectId;
+        const requested = typeof rawProjectId === 'string' ? rawProjectId : undefined;
+        if (!requested?.trim()) return null;
+        let marker: { teamId: string; projectId: string; runtime?: string } | null = null;
+        try {
+          const r = await this.graph.postgres.pool.query(
+            'SELECT metadata FROM projects WHERE id = $1', [requested],
+          );
+          const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+          const path = metadata?.[PROJECT_PATH_KEY];
+          if (typeof path !== 'string' || !path.trim()) return null;
+          marker = readProjectMarkerForTrackedView(path);
+        } catch {
+          return null;
+        }
+        const store = new CredentialStore();
+        return evaluateTrackedViewGrant({
+          hasKey: false, // only called when no credential was presented
+          isLoopbackIp: isLocalhost(req as never),
+          isLoopbackHost: hasLoopbackHostHeader(req as never),
+          hasForwardedHeaders: hasForwardedClientHeaders(req as never),
+          requestedProjectId: requested,
+          marker,
+          machineHoldsTeamKey: Boolean(marker && store.resolveKeyForTeam(marker.teamId)),
+        });
+      },
       settingsStore,
       settingsResolver,
       generationProviderHolder,

@@ -47,19 +47,34 @@ describe('viewer project scoping', () => {
       .toBe('cmem_otherkey');
   });
 
-  it('falls back to the server key for an unknown project id', async () => {
+  // THE FALLBACK IS GONE once a project has been named.
+  //
+  // These three cases asserted `cmem_serverkey`, and the reasoning was sound —
+  // "a project whose credential this machine does not hold must not silently
+  // grant access to it". Denying access is right. Doing it by handing back the
+  // SERVER's key is not: the browser is then authenticated as a DIFFERENT
+  // project while the URL still names the requested one, so the dashboard
+  // renders someone else's data under the wrong label. That is the same
+  // view/credential disagreement behind every other bug in this area, and it is
+  // what made a "tracked but not joined" project display as the dogfood.
+  //
+  // It also matters beyond display: the Go Team wizard converts whatever the
+  // request authenticates as.
+  //
+  // Denying by returning null denies just as hard, without the mislabel.
+  it('returns NO key for an unknown project id rather than the server key', async () => {
     expect(await resolveViewerKeyForRequest(deps({ requestedProjectId: 'nope' })))
-      .toBe('cmem_serverkey');
+      .toBeNull();
   });
 
-  it('falls back to the server key when the machine holds no key for that team', async () => {
-    // A project known to the DB but whose credential this machine does not
-    // hold must not silently grant access to it.
+  it('returns NO key when the machine holds no key for that team', async () => {
+    // The "tracked but not joined" shape: the project is real, this machine
+    // simply cannot authenticate as it. Answer honestly.
     const d = deps({
       requestedProjectId: OTHER_PROJECT,
       resolveKeyForTeam: (t: string) => (t === SERVER_TEAM ? 'cmem_serverkey' : null),
     });
-    expect(await resolveViewerKeyForRequest(d)).toBe('cmem_serverkey');
+    expect(await resolveViewerKeyForRequest(d)).toBeNull();
   });
 
   it('returns null when there is no server key either (team mode: no cookie)', async () => {
@@ -72,11 +87,14 @@ describe('viewer project scoping', () => {
     expect(await resolveViewerKeyForRequest(deps({ requestedProjectId: '   ' }))).toBe('cmem_serverkey');
   });
 
-  it('survives a lookup failure by falling back to the server key', async () => {
+  it('survives a lookup failure without mislabelling the page', async () => {
+    // Must not throw — this runs on every dashboard load. Must also not answer
+    // with the server's key: a database blip is not a reason to show the user a
+    // different project than the one they asked for.
     const d = deps({
       requestedProjectId: OTHER_PROJECT,
       lookupTeamForProject: async () => { throw new Error('db down'); },
     });
-    expect(await resolveViewerKeyForRequest(d)).toBe('cmem_serverkey');
+    expect(await resolveViewerKeyForRequest(d)).toBeNull();
   });
 });

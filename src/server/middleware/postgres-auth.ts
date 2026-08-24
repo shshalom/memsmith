@@ -17,7 +17,15 @@ export interface AuthContext {
   projectId: string | null;
   scopes: string[];
   apiKeyId: string | null;
-  mode: 'api-key' | 'local-dev' | 'session';
+  /**
+   * How this request was authenticated.
+   *
+   * 'tracked-local-view' is a READ-ONLY loopback grant for a team project this
+   * machine holds no key for (a fresh clone). It is a distinct member rather
+   * than reusing 'local-dev' so such a request is auditable and can never be
+   * mistaken for one that presented a credential.
+   */
+  mode: 'api-key' | 'local-dev' | 'session' | 'tracked-local-view';
   role: PostgresTeamRole | null;
 }
 
@@ -115,6 +123,24 @@ export interface PostgresRequireAuthOptions {
   // Local-dev fallback project, parallel to localDevTeamId. Same rule: only
   // applied inside the loopback + local-dev bypass, NEVER a production request.
   localDevProjectId?: string | null;
+  /**
+   * Read-only view of a TRACKED project — one this machine can see the marker
+   * for but holds no key for, i.e. a fresh clone of a team project.
+   *
+   * Returns a grant or null; null means "not applicable", never "denied", so
+   * the normal auth path continues untouched. OMITTING this preserves existing
+   * behaviour exactly, which is why it is optional rather than defaulted: no
+   * deployment gains the branch until it is deliberately wired.
+   *
+   * The predicate itself lives in tracked-view-grant.ts, where each of its six
+   * conditions is tested in isolation.
+   */
+  resolveTrackedView?: (req: Request) => Promise<{
+    teamId: string;
+    projectId: string;
+    scopes: readonly string[];
+    mode: 'tracked-local-view';
+  } | null>;
 }
 
 export function requirePostgresServerAuth(
@@ -193,6 +219,49 @@ async function authenticatePostgresRequest(
     req.authContext = ctx;
     next();
     return;
+  }
+
+  // TRACKED-PROJECT READ VIEW. A cloned team project has a committed marker and
+  // no key, so no credential can possibly authenticate it — and the viewer
+  // identifies projects by key, so the project cannot be displayed and the Join
+  // button never renders on the machine that needs it.
+  //
+  // The grant lives HERE, in the auth layer, deliberately: this is the seam the
+  // db-routing invariant names ("authContext is populated upstream... from a
+  // trusted source for every auth mode"). Everything downstream keeps reading
+  // authContext only, so no other file learns a second way to decide scope.
+  //
+  // Read-only comes from the SCOPES (baseWrite requires memories:write), never
+  // from the role — requireWriteRole treats role == null as allowed.
+  //
+  // Opt-in via deps: a caller that does not supply resolveTrackedView gets the
+  // old behaviour exactly, so this cannot alter any existing deployment that has
+  // not wired it.
+  if (!rawKey && options.resolveTrackedView) {
+    const grant = await options.resolveTrackedView(req).catch(() => null);
+    if (grant) {
+      req.authContext = {
+        userId: LOCAL_OWNER_USER_ID,
+        organizationId: null,
+        teamId: grant.teamId,
+        projectId: grant.projectId,
+        scopes: [...grant.scopes],
+        apiKeyId: null,
+        mode: grant.mode,
+        role: null,
+      } as AuthContext;
+      // Enforce the read scope the same way every other mode is enforced, so a
+      // write route that happens to run this middleware still refuses.
+      if (options.requiredScopes?.some(s => !grant.scopes.includes(s))) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'this project is tracked but not joined — read-only until you join',
+        });
+        return;
+      }
+      next();
+      return;
+    }
   }
 
   if (!rawKey) {

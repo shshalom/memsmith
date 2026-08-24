@@ -20,6 +20,7 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import type { PostgresRequireAuthOptions } from '../../middleware/postgres-auth.js';
 import { authorizeObservationDelete } from './delete-authorization.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
@@ -114,6 +115,12 @@ export interface ServerV1PostgresRoutesOptions {
   // Local-dev fallback project, parallel to localDevTeamId (same loopback +
   // local-dev gating in the middleware).
   localDevProjectId?: string | null;
+  /**
+   * Read-only grant for a TRACKED project — a clone of a team project whose
+   * marker this machine can see but whose key it does not hold. Optional:
+   * omitting it leaves auth behaviour exactly as before.
+   */
+  resolveTrackedView?: PostgresRequireAuthOptions['resolveTrackedView'];
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -240,6 +247,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
       localDevProjectId: this.options.localDevProjectId,
+      // Read-only tracked view applies to READS only; baseWrite deliberately
+      // omits it, so a write route can never take this branch.
+      resolveTrackedView: this.options.resolveTrackedView,
       requiredScopes: ['memories:read'],
     });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
