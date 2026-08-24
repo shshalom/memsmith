@@ -22,6 +22,63 @@
 /** How long to wait after a failed start before trying to spawn again. */
 export const RESTART_BACKOFF_MS = 60_000;
 
+/** Budget for the readiness probe. Long enough to load a cold model, short
+ *  enough that a wedged backend cannot block the queue indefinitely. */
+export const READINESS_TIMEOUT_MS = 20_000;
+
+export interface CanGenerateOptions {
+  /** e.g. http://127.0.0.1:11434 */
+  origin: string;
+  model: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
+
+/**
+ * Can ollama actually PRODUCE something? Never throws.
+ *
+ * READINESS, not liveness. The existing probe asks `GET /api/tags` and takes
+ * `r.ok` as proof of health — it establishes that the HTTP daemon is answering,
+ * nothing more. The design assumed the only failure was ollama being DOWN
+ * ("probed and started if it's down on every attempt"; connection-refused
+ * classified transient).
+ *
+ * The real outage was neither up nor down. Ollama served /api/tags with a 200
+ * and the full model list while every generate returned HTTP 500:
+ *
+ *   Unable to reach MTLCompilerService ... failed to initialize the Metal library
+ *
+ * So the probe passed, recovery declared success, and the job hit the 500.
+ * 1,187,422 consecutive failures, 644 jobs queued, 6.4 days without a single
+ * observation — on a machine where restarting ollama fixes it in seconds. The
+ * recovery mechanism slept through the exact outage it was built for, because
+ * the question it asked was not the question that mattered.
+ *
+ * A one-token generate costs little next to a 20-60s observation, and it is the
+ * only answer that means anything to the caller.
+ */
+export async function ollamaCanGenerate(options: CanGenerateOptions): Promise<boolean> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const response = await fetchImpl(`${options.origin}/api/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // num_predict: 1 — prove the backend can allocate and emit, nothing more.
+      body: JSON.stringify({
+        model: options.model,
+        prompt: 'ok',
+        stream: false,
+        options: { num_predict: 1 },
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? READINESS_TIMEOUT_MS),
+    });
+    return response.ok;
+  } catch {
+    // Unreachable, aborted, malformed origin — all mean "cannot generate".
+    return false;
+  }
+}
+
 export interface EnsureRunningState {
   /** In-flight start, shared so concurrent callers await the same attempt. */
   starting?: Promise<boolean>;
