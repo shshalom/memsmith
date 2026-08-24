@@ -233,11 +233,24 @@ export const contextHandler: EventHandler = {
     let dashboardProjectId: string | undefined;
     try {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
-      dashboardProjectId = readProjectMarker(cwd)?.projectId;
-      if (!dashboardProjectId) {
-        const minted = await dependencies.mintProjectIdentity(cwd);
-        dashboardProjectId = minted?.projectId;
-      }
+      const marker = readProjectMarker(cwd);
+      // REGISTER, don't just read.
+      //
+      // This used to call mintProjectIdentity ONLY when the marker was absent,
+      // on the reasonable-looking assumption that a marker means the project is
+      // already known. It does not: a CLONED project arrives with a committed
+      // marker and no rows anywhere, because nothing on this machine has ever
+      // run for it. So the identity was adopted and never registered — no
+      // `projects` row, which is what /v1/identity needs to report the project's
+      // runtime, so the dashboard could not tell it was a team project and the
+      // Join button never appeared.
+      //
+      // ensureProjectIdentity (behind mintProjectIdentity) is idempotent by
+      // design and upserts teams/projects on every call — its own doc says a
+      // "fresh DB / cloned repo self-heals" — so calling it unconditionally
+      // costs an existing project one upsert and gives a clone the row it needs.
+      const registered = await dependencies.mintProjectIdentity(cwd);
+      dashboardProjectId = registered?.projectId ?? marker?.projectId;
     } catch { /* unscoped link is a fine fallback */ }
     const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext
