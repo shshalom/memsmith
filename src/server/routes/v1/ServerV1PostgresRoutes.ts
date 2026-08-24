@@ -1752,7 +1752,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       // otherwise only the person who already has the workspace could join it.
       // Possession of the team key is the authorization, verified against the
       // remote's api_keys by runJoin.
-      joinAuthMiddleware: writeAuth,
+      //
+      // READ auth, not write. writeAuth requires memories:write, which a TRACKED
+      // project (a clone this machine holds no key for) by definition does not
+      // have — so the one operation that exists to LEAVE the tracked state was
+      // refused with "read-only until you join". Joining to get write access
+      // required already having write access.
+      //
+      // Downgrading is safe because this route's real credential is the team key
+      // in the request body, verified against the REMOTE by runJoin, exactly as
+      // the note above says. Local scope was never the authorization here; it
+      // only ever established which project is being joined
+      // (req.authContext.projectId), which readAuth provides just as well.
+      joinAuthMiddleware: readAuth,
       join: async (input) => {
         const { runJoin } = await import('../../convert/join-service.js');
         const result = await runJoin({

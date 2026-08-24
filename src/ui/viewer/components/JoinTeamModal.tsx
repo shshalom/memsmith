@@ -12,6 +12,7 @@
 // remote's api_keys and rejects unknown / revoked / expired / teamless keys, so
 // this form only has to render the reason it gives back.
 import React, { useState } from 'react';
+import { readProjectParam } from '../utils/projectScope.js';
 
 interface JoinResponse {
   status?: 'joined' | 'failed';
@@ -43,7 +44,17 @@ export function JoinTeamModal({ open, onClose, onJoined }: {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/v1/join', {
+      // CARRY THE PROJECT. Without it the server resolves authContext.projectId
+      // from the cookie alone, so a TRACKED project — which has no key and
+      // therefore no cookie — produced a bare 401, and the Join button could
+      // never do anything. The route reads req.authContext.projectId to decide
+      // WHICH project is joining, and for a tracked project only the request can
+      // supply that.
+      const project = typeof location !== 'undefined' ? readProjectParam(location.search) : '';
+      const joinUrl = project
+        ? `/v1/join?projectId=${encodeURIComponent(project)}`
+        : '/v1/join';
+      const res = await fetch(joinUrl, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
