@@ -110,18 +110,37 @@ function runtimeTile(runtime: string | null): { n: string; l: string; hint: stri
  *
  * Exported so the rule can be tested directly; the tile only renders it.
  */
-export function canJoinFromIdentity(runtime: string | null, role: string | null): boolean {
+export function canJoinFromIdentity(
+  runtime: string | null,
+  identity: { keyPresent?: boolean } | null,
+): boolean {
   // Same normalisation the runtime tile uses. /v1/identity says 'team', while
   // the marker and older responses say 'server'/'server-beta'; if this gate
   // disagreed with the tile the button would appear on some team projects only.
   const isTeam = runtime === 'team' || runtime === 'server' || runtime === 'server-beta';
   if (!isTeam) return false;
-  // An unreadable role is treated as "not the owner" — a new member is exactly
-  // the case where no team_members row exists yet, so role resolves to null.
-  return role !== 'owner';
+  // GATE ON THE KEY, NOT THE ROLE.
+  //
+  // "Not the owner" was a proxy for "could join". It is the wrong proxy on the
+  // machine that matters most: a teammate who has not joined has no api_keys
+  // row, so role resolves to null everywhere, and the gate then depends
+  // entirely on the runtime half — which /v1/identity derives from
+  // `projects.metadata` in the LOCAL database. A fresh clone has no such row,
+  // so runtime came back 'local' and the button never rendered for the one
+  // person it exists for.
+  //
+  // `keyPresent` asks the honest question instead: is there a team here that
+  // this machine cannot yet open? The owner holds their project's key, so they
+  // are excluded because they can already open it — not by inferring intent
+  // from a role.
+  //
+  // Absent keyPresent (older server, unparsed payload) counts as NO key, so the
+  // action still shows. Offering Join to someone already joined is a harmless
+  // no-op; hiding it from a new teammate strands them with no way in.
+  return identity?.keyPresent !== true;
 }
 
-function KpiHero({ m, runtime, role, onJoin }: { m: Metrics; runtime: string | null; role: string | null; onJoin: () => void }) {
+function KpiHero({ m, runtime, keyPresent, onJoin }: { m: Metrics; runtime: string | null; keyPresent: boolean | null; onJoin: () => void }) {
   const cards = [
     { n: m.total.toLocaleString(), l: 'Memories', hint: 'observations stored', accent: true },
     { n: m.decisions.toLocaleString(), l: 'Decisions', hint: 'reasoning recorded', accent: false },
@@ -131,7 +150,7 @@ function KpiHero({ m, runtime, role, onJoin }: { m: Metrics; runtime: string | n
   // Joining belongs ON the Runtime tile, not buried in Settings: the tile is
   // already where you look to see which mode you are in, so it is where you
   // reach when you want to change it. See canJoinFromIdentity for WHEN.
-  const canJoin = canJoinFromIdentity(runtime, role);
+  const canJoin = canJoinFromIdentity(runtime, keyPresent === null ? null : { keyPresent });
   return (
     <div className="dash-kpis">
       {cards.map((k, i) => (
@@ -420,9 +439,11 @@ export function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<string | null>(null);
-  // Role decides whether Join is offered: in team mode the OWNER is already in,
-  // so the button is for new members only.
-  const [role, setRole] = useState<string | null>(null);
+  // Whether THIS MACHINE holds a key for the project's team decides whether Join
+  // is offered. Not the role: a teammate who has not joined has no api_keys row,
+  // so role resolves to null for exactly the person the button is for. null =
+  // not yet known (identity still in flight or unreachable).
+  const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
   const [joinOpen, setJoinOpen] = useState(false);
 
   useEffect(() => {
@@ -467,9 +488,10 @@ export function DashboardView() {
       .then(id => {
         if (cancelled) return;
         setRuntime(id && typeof id.runtime === 'string' ? id.runtime : null);
-        // Same payload already carries the role postgres-auth resolved, so
-        // gating Join costs no extra request.
-        setRole(id && typeof id.role === 'string' ? id.role : null);
+        // Same payload already reports whether this machine holds the project's
+        // key (buildIdentityPayload computes it straight from the credential
+        // store), so gating Join costs no extra request.
+        setKeyPresent(id && typeof id.keyPresent === 'boolean' ? id.keyPresent : null);
       })
       .catch(() => { /* tile shows "runtime unavailable" */ });
     return () => { cancelled = true; };
@@ -488,7 +510,7 @@ export function DashboardView() {
         // credential, and every scoped read on the page at once.
         onJoined={() => location.reload()}
       />
-      <KpiHero m={metrics} runtime={runtime} role={role} onJoin={() => setJoinOpen(true)} />
+      <KpiHero m={metrics} runtime={runtime} keyPresent={keyPresent} onJoin={() => setJoinOpen(true)} />
       <div className="dash-grid">
         <WorkInFlight work={metrics.work} />
         <Composition byType={metrics.byType} />

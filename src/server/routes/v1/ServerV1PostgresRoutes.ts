@@ -1510,7 +1510,30 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             [projectId],
           );
           const row = result.rows[0] as { metadata?: Record<string, unknown> | null } | undefined;
-          if (!row) return 'local';
+          // NO ROW IS THE FRESH-CLONE CASE, not an error. A teammate who has
+          // cloned a converted project has its committed marker but no local
+          // `projects` row yet — nothing has run to insert one. Returning
+          // 'local' here reported the clone as a local project, which hid the
+          // Join button on the one machine that needed it.
+          //
+          // Fall back to the marker in the REQUESTING directory, and only when
+          // it names this same project — the same "must still belong to THIS
+          // project" guard resolveProjectRuntime applies, for the same reason:
+          // a stale or unrelated marker must never lend its runtime to another
+          // project.
+          if (!row) {
+            const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
+            const marker = readProjectMarkerForRuntime(cwd);
+            if (marker?.projectId !== projectId) return 'local';
+            // ProjectMarker types `runtime` as 'local' | 'server', but markers
+            // written before the rename carry the legacy 'server-beta' literal,
+            // which normalizeRuntime still accepts. Widen to string so a legacy
+            // team marker is not silently read as local.
+            const markerRuntime: string | undefined = marker.runtime;
+            return markerRuntime === 'server' || markerRuntime === 'server-beta'
+              ? 'team'
+              : 'local';
+          }
           return resolveProjectRuntime(
             { projectId, metadata: row.metadata ?? null },
             readProjectMarkerForRuntime,
