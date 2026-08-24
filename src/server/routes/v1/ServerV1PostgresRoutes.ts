@@ -74,6 +74,7 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
+import { shareMarkerInGit } from '../../convert/share-marker.js';
 import { summariseLocalApply } from '../../convert/local-apply-report.js';
 import { resolveConvertServerUrl } from '../../convert/resolve-convert-server-url.js';
 import { repointLocalKeyToTeam, repointProjectDatabaseTeam } from '../../convert/repoint-local-key.js';
@@ -1812,6 +1813,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                   readProjectMarker: readProjectMarkerForRuntime,
                   writeProjectRuntime,
                   storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                 },
                 projectPath,
                 result.join,
@@ -2030,6 +2032,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                     readProjectMarker: readProjectMarkerForRuntime,
                     writeProjectRuntime,
                     storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                   },
                   projectPath,
                   httpsResult.join,
@@ -2199,6 +2202,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                     readProjectMarker: readProjectMarkerForRuntime,
                     writeProjectRuntime,
                     storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                   },
                   projectPath,
                   { teamId: input.teamId, projectId: input.projectId, serverUrl, apiKey },

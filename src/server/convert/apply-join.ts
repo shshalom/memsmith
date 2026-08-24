@@ -21,11 +21,24 @@ export interface ApplyJoinDeps {
   // `teamId` is optional because only JOIN changes the team; convert omits it.
   writeProjectRuntime: (cwd: string, runtime: { runtime: 'local' | 'server'; serverUrl?: string; teamId?: string }) => void;
   storeKeyForTeam: (teamId: string, key: string) => void;
+  /**
+   * Permit the now-shared marker into git. Optional so existing callers and
+   * unit tests are unaffected; a caller that omits it simply leaves the
+   * project's .gitignore alone.
+   */
+  shareMarkerInGit?: (cwd: string) => { changed: boolean; reason?: string };
 }
 
 export interface ApplyJoinResult {
   applied: boolean;
   reason?: string;
+  /**
+   * Set when the flip succeeded but the marker could not be un-ignored. The
+   * convert itself is DONE — this only means teammates will not receive the
+   * marker until the user commits it by hand, so callers surface it as a hint
+   * rather than an error.
+   */
+  markerShareFailed?: string;
 }
 
 export function applyConvertJoin(
@@ -95,5 +108,20 @@ export function applyConvertJoin(
     serverUrl: join.serverUrl,
     teamId: join.teamId,
   });
+
+  // LAST, and never fatal. The project is now a team project, so its marker has
+  // become shared configuration rather than machine state — a teammate cannot
+  // discover the team without it, because `.memsmith/` is gitignored by default
+  // and a clone would otherwise receive nothing and mint an unrelated identity.
+  //
+  // Ordering matters: the flip above is the operation the caller asked for and
+  // has already been persisted. Un-ignoring the marker is bookkeeping on top of
+  // a completed convert, so it runs after and its failure is reported, not
+  // thrown — the alternative would announce a failed convert whose data is
+  // already on the remote.
+  const shared = deps.shareMarkerInGit?.(cwd);
+  if (shared && !shared.changed && shared.reason) {
+    return { applied: true, markerShareFailed: shared.reason };
+  }
   return { applied: true };
 }
