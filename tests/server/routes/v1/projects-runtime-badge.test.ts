@@ -116,4 +116,32 @@ describe('resolveProjectRuntime', () => {
       { projectId: DOGFOOD, metadata: { [PROJECT_PATH_KEY]: '/Users/x/MemSmith' } }, reader,
     )).toBe('local');
   });
+
+  it('accepts the legacy server-beta literal as team', () => {
+    // Markers written before the rename carry 'server-beta', and
+    // normalizeRuntime still honours it. Matching only 'server' silently
+    // demoted a real team project to local — which hides its team badge and
+    // its Join button.
+    const reader = readerFor({ '/p': { projectId: TEMP, runtime: 'server-beta' } });
+    expect(resolveProjectRuntime(
+      { projectId: TEMP, metadata: { [PROJECT_PATH_KEY]: '/p' } }, reader,
+    )).toBe('team');
+  });
+
+  it('says local for an unrecorded path instead of guessing from the server', () => {
+    // THE REGRESSION GUARD. A fallback was added here that read the marker at
+    // `MEMSMITH_PROJECT_CWD ?? process.cwd()` — the SERVER's directory. One
+    // server serves every project, so that names some unrelated project: this
+    // repo's memory classifies exactly that as a cross-project leak, and it had
+    // already been fixed once in settingsRoutes ("never from the server's cwd").
+    //
+    // A reader that throws on ANY path proves the resolver never consulted one:
+    // with no recorded path it must answer without reading anything at all.
+    const exploding = (() => { throw new Error('must not read any path'); }) as never;
+    expect(resolveProjectRuntime({ projectId: TEMP, metadata: null }, exploding)).toBe('local');
+    expect(resolveProjectRuntime({ projectId: TEMP, metadata: {} }, exploding)).toBe('local');
+    expect(resolveProjectRuntime(
+      { projectId: TEMP, metadata: { [PROJECT_PATH_KEY]: '   ' } }, exploding,
+    )).toBe('local');
+  });
 });
