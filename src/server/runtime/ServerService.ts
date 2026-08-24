@@ -32,6 +32,7 @@ import {
   readProjectMarker as readProjectMarkerForTrackedView,
 } from '../../services/identity/project-identity.js';
 import { evaluateTrackedViewGrant } from '../middleware/tracked-view-grant.js';
+import { teamReadProxy } from '../middleware/team-read-proxy-middleware.js';
 import {
   isLocalhost,
   hasLoopbackHostHeader,
@@ -493,6 +494,26 @@ export class ServerService {
       poolRegistry: this.graph.poolRegistry,
       baseDatabaseName: this.graph.baseDatabaseName,
       baseProjectId: this.graph.baseProjectId ?? null,
+      // A JOINED project's memory lives on its team server, and this server
+      // cannot validate a team-issued key — so without this the dashboard showed
+      // "Not authenticated" and no data right after a successful join. Resolves
+      // the marker via the path the PROJECT recorded, never the server's cwd.
+      teamReadProxy: teamReadProxy({
+        lookupMarker: async (projectId: string) => {
+          try {
+            const r = await this.graph.postgres.pool.query(
+              'SELECT metadata FROM projects WHERE id = $1', [projectId],
+            );
+            const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+            const path = metadata?.[PROJECT_PATH_KEY];
+            if (typeof path !== 'string' || !path.trim()) return null;
+            return readProjectMarkerForTrackedView(path);
+          } catch {
+            return null;
+          }
+        },
+        resolveTeamKey: (teamId: string) => new CredentialStore().resolveKeyForTeam(teamId),
+      }),
     }));
 
     server.finalizeRoutes();
