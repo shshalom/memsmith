@@ -244,6 +244,36 @@ export const contextHandler: EventHandler = {
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;
 
+    // RECOGNISE a team project this machine has not joined.
+    //
+    // This lives on SessionStart rather than in the installer because that is
+    // the only place that behaves identically no matter how MemSmith arrived.
+    // The first version sat in `npx memsmith install`; real users install via
+    // Claude Code's `/plugin`, which never calls it, so a teammate cloning a
+    // converted project was told nothing at all.
+    //
+    // Silent unless actionable, and never throws: a failure to classify must
+    // not cost the user their session context, which is what this hook exists
+    // to deliver.
+    try {
+      const [{ projectJoinState }, { readProjectMarker }, { CredentialStore }, { trackedProjectBanner }] =
+        await Promise.all([
+          import('../../services/identity/join-state.js'),
+          import('../../services/identity/project-identity.js'),
+          import('../../services/identity/credential-store.js'),
+          import('./tracked-project-banner.js'),
+        ]);
+      const store = new CredentialStore();
+      const banner = trackedProjectBanner({
+        state: projectJoinState(cwd, {
+          readProjectMarker,
+          hasKeyForTeam: (teamId: string) => Boolean(store.resolveKeyForTeam(teamId)),
+        }),
+        marker: readProjectMarker(cwd),
+      });
+      if (banner) additionalContext = `${banner}\n\n${additionalContext}`;
+    } catch { /* recognition is additive; never break the session for it */ }
+
     // Always prepend the injected directives (memory-first + record-intent) —
     // they are static standing instructions and must be present unconditionally
     // (even on empty projects).
