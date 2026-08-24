@@ -319,8 +319,17 @@ export class ServerService {
       // projects.metadata) — never the server's cwd, which names an unrelated
       // project on a server that handles many.
       resolveTrackedView: async (req) => {
-        const rawProjectId = (req.query as Record<string, unknown> | undefined)?.projectId;
-        const requested = typeof rawProjectId === 'string' ? rawProjectId : undefined;
+        // ACCEPT BOTH SPELLINGS. The browser-facing viewer route reads
+        // `?project=` (ServerViewerRoutes: `req.query?.project`) while the /v1
+        // API uses `?projectId=`. This grant originally read only projectId, so
+        // the URL a user actually opens — the one the SessionStart banner prints,
+        // with ?project= — never reached it and the dashboard silently stayed on
+        // whatever the cookie already held.
+        const q = req.query as Record<string, unknown> | undefined;
+        const raw = typeof q?.projectId === 'string' ? q.projectId
+          : typeof q?.project === 'string' ? q.project
+          : undefined;
+        const requested = raw;
         if (!requested?.trim()) return null;
         let marker: { teamId: string; projectId: string; runtime?: string } | null = null;
         try {

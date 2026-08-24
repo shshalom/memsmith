@@ -1492,6 +1492,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
       localDevProjectId: this.options.localDevProjectId,
+      // THE TRACKED-VIEW GRANT MUST BE HERE TOO. /v1/identity does not use
+      // `readAuth` — it builds its own middleware — so wiring the grant into
+      // baseRead alone left the one endpoint the dashboard needs still answering
+      // 401 for a tracked project. That is exactly what the Join button reads,
+      // so the feature was inert despite the grant being present and correct.
+      resolveTrackedView: this.options.resolveTrackedView,
       requiredScopes: ['memories:read'],
     });
     app.use('/v1/identity', (req, res, next) => {
