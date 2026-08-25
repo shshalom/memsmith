@@ -20,6 +20,8 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { evaluateOwnerBootstrap } from './owner-bootstrap.js';
+import { withPostgresTransaction } from '../../../storage/postgres/pool.js';
 import type { PostgresRequireAuthOptions } from '../../middleware/postgres-auth.js';
 import { authorizeObservationDelete } from './delete-authorization.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
@@ -323,6 +325,109 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // writeAuth: minting a lesser (read) key requires you can already write the
     // team's memory, which avoids a read key escalating into more keys. The raw
     // key is shown exactly once.
+    // POST /v1/teams/:teamId/bootstrap-owner — the ONE role-gated escape hatch.
+    //
+    // Without it a user cannot use their own team: convert calls
+    // /v1/convert/register-key (requireRole('owner')), their team key has no
+    // team_members row on the remote so its role is null, and minting a
+    // role-bearing key needs `admin` which needs a role-bearing key. The only
+    // existing way out is a CLI that talks straight to Postgres — VPN or an
+    // in-VPC task against a private RDS. A user must not need AWS access to use
+    // their own team.
+    //
+    // Deliberately NOT role-gated (that is the point) and deliberately NOT part
+    // of writeAuth's chain: the decision lives in evaluateOwnerBootstrap, which
+    // gates on an operator flag (default OFF) and a window from team creation.
+    // See that file for what ownership actually grants — it is a real
+    // escalation, including DELETE /v1/projects/:id/memory.
+    app.post('/v1/teams/:teamId/bootstrap-owner', ...readAuth, this.asyncHandler(async (req, res) => {
+      const requestedTeamId = String((req.params as { teamId?: string }).teamId ?? '');
+      const ctx = (req as unknown as { authContext?: { teamId?: string | null; apiKeyId?: string | null } }).authContext;
+      const enabled = process.env.MEMSMITH_ALLOW_OWNER_BOOTSTRAP === '1';
+      const windowMinutes = Number(process.env.MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES ?? 60);
+
+      // Read the key's own row: authContext carries teamId but not user_id, and
+      // user_id is what the membership insert and the role join both need.
+      let keyUserId: string | null = null;
+      let teamCreatedAtEpoch: number | null = null;
+      let teamHasOwner = false;
+      try {
+        if (ctx?.apiKeyId) {
+          const k = await this.options.pool.query(
+            'SELECT user_id FROM api_keys WHERE id = $1 LIMIT 1', [ctx.apiKeyId],
+          );
+          keyUserId = (k.rows[0] as { user_id?: string | null } | undefined)?.user_id ?? null;
+        }
+        const t = await this.options.pool.query(
+          'SELECT created_at FROM teams WHERE id = $1 LIMIT 1', [requestedTeamId],
+        );
+        const created = (t.rows[0] as { created_at?: Date | string | null } | undefined)?.created_at;
+        if (created) teamCreatedAtEpoch = new Date(created).getTime();
+        const o = await this.options.pool.query(
+          "SELECT 1 FROM team_members WHERE team_id = $1 AND role = 'owner' LIMIT 1",
+          [requestedTeamId],
+        );
+        teamHasOwner = (o.rowCount ?? 0) > 0;
+      } catch {
+        // Fail closed: an unreadable state must not be read as "safe to grant".
+        res.status(410).json({ error: 'Gone', message: 'the setup window for this team cannot be verified' });
+        return;
+      }
+
+      const decision = evaluateOwnerBootstrap({
+        enabled, windowMinutes, now: Date.now(), teamCreatedAtEpoch,
+        requestedTeamId, keyTeamId: ctx?.teamId ?? null, keyUserId, teamHasOwner,
+      });
+      if (decision.outcome !== 'grant') {
+        // Label must match the status. A 404 reported as "Forbidden" tells a
+        // caller the endpoint exists and is merely closed to them, which is
+        // exactly what the disabled case is trying not to reveal.
+        const label = decision.status === 404 ? 'NotFound'
+          : decision.status === 409 ? 'Conflict'
+          : decision.status === 410 ? 'Gone'
+          : 'Forbidden';
+        res.status(decision.status).json({ error: label, message: decision.message });
+        return;
+      }
+
+      // ONE transaction. The re-check inside it with FOR UPDATE is what makes
+      // two concurrent bootstraps resolve to one owner — a check-then-act
+      // without the lock is the race createMarkerIfAbsent already documents
+      // losing.
+      try {
+        await withPostgresTransaction(this.options.pool, async (tx) => {
+          const guard = await tx.query(
+            "SELECT 1 FROM team_members WHERE team_id = $1 AND role = 'owner' FOR UPDATE",
+            [requestedTeamId],
+          );
+          if ((guard.rowCount ?? 0) > 0) throw new Error('already-owned');
+          if (decision.stampKeyUserId && ctx?.apiKeyId) {
+            await tx.query(
+              'UPDATE api_keys SET user_id = $1 WHERE id = $2 AND user_id IS NULL',
+              [decision.userId, ctx.apiKeyId],
+            );
+          }
+          await tx.query(
+            `INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'owner')
+             ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'owner'`,
+            [requestedTeamId, decision.userId],
+          );
+        });
+      } catch (error) {
+        const raced = error instanceof Error && error.message === 'already-owned';
+        res.status(raced ? 409 : 500).json({
+          error: raced ? 'Conflict' : 'InternalError',
+          message: raced
+            ? 'this team already has an owner — ask them to grant you access'
+            : 'could not establish ownership',
+        });
+        return;
+      }
+
+      logger.info('HTTP', 'owner bootstrapped', { teamId: requestedTeamId, userId: decision.userId });
+      res.status(200).json({ userId: decision.userId, role: 'owner' });
+    }));
+
     app.post('/v1/keys', writeAuth, requireRole('admin'), this.handleCreate(
       z.object({
         label: z.string().max(120).optional(),

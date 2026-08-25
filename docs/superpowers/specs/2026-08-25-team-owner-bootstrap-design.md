@@ -145,10 +145,35 @@ owner and the 403 is genuine — surface it, do not loop.
 **What this grants:** whoever holds a valid team key for a team with no owner can
 become its owner.
 
-**Why that is acceptable:** the team key is already sufficient to read and write
-that team's memory. An attacker holding it does not need ownership to do damage;
-they already have the data. Ownership adds member management — real, but not a
-new class of access. And the key was issued deliberately by the operator.
+**Corrected assessment.** An earlier draft of this section said ownership "adds
+member management — real, but not a new class of access." That understated it,
+and the softer wording is the kind that gets a security change waved through.
+
+Measured against the live deployment, a leaked team key ALREADY has:
+
+```
+POST /v1/search  → 200   read all of the team's memory
+POST /v1/events  → 201   write into the team's memory
+```
+
+But it CANNOT reach these, and ownership hands over every one:
+
+```
+POST   /v1/keys                        mint further credentials
+POST   /v1/members                     add members
+PATCH  /v1/members/:userId             change roles — including demoting the real owner
+DELETE /v1/members/:userId             remove members
+DELETE /v1/projects/:projectId/memory  DESTROY the team's memory
+```
+
+Two of those are qualitatively different from data access, not merely more of
+it. Minting keys is PERSISTENCE that survives revoking the leaked key. And
+`DELETE …/memory` is DESTRUCTION — the one action this product exists to prevent.
+
+So within the bootstrap window this feature converts "an attacker can read and
+write your memory" into "an attacker can own your team, lock you out, and delete
+everything." That escalation is created by this design; it is not pre-existing.
+Both mitigations below are therefore REQUIRED, not optional.
 
 **Why the no-existing-owner condition is load-bearing:** without it, any team
 key holder could seize ownership of an established team, including demoting the
@@ -158,11 +183,28 @@ real owner. With it, the route is dead the moment a team is properly set up.
 `:teamId`), work on a team that already has an owner, or work for a key with no
 `user_id`.
 
-**Residual risk, stated plainly:** a team whose first key leaks before the
-operator bootstraps can be owned by the leaker. Mitigations available but NOT in
-this design: an expiry on the bootstrap window, or an operator-set
-`MEMSMITH_ALLOW_OWNER_BOOTSTRAP` flag defaulting on for self-hosted and off for
-managed deployments. Worth deciding before build.
+### Both mitigations are part of this design
+
+**1. Operator flag — `MEMSMITH_ALLOW_OWNER_BOOTSTRAP`.** The route returns 404
+unless explicitly enabled. 404 rather than 403 so a disabled deployment does not
+advertise the endpoint's existence. Default OFF: a managed deployment must opt
+in, so the escalation exists only where an operator chose it.
+
+**2. Bootstrap window — `MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES`, default 60.**
+The route refuses once the team row is older than the window (→ 410 Gone).
+Ownership is a setup-time act; a team that has existed for days and still has no
+owner is not mid-setup, it is misconfigured — and leaving the door open for it
+is what turns a narrow window into a standing vulnerability.
+
+Together: the door is shut unless an operator opened it, and it closes by itself
+even if they forget. Either alone leaves a hole — the flag can be left on
+forever, and the window applies to every team on a deployment that never wanted
+this at all.
+
+**Residual risk that remains:** a team whose first key leaks WITHIN the window on
+a deployment that has opted in can be owned by the leaker. That is the irreducible
+core of the feature: possession of the key during setup is the only signal the
+remote has. Shrink the window to reduce it.
 
 ## Testing
 
