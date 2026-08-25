@@ -340,8 +340,15 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // gates on an operator flag (default OFF) and a window from team creation.
     // See that file for what ownership actually grants — it is a real
     // escalation, including DELETE /v1/projects/:id/memory.
-    app.post('/v1/teams/:teamId/bootstrap-owner', ...readAuth, this.asyncHandler(async (req, res) => {
-      const requestedTeamId = String((req.params as { teamId?: string }).teamId ?? '');
+    // Two shapes, one handler. `:teamId` is explicit; `/v1/teams/bootstrap-owner`
+    // lets the caller say "the team this key belongs to" — which is the only
+    // thing a converting client actually knows. It holds a destination team KEY,
+    // not that team's id (the id it has is its LOCAL team), so demanding the id
+    // in the path would have made the retry 403 every time on a mismatch it
+    // could not avoid.
+    const bootstrapOwnerHandler = this.asyncHandler(async (req, res) => {
+      const ctxTeamId = (req as unknown as { authContext?: { teamId?: string | null } }).authContext?.teamId ?? '';
+      const requestedTeamId = String((req.params as { teamId?: string }).teamId ?? '') || String(ctxTeamId);
       const ctx = (req as unknown as { authContext?: { teamId?: string | null; apiKeyId?: string | null } }).authContext;
       const enabled = process.env.MEMSMITH_ALLOW_OWNER_BOOTSTRAP === '1';
       const windowMinutes = Number(process.env.MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES ?? 60);
@@ -426,7 +433,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
 
       logger.info('HTTP', 'owner bootstrapped', { teamId: requestedTeamId, userId: decision.userId });
       res.status(200).json({ userId: decision.userId, role: 'owner' });
-    }));
+    });
+    app.post('/v1/teams/bootstrap-owner', ...readAuth, bootstrapOwnerHandler);
+    app.post('/v1/teams/:teamId/bootstrap-owner', ...readAuth, bootstrapOwnerHandler);
 
     app.post('/v1/keys', writeAuth, requireRole('admin'), this.handleCreate(
       z.object({
@@ -2118,6 +2127,16 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             teamKey: input.transport.teamKey,
             projectId: input.projectId,
             projectKeyHash: hashApiKey(projectKey),
+            // Lets register-key recover from "requires role owner" by
+            // bootstrapping ownership once. Without it a user whose team key has
+            // no team_members row on the remote simply cannot convert, and the
+            // bootstrap route is reachable only by someone reading the source.
+            //
+            // Empty string, deliberately: the client does NOT know the
+            // destination team's id — it holds that team's KEY, while the only
+            // id it has is its own LOCAL team. So it calls the self-scoped route
+            // and lets the remote infer the team from the key it presented.
+            teamId: '',
           });
           if (!registered.ok) {
             throw new Error(`could not register this project's key on the team server: ${registered.reason}`);

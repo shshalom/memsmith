@@ -27,6 +27,13 @@ export interface RegisterProjectKeyInput {
   projectId: string;
   /** SHA-256 of the project's own key, the same hash api_keys stores. */
   projectKeyHash: string;
+  /**
+   * Destination team, used ONLY to recover from "requires role owner".
+   *
+   * Optional so existing callers keep their exact behaviour: without it the
+   * bootstrap retry below is skipped and a 403 is reported as before.
+   */
+  teamId?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -51,9 +58,10 @@ export async function registerProjectKeyHash(
   input: RegisterProjectKeyInput,
 ): Promise<RegisterProjectKeyResult> {
   const base = stripTrailingSlash(input.serverUrl);
-  let response: Response;
-  try {
-    response = await (input.fetchImpl ?? fetch)(`${base}/v1/convert/register-key`, {
+  const fetchImpl = input.fetchImpl ?? fetch;
+
+  const post = async (): Promise<Response> =>
+    fetchImpl(`${base}/v1/convert/register-key`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -61,6 +69,46 @@ export async function registerProjectKeyHash(
       },
       body: JSON.stringify({ projectId: input.projectId, keyHash: input.projectKeyHash }),
     });
+
+  let response: Response;
+  try {
+    response = await post();
+
+    // RECOVER FROM "requires role owner", ONCE.
+    //
+    // register-key is owner-gated, and a user's team key has no team_members row
+    // on the remote — so its role is null and this 403s. Measured live against
+    // AWS; it is what blocked a real convert. The bootstrap route exists to fix
+    // exactly this, but a user cannot be expected to know it exists, let alone
+    // curl it between two halves of a wizard step. If convert does not call it,
+    // the feature is reachable only by someone reading the source.
+    //
+    // ONE attempt, and only for this failure. A 403 that survives bootstrap is
+    // genuine — the team has an owner and it is not this caller — so retrying
+    // would turn a clear refusal into a hang. A 500 is not an authorization
+    // problem and must not trigger it either.
+    if (response.status === 403 && input.teamId !== undefined) {
+      const detail = await response.clone().json().catch(() => null) as { message?: string } | null;
+      if (/requires role owner/i.test(detail?.message ?? '')) {
+        // Self-scoped when no id is given. The converting client holds the
+        // destination team's KEY but not its ID — the only id it has is its own
+        // LOCAL team, and sending that would fail the remote's
+        // keyTeamId !== requestedTeamId check every time. So the remote infers
+        // the team from the key it presented.
+        const teamId = input.teamId.trim();
+        const bootUrl = teamId
+          ? `${base}/v1/teams/${encodeURIComponent(teamId)}/bootstrap-owner`
+          : `${base}/v1/teams/bootstrap-owner`;
+        const boot = await fetchImpl(
+          bootUrl,
+          { method: 'POST', headers: { authorization: `Bearer ${input.teamKey}` } },
+        );
+        // A 404 means the deployment never enabled bootstrap. Report the
+        // ORIGINAL 403 rather than the 404: "not found" on a route the user has
+        // never heard of would send them chasing the wrong thing.
+        if (boot.ok) response = await post();
+      }
+    }
   } catch {
     // Deliberately does not include the thrown message: a fetch error can echo the
     // request, and the request carries the destination key in its Authorization header.
@@ -68,8 +116,13 @@ export async function registerProjectKeyHash(
   }
 
   if (!response.ok) {
-    const detail = await response.json().catch(() => null) as { error?: string } | null;
-    return { ok: false, reason: detail?.error ?? `register-key failed with HTTP ${response.status}` };
+    const detail = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+    return {
+      ok: false,
+      // Prefer the server's message over its error label: "requires role owner"
+      // tells the user what happened; "Forbidden" does not.
+      reason: detail?.message ?? detail?.error ?? `register-key failed with HTTP ${response.status}`,
+    };
   }
   return { ok: true };
 }
