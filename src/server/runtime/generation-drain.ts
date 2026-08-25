@@ -82,10 +82,30 @@ export async function loadQueuedJobsForDrain(
   const batchSize = opts.batchSize ?? DEFAULT_DRAIN_BATCH;
   try {
     const result = await pool.query(
+      // `attempts < max_attempts` IS LOAD-BEARING.
+      //
+      // Without it this selected every `queued` row, including jobs that had
+      // burned all their attempts. Those stay `queued` — the worker refuses
+      // them — so the drain found them again on the very next poll and requeued
+      // them forever.
+      //
+      // Measured live: 12 jobs from JULY 16 stuck at attempts=3/3, requeued
+      // 156,858 times in four hours and still climbing. That spin saturates the
+      // generation lane, so nothing else is distilled — a brand-new project's
+      // events sat behind five-week-old corpses.
+      //
+      // And every component reported success throughout: the drain logged
+      // "requeued 14", the rows read `queued`, the queue reported `active`. No
+      // memory was being made. This is the codebase's signature failure — noise
+      // that looks like progress.
+      //
+      // Their source events survive in agent_events, so an exhausted job can
+      // still be regenerated deliberately; what must stop is the loop.
       `SELECT id, job_type, project_id, team_id, agent_event_id,
               source_type, source_id, server_session_id, payload, bullmq_job_id
          FROM observation_generation_jobs
         WHERE status = 'queued'
+          AND attempts < max_attempts
         ORDER BY created_at ASC
         LIMIT $1`,
       [batchSize],

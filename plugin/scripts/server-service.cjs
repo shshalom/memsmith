@@ -9782,6 +9782,7 @@ return ''
               source_type, source_id, server_session_id, payload, bullmq_job_id
          FROM observation_generation_jobs
         WHERE status = 'queued'
+          AND attempts < max_attempts
         ORDER BY created_at ASC
         LIMIT $1`,[r])).rows.map(RHe).filter(s=>s!==null)}catch{return[]}}async function dD(t,e={}){let r=e.staleMinutes??OHe;try{return(await t.query(`UPDATE observation_generation_jobs
           SET status = 'queued', locked_at = NULL, locked_by = NULL
