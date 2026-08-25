@@ -93,11 +93,14 @@ Auth: a valid team key for `:teamId` (no role required — that is the point).
 ```
 1. Authenticate the key. Reject if it is not for :teamId.          → 403
 2. SELECT 1 FROM team_members WHERE team_id = :teamId
-     AND role = 'owner' LIMIT 1
+     AND role = 'owner' LIMIT 1        -- FOR UPDATE on the team row
    If a row exists                                                  → 409
-3. INSERT team_members (team_id, user_id, role) VALUES (:teamId, <key.user_id>, 'owner')
+3. userId = key.user_id ?? newId()
+   If the key had none: UPDATE api_keys SET user_id = userId
+                          WHERE key_hash = <hash> AND user_id IS NULL
+4. INSERT team_members (team_id, user_id, role) VALUES (:teamId, userId, 'owner')
    ON CONFLICT DO NOTHING
-4. Return { userId, role: 'owner' }
+5. Return { userId, role: 'owner' }
 ```
 
 Step 2 and 3 run in ONE transaction with `SELECT ... FOR UPDATE` on the team
@@ -105,14 +108,31 @@ row. Two concurrent bootstraps must not both succeed — that is the whole
 security property, and a check-then-act without the lock is the same race
 `createMarkerIfAbsent` already documents losing.
 
-### Key minting must set `user_id`
+### Key minting must set `user_id` — and bootstrap must BACKFILL it
 
 A key with a null `user_id` can never resolve a role no matter what
 `team_members` says — `insertApiKeyHash` already learned this
 (`project-identity.ts:278`: "user_id must be set too… a NULL here leaves the
-role unresolvable"). So `POST /v1/keys` must stamp `user_id`, and the bootstrap
-route must refuse a key whose `user_id` is null (→ 400, with a message naming
-the cause rather than a generic denial).
+role unresolvable"). `POST /v1/keys` accepts only `{label, expiresInDays}` and
+`createApiKey` writes `input.userId ?? null` (`auth.ts:91`), so **every key
+minted without an explicit `--user` has a NULL `user_id`.**
+
+**REVIEW CORRECTION.** An earlier draft of this design had the bootstrap route
+REFUSE such a key with a 400. That was wrong, and it would have shipped a route
+that cannot help the only key a real user actually holds: the live AWS key was
+minted without `--user`, so it has a null `user_id`, so the 400 branch would
+have fired on the exact case this feature exists for. The route would have been
+correct, tested, and useless.
+
+The route must **assign** the `user_id`, not demand it. It already holds the key,
+so it can stamp the row — and there is precedent doing exactly this for exactly
+this reason (`project-identity.ts:353`, `UPDATE api_keys SET user_id = $1 …
+WHERE user_id IS NULL`, whose comment explains that a key minted before owner
+establishment is otherwise "permanently unable to use owner-gated features").
+
+So step 3 becomes: if the key's `user_id` is null, generate one, stamp it onto
+the `api_keys` row, and use it for the membership insert — all inside the same
+transaction as the ownership check, so a failure leaves neither half applied.
 
 ### Convert calls it
 
@@ -150,7 +170,10 @@ Unit, on a pure decision function (no network):
 - team with no owner + valid key → grant
 - team WITH an owner → 409
 - key for a different team → 403
-- key with null `user_id` → 400
+- **key with null `user_id` → GRANT, and the key row is stamped.** This is the
+  live AWS key's actual state, so a test asserting 400 here would have locked in
+  the bug the review caught.
+- key that already has a `user_id` → grant, and that id is REUSED, not replaced
 - concurrent bootstrap: exactly one grant (transaction + row lock)
 
 Integration:
