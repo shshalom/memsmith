@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { V1_ENDPOINTS } from '../constants/api.js';
-import { readProjectParam } from './projectScope.js';
+import { readProjectParam, apiUrl } from './projectScope.js';
 
 export interface IdentityPayload {
   teamId: string;
@@ -69,7 +69,7 @@ export async function fetchSettings(): Promise<Record<string, SettingField>> {
     // credentials:'include' — /v1/settings is scope-gated the same way
     // /v1/identity is, so without the cookie it 401s and this returns {}, which
     // renders as "no settings" rather than as an error.
-    const res = await fetch(V1_ENDPOINTS.SETTINGS, {
+    const res = await fetch(apiUrl(V1_ENDPOINTS.SETTINGS), {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -86,7 +86,7 @@ export async function patchSettings(
   confirm?: boolean,
 ): Promise<{ settings?: Record<string, SettingField>; confirmationRequired?: boolean; error?: string; message?: string }> {
   try {
-    const res = await fetch(V1_ENDPOINTS.SETTINGS, {
+    const res = await fetch(apiUrl(V1_ENDPOINTS.SETTINGS), {
       method: 'PATCH',
       // Writes need the cookie too — PATCH /v1/settings requires settings:admin
       // scope, so without it the save silently fails with an auth error the pane

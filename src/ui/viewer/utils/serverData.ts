@@ -1,5 +1,5 @@
 import { adaptObservations } from './serverAdapter.js';
-import { readProjectParam } from './projectScope.js';
+import { apiUrl } from './projectScope.js';
 import type { Observation } from '../types.js';
 
 export const V1_ENDPOINTS = {
@@ -23,7 +23,7 @@ export interface ProjectSummary {
 // error — that degradation is required behaviour, not a stopgap.
 export async function fetchProjects(): Promise<ProjectSummary[]> {
   try {
-    const res = await fetch(V1_ENDPOINTS.PROJECTS, { headers: { Accept: 'application/json' } });
+    const res = await fetch(apiUrl(V1_ENDPOINTS.PROJECTS), { headers: { Accept: 'application/json' } });
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data as ProjectSummary[] : [];
@@ -44,11 +44,7 @@ export async function fetchObservations(
     // credentials the request is unauthenticated; without the project it is
     // unscoped, so a joined project's Observations tab came back empty while the
     // metrics tile showed the team's 14 rows.
-    const project = typeof location !== 'undefined' ? readProjectParam(location.search) : '';
-    const searchUrl = project
-      ? `${V1_ENDPOINTS.SEARCH}?projectId=${encodeURIComponent(project)}`
-      : V1_ENDPOINTS.SEARCH;
-    const res = await fetch(searchUrl, {
+    const res = await fetch(apiUrl(V1_ENDPOINTS.SEARCH), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -79,11 +75,7 @@ export async function fetchDashboard(kind: 'board'|'decisions'|'blocked'|'cost'|
     // showed a different project's data. fetchIdentity forwards it as
     // `projectId`; match that exactly so the two cannot disagree about which
     // project the page is displaying.
-    const project = typeof location !== 'undefined' ? readProjectParam(location.search) : '';
-    const url = project
-      ? `${map[kind]}?projectId=${encodeURIComponent(project)}`
-      : map[kind];
-    const res = await fetch(url, {
+    const res = await fetch(apiUrl(map[kind]), {
       headers: { Accept: 'application/json' },
       credentials: 'include',
     });
