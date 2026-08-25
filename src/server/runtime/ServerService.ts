@@ -496,6 +496,25 @@ export class ServerService {
               return null;
             },
             resolveKeyForTeam: (teamId: string) => store.resolveKeyForTeam(teamId),
+            // After a JOIN the cached key is the TEAM's, minted on the remote and
+            // absent from this server's api_keys — so handing it to the browser
+            // made every request 403, which is worse than handing over nothing
+            // (the tracked-view grant serves a request with no credential).
+            // Verified live: bare request 200, same request with that cookie 403,
+            // dashboard showing "runtime unavailable" and empty Settings.
+            isKeyValidLocally: async (key: string) => {
+              try {
+                const r = await this.graph.postgres.pool.query(
+                  'SELECT 1 FROM api_keys WHERE key_hash = $1 LIMIT 1',
+                  [hashApiKey(key)],
+                );
+                return (r.rowCount ?? 0) > 0;
+              } catch {
+                // Unknown: do not issue. A cookie we cannot vouch for is exactly
+                // what broke the page.
+                return false;
+              }
+            },
           });
         }
         : undefined,

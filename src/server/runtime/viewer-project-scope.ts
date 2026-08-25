@@ -31,6 +31,16 @@ export interface ViewerProjectScopeDeps {
    * lookup below is the only path (the pre-join behaviour).
    */
   resolveKeyForProject?: (projectId: string) => Promise<string | null>;
+  /**
+   * Can the LOCAL server validate this key (is its hash in local api_keys)?
+   *
+   * After a join, CredentialStore holds the TEAM's key — minted on the remote,
+   * absent from the local table. Issuing it as the viewer cookie made every
+   * request 403, which is worse than issuing nothing: the tracked-view grant
+   * answers a request that presents no credential at all. Optional so existing
+   * callers and tests are unaffected; when absent the old behaviour stands.
+   */
+  isKeyValidLocally?: (key: string) => Promise<boolean>;
 }
 
 export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): Promise<string | null> {
@@ -79,7 +89,26 @@ export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): 
     // authenticates as. Returning null makes the caller's failure explicit
     // rather than mislabelling someone else's data.
     if (!teamId) return null;
-    return deps.resolveKeyForTeam(teamId);
+    const teamKey = deps.resolveKeyForTeam(teamId);
+    if (!teamKey) return null;
+
+    // ONLY HAND OVER A KEY THE LOCAL SERVER CAN VALIDATE.
+    //
+    // CredentialStore holds whatever key a project uses — and after a JOIN that
+    // is the TEAM's key, minted on the remote. The local server validates keys
+    // against its own api_keys table, which has no such row, so issuing it as
+    // the viewer cookie made every request 403: worse than issuing nothing,
+    // because the tracked-view grant answers a request that presents NO
+    // credential. Measured live: bare request 200, same request with the cookie
+    // 403, and the dashboard rendered "runtime unavailable" with empty Settings.
+    //
+    // So verify it locally before handing it over. If the hash is absent this
+    // returns null, the viewer issues no cookie, and the grant serves the page.
+    if (deps.isKeyValidLocally) {
+      const usable = await deps.isKeyValidLocally(teamKey);
+      if (!usable) return null;
+    }
+    return teamKey;
   } catch {
     // A lookup failure must not break the page — but it must not mislabel the
     // page either. No key: the viewer renders unauthenticated for the project
