@@ -38,6 +38,32 @@
 // Either alone leaves a hole: a flag can be left on forever, and a window
 // applies to every team on a deployment that never wanted this at all.
 
+/** Default window: ownership is a setup-time act, measured in minutes. */
+export const DEFAULT_OWNER_BOOTSTRAP_WINDOW_MINUTES = 60;
+
+/**
+ * Read MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES, falling back to the default for
+ * anything that is not a usable positive number.
+ *
+ * A bare `Number(raw)` turned an operator typo into a DISABLED GATE: a
+ * non-numeric value yields NaN, and `ageMinutes > NaN` is always false, so every
+ * team of any age would have passed the window check. An empty string failed the
+ * other way — `Number('')` is 0, an instantly-closed window that would refuse a
+ * team created the same second. Neither is a security posture anyone chose; both
+ * are typos. So a malformed value gets the default, which is the only value the
+ * deployment can be said to have agreed to.
+ *
+ * Negative and zero are rejected for the same reason: a window that cannot admit
+ * anyone is indistinguishable from the feature being off, and the flag already
+ * expresses that intent unambiguously.
+ */
+export function parseWindowMinutes(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_OWNER_BOOTSTRAP_WINDOW_MINUTES;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_OWNER_BOOTSTRAP_WINDOW_MINUTES;
+  return n;
+}
+
 export type OwnerBootstrapOutcome =
   | 'grant'
   | 'disabled'

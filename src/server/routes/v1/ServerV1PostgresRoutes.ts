@@ -20,7 +20,7 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
-import { evaluateOwnerBootstrap } from './owner-bootstrap.js';
+import { evaluateOwnerBootstrap, parseWindowMinutes } from './owner-bootstrap.js';
 import { withPostgresTransaction } from '../../../storage/postgres/pool.js';
 import type { PostgresRequireAuthOptions } from '../../middleware/postgres-auth.js';
 import { authorizeObservationDelete } from './delete-authorization.js';
@@ -351,7 +351,17 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       const requestedTeamId = String((req.params as { teamId?: string }).teamId ?? '') || String(ctxTeamId);
       const ctx = (req as unknown as { authContext?: { teamId?: string | null; apiKeyId?: string | null } }).authContext;
       const enabled = process.env.MEMSMITH_ALLOW_OWNER_BOOTSTRAP === '1';
-      const windowMinutes = Number(process.env.MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES ?? 60);
+      // A MALFORMED WINDOW MUST NOT BECOME AN UNLIMITED ONE.
+      //
+      // `Number(raw)` alone made a typo in a task definition silently disable one
+      // of the two gates this feature rests on: a non-numeric value yields NaN,
+      // and `ageMinutes > NaN` is always false, so every team of any age would
+      // have been inside the window. An empty string had the opposite failure —
+      // Number('') is 0, an instantly-closed window. Both are operator errors
+      // that deserve the default, not a silent change of security posture.
+      // owner-bootstrap.ts fails closed on an unverifiable timestamp; this is the
+      // same rule applied to the window itself.
+      const windowMinutes = parseWindowMinutes(process.env.MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES);
 
       // Read the key's own row: authContext carries teamId but not user_id, and
       // user_id is what the membership insert and the role join both need.

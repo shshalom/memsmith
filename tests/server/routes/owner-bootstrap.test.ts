@@ -24,6 +24,8 @@
 import { describe, it, expect } from 'bun:test';
 import {
   evaluateOwnerBootstrap,
+  parseWindowMinutes,
+  DEFAULT_OWNER_BOOTSTRAP_WINDOW_MINUTES as DEFAULT_WINDOW,
   type OwnerBootstrapInput,
 } from '../../../src/server/routes/v1/owner-bootstrap.js';
 
@@ -42,6 +44,65 @@ function ok(): OwnerBootstrapInput {
     teamHasOwner: false,
   };
 }
+
+describe('parseWindowMinutes', () => {
+  // A MALFORMED WINDOW MUST NOT BECOME AN UNLIMITED ONE.
+  //
+  // The route read this with a bare `Number(raw)`, which turned an operator typo
+  // into a DISABLED GATE: a non-numeric value yields NaN, and the comparison
+  // `ageMinutes > NaN` is always false, so every team of any age passed the
+  // window check. That silently removed one of the two gates this feature rests
+  // on — found while preparing the env for a real ECS task definition, which is
+  // exactly where such a typo would live.
+
+  it('uses the value when it is a positive number', () => {
+    expect(parseWindowMinutes('30')).toBe(30);
+  });
+
+  it('defaults when unset', () => {
+    expect(parseWindowMinutes(undefined)).toBe(DEFAULT_WINDOW);
+  });
+
+  it('defaults on a NON-NUMERIC value rather than opening the window forever', () => {
+    // The bug. `Number('sixty')` is NaN and `age > NaN` is false, so this would
+    // have admitted a team created any number of weeks ago.
+    expect(parseWindowMinutes('sixty')).toBe(DEFAULT_WINDOW);
+    expect(Number.isFinite(parseWindowMinutes('sixty'))).toBe(true);
+  });
+
+  it('defaults on an EMPTY value rather than closing the window instantly', () => {
+    // The opposite failure: `Number('')` is 0, refusing even a brand-new team.
+    expect(parseWindowMinutes('')).toBe(DEFAULT_WINDOW);
+    expect(parseWindowMinutes('   ')).toBe(DEFAULT_WINDOW);
+  });
+
+  it('defaults on zero and negatives', () => {
+    // A window that can admit nobody is indistinguishable from the feature being
+    // off, and the flag already expresses that intent unambiguously.
+    expect(parseWindowMinutes('0')).toBe(DEFAULT_WINDOW);
+    expect(parseWindowMinutes('-5')).toBe(DEFAULT_WINDOW);
+  });
+
+  it('defaults on Infinity — the unbounded window spelled out', () => {
+    expect(parseWindowMinutes('Infinity')).toBe(DEFAULT_WINDOW);
+  });
+
+  it('tolerates surrounding whitespace', () => {
+    expect(parseWindowMinutes(' 45 ')).toBe(45);
+  });
+
+  it('composes with evaluateOwnerBootstrap: a typo cannot admit an old team', () => {
+    // The end-to-end statement of the bug, at the layer that matters: a
+    // weeks-old team must still be refused when the window env var is garbage.
+    const weeksOld = NOW - 21 * 24 * 60 * 60_000;
+    const r = evaluateOwnerBootstrap({
+      ...ok(),
+      windowMinutes: parseWindowMinutes('not-a-number'),
+      teamCreatedAtEpoch: weeksOld,
+    });
+    expect(r.outcome).toBe('window-closed');
+  });
+});
 
 describe('evaluateOwnerBootstrap', () => {
   it('grants ownership when every gate is open', () => {
