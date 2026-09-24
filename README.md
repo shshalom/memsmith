@@ -1,54 +1,6 @@
-<h1 align="center">
-  <br>
-  <a href="https://github.com/shshalom/memsmith">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/memsmith-logo-for-light-mode.webp" alt="MemSmith" width="400">
-    </picture>
-  </a>
-  <br>
-  <a href="https://vercel.com/open-source-program">
-    <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge-2026.svg" />
-  </a>
-</h1>
+<h1 align="center">MemSmith</h1>
 
-<p align="center">
-  <a href="docs/i18n/README.zh.md">🇨🇳 中文</a> •
-  <a href="docs/i18n/README.zh-tw.md">🇹🇼 繁體中文</a> •
-  <a href="docs/i18n/README.ja.md">🇯🇵 日本語</a> •
-  <a href="docs/i18n/README.pt.md">🇵🇹 Português</a> •
-  <a href="docs/i18n/README.pt-br.md">🇧🇷 Português</a> •
-  <a href="docs/i18n/README.ko.md">🇰🇷 한국어</a> •
-  <a href="docs/i18n/README.es.md">🇪🇸 Español</a> •
-  <a href="docs/i18n/README.de.md">🇩🇪 Deutsch</a> •
-  <a href="docs/i18n/README.fr.md">🇫🇷 Français</a> •
-  <a href="docs/i18n/README.he.md">🇮🇱 עברית</a> •
-  <a href="docs/i18n/README.ar.md">🇸🇦 العربية</a> •
-  <a href="docs/i18n/README.ru.md">🇷🇺 Русский</a> •
-  <a href="docs/i18n/README.pl.md">🇵🇱 Polski</a> •
-  <a href="docs/i18n/README.cs.md">🇨🇿 Čeština</a> •
-  <a href="docs/i18n/README.nl.md">🇳🇱 Nederlands</a> •
-  <a href="docs/i18n/README.tr.md">🇹🇷 Türkçe</a> •
-  <a href="docs/i18n/README.uk.md">🇺🇦 Українська</a> •
-  <a href="docs/i18n/README.vi.md">🇻🇳 Tiếng Việt</a> •
-  <a href="docs/i18n/README.tl.md">🇵🇭 Tagalog</a> •
-  <a href="docs/i18n/README.id.md">🇮🇩 Indonesia</a> •
-  <a href="docs/i18n/README.th.md">🇹🇭 ไทย</a> •
-  <a href="docs/i18n/README.hi.md">🇮🇳 हिन्दी</a> •
-  <a href="docs/i18n/README.bn.md">🇧🇩 বাংলা</a> •
-  <a href="docs/i18n/README.ur.md">🇵🇰 اردو</a> •
-  <a href="docs/i18n/README.ro.md">🇷🇴 Română</a> •
-  <a href="docs/i18n/README.sv.md">🇸🇪 Svenska</a> •
-  <a href="docs/i18n/README.it.md">🇮🇹 Italiano</a> •
-  <a href="docs/i18n/README.el.md">🇬🇷 Ελληνικά</a> •
-  <a href="docs/i18n/README.hu.md">🇭🇺 Magyar</a> •
-  <a href="docs/i18n/README.fi.md">🇫🇮 Suomi</a> •
-  <a href="docs/i18n/README.da.md">🇩🇰 Dansk</a> •
-  <a href="docs/i18n/README.no.md">🇳🇴 Norsk</a>
-</p>
-
-<h4 align="center">Persistent memory compression system built for <a href="https://claude.com/claude-code" target="_blank">Claude Code</a>.</h4>
+<h4 align="center">Shared, persistent memory for AI coding agents. Built for <a href="https://claude.com/claude-code" target="_blank">Claude Code</a>.</h4>
 
 <p align="center">
   <a href="LICENSE">
@@ -60,92 +12,32 @@
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
   </a>
-  <a href="https://github.com/shshalom/awesome-claude-code">
-    <img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome Claude Code">
-  </a>
 </p>
 
 <p align="center">
-  <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/trendshift-badge.svg" alt="shshalom/memsmith | Trendshift" width="250" height="55"/>
-    </picture>
-  </a>
-</p>
-
-<br>
-
-<table align="center">
-  <tr>
-    <td align="center">
-      <a href="https://github.com/shshalom/memsmith">
-        <picture>
-          <img
-            src="https://raw.githubusercontent.com/shshalom/memsmith/main/docs/public/cm-preview.gif"
-            alt="MemSmith Preview"
-            width="500"
-          >
-        </picture>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://www.star-history.com/#shshalom/memsmith&Date">
-        <picture>
-          <source
-            media="(prefers-color-scheme: dark)"
-            srcset="https://api.star-history.com/image?repos=shshalom/memsmith&type=date&theme=dark&legend=top-left"
-          />
-          <source
-            media="(prefers-color-scheme: light)"
-            srcset="https://api.star-history.com/image?repos=shshalom/memsmith&type=date&legend=top-left"
-          />
-          <img
-            alt="Star History Chart"
-            src="https://api.star-history.com/image?repos=shshalom/memsmith&type=date&legend=top-left"
-            width="500"
-          />
-        </picture>
-      </a>
-    </td>
-  </tr>
-</table>
-
-<p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#how-it-works">How It Works</a> •
-  <a href="#mcp-search-tools">Search Tools</a> •
-  <a href="#documentation">Documentation</a> •
+  <a href="#quick-start">Quick start</a> •
+  <a href="#how-it-works">How it works</a> •
+  <a href="#team-mode">Team mode</a> •
+  <a href="#mcp-search-tools">Search tools</a> •
   <a href="#configuration">Configuration</a> •
-  <a href="#troubleshooting">Troubleshooting</a> •
   <a href="#license">License</a>
 </p>
 
-<p align="center">
-  MemSmith seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
-</p>
+AI coding agents forget everything between sessions, and what they do remember
+stays on one developer's machine. MemSmith captures what your agent does, turns
+that activity into short typed observations (decisions, bug fixes, discoveries,
+changes), and injects the relevant ones back into future sessions — so knowledge
+compounds instead of evaporating. In team mode, the whole team shares one
+searchable memory.
 
 ---
 
-## Quick Start
+## Quick start
 
 Install with a single command:
 
 ```bash
 npx memsmith install
-```
-
-Or install for OpenCode:
-
-```bash
-npx memsmith install --ide opencode
-```
-
-Or install for Antigravity CLI ([setup guide](https://docs.memsmith.ai/antigravity-cli/setup)):
-
-```bash
-npx memsmith install --ide antigravity
 ```
 
 Or install from the plugin marketplace inside Claude Code:
@@ -156,88 +48,63 @@ Or install from the plugin marketplace inside Claude Code:
 /plugin install memsmith
 ```
 
-Restart Claude Code. Context from previous sessions will automatically appear in new sessions.
+Restart Claude Code. Context from previous sessions automatically appears in
+new sessions, and the dashboard is available at http://localhost:38879.
 
-> **Note:** MemSmith is also published on npm, but `npm install -g memsmith` installs the **SDK/library only** — it does not register the plugin hooks or set up the worker service. Always install via `npx memsmith install` or the `/plugin` commands above.
+> **Note:** MemSmith is also published on npm, but `npm install -g memsmith`
+> installs the SDK/library only — it does not register the plugin hooks or set
+> up the server. Always install through `npx memsmith install` or the `/plugin`
+> commands above.
 
-### 🦞 OpenClaw Gateway
+## Key features
 
-[OpenClaw](https://openclaw.ai) gateway support is available through the upstream claude-mem installer that MemSmith is based on:
+- 🧠 **Persistent memory** - Context survives across sessions
+- 👥 **Team mode** - One shared memory per team, scoped by project, over authenticated HTTPS
+- 🔍 **Hybrid search** - Full-text plus semantic vector search, fused with reciprocal rank fusion
+- 📊 **Progressive disclosure** - Layered retrieval keeps token cost low; lower-ranked memories render at reduced detail
+- 🏠 **Local first** - Embedded Postgres and a local embedder; no Docker, no API keys, nothing leaves your machine in local mode
+- 🖥️ **Dashboard** - Real-time memory stream and team controls at http://localhost:38879
+- 🔒 **Privacy control** - Use `<private>` tags to exclude sensitive content from storage
+- 🤖 **Automatic operation** - No manual intervention required
 
-```bash
-curl -fsSL https://install.cmem.ai/openclaw.sh | bash
-```
+## How it works
 
-This command installs the origin claude-mem plugin, not MemSmith. The installer handles dependencies, plugin setup, AI provider configuration, and optional real-time observation feeds to Telegram, Discord, Slack, and more. See the [OpenClaw Integration Guide](https://docs.memsmith.ai/openclaw-integration) for details.
+1. **Capture.** Claude Code lifecycle hooks (`SessionStart`, `UserPromptSubmit`,
+   `PreToolUse`, `PostToolUse`, `Stop`) send events to a local MemSmith server.
+2. **Generate.** A generation step turns raw events into typed observations on
+   your own machine. The LLM provider is swappable between Ollama (default in
+   team mode), Claude, Gemini, and OpenRouter.
+3. **Store.** Observations land in Postgres with pgvector. Each project has its
+   own database. A local embedder produces the vectors — no API key required.
+4. **Retrieve.** Hybrid search ranks results with weighted reciprocal rank
+   fusion. If the embedder is down, search degrades to full-text instead of
+   failing.
+5. **Inject.** At session start and on each prompt, relevant observations render
+   into the agent's context. Superseded decisions collapse to their current
+   head, so the agent sees only current truth.
 
-**Key Features:**
+## Team mode
 
-- 🧠 **Persistent Memory** - Context survives across sessions
-- 📊 **Progressive Disclosure** - Layered memory retrieval with token cost visibility
-- 🔍 **Skill-Based Search** - Query your project history with the `ms-mem-search` skill
-- 🖥️ **Dashboard** - Real-time memory stream at http://localhost:38879
-- 💻 **Claude Desktop Skill** - Search memory from Claude Desktop conversations
-- 🔒 **Privacy Control** - Use `<private>` tags to exclude sensitive content from storage
-- ⚙️ **Context Configuration** - Fine-grained control over what context gets injected
-- 🤖 **Automatic Operation** - No manual intervention required
-- 🔗 **Citations** - Reference past observations by ID and view them in the dashboard at http://localhost:38879
-- 👥 **Team Mode** - Share one memory across a team with the GO TEAM convert and Join flows, over authenticated HTTPS
+MemSmith runs the same engine in two runtimes:
 
----
+| Runtime | Who it serves | Where data lives |
+| --- | --- | --- |
+| `local` (default) | A solo developer | Embedded Postgres in `~/.memsmith/pgdata` |
+| `server` | A team | Remote Postgres behind an HTTPS API |
 
-## Documentation
+A project moves from `local` to `server` through the **GO TEAM** flow in the
+dashboard. It copies local data to the team server, verifies the copy, and only
+then flips the runtime. Local data is never deleted.
 
-📚 **[View Full Documentation](https://docs.memsmith.ai/)** - Browse on official website
+A teammate who clones a converted repo sees a **Join** button in the dashboard,
+enters a team key, and their sessions start reading and writing team memory. No
+teammate ever holds a database password — API keys are hashed at rest,
+revocable, expirable, and scoped to a team and optionally one project.
 
-### Getting Started
+## MCP search tools
 
-- **[Installation Guide](https://docs.memsmith.ai/installation)** - Quick start & advanced installation
-- **[Usage Guide](https://docs.memsmith.ai/usage/getting-started)** - How MemSmith works automatically
-- **[Search Tools](https://docs.memsmith.ai/usage/search-tools)** - Query your project history with natural language
-
-### Best Practices
-
-- **[Context Engineering](https://docs.memsmith.ai/context-engineering)** - AI agent context optimization principles
-- **[Progressive Disclosure](https://docs.memsmith.ai/progressive-disclosure)** - Philosophy behind MemSmith's context priming strategy
-
-### Architecture
-
-- **[Overview](https://docs.memsmith.ai/architecture/overview)** - System components & data flow
-- **[Architecture Evolution](https://docs.memsmith.ai/architecture-evolution)** - The journey from v3 to v5
-- **[Hooks Architecture](https://docs.memsmith.ai/hooks-architecture)** - How MemSmith uses lifecycle hooks
-- **[Hooks Reference](https://docs.memsmith.ai/architecture/hooks)** - Hook scripts explained
-- **[Server](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API & runtime management
-- **[Database](https://docs.memsmith.ai/architecture/database)** - Postgres schema & full-text search
-- **[Search Architecture](https://docs.memsmith.ai/architecture/search-architecture)** - Hybrid search with pgvector
-
-### Configuration & Development
-
-- **[Configuration](https://docs.memsmith.ai/configuration)** - Environment variables & settings
-- **[Development](https://docs.memsmith.ai/development)** - Building, testing, contributing
-- **[Troubleshooting](https://docs.memsmith.ai/troubleshooting)** - Common issues & solutions
-
----
-
-## How It Works
-
-**Core Components:**
-
-1. **Lifecycle Hooks** - `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` send events to a local MemSmith server over HTTP
-2. **Smart Install** - Cached dependency checker (pre-hook script, not a lifecycle hook)
-3. **Local Server** - Serves the HTTP API and the dashboard at http://localhost:38879
-4. **Postgres with pgvector** - Embedded Postgres stores typed observations per project; no Docker required
-5. **Hybrid Search** - Full-text search plus vector search, merged with weighted reciprocal rank fusion; degrades to full-text search if the embedder is unavailable
-6. **Local Embedder** - Generates 384-dimension vectors on your machine with no API key
-7. **`ms-mem-search` Skill** - Natural language queries with progressive disclosure
-8. **Two Runtimes** - `local` (default, embedded Postgres for a solo developer) and `server` (the same engine pointed at a remote team Postgres)
-
-See [Architecture Overview](https://docs.memsmith.ai/architecture/overview) for details.
-
----
-
-## MCP Search Tools
-
-MemSmith provides memory search through MCP tools that follow a token-efficient, filter-before-fetching workflow:
+MemSmith exposes memory through MCP tools that follow a token-efficient,
+filter-before-fetching workflow:
 
 **Search and recall:**
 
@@ -254,13 +121,21 @@ MemSmith provides memory search through MCP tools that follow a token-efficient,
 
 - **`note_add`** - Record a user-directed note ("remember that...") as a findable user note
 
-Start broad with `observation_search` or `smart_search`, then narrow with `observation_context` before fetching full details. Filtering before fetching keeps token cost low.
+Start broad with `observation_search` or `smart_search`, then narrow with
+`observation_context` before fetching full details. The `ms-mem-search` skill
+wraps this workflow for natural language queries.
 
-See the [Search Tools Guide](https://docs.memsmith.ai/usage/search-tools) for detailed examples.
+## Configuration
 
----
+Settings are managed in `~/.memsmith/settings.json` (auto-created with defaults
+on first run). Configure the AI provider, data directory, log level, and
+context injection settings.
 
-## System Requirements
+The `MEMSMITH_MODE` setting controls workflow behavior and the language of
+generated observations. Language modes follow the pattern `code--[lang]`, such
+as `code--zh` or `code--ja`. Restart Claude Code after changing the mode.
+
+## System requirements
 
 - **Node.js**: 20.0.0 or higher
 - **Claude Code**: Latest version with plugin support
@@ -268,102 +143,28 @@ See the [Search Tools Guide](https://docs.memsmith.ai/usage/search-tools) for de
 - **uv**: Python package manager (auto-installed if missing)
 - **Postgres**: Embedded and managed automatically in `~/.memsmith/pgdata`; no Docker or manual setup required
 
----
-### Windows Setup Notes
+## Documentation and development
 
-If you see an error like:
+Documentation source lives in [`docs/`](docs/), including the
+[AWS deploy runbook](docs/deploy/) and the design specs in
+[`docs/superpowers/specs/`](docs/superpowers/specs/).
 
-```powershell
-npm : The term 'npm' is not recognized as the name of a cmdlet
-```
+To build from source: clone the repo, run `npm install`, then `npm run build`.
+Run tests with `bun test tests/server/` for a fast signal. After any source
+change that lands in a plugin bundle, run `npm run build` and commit the
+regenerated files under `plugin/`.
 
-Make sure Node.js and npm are installed and added to your PATH. Download the latest Node.js installer from https://nodejs.org and restart your terminal after installation.
+## Bug reports and contributing
 
----
+Report issues at [GitHub Issues](https://github.com/shshalom/memsmith/issues).
 
-## Configuration
-
-Settings are managed in `~/.memsmith/settings.json` (auto-created with defaults on first run). Configure AI model, worker port, data directory, log level, and context injection settings.
-
-See the **[Configuration Guide](https://docs.memsmith.ai/configuration)** for all available settings and examples.
-
-### Mode & Language Configuration
-
-MemSmith supports multiple workflow modes and languages via the `MEMSMITH_MODE` setting.
-
-This option controls both:
-- The workflow behavior (e.g. code, chill, investigation)
-- The language used in generated observations
-
-#### How to Configure
-
-Edit your settings file at `~/.memsmith/settings.json`:
-
-```json
-{
-  "MEMSMITH_MODE": "code--zh"
-}
-```
-
-Modes are defined in `plugin/modes/`. To see all available modes locally:
-
-```bash
-ls ~/.claude/plugins/marketplaces/shshalom/plugin/modes/
-```
-
-#### Available Modes
-
-| Mode | Description |
-|------------|-------------------------|
-| `code` | Default English mode |
-| `code--zh` | Simplified Chinese mode |
-| `code--ja` | Japanese mode |
-
-Language-specific modes follow the pattern `code--[lang]` where `[lang]` is the ISO 639-1 language code (e.g., `zh` for Chinese, `ja` for Japanese, `es` for Spanish).
-
-> Note: `code--zh` (Simplified Chinese) is already built-in — no additional installation or plugin update is required.
-
-#### After Changing Mode
-
-Restart Claude Code to apply the new mode configuration.
----
-
-## Development
-
-See the **[Development Guide](https://docs.memsmith.ai/development)** for build instructions, testing, and contribution workflow.
-
----
-
-## Troubleshooting
-
-If experiencing issues, describe the problem to Claude and the troubleshoot skill will automatically diagnose and provide fixes.
-
-See the **[Troubleshooting Guide](https://docs.memsmith.ai/troubleshooting)** for common issues and solutions.
-
----
-
-## Bug Reports
-
-Create comprehensive bug reports with the automated generator:
-
-```bash
-cd ~/.claude/plugins/marketplaces/shshalom
-npm run bug-report
-```
-
-## Contributing
-
-Contributions are welcome! Please:
+Contributions are welcome:
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes with tests
 4. Update documentation
-5. Submit a Pull Request
-
-See [Development Guide](https://docs.memsmith.ai/development) for contribution workflow.
-
----
+5. Submit a pull request
 
 ## License
 
@@ -377,35 +178,15 @@ See the [LICENSE](LICENSE) file for full details. See [docs/license.md](docs/lic
 and [docs/ip-boundary.md](docs/ip-boundary.md) for licensing scope and the
 open/commercial boundary.
 
-**Note on Ragtime**: The `ragtime/` directory is licensed under the **Apache License 2.0**. See [ragtime/LICENSE](ragtime/LICENSE) for details.
-
----
-
-## Support
-
-- **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/shshalom/memsmith/issues)
-- **Repository**: [github.com/shshalom/memsmith](https://github.com/shshalom/memsmith)
-- **Official X Account**: [@Claude_Memory](https://x.com/Claude_Memory)
-- **Official Discord**: [Join Discord](https://discord.com/invite/J4wttp9vDu)
-- **Author**: Alex Newman ([@shshalom](https://github.com/shshalom))
-
----
+**Note on Ragtime**: The `ragtime/` directory is licensed under the Apache
+License 2.0. See [ragtime/LICENSE](ragtime/LICENSE) for details.
 
 ## Credits
 
-MemSmith is based on the open source claude-mem plugin by Alex Newman and draws on ideas
-from the wider open source agent memory ecosystem. The CMEM references, community links,
-and preview assets in this README credit that lineage.
+MemSmith is based on the open source
+[claude-mem](https://github.com/thedotmack/claude-mem) plugin by Alex Newman
+and draws on ideas from the wider open source agent memory ecosystem.
 
 ---
 
 **Built with Claude Agent SDK** | **Works with Claude Code** | **Made with TypeScript**
-
----
-
-### What About CMEM? 
-
-CMEM is a token created by a 3rd party but officially embraced by the creator of MemSmith (Alex Newman, @shshalom). The token acts as a community catalyst for growth and a vehicle for bringing CMEM to the developers and knowledge workers that need it most.
-
-Official BASE CA: 0x76b1967eec0ccaeb001bbbb2b40dc4badba31ba3
