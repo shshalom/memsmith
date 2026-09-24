@@ -34,13 +34,7 @@ searchable memory.
 
 ## Quick start
 
-Install with a single command:
-
-```bash
-npx memsmith install
-```
-
-Or install from the plugin marketplace inside Claude Code:
+Install from the plugin marketplace inside Claude Code:
 
 ```bash
 /plugin marketplace add shshalom/memsmith
@@ -186,7 +180,3 @@ License 2.0. See [ragtime/LICENSE](ragtime/LICENSE) for details.
 MemSmith is based on the open source
 [claude-mem](https://github.com/thedotmack/claude-mem) plugin by Alex Newman
 and draws on ideas from the wider open source agent memory ecosystem.
-
----
-
-**Built with Claude Agent SDK** | **Works with Claude Code** | **Made with TypeScript**
