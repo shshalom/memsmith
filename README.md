@@ -55,7 +55,7 @@
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
   </a>
   <a href="package.json">
-    <img src="https://img.shields.io/badge/version-13.4.0-green.svg" alt="Version">
+    <img src="https://img.shields.io/badge/version-13.10.1-green.svg" alt="Version">
   </a>
   <a href="package.json">
     <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
@@ -162,26 +162,26 @@ Restart Claude Code. Context from previous sessions will automatically appear in
 
 ### 🦞 OpenClaw Gateway
 
-Install memsmith as a persistent memory plugin on [OpenClaw](https://openclaw.ai) gateways with a single command:
+[OpenClaw](https://openclaw.ai) gateway support is available through the upstream claude-mem installer that MemSmith is based on:
 
 ```bash
 curl -fsSL https://install.cmem.ai/openclaw.sh | bash
 ```
 
-The installer handles dependencies, plugin setup, AI provider configuration, worker startup, and optional real-time observation feeds to Telegram, Discord, Slack, and more. See the [OpenClaw Integration Guide](https://docs.memsmith.ai/openclaw-integration) for details.
+This command installs the origin claude-mem plugin, not MemSmith. The installer handles dependencies, plugin setup, AI provider configuration, and optional real-time observation feeds to Telegram, Discord, Slack, and more. See the [OpenClaw Integration Guide](https://docs.memsmith.ai/openclaw-integration) for details.
 
 **Key Features:**
 
 - 🧠 **Persistent Memory** - Context survives across sessions
 - 📊 **Progressive Disclosure** - Layered memory retrieval with token cost visibility
-- 🔍 **Skill-Based Search** - Query your project history with mem-search skill
-- 🖥️ **Web Viewer UI** - Real-time memory stream at http://localhost:37777
+- 🔍 **Skill-Based Search** - Query your project history with the `ms-mem-search` skill
+- 🖥️ **Dashboard** - Real-time memory stream at http://localhost:38879
 - 💻 **Claude Desktop Skill** - Search memory from Claude Desktop conversations
 - 🔒 **Privacy Control** - Use `<private>` tags to exclude sensitive content from storage
 - ⚙️ **Context Configuration** - Fine-grained control over what context gets injected
 - 🤖 **Automatic Operation** - No manual intervention required
-- 🔗 **Citations** - Reference past observations with IDs (access via http://localhost:37777/api/observation/{id} or view all in the web viewer at http://localhost:37777)
-- 🧪 **Beta Channel** - Try experimental features like Endless Mode via version switching
+- 🔗 **Citations** - Reference past observations by ID and view them in the dashboard at http://localhost:38879
+- 👥 **Team Mode** - Share one memory across a team with the GO TEAM convert and Join flows, over authenticated HTTPS
 
 ---
 
@@ -194,7 +194,6 @@ The installer handles dependencies, plugin setup, AI provider configuration, wor
 - **[Installation Guide](https://docs.memsmith.ai/installation)** - Quick start & advanced installation
 - **[Usage Guide](https://docs.memsmith.ai/usage/getting-started)** - How MemSmith works automatically
 - **[Search Tools](https://docs.memsmith.ai/usage/search-tools)** - Query your project history with natural language
-- **[Beta Features](https://docs.memsmith.ai/beta-features)** - Try experimental features like Endless Mode
 
 ### Best Practices
 
@@ -206,10 +205,10 @@ The installer handles dependencies, plugin setup, AI provider configuration, wor
 - **[Overview](https://docs.memsmith.ai/architecture/overview)** - System components & data flow
 - **[Architecture Evolution](https://docs.memsmith.ai/architecture-evolution)** - The journey from v3 to v5
 - **[Hooks Architecture](https://docs.memsmith.ai/hooks-architecture)** - How MemSmith uses lifecycle hooks
-- **[Hooks Reference](https://docs.memsmith.ai/architecture/hooks)** - 7 hook scripts explained
-- **[Worker Service](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API & Bun management
-- **[Database](https://docs.memsmith.ai/architecture/database)** - SQLite schema & FTS5 search
-- **[Search Architecture](https://docs.memsmith.ai/architecture/search-architecture)** - Hybrid search with Chroma vector database
+- **[Hooks Reference](https://docs.memsmith.ai/architecture/hooks)** - Hook scripts explained
+- **[Server](https://docs.memsmith.ai/architecture/worker-service)** - HTTP API & runtime management
+- **[Database](https://docs.memsmith.ai/architecture/database)** - Postgres schema & full-text search
+- **[Search Architecture](https://docs.memsmith.ai/architecture/search-architecture)** - Hybrid search with pgvector
 
 ### Configuration & Development
 
@@ -223,12 +222,14 @@ The installer handles dependencies, plugin setup, AI provider configuration, wor
 
 **Core Components:**
 
-1. **5 Lifecycle Hooks** - SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd (6 hook scripts)
+1. **Lifecycle Hooks** - `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` send events to a local MemSmith server over HTTP
 2. **Smart Install** - Cached dependency checker (pre-hook script, not a lifecycle hook)
-3. **Worker Service** - HTTP API on port 37777 with web viewer UI and 10 search endpoints, managed by Bun
-4. **SQLite Database** - Stores sessions, observations, summaries
-5. **mem-search Skill** - Natural language queries with progressive disclosure
-6. **Chroma Vector Database** - Hybrid semantic + keyword search for intelligent context retrieval
+3. **Local Server** - Serves the HTTP API and the dashboard at http://localhost:38879
+4. **Postgres with pgvector** - Embedded Postgres stores typed observations per project; no Docker required
+5. **Hybrid Search** - Full-text search plus vector search, merged with weighted reciprocal rank fusion; degrades to full-text search if the embedder is unavailable
+6. **Local Embedder** - Generates 384-dimension vectors on your machine with no API key
+7. **`ms-mem-search` Skill** - Natural language queries with progressive disclosure
+8. **Two Runtimes** - `local` (default, embedded Postgres for a solo developer) and `server` (the same engine pointed at a remote team Postgres)
 
 See [Architecture Overview](https://docs.memsmith.ai/architecture/overview) for details.
 
@@ -236,48 +237,26 @@ See [Architecture Overview](https://docs.memsmith.ai/architecture/overview) for 
 
 ## MCP Search Tools
 
-MemSmith provides intelligent memory search through **4 MCP tools** following a token-efficient **3-layer workflow pattern**:
+MemSmith provides memory search through MCP tools that follow a token-efficient, filter-before-fetching workflow:
 
-**The 3-Layer Workflow:**
+**Search and recall:**
 
-1. **`search`** - Get compact index with IDs (~50-100 tokens/result)
-2. **`timeline`** - Get chronological context around interesting results
-3. **`get_observations`** - Fetch full details ONLY for filtered IDs (~500-1,000 tokens/result)
+- **`observation_search`** - Full-text search across observations, with project and platform filters
+- **`smart_search`** - Hybrid semantic and keyword search over the memory corpus
+- **`observation_context`** - Chronological context around a specific observation
 
-**How It Works:**
-- Claude uses MCP tools to search your memory
-- Start with `search` to get an index of results
-- Use `timeline` to see what was happening around specific observations
-- Use `get_observations` to fetch full details for relevant IDs
-- **~10x token savings** by filtering before fetching details
+**Progressive disclosure for file memory:**
 
-**Available MCP Tools:**
+- **`smart_outline`** - Structural map of a file with line numbers, cheaper than re-reading it
+- **`smart_unfold`** - Expand only the sections you need
 
-1. **`search`** - Search memory index with full-text queries, filters by type/date/project
-2. **`timeline`** - Get chronological context around a specific observation or query
-3. **`get_observations`** - Fetch full observation details by IDs (always batch multiple IDs)
+**Capture:**
 
-**Example Usage:**
+- **`note_add`** - Record a user-directed note ("remember that...") as a findable user note
 
-```typescript
-// Step 1: Search for index
-search(query="authentication bug", type="bugfix", limit=10)
+Start broad with `observation_search` or `smart_search`, then narrow with `observation_context` before fetching full details. Filtering before fetching keeps token cost low.
 
-// Step 2: Review index, identify relevant IDs (e.g., #123, #456)
-
-// Step 3: Fetch full details
-get_observations(ids=[123, 456])
-```
-
-See [Search Tools Guide](https://docs.memsmith.ai/usage/search-tools) for detailed examples.
-
----
-
-## Beta Features
-
-MemSmith offers a **beta channel** with experimental features like **Endless Mode** (biomimetic memory architecture for extended sessions). Switch between stable and beta versions from the web viewer UI at http://localhost:37777 → Settings.
-
-See **[Beta Features Documentation](https://docs.memsmith.ai/beta-features)** for details on Endless Mode and how to try it.
+See the [Search Tools Guide](https://docs.memsmith.ai/usage/search-tools) for detailed examples.
 
 ---
 
@@ -286,8 +265,8 @@ See **[Beta Features Documentation](https://docs.memsmith.ai/beta-features)** fo
 - **Node.js**: 20.0.0 or higher
 - **Claude Code**: Latest version with plugin support
 - **Bun**: JavaScript runtime and process manager (auto-installed if missing)
-- **uv**: Python package manager for vector search (auto-installed if missing)
-- **SQLite 3**: For persistent storage (bundled)
+- **uv**: Python package manager (auto-installed if missing)
+- **Postgres**: Embedded and managed automatically in `~/.memsmith/pgdata`; no Docker or manual setup required
 
 ---
 ### Windows Setup Notes
@@ -410,6 +389,14 @@ open/commercial boundary.
 - **Official X Account**: [@Claude_Memory](https://x.com/Claude_Memory)
 - **Official Discord**: [Join Discord](https://discord.com/invite/J4wttp9vDu)
 - **Author**: Alex Newman ([@shshalom](https://github.com/shshalom))
+
+---
+
+## Credits
+
+MemSmith is based on the open source claude-mem plugin by Alex Newman and draws on ideas
+from the wider open source agent memory ecosystem. The CMEM references, community links,
+and preview assets in this README credit that lineage.
 
 ---
 
