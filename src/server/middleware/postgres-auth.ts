@@ -17,7 +17,15 @@ export interface AuthContext {
   projectId: string | null;
   scopes: string[];
   apiKeyId: string | null;
-  mode: 'api-key' | 'local-dev' | 'session';
+  /**
+   * How this request was authenticated.
+   *
+   * 'tracked-local-view' is a READ-ONLY loopback grant for a team project this
+   * machine holds no key for (a fresh clone). It is a distinct member rather
+   * than reusing 'local-dev' so such a request is auditable and can never be
+   * mistaken for one that presented a credential.
+   */
+  mode: 'api-key' | 'local-dev' | 'session' | 'tracked-local-view';
   role: PostgresTeamRole | null;
 }
 
@@ -115,6 +123,81 @@ export interface PostgresRequireAuthOptions {
   // Local-dev fallback project, parallel to localDevTeamId. Same rule: only
   // applied inside the loopback + local-dev bypass, NEVER a production request.
   localDevProjectId?: string | null;
+  /**
+   * Read-only view of a TRACKED project — one this machine can see the marker
+   * for but holds no key for, i.e. a fresh clone of a team project.
+   *
+   * Returns a grant or null; null means "not applicable", never "denied", so
+   * the normal auth path continues untouched. OMITTING this preserves existing
+   * behaviour exactly, which is why it is optional rather than defaulted: no
+   * deployment gains the branch until it is deliberately wired.
+   *
+   * The predicate itself lives in tracked-view-grant.ts, where each of its six
+   * conditions is tested in isolation.
+   */
+  resolveTrackedView?: (req: Request) => Promise<{
+    teamId: string;
+    projectId: string;
+    scopes: readonly string[];
+    mode: 'tracked-local-view';
+  } | null>;
+}
+
+/**
+ * Should the ambient scope COOKIE be honoured for this request?
+ *
+ * The viewer authenticates with a loopback cookie carrying an API key, and that
+ * key used to be accepted unconditionally. So a request explicitly naming
+ * project B while holding a cookie for project A authenticated as A, silently.
+ * Measured live and repeatedly: /v1/identity?projectId=<tracked> with a dogfood
+ * cookie returned the DOGFOOD's identity, the requested project absent from the
+ * response, and the dashboard kept showing the dogfood through several reloads.
+ *
+ * Clearing the cookie on the page load is not sufficient — that fixes the next
+ * request only if the browser honours the expiry, and the dashboard's API calls
+ * carry the old cookie regardless. The decision has to be made where the
+ * credential is trusted.
+ *
+ * Applies ONLY to the cookie. A bearer token is a deliberate per-request
+ * credential whose own project scope is already enforced downstream.
+ *
+ * Fails OPEN when the cookie's project is unknown: refusing an unidentifiable
+ * cookie would break every existing dashboard session on the machine, and the
+ * narrow rule — drop it only when we KNOW it names a different project — fixes
+ * the observed bug without that risk.
+ */
+export function cookieAppliesToRequest(input: {
+  requestedProjectId: string | undefined;
+  cookieProjectId: string | null;
+}): boolean {
+  const requested = input.requestedProjectId?.trim();
+  if (!requested) return true;
+  if (!input.cookieProjectId) return true;
+  return input.cookieProjectId === requested;
+}
+
+export type TrackedViewResolver = NonNullable<PostgresRequireAuthOptions['resolveTrackedView']>;
+
+/**
+ * Process-wide tracked-view resolver, applied to EVERY auth middleware that does
+ * not pass its own.
+ *
+ * Threading it per-construction-site does not work in practice. There are nine
+ * `requirePostgresServerAuth(...)` call sites across v1 routes, the dashboard
+ * routes and two compat adapters, and I wired it into two of them — so
+ * /v1/identity answered 200 for a tracked project while every /dashboard/*
+ * endpoint 401'd, and the UI rendered "Not authenticated" before it ever reached
+ * the Join button. Twice. A cross-cutting auth capability configured per-site is
+ * a capability that will be missing somewhere.
+ *
+ * One registration at server construction, inherited everywhere, with an
+ * explicit per-site override still available for tests.
+ */
+let globalTrackedViewResolver: TrackedViewResolver | null = null;
+
+/** Register (or clear, with null) the process-wide resolver. */
+export function setTrackedViewResolver(resolver: TrackedViewResolver | null): void {
+  globalTrackedViewResolver = resolver;
 }
 
 export function requirePostgresServerAuth(
@@ -152,9 +235,54 @@ async function authenticatePostgresRequest(
   // is ignored outright, so this cannot widen remote access. The key itself is
   // still verified by the normal api-key path below; this is a transport for an
   // existing credential, not a bypass.
-  const cookieKey = (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req))
+  const rawCookieKey = (isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req))
     ? readLocalKeyCookie(req.header('cookie'))
     : null;
+
+  // THE COOKIE MUST NOT ANSWER FOR A PROJECT THE REQUEST DID NOT ASK FOR.
+  //
+  // This key was accepted unconditionally, so a request explicitly naming
+  // project B while carrying a cookie for project A authenticated as A —
+  // silently. Measured live and repeatedly:
+  // /v1/identity?projectId=<tracked> with a dogfood cookie returned the
+  // DOGFOOD's identity, the requested project absent from the answer, and the
+  // dashboard kept showing the dogfood across several reloads.
+  //
+  // Clearing the cookie on the `GET /` page load did not fix it: that only
+  // helps the NEXT request, and only if the browser honours the expiry, while
+  // the dashboard's API calls carry the old cookie regardless. The decision has
+  // to happen where the credential is trusted.
+  //
+  // Scoped tightly: only the ambient cookie, never a bearer token (a deliberate
+  // per-request credential whose project scope is enforced downstream), and it
+  // fails OPEN when the cookie's project cannot be determined — refusing an
+  // unidentifiable cookie would break every existing dashboard session.
+  let cookieKey = rawCookieKey;
+  if (rawCookieKey) {
+    const q = req.query as Record<string, unknown> | undefined;
+    const requestedProjectId = typeof q?.projectId === 'string' ? q.projectId
+      : typeof q?.project === 'string' ? q.project
+      : undefined;
+    if (requestedProjectId?.trim()) {
+      let cookieProjectId: string | null = null;
+      try {
+        const r = await pool.query(
+          'SELECT project_id FROM api_keys WHERE key_hash = $1 LIMIT 1',
+          // Same hash the api-key path computes below (line ~509).
+          [createHash('sha256').update(rawCookieKey).digest('hex')],
+        );
+        const row = r.rows[0] as { project_id?: string | null } | undefined;
+        cookieProjectId = row?.project_id ?? null;
+      } catch {
+        // Unknown: fail open (keep the cookie) per the note above.
+        cookieProjectId = null;
+      }
+      if (!cookieAppliesToRequest({ requestedProjectId, cookieProjectId })) {
+        cookieKey = null;
+      }
+    }
+  }
+
   const rawKey = parseBearerToken(authorization) || xApiKey || cookieKey || null;
 
   const allowLocalDevBypass = options.allowLocalDevBypass
@@ -193,6 +321,50 @@ async function authenticatePostgresRequest(
     req.authContext = ctx;
     next();
     return;
+  }
+
+  // TRACKED-PROJECT READ VIEW. A cloned team project has a committed marker and
+  // no key, so no credential can possibly authenticate it — and the viewer
+  // identifies projects by key, so the project cannot be displayed and the Join
+  // button never renders on the machine that needs it.
+  //
+  // The grant lives HERE, in the auth layer, deliberately: this is the seam the
+  // db-routing invariant names ("authContext is populated upstream... from a
+  // trusted source for every auth mode"). Everything downstream keeps reading
+  // authContext only, so no other file learns a second way to decide scope.
+  //
+  // Read-only comes from the SCOPES (baseWrite requires memories:write), never
+  // from the role — requireWriteRole treats role == null as allowed.
+  //
+  // Opt-in via deps: a caller that does not supply resolveTrackedView gets the
+  // old behaviour exactly, so this cannot alter any existing deployment that has
+  // not wired it.
+  const trackedViewResolver = options.resolveTrackedView ?? globalTrackedViewResolver;
+  if (!rawKey && trackedViewResolver) {
+    const grant = await trackedViewResolver(req).catch(() => null);
+    if (grant) {
+      req.authContext = {
+        userId: LOCAL_OWNER_USER_ID,
+        organizationId: null,
+        teamId: grant.teamId,
+        projectId: grant.projectId,
+        scopes: [...grant.scopes],
+        apiKeyId: null,
+        mode: grant.mode,
+        role: null,
+      } as AuthContext;
+      // Enforce the read scope the same way every other mode is enforced, so a
+      // write route that happens to run this middleware still refuses.
+      if (options.requiredScopes?.some(s => !grant.scopes.includes(s))) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'this project is tracked but not joined — read-only until you join',
+        });
+        return;
+      }
+      next();
+      return;
+    }
   }
 
   if (!rawKey) {

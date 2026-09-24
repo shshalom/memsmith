@@ -22,6 +22,7 @@ import { logger } from '../../utils/logger.js';
 import { ServerClient, type ServerClientConfig } from './server-client.js';
 import { CredentialStore } from '../identity/credential-store.js';
 import { readProjectMarker } from '../identity/project-identity.js';
+import { projectJoinState } from '../identity/join-state.js';
 
 export type SelectedRuntime = 'local' | 'server';
 
@@ -50,11 +51,44 @@ export function normalizeRuntime(raw: string | undefined): SelectedRuntime {
   return 'local';
 }
 
-export function selectRuntime(cwd: string = process.cwd()): SelectedRuntime {
-  const marker = readProjectMarker(cwd);
-  if (marker?.runtime === 'server') return 'server';
+/**
+ * Which runtime this project should use.
+ *
+ * KEY-GATED. A marker saying `runtime: 'server'` is necessary but NOT sufficient:
+ * this machine must also hold a key for the marker's team. The marker is a
+ * non-secret pointer that ships in the repo while the key lives only in
+ * ~/.memsmith, so a freshly cloned team project has the first and not the
+ * second — and following the marker alone sent it into server mode with no
+ * credential, where buildServerContext logs `missing_api_key` and every
+ * observation is silently dropped. On the newly onboarded machine, which is the
+ * worst possible place to lose work.
+ *
+ * This is the read-side half of the invariant applyConvertJoin already enforces
+ * on the write side ("flipping without a resolvable key strands the project").
+ * A tracked-but-not-joined project captures LOCALLY until its user joins, which
+ * is also the product rule: "if identity exists and the user didn't join then
+ * the work is offline / local."
+ *
+ * `hasKeyForTeam` is injectable so tests can classify without touching the
+ * developer's real credentials file.
+ */
+export function selectRuntime(
+  cwd: string = process.cwd(),
+  hasKeyForTeam: (teamId: string) => boolean = defaultHasKeyForTeam,
+): SelectedRuntime {
+  const state = projectJoinState(cwd, { readProjectMarker, hasKeyForTeam });
+  if (state === 'joined') return 'server';
+  // 'tracked' deliberately does NOT consult the global setting: a team project
+  // this machine cannot authenticate as must stay local no matter what
+  // MEMSMITH_RUNTIME says, or the global default reopens the silent-drop path.
+  if (state === 'tracked') return 'local';
   const settings = loadFromFileOnce();
   return normalizeRuntime(settings.MEMSMITH_RUNTIME);
+}
+
+/** Real credential lookup. Reads are lock-free and atomic (see CredentialStore). */
+function defaultHasKeyForTeam(teamId: string): boolean {
+  return Boolean(new CredentialStore().resolveKeyForTeam(teamId));
 }
 
 export interface BuildServerContextOptions {

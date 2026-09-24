@@ -107,21 +107,27 @@ describe('the existing behaviour is preserved', () => {
     expect(key).toBe(OWNER_KEY);
   });
 
-  it('falls back for an unknown project rather than failing the page', async () => {
+  it('returns no key for an unknown project instead of the server\'s', async () => {
+    // Previously asserted OWNER_KEY. Handing back another project's credential
+    // authenticates the browser as THAT project while the URL names the
+    // requested one — the dashboard then shows the wrong project's data under
+    // the right project's name, and Go Team acts on the wrong one. Failing
+    // closed is the point.
     const key = await resolveViewerKeyForRequest({
       ...deps({ lookupTeamForProject: async () => null, resolveKeyForProject: async () => null }),
       requestedProjectId: 'nope',
     });
-    expect(key).toBe(OWNER_KEY);
+    expect(key).toBeNull();
   });
 
-  it('degrades to the server key when the per-project lookup THROWS', async () => {
-    // A DB hiccup must not take the dashboard down.
+  it('survives a per-project lookup THROW without substituting another key', async () => {
+    // A DB hiccup must not take the dashboard down — it must also not silently
+    // re-point it at a different project.
     const key = await resolveViewerKeyForRequest({
       ...deps({ resolveKeyForProject: async () => { throw new Error('db down'); } }),
       requestedProjectId: JOINER_PROJECT,
     });
-    expect(key).toBe(OWNER_KEY);
+    expect(key).toBeNull();
   });
 
   it('returns null in team mode, where there is no local key to issue', async () => {

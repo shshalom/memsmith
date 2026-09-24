@@ -233,16 +233,59 @@ export const contextHandler: EventHandler = {
     let dashboardProjectId: string | undefined;
     try {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
-      dashboardProjectId = readProjectMarker(cwd)?.projectId;
-      if (!dashboardProjectId) {
-        const minted = await dependencies.mintProjectIdentity(cwd);
-        dashboardProjectId = minted?.projectId;
-      }
+      const marker = readProjectMarker(cwd);
+      // REGISTER, don't just read.
+      //
+      // This used to call mintProjectIdentity ONLY when the marker was absent,
+      // on the reasonable-looking assumption that a marker means the project is
+      // already known. It does not: a CLONED project arrives with a committed
+      // marker and no rows anywhere, because nothing on this machine has ever
+      // run for it. So the identity was adopted and never registered — no
+      // `projects` row, which is what /v1/identity needs to report the project's
+      // runtime, so the dashboard could not tell it was a team project and the
+      // Join button never appeared.
+      //
+      // ensureProjectIdentity (behind mintProjectIdentity) is idempotent by
+      // design and upserts teams/projects on every call — its own doc says a
+      // "fresh DB / cloned repo self-heals" — so calling it unconditionally
+      // costs an existing project one upsert and gives a clone the row it needs.
+      const registered = await dependencies.mintProjectIdentity(cwd);
+      dashboardProjectId = registered?.projectId ?? marker?.projectId;
     } catch { /* unscoped link is a fine fallback */ }
     const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;
+
+    // RECOGNISE a team project this machine has not joined.
+    //
+    // This lives on SessionStart rather than in the installer because that is
+    // the only place that behaves identically no matter how MemSmith arrived.
+    // The first version sat in `npx memsmith install`; real users install via
+    // Claude Code's `/plugin`, which never calls it, so a teammate cloning a
+    // converted project was told nothing at all.
+    //
+    // Silent unless actionable, and never throws: a failure to classify must
+    // not cost the user their session context, which is what this hook exists
+    // to deliver.
+    try {
+      const [{ projectJoinState }, { readProjectMarker }, { CredentialStore }, { trackedProjectBanner }] =
+        await Promise.all([
+          import('../../services/identity/join-state.js'),
+          import('../../services/identity/project-identity.js'),
+          import('../../services/identity/credential-store.js'),
+          import('./tracked-project-banner.js'),
+        ]);
+      const store = new CredentialStore();
+      const banner = trackedProjectBanner({
+        state: projectJoinState(cwd, {
+          readProjectMarker,
+          hasKeyForTeam: (teamId: string) => Boolean(store.resolveKeyForTeam(teamId)),
+        }),
+        marker: readProjectMarker(cwd),
+      });
+      if (banner) additionalContext = `${banner}\n\n${additionalContext}`;
+    } catch { /* recognition is additive; never break the session for it */ }
 
     // Always prepend the injected directives (memory-first + record-intent) —
     // they are static standing instructions and must be present unconditionally

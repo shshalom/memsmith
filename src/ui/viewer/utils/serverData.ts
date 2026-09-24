@@ -1,4 +1,5 @@
 import { adaptObservations } from './serverAdapter.js';
+import { apiUrl } from './projectScope.js';
 import type { Observation } from '../types.js';
 
 export const V1_ENDPOINTS = {
@@ -22,7 +23,7 @@ export interface ProjectSummary {
 // error — that degradation is required behaviour, not a stopgap.
 export async function fetchProjects(): Promise<ProjectSummary[]> {
   try {
-    const res = await fetch(V1_ENDPOINTS.PROJECTS, { headers: { Accept: 'application/json' } });
+    const res = await fetch(apiUrl(V1_ENDPOINTS.PROJECTS), { headers: { Accept: 'application/json' } });
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data as ProjectSummary[] : [];
@@ -39,8 +40,15 @@ export async function fetchObservations(
     if (opts.type) body.obsType = opts.type;
     if (opts.lifecycle) body.lifecycleState = opts.lifecycle;
     if (opts.userDirected) body.userDirected = true;
-    const res = await fetch(V1_ENDPOINTS.SEARCH, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    // Same two omissions fetchDashboard had: no cookie and no project. Without
+    // credentials the request is unauthenticated; without the project it is
+    // unscoped, so a joined project's Observations tab came back empty while the
+    // metrics tile showed the team's 14 rows.
+    const res = await fetch(apiUrl(V1_ENDPOINTS.SEARCH), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -53,7 +61,24 @@ export async function fetchDashboard(kind: 'board'|'decisions'|'blocked'|'cost'|
     blocked: V1_ENDPOINTS.DASH_BLOCKED, cost: V1_ENDPOINTS.DASH_COST,
     metrics: '/dashboard/metrics', spend: '/dashboard/spend', notes: V1_ENDPOINTS.DASH_NOTES };
   try {
-    const res = await fetch(map[kind], { headers: { Accept: 'application/json' } });
+    // CARRY THE PROJECT AND THE CREDENTIAL. This sent neither.
+    //
+    // Without `credentials: 'include'` the browser attaches no cookie, so every
+    // dashboard call 401s and the UI renders "Not authenticated — reload this
+    // page to sign in" no matter what the server does. fetchIdentity already
+    // does this and its comment says it is REQUIRED; these calls were simply
+    // never given the same treatment, so /v1/identity worked while every panel
+    // failed.
+    //
+    // Without the project param the request is unscoped, so the server answers
+    // for whatever the cookie names — which is how a scoped dashboard silently
+    // showed a different project's data. fetchIdentity forwards it as
+    // `projectId`; match that exactly so the two cannot disagree about which
+    // project the page is displaying.
+    const res = await fetch(apiUrl(map[kind]), {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
     // Distinguish "not authenticated" from "no data". Both used to collapse to
     // null, so an auth failure rendered as "Failed to load dashboard data" and
     // read as a data problem -- which is exactly how this was misdiagnosed once

@@ -16,7 +16,12 @@ import { existsSync, readFileSync } from 'fs';
 import type { RouteHandler } from '../../services/server/Server.js';
 import { getPackageRoot } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
-import { buildLocalKeyCookie, readLocalKeyCookie } from './local-key-cookie.js';
+import {
+  buildLocalKeyCookie,
+  buildClearedLocalKeyCookie,
+  decideViewerCookie,
+  readLocalKeyCookie,
+} from './local-key-cookie.js';
 import {
   isLocalhost,
   hasLoopbackHostHeader,
@@ -119,12 +124,25 @@ export class ServerViewerRoutes implements RouteHandler {
           // screen. That is the convert-scope leak again, reachable from the UI.
           //
           // An explicit ?project= still wins — that is a deliberate switch.
+          // The decision now lives in decideViewerCookie, because the branch
+          // here was missing a case: an explicit ?project= naming a project this
+          // machine holds no key for. resolveLocalKey correctly returned null,
+          // this code did nothing, and the browser kept its PREVIOUS cookie — so
+          // every API call authenticated as the old project. Measured live: with
+          // a dogfood cookie present, /v1/identity?project=<tracked> answered
+          // with the dogfood's identity and the requested project appeared
+          // nowhere. The tracked-view grant built for exactly this case is never
+          // reached, because a valid key was presented and key auth wins.
           const existing = readLocalKeyCookie(req.headers?.cookie);
-          if (!requested && existing) {
-            // Keep the caller's current scope; issue nothing.
-          } else {
-            const key = (await this.options.resolveLocalKey?.(requested)) ?? null;
-            if (key) res.setHeader('Set-Cookie', buildLocalKeyCookie(key));
+          const decision = decideViewerCookie({
+            requested,
+            resolvedKey: (await this.options.resolveLocalKey?.(requested)) ?? null,
+            hasExistingCookie: Boolean(existing),
+          });
+          if (decision.action === 'set' && decision.key) {
+            res.setHeader('Set-Cookie', buildLocalKeyCookie(decision.key));
+          } else if (decision.action === 'clear') {
+            res.setHeader('Set-Cookie', buildClearedLocalKeyCookie());
           }
         } catch (error) {
           logger.warn('SYSTEM', 'could not resolve local key for viewer cookie', {},

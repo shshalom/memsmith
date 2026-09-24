@@ -43,3 +43,34 @@ export function withProjectParam(search: string, projectId: string): string {
 export function projectSwitchUrl(pathname: string, currentSearch: string, projectId: string): string {
   return `${pathname}${withProjectParam(currentSearch, projectId)}`;
 }
+
+/**
+ * Attach the page's current project to an API endpoint, as `?projectId=`.
+ *
+ * ONE helper because doing this per-call-site kept going wrong. Six viewer fetch
+ * sites need it, and they were fixed one at a time as each broken panel was
+ * reported: the metrics tile, then the Observations tab, then Settings — each
+ * time the same omission, each time a separate round trip with the user.
+ *
+ * The server reads `projectId` (the /v1 API's spelling) while the page URL uses
+ * `project` (the SPA's spelling), which is exactly the mismatch that made a
+ * request look scoped while arriving unscoped. Translating in one place means a
+ * new fetch site cannot get it wrong by forgetting, only by not calling this.
+ *
+ * Without it a request is unscoped, so the server answers for whatever the
+ * cookie names — or, for a project whose credential it cannot validate, 401s and
+ * the panel renders empty.
+ */
+export function withApiProject(endpoint: string, search: string): string {
+  const project = readProjectParam(search);
+  if (!project) return endpoint;
+  const sep = endpoint.includes('?') ? '&' : '?';
+  return `${endpoint}${sep}projectId=${encodeURIComponent(project)}`;
+}
+
+/** `withApiProject` against the live page URL. Safe outside a browser. */
+export function apiUrl(endpoint: string): string {
+  return typeof location === 'undefined'
+    ? endpoint
+    : withApiProject(endpoint, location.search);
+}

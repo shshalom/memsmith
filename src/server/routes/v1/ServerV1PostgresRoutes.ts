@@ -20,6 +20,9 @@ import { PostgresObservationRepository, mapObservationRow, type ObservationRow, 
 import { PostgresProjectsRepository } from '../../../storage/postgres/projects.js';
 import { logger } from '../../../utils/logger.js';
 import { requirePostgresServerAuth, requireRole, requireWriteRole, roleSatisfies } from '../../middleware/postgres-auth.js';
+import { evaluateOwnerBootstrap, parseWindowMinutes } from './owner-bootstrap.js';
+import { withPostgresTransaction } from '../../../storage/postgres/pool.js';
+import type { PostgresRequireAuthOptions } from '../../middleware/postgres-auth.js';
 import { authorizeObservationDelete } from './delete-authorization.js';
 import { PostgresTeamsRepository, type PostgresTeamRole } from '../../../storage/postgres/teams.js';
 import { PostgresDataDeletionRepository } from '../../../storage/postgres/data-deletion.js';
@@ -74,6 +77,7 @@ import { buildScopedReadQuery, buildScopedCountQuery, restampTeamId } from './co
 import { deriveServerUrl } from '../../convert/convert-context.js';
 import { recordPendingJoin, clearPendingJoin } from '../../convert/pending-join.js';
 import { applyConvertJoin } from '../../convert/apply-join.js';
+import { shareMarkerInGit } from '../../convert/share-marker.js';
 import { summariseLocalApply } from '../../convert/local-apply-report.js';
 import { resolveConvertServerUrl } from '../../convert/resolve-convert-server-url.js';
 import { repointLocalKeyToTeam, repointProjectDatabaseTeam } from '../../convert/repoint-local-key.js';
@@ -113,6 +117,14 @@ export interface ServerV1PostgresRoutesOptions {
   // Local-dev fallback project, parallel to localDevTeamId (same loopback +
   // local-dev gating in the middleware).
   localDevProjectId?: string | null;
+  /**
+   * Read-only grant for a TRACKED project — a clone of a team project whose
+   * marker this machine can see but whose key it does not hold. Optional:
+   * omitting it leaves auth behaviour exactly as before.
+   */
+  resolveTrackedView?: PostgresRequireAuthOptions['resolveTrackedView'];
+  /** Forwards a JOINED project's reads to its team server. Optional. */
+  teamReadProxy?: import('express').RequestHandler;
   // Queue lookup is exposed as a function so tests can swap the queue manager.
   // When the manager is the disabled adapter, enqueue is silently skipped and
   // the outbox row stays in `queued` state for startup reconciliation to
@@ -196,6 +208,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
   private readonly ingestEvents: IngestEventsService;
   private readonly endSession: EndSessionService;
 
+  /**
+   * The tracked-view resolver this instance was configured with, exposed so the
+   * server can register it PROCESS-WIDE (setTrackedViewResolver).
+   *
+   * Nine separate call sites construct auth middleware — these routes,
+   * /v1/identity's own, the dashboard routes, two compat adapters. Wiring the
+   * resolver into each by hand missed the dashboard twice, which made the UI
+   * render "Not authenticated" for a tracked project instead of showing Join.
+   */
+  get trackedViewResolver(): ServerV1PostgresRoutesOptions['resolveTrackedView'] {
+    return this.options.resolveTrackedView;
+  }
+
   constructor(private readonly options: ServerV1PostgresRoutesOptions) {
     this.ingestEvents = new IngestEventsService({
       pool: options.pool,
@@ -227,6 +252,17 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // an inbound X-Request-Id header) so registering it multiple times for
     // overlapping route trees would still produce one canonical id per req.
     app.use('/v1', requestIdMiddleware());
+    // TEAM READS GO TO THE TEAM — /v1 too, not just /dashboard. The Observations
+    // tab POSTs to /v1/search, so mounting the proxy only under /dashboard left
+    // that tab empty for a joined project while the metrics tile showed the
+    // team's rows: a dashboard reporting counts it could not display.
+    //
+    // Before auth, deliberately: a joined project's request carries a
+    // team-issued credential this server cannot validate. The proxy itself
+    // forwards only an explicit allow-list of read paths.
+    if (this.options.teamReadProxy) {
+      app.use('/v1', this.options.teamReadProxy);
+    }
     const baseWrite = requirePostgresServerAuth(this.options.pool, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,
@@ -239,6 +275,9 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
       localDevProjectId: this.options.localDevProjectId,
+      // Read-only tracked view applies to READS only; baseWrite deliberately
+      // omits it, so a write route can never take this branch.
+      resolveTrackedView: this.options.resolveTrackedView,
       requiredScopes: ['memories:read'],
     });
     // Paid-readiness guards, all opt-in via env so default behavior is unchanged
@@ -286,6 +325,128 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     // writeAuth: minting a lesser (read) key requires you can already write the
     // team's memory, which avoids a read key escalating into more keys. The raw
     // key is shown exactly once.
+    // POST /v1/teams/:teamId/bootstrap-owner — the ONE role-gated escape hatch.
+    //
+    // Without it a user cannot use their own team: convert calls
+    // /v1/convert/register-key (requireRole('owner')), their team key has no
+    // team_members row on the remote so its role is null, and minting a
+    // role-bearing key needs `admin` which needs a role-bearing key. The only
+    // existing way out is a CLI that talks straight to Postgres — VPN or an
+    // in-VPC task against a private RDS. A user must not need AWS access to use
+    // their own team.
+    //
+    // Deliberately NOT role-gated (that is the point) and deliberately NOT part
+    // of writeAuth's chain: the decision lives in evaluateOwnerBootstrap, which
+    // gates on an operator flag (default OFF) and a window from team creation.
+    // See that file for what ownership actually grants — it is a real
+    // escalation, including DELETE /v1/projects/:id/memory.
+    // Two shapes, one handler. `:teamId` is explicit; `/v1/teams/bootstrap-owner`
+    // lets the caller say "the team this key belongs to" — which is the only
+    // thing a converting client actually knows. It holds a destination team KEY,
+    // not that team's id (the id it has is its LOCAL team), so demanding the id
+    // in the path would have made the retry 403 every time on a mismatch it
+    // could not avoid.
+    const bootstrapOwnerHandler = this.asyncHandler(async (req, res) => {
+      const ctxTeamId = (req as unknown as { authContext?: { teamId?: string | null } }).authContext?.teamId ?? '';
+      const requestedTeamId = String((req.params as { teamId?: string }).teamId ?? '') || String(ctxTeamId);
+      const ctx = (req as unknown as { authContext?: { teamId?: string | null; apiKeyId?: string | null } }).authContext;
+      const enabled = process.env.MEMSMITH_ALLOW_OWNER_BOOTSTRAP === '1';
+      // A MALFORMED WINDOW MUST NOT BECOME AN UNLIMITED ONE.
+      //
+      // `Number(raw)` alone made a typo in a task definition silently disable one
+      // of the two gates this feature rests on: a non-numeric value yields NaN,
+      // and `ageMinutes > NaN` is always false, so every team of any age would
+      // have been inside the window. An empty string had the opposite failure —
+      // Number('') is 0, an instantly-closed window. Both are operator errors
+      // that deserve the default, not a silent change of security posture.
+      // owner-bootstrap.ts fails closed on an unverifiable timestamp; this is the
+      // same rule applied to the window itself.
+      const windowMinutes = parseWindowMinutes(process.env.MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES);
+
+      // Read the key's own row: authContext carries teamId but not user_id, and
+      // user_id is what the membership insert and the role join both need.
+      let keyUserId: string | null = null;
+      let teamCreatedAtEpoch: number | null = null;
+      let teamHasOwner = false;
+      try {
+        if (ctx?.apiKeyId) {
+          const k = await this.options.pool.query(
+            'SELECT user_id FROM api_keys WHERE id = $1 LIMIT 1', [ctx.apiKeyId],
+          );
+          keyUserId = (k.rows[0] as { user_id?: string | null } | undefined)?.user_id ?? null;
+        }
+        const t = await this.options.pool.query(
+          'SELECT created_at FROM teams WHERE id = $1 LIMIT 1', [requestedTeamId],
+        );
+        const created = (t.rows[0] as { created_at?: Date | string | null } | undefined)?.created_at;
+        if (created) teamCreatedAtEpoch = new Date(created).getTime();
+        const o = await this.options.pool.query(
+          "SELECT 1 FROM team_members WHERE team_id = $1 AND role = 'owner' LIMIT 1",
+          [requestedTeamId],
+        );
+        teamHasOwner = (o.rowCount ?? 0) > 0;
+      } catch {
+        // Fail closed: an unreadable state must not be read as "safe to grant".
+        res.status(410).json({ error: 'Gone', message: 'the setup window for this team cannot be verified' });
+        return;
+      }
+
+      const decision = evaluateOwnerBootstrap({
+        enabled, windowMinutes, now: Date.now(), teamCreatedAtEpoch,
+        requestedTeamId, keyTeamId: ctx?.teamId ?? null, keyUserId, teamHasOwner,
+      });
+      if (decision.outcome !== 'grant') {
+        // Label must match the status. A 404 reported as "Forbidden" tells a
+        // caller the endpoint exists and is merely closed to them, which is
+        // exactly what the disabled case is trying not to reveal.
+        const label = decision.status === 404 ? 'NotFound'
+          : decision.status === 409 ? 'Conflict'
+          : decision.status === 410 ? 'Gone'
+          : 'Forbidden';
+        res.status(decision.status).json({ error: label, message: decision.message });
+        return;
+      }
+
+      // ONE transaction. The re-check inside it with FOR UPDATE is what makes
+      // two concurrent bootstraps resolve to one owner — a check-then-act
+      // without the lock is the race createMarkerIfAbsent already documents
+      // losing.
+      try {
+        await withPostgresTransaction(this.options.pool, async (tx) => {
+          const guard = await tx.query(
+            "SELECT 1 FROM team_members WHERE team_id = $1 AND role = 'owner' FOR UPDATE",
+            [requestedTeamId],
+          );
+          if ((guard.rowCount ?? 0) > 0) throw new Error('already-owned');
+          if (decision.stampKeyUserId && ctx?.apiKeyId) {
+            await tx.query(
+              'UPDATE api_keys SET user_id = $1 WHERE id = $2 AND user_id IS NULL',
+              [decision.userId, ctx.apiKeyId],
+            );
+          }
+          await tx.query(
+            `INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'owner')
+             ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'owner'`,
+            [requestedTeamId, decision.userId],
+          );
+        });
+      } catch (error) {
+        const raced = error instanceof Error && error.message === 'already-owned';
+        res.status(raced ? 409 : 500).json({
+          error: raced ? 'Conflict' : 'InternalError',
+          message: raced
+            ? 'this team already has an owner — ask them to grant you access'
+            : 'could not establish ownership',
+        });
+        return;
+      }
+
+      logger.info('HTTP', 'owner bootstrapped', { teamId: requestedTeamId, userId: decision.userId });
+      res.status(200).json({ userId: decision.userId, role: 'owner' });
+    });
+    app.post('/v1/teams/bootstrap-owner', ...readAuth, bootstrapOwnerHandler);
+    app.post('/v1/teams/:teamId/bootstrap-owner', ...readAuth, bootstrapOwnerHandler);
+
     app.post('/v1/keys', writeAuth, requireRole('admin'), this.handleCreate(
       z.object({
         label: z.string().max(120).optional(),
@@ -1481,6 +1642,12 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       allowLocalDevBypass: this.options.allowLocalDevBypass,
       localDevTeamId: this.options.localDevTeamId,
       localDevProjectId: this.options.localDevProjectId,
+      // THE TRACKED-VIEW GRANT MUST BE HERE TOO. /v1/identity does not use
+      // `readAuth` — it builds its own middleware — so wiring the grant into
+      // baseRead alone left the one endpoint the dashboard needs still answering
+      // 401 for a tracked project. That is exactly what the Join button reads,
+      // so the feature was inert despite the grant being present and correct.
+      resolveTrackedView: this.options.resolveTrackedView,
       requiredScopes: ['memories:read'],
     });
     app.use('/v1/identity', (req, res, next) => {
@@ -1510,6 +1677,20 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             [projectId],
           );
           const row = result.rows[0] as { metadata?: Record<string, unknown> | null } | undefined;
+          // NO ROW: a project this server has never recorded — e.g. a clone whose
+          // first session has not run yet.
+          //
+          // My first attempt at this fell back to the marker at
+          // `MEMSMITH_PROJECT_CWD ?? process.cwd()`. That is the SERVER's
+          // directory, and one server serves every project, so it names some
+          // unrelated project — the cross-project resolution settingsRoutes:96
+          // already warns about ("never from the server's cwd"). It also failed
+          // in practice: a marker-only project resolved 'local' and the Join
+          // button stayed hidden, the very thing the fallback was added for.
+          //
+          // With no recorded path there is nothing legitimate to read, so say
+          // 'local' and show no team affordance. A wrong "team" is worse than a
+          // missing badge — it drives the Join and Go Team flows.
           if (!row) return 'local';
           return resolveProjectRuntime(
             { projectId, metadata: row.metadata ?? null },
@@ -1708,7 +1889,19 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       // otherwise only the person who already has the workspace could join it.
       // Possession of the team key is the authorization, verified against the
       // remote's api_keys by runJoin.
-      joinAuthMiddleware: writeAuth,
+      //
+      // READ auth, not write. writeAuth requires memories:write, which a TRACKED
+      // project (a clone this machine holds no key for) by definition does not
+      // have — so the one operation that exists to LEAVE the tracked state was
+      // refused with "read-only until you join". Joining to get write access
+      // required already having write access.
+      //
+      // Downgrading is safe because this route's real credential is the team key
+      // in the request body, verified against the REMOTE by runJoin, exactly as
+      // the note above says. Local scope was never the authorization here; it
+      // only ever established which project is being joined
+      // (req.authContext.projectId), which readAuth provides just as well.
+      joinAuthMiddleware: readAuth,
       join: async (input) => {
         const { runJoin } = await import('../../convert/join-service.js');
         const result = await runJoin({
@@ -1789,6 +1982,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                   readProjectMarker: readProjectMarkerForRuntime,
                   writeProjectRuntime,
                   storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                 },
                 projectPath,
                 result.join,
@@ -1943,6 +2137,16 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             teamKey: input.transport.teamKey,
             projectId: input.projectId,
             projectKeyHash: hashApiKey(projectKey),
+            // Lets register-key recover from "requires role owner" by
+            // bootstrapping ownership once. Without it a user whose team key has
+            // no team_members row on the remote simply cannot convert, and the
+            // bootstrap route is reachable only by someone reading the source.
+            //
+            // Empty string, deliberately: the client does NOT know the
+            // destination team's id — it holds that team's KEY, while the only
+            // id it has is its own LOCAL team. So it calls the self-scoped route
+            // and lets the remote infer the team from the key it presented.
+            teamId: '',
           });
           if (!registered.ok) {
             throw new Error(`could not register this project's key on the team server: ${registered.reason}`);
@@ -2007,6 +2211,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                     readProjectMarker: readProjectMarkerForRuntime,
                     writeProjectRuntime,
                     storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                   },
                   projectPath,
                   httpsResult.join,
@@ -2176,6 +2381,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                     readProjectMarker: readProjectMarkerForRuntime,
                     writeProjectRuntime,
                     storeKeyForTeam: (teamId, key) => credStore.storeKeyForTeam(teamId, key),
+                  shareMarkerInGit,
                   },
                   projectPath,
                   { teamId: input.teamId, projectId: input.projectId, serverUrl, apiKey },

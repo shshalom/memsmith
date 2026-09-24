@@ -7,7 +7,7 @@ import {
   classifyHttpProviderError,
 } from './shared/error-classification.js';
 import { buildServerGenerationPrompt } from './shared/prompt-builder.js';
-import { ensureOllamaRunning, resolveAutostartEnabled } from './ollama-ensure-running.js';
+import { ensureOllamaRunning, ollamaCanGenerate, resolveAutostartEnabled } from './ollama-ensure-running.js';
 import type {
   ServerGenerationContext,
   ServerGenerationProvider,
@@ -63,14 +63,32 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
       // endpoint is /api/tags on the same origin.
       const origin = new URL(this.apiUrl).origin;
       await ensureOllamaRunning({
-        probe: async () => {
-          const r = await this.fetchImpl(`${origin}/api/tags`, {
-            signal: AbortSignal.timeout(2_000),
-          });
-          return r.ok;
-        },
+        // READINESS, not liveness. This asked `GET /api/tags` and took r.ok as
+        // health — which only proves the HTTP daemon answers. Ollama served
+        // /api/tags with a 200 and the full model list for 6.4 days while every
+        // generate returned 500 ("failed to initialize the Metal library"), so
+        // the probe passed, recovery declared success, and 1,187,422 jobs
+        // failed in a row. The recovery slept through the outage it exists for.
+        probe: () => ollamaCanGenerate({
+          origin,
+          model: this.model,
+          fetchImpl: this.fetchImpl,
+        }),
         spawn: async () => {
           const { spawn } = await import('child_process');
+          // KILL FIRST. The original only handled an ABSENT ollama, so
+          // `ollama serve` against a live-but-wedged daemon just fails to bind
+          // and changes nothing — which is why the Metal failure never
+          // self-healed. A wedged backend needs the process replaced, and the
+          // readiness probe above is what distinguishes the two cases.
+          //
+          // Best-effort and non-fatal: no ollama to kill is the normal
+          // cold-start path.
+          try {
+            const killer = spawn('pkill', ['-x', 'ollama'], { stdio: 'ignore' });
+            await new Promise(resolve => killer.on('exit', resolve).on('error', resolve));
+            await new Promise(resolve => setTimeout(resolve, 1_000));
+          } catch { /* nothing running is fine */ }
           // Detached + ignored stdio so the server outlives this process and
           // cannot block on an unread pipe.
           const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' });

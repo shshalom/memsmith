@@ -50,5 +50,11 @@ export function resolveProjectRuntime(
   // different project's marker would attribute that project's runtime to this one.
   if (marker.projectId !== row.projectId) return 'local';
 
-  return marker.runtime === 'server' ? 'team' : 'local';
+  // Accept the legacy 'server-beta' literal alongside 'server'. Markers written
+  // before the rename still carry it and normalizeRuntime still honours it, so
+  // matching only 'server' silently demotes a real team project to local — which
+  // in turn hides the Join button and the team badge for it.
+  return marker.runtime === 'server' || marker.runtime === 'server-beta'
+    ? 'team'
+    : 'local';
 }

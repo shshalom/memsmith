@@ -88,7 +88,19 @@ describe('the route wires that decision', () => {
       'utf-8',
     );
     // Guard: an unconditional setHeader here is exactly the bug.
+    //
+    // The shape changed — the inline `if (!requested && existing)` branch moved
+    // into decideViewerCookie, because it was missing a case (an explicit
+    // ?project= for a project with no key left the OLD cookie in place, so the
+    // dashboard silently showed the previous project). The behaviour this guard
+    // protects is unchanged and is unit-tested in decideViewerCookie's own suite;
+    // what must stay true here is that the route CONSULTS the existing cookie
+    // and routes the decision through that function rather than setting a
+    // header unconditionally.
     expect(src).toContain('readLocalKeyCookie');
-    expect(src).toMatch(/if \(!requested && existing\)/);
+    expect(src).toContain('decideViewerCookie');
+    expect(src).toMatch(/hasExistingCookie/);
+    // And it must still be able to CLEAR — the case that was missing entirely.
+    expect(src).toContain('buildClearedLocalKeyCookie');
   });
 });

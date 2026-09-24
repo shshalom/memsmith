@@ -1840,8 +1840,37 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.memsmith will be recreated by active hooks.')}`,
   ];
 
+  // RECOGNISE an identity that is already here. Install ran in whatever
+  // directory the user is standing in, and when that is a clone of a converted
+  // project the marker already names a team — the teammate needs to be told,
+  // because the alternative is capturing locally forever while assuming their
+  // work reaches the team. Never fatal and never a gate: a failure to classify
+  // must not break an otherwise successful install.
+  let trackedNotice: { title: string; body: string; actionable: boolean } | null = null;
+  try {
+    const [{ projectJoinState }, { readProjectMarker }, { CredentialStore }, { trackedProjectNotice }] =
+      await Promise.all([
+        import('../../services/identity/join-state.js'),
+        import('../../services/identity/project-identity.js'),
+        import('../../services/identity/credential-store.js'),
+        import('../install/tracked-project-notice.js'),
+      ]);
+    const cwd = process.cwd();
+    const store = new CredentialStore();
+    const marker = readProjectMarker(cwd);
+    const state = projectJoinState(cwd, {
+      readProjectMarker,
+      hasKeyForTeam: (teamId: string) => Boolean(store.resolveKeyForTeam(teamId)),
+    });
+    trackedNotice = trackedProjectNotice({ state, marker });
+  } catch {
+    // Recognition is a courtesy on top of a completed install. Staying silent
+    // is strictly better than failing the install over it.
+  }
+
   if (isInteractive) {
     p.note(nextSteps.join('\n'), 'Next Steps');
+    if (trackedNotice) p.note(trackedNotice.body, trackedNotice.title);
     // Deliberately the last interaction of the flow: consent is asked after
     // the product is installed and working, never as a gate in front of it.
     await promptTelemetryOptIn();
@@ -1853,6 +1882,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   } else {
     console.log('\n  Next Steps');
     nextSteps.forEach(l => console.log(`  ${l}`));
+    if (trackedNotice) {
+      console.log(`\n  ${trackedNotice.title}`);
+      trackedNotice.body.split('\n').forEach(l => console.log(`  ${l}`));
+    }
     if (failedIDEs.length > 0) {
       console.log('\nmemsmith installed with some IDE setup failures.');
       process.exitCode = 1;

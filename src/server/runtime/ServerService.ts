@@ -18,6 +18,7 @@ import {
 } from '../../supervisor/process-registry.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
+import { setTrackedViewResolver } from '../middleware/postgres-auth.js';
 import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
@@ -26,6 +27,17 @@ import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js'
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ServerViewerRoutes } from './ServerViewerRoutes.js';
 import { CredentialStore } from '../../services/identity/credential-store.js';
+import {
+  PROJECT_PATH_KEY,
+  readProjectMarker as readProjectMarkerForTrackedView,
+} from '../../services/identity/project-identity.js';
+import { evaluateTrackedViewGrant } from '../middleware/tracked-view-grant.js';
+import { teamReadProxy } from '../middleware/team-read-proxy-middleware.js';
+import {
+  isLocalhost,
+  hasLoopbackHostHeader,
+  hasForwardedClientHeaders,
+} from '../middleware/request-auth-helpers.js';
 import { hashApiKey } from '../../services/hooks/server-bootstrap.js';
 import { resolveViewerKeyForRequest } from './viewer-project-scope.js';
 import { DashboardRoutes } from '../dashboard/routes.js';
@@ -293,13 +305,78 @@ export class ServerService {
     // Task 8: build a GenerationProviderHolder from the settings resolver so
     // POST /v1/record-intent can resolve the live provider per request.
     const generationProviderHolder = new GenerationProviderHolder(settingsResolver);
+    // ONE proxy instance, shared by the /v1 and /dashboard route trees. A joined
+    // project's reads span both — the metrics tile is GET /dashboard/metrics, the
+    // Observations tab is POST /v1/search — and mounting it in only one place
+    // left the dashboard reporting counts it could not display.
+    const sharedTeamReadProxy = teamReadProxy({
+      lookupMarker: async (projectId: string) => {
+        try {
+          const r = await this.graph.postgres.pool.query(
+            'SELECT metadata FROM projects WHERE id = $1', [projectId],
+          );
+          const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+          const path = metadata?.[PROJECT_PATH_KEY];
+          if (typeof path !== 'string' || !path.trim()) return null;
+          return readProjectMarkerForTrackedView(path);
+        } catch {
+          return null;
+        }
+      },
+      resolveTeamKey: (teamId: string) => new CredentialStore().resolveKeyForTeam(teamId),
+    });
     const v1Routes = new ServerV1PostgresRoutes({
       pool: this.graph.postgres.pool,
+      teamReadProxy: sharedTeamReadProxy,
       queueManager: this.graph.queueManager,
       authMode: this.graph.authMode === 'disabled' ? 'api-key' : this.graph.authMode,
       allowLocalDevBypass: process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS === '1',
       localDevTeamId: this.graph.localDevTeamId,
       localDevProjectId: this.graph.localDevProjectId,
+      // Read-only view of a TRACKED project: a fresh clone of a team project,
+      // whose marker this machine can see but whose key it does not hold. No
+      // credential can authenticate such a project, so without this the
+      // dashboard cannot display it and its Join button never renders.
+      //
+      // Wired here because the gate needs the project's RECORDED path (from
+      // projects.metadata) — never the server's cwd, which names an unrelated
+      // project on a server that handles many.
+      resolveTrackedView: async (req) => {
+        // ACCEPT BOTH SPELLINGS. The browser-facing viewer route reads
+        // `?project=` (ServerViewerRoutes: `req.query?.project`) while the /v1
+        // API uses `?projectId=`. This grant originally read only projectId, so
+        // the URL a user actually opens — the one the SessionStart banner prints,
+        // with ?project= — never reached it and the dashboard silently stayed on
+        // whatever the cookie already held.
+        const q = req.query as Record<string, unknown> | undefined;
+        const raw = typeof q?.projectId === 'string' ? q.projectId
+          : typeof q?.project === 'string' ? q.project
+          : undefined;
+        const requested = raw;
+        if (!requested?.trim()) return null;
+        let marker: { teamId: string; projectId: string; runtime?: string } | null = null;
+        try {
+          const r = await this.graph.postgres.pool.query(
+            'SELECT metadata FROM projects WHERE id = $1', [requested],
+          );
+          const metadata = (r.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata;
+          const path = metadata?.[PROJECT_PATH_KEY];
+          if (typeof path !== 'string' || !path.trim()) return null;
+          marker = readProjectMarkerForTrackedView(path);
+        } catch {
+          return null;
+        }
+        const store = new CredentialStore();
+        return evaluateTrackedViewGrant({
+          hasKey: false, // only called when no credential was presented
+          isLoopbackIp: isLocalhost(req as never),
+          isLoopbackHost: hasLoopbackHostHeader(req as never),
+          hasForwardedHeaders: hasForwardedClientHeaders(req as never),
+          requestedProjectId: requested,
+          marker,
+          machineHoldsTeamKey: Boolean(marker && store.resolveKeyForTeam(marker.teamId)),
+        });
+      },
       settingsStore,
       settingsResolver,
       generationProviderHolder,
@@ -307,6 +384,19 @@ export class ServerService {
       baseDatabaseName: this.graph.baseDatabaseName,
       baseProjectId: this.graph.baseProjectId ?? null,
     });
+    // REGISTER THE TRACKED-VIEW RESOLVER PROCESS-WIDE.
+    //
+    // There are nine requirePostgresServerAuth(...) construction sites — the v1
+    // routes, /v1/identity's own middleware, the dashboard routes and two compat
+    // adapters. Threading the resolver through each one by hand failed twice:
+    // /v1/identity answered 200 for a tracked project while every /dashboard/*
+    // endpoint 401'd, so the UI rendered "Not authenticated" and never reached
+    // the Join button. A cross-cutting auth capability wired per-site is a
+    // capability that will be missing somewhere.
+    //
+    // One registration here; every middleware inherits it, and an explicit
+    // per-site option still wins for tests.
+    setTrackedViewResolver(v1Routes.trackedViewResolver ?? null);
     server.registerRoutes(v1Routes);
 
     // Phase 9 — legacy compatibility adapters. These translate the old
@@ -406,6 +496,25 @@ export class ServerService {
               return null;
             },
             resolveKeyForTeam: (teamId: string) => store.resolveKeyForTeam(teamId),
+            // After a JOIN the cached key is the TEAM's, minted on the remote and
+            // absent from this server's api_keys — so handing it to the browser
+            // made every request 403, which is worse than handing over nothing
+            // (the tracked-view grant serves a request with no credential).
+            // Verified live: bare request 200, same request with that cookie 403,
+            // dashboard showing "runtime unavailable" and empty Settings.
+            isKeyValidLocally: async (key: string) => {
+              try {
+                const r = await this.graph.postgres.pool.query(
+                  'SELECT 1 FROM api_keys WHERE key_hash = $1 LIMIT 1',
+                  [hashApiKey(key)],
+                );
+                return (r.rowCount ?? 0) > 0;
+              } catch {
+                // Unknown: do not issue. A cookie we cannot vouch for is exactly
+                // what broke the page.
+                return false;
+              }
+            },
           });
         }
         : undefined,
@@ -425,6 +534,11 @@ export class ServerService {
       poolRegistry: this.graph.poolRegistry,
       baseDatabaseName: this.graph.baseDatabaseName,
       baseProjectId: this.graph.baseProjectId ?? null,
+      // A JOINED project's memory lives on its team server, and this server
+      // cannot validate a team-issued key — so without this the dashboard showed
+      // "Not authenticated" and no data right after a successful join. Resolves
+      // the marker via the path the PROJECT recorded, never the server's cwd.
+      teamReadProxy: sharedTeamReadProxy,
     }));
 
     server.finalizeRoutes();

@@ -173,6 +173,11 @@ export interface DashboardRoutesOptions {
   poolRegistry?: PoolRegistry;
   baseDatabaseName?: string;
   baseProjectId?: string | null;
+  /**
+   * Forwards a JOINED project's reads to its team server. Optional: omitting it
+   * leaves every dashboard read local, exactly as before.
+   */
+  teamReadProxy?: RequestHandler;
 }
 
 /**
@@ -184,6 +189,16 @@ export class DashboardRoutes implements RouteHandler {
   constructor(private readonly options: DashboardRoutesOptions) {}
 
   setupRoutes(app: Application): void {
+    // TEAM READS GO TO THE TEAM. Mounted BEFORE readAuth, deliberately: a joined
+    // project's request carries a team-issued credential this server cannot
+    // validate (its api_keys table has no such row), so forwarding must happen
+    // before anything tries to authenticate it locally. Verified live:
+    // /dashboard/metrics with a team key -> 403 here, 200 against the team.
+    //
+    // Everything that is not a joined team project falls through untouched.
+    if (this.options.teamReadProxy) {
+      app.use('/dashboard', this.options.teamReadProxy);
+    }
     const readAuth = requirePostgresServerAuth(this.options.db, {
       authMode: this.options.authMode,
       allowLocalDevBypass: this.options.allowLocalDevBypass,

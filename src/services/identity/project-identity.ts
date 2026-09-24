@@ -43,7 +43,14 @@ function readMarker(cwd: string): ProjectMarker | null {
     const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProjectMarker>;
     if (m.teamId && m.projectId) {
       const out: ProjectMarker = { teamId: m.teamId, projectId: m.projectId, note: m.note ?? MARKER_NOTE };
+      // Normalize the legacy 'server-beta' literal to 'server'. It was silently
+      // DROPPED here, so a marker written before the rename came back with no
+      // runtime at all — and every consumer then read that team project as
+      // local: selectRuntime kept it off the team server, join-state reported
+      // untracked, and the Join button never appeared. Dropping an unknown value
+      // is right; dropping a known alias is data loss.
       if (m.runtime === 'local' || m.runtime === 'server') out.runtime = m.runtime;
+      else if (m.runtime === 'server-beta') out.runtime = 'server';
       if (typeof m.serverUrl === 'string' && m.serverUrl.length > 0) out.serverUrl = m.serverUrl;
       if (typeof m.databaseName === 'string' && m.databaseName.length > 0) out.databaseName = m.databaseName;
       return out;
@@ -251,7 +258,29 @@ export async function ensureProjectIdentity(
   }
   // basename of a path ending in a separator is '' — fall back to the id.
   await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined, cwd);
-  if (store) {
+  // NEVER MINT A KEY FOR A TEAM THIS MACHINE HAS NOT LOGGED INTO.
+  //
+  // The key guarantee below exists to close dark capture: a LOCAL marker with no
+  // key makes every hook fall back to missing_api_key and silently drop
+  // observations. That reasoning holds for a project this machine owns.
+  //
+  // It does not hold for an ADOPTED TEAM marker. A teammate clones a converted
+  // project, the committed marker says `runtime: 'server'`, and minting here gave
+  // this machine a key for that team — so the project reported as JOINED (team
+  // badge on, Join button off) while the user had joined nothing and no
+  // observation had ever reached the team. Verified live: the minted key's
+  // api_keys.actor_id was `system:local-hook-bootstrap` — self-issued, not
+  // team-issued.
+  //
+  // The rule: minting is for a project with NO identity. A project whose identity
+  // says it belongs to a team is LOCAL until the user logs in and a real team key
+  // is cached (applyConvertJoin does that). Capture still works meanwhile —
+  // selectRuntime keeps such a project on the local runtime precisely so nothing
+  // is dropped.
+  const marker = existing ?? readMarker(cwd);
+  const isTeamMarker = marker?.runtime === 'server' || (marker?.runtime as string) === 'server-beta';
+  const alreadyLoggedIn = isTeamMarker && Boolean(store?.resolveKeyForTeam(teamId));
+  if (store && (!isTeamMarker || alreadyLoggedIn)) {
     // Guarantee a resolvable key for this identity. ensureBaseKey is idempotent:
     // it returns the cached key (repairing DB drift if needed) or mints one.
     await ensureBaseKey(pool, teamId, projectId, store);

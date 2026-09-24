@@ -145,13 +145,14 @@ export const sessionInitHandler: EventHandler = {
       const [
         { claimPendingTeamJoin }, { applyConvertJoin },
         { readProjectMarker, writeProjectRuntime }, { CredentialStore },
-        { getSharedPostgresPool },
+        { getSharedPostgresPool }, { shareMarkerInGit },
       ] = await Promise.all([
         import('../../server/convert/claim-pending-join.js'),
         import('../../server/convert/apply-join.js'),
         import('../../services/identity/project-identity.js'),
         import('../../services/identity/credential-store.js'),
         import('../../storage/postgres/pool.js'),
+        import('../../server/convert/share-marker.js'),
       ]);
       const store = new CredentialStore();
       await claimPendingTeamJoin(cwd, {
@@ -165,6 +166,7 @@ export const sessionInitHandler: EventHandler = {
           readProjectMarker: (x) => readProjectMarker(x) as any,
           writeProjectRuntime,
           storeKeyForTeam: (teamId, key) => store.storeKeyForTeam(teamId, key),
+          shareMarkerInGit,
         }, c, join),
       });
     } catch (err) {
