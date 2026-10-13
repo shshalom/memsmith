@@ -1905,6 +1905,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }, { person: true });
 }
 
+export async function installMarketplaceDependencies(): Promise<void> {
+  await runNpmInstallInMarketplace(createInstallSummary());
+}
+
 export async function runRepairCommand(): Promise<void> {
   const version = readPluginVersion();
   const cacheDir = pluginCacheDirectory(version);
@@ -1934,6 +1938,8 @@ export async function runRepairCommand(): Promise<void> {
         message('Reinstalling plugin dependencies…');
         const { bunPath } = await ensureBun();
         await installPluginDependencies(cacheDir, bunPath);
+        message('Reinstalling marketplace dependencies…');
+        await installMarketplaceDependencies();
         writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
         return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${styleText('green', 'OK')}`;
       },

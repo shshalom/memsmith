@@ -146,7 +146,7 @@ async function main(): Promise<void> {
 
     case 'doctor': {
       const { runDoctorCommand } = await import('./commands/doctor.js');
-      await runDoctorCommand();
+      await runDoctorCommand(args.slice(1));
       break;
     }
 
