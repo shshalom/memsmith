@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-export type InstallRuntimeId = 'worker' | 'server';
+export type InstallRuntimeId = 'local' | 'server';
 
 /**
- * Normalize the user-supplied `--runtime <value>` flag to a canonical runtime
- * id. Accepts the legacy alias `server-beta` (what existing scripts emit) in
- * addition to the canonical `server`, and the default `worker`. Returns null
- * for an unknown value so the caller can fail fast with a clear error.
+ * Normalize a `--runtime` flag or a stored MEMSMITH_RUNTIME to a canonical id.
+ * `worker` and `server-beta` are legacy aliases that existing settings files
+ * and scripts still carry. Returns null for an unknown value.
  */
 export function normalizeRuntimeFlag(value: string | undefined): InstallRuntimeId | null {
-  if (value === undefined) return 'worker';
+  if (value === undefined) return 'local';
   const normalized = value.trim().toLowerCase();
-  if (normalized === '' || normalized === 'worker') return 'worker';
+  if (normalized === '' || normalized === 'local' || normalized === 'worker') return 'local';
   if (normalized === 'server' || normalized === 'server-beta') return 'server';
   return null;
 }

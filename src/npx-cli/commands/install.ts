@@ -318,7 +318,7 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
           if (mcpResult === 0) {
             return `Cursor: hooks + MCP installed ${styleText('green', 'OK')}`;
           }
-          return `Cursor: hooks installed; MCP setup failed — run \`npx memsmith cursor mcp\` ${styleText('yellow', '!')}`;
+          return `Cursor: hooks installed; MCP setup failed — rerun \`npx memsmith install --ide cursor\` ${styleText('yellow', '!')}`;
         },
       };
     }
@@ -796,14 +796,13 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   if (options.runtime !== undefined) {
     const requested = normalizeRuntimeFlag(options.runtime);
     if (requested === null) {
-      log.error(`Unknown --runtime: ${options.runtime}. Allowed: local, worker, server`);
+      log.error(`Unknown --runtime: ${options.runtime}. Allowed: local, server`);
       process.exit(1);
     }
     if (requested === 'server') {
       await setupServerRuntimeNonInteractive(options);
       return 'server';
     }
-    // Both 'worker' (legacy alias) and 'local' resolve to the embedded local runtime.
     mergeSettings({ MEMSMITH_RUNTIME: 'local' });
     return 'local';
   }
@@ -1264,7 +1263,7 @@ export interface InstallOptions {
   disableAutoMemory?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
   // alias for the canonical `server-beta` runtime id.
-  runtime?: 'worker' | 'server' | 'server-beta';
+  runtime?: string;
   // Base URL the server runtime (and the injected IDE MCP config) targets.
   serverUrl?: string;
 }
