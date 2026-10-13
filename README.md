@@ -34,7 +34,13 @@ searchable memory.
 
 ## Quick start
 
-Install from the plugin marketplace inside Claude Code:
+Install with a single command:
+
+```bash
+npx memsmith install
+```
+
+Or install from the plugin marketplace inside Claude Code:
 
 ```bash
 /plugin marketplace add shshalom/memsmith
@@ -45,10 +51,23 @@ Install from the plugin marketplace inside Claude Code:
 Restart Claude Code. Context from previous sessions automatically appears in
 new sessions, and the dashboard is available at http://localhost:38879.
 
-> **Note:** MemSmith is also published on npm, but `npm install -g memsmith`
-> installs the SDK/library only — it does not register the plugin hooks or set
-> up the server. Always install through `npx memsmith install` or the `/plugin`
-> commands above.
+> **Note:** `npm install -g memsmith` installs the `memsmith` CLI only. To
+> register the plugin hooks and set up the server, run `memsmith install`.
+
+## Manage the server
+
+| Command | What it does |
+| --- | --- |
+| `memsmith start` | Starts the local server and waits until it is ready. |
+| `memsmith stop` | Stops the server. Embedded Postgres keeps running so the next start is fast. |
+| `memsmith stop --all` | Stops the server and embedded Postgres. |
+| `memsmith restart` | Restarts the server. |
+| `memsmith status` | Shows the server's state and version. Exits 1 when it is not running. |
+| `memsmith doctor` | Checks Bun, uv, the plugin install, and the server. |
+| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, and a stopped or outdated server. |
+
+Without a global install, prefix each command with `npx`, for example
+`npx memsmith status`.
 
 ## Key features
 
