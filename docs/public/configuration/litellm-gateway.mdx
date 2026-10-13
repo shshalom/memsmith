@@ -226,8 +226,6 @@ When a Claude Code session produces transcript events, memsmith's worker queues 
 7. The SDK streams the assistant response back to the worker.
 8. memsmith parses observations, stores them in SQLite, and syncs searchable embeddings.
 
-The knowledge-agent APIs use the same gateway environment, so corpus priming and corpus Q&A route through LiteLLM too.
-
 ## What LiteLLM Does and Does Not Replace
 
 LiteLLM replaces:

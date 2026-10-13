@@ -17,6 +17,6 @@ The first session in a fresh project seeds memory; subsequent sessions receive a
 
 ## Where data lives
 
-Everything stays in ~/.memsmith on this machine.
+In local mode (the default), everything stays in ~/.memsmith on this machine. The database, embeddings, logs, and settings all live under that directory, and `npx memsmith uninstall` removes them. Nothing leaves your machine except calls to the generation provider you configured (Claude, Gemini, OpenRouter, or Ollama).
 
-Nothing leaves your machine except calls to whichever AI provider you configured for compression (Claude / OpenRouter / Gemini). The database, embeddings, logs, and settings all live under that directory and are removed cleanly on `npx memsmith uninstall`.
+In team mode, observations are stored on your team's MemSmith server, where teammates with access can search them. Your settings and logs still live in ~/.memsmith.

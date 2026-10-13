@@ -15,11 +15,8 @@ describe('skill namespace separation (ms- prefix)', () => {
     expect([...dirs].sort()).toEqual([
       'ms-dashboard',
       'ms-how-it-works',
-      'ms-knowledge-agent',
       'ms-mem-search',
       'ms-smart-explore',
-      'ms-timeline-report',
-      'ms-weekly-digests',
     ]);
   });
 
@@ -37,8 +34,7 @@ describe('skill namespace separation (ms- prefix)', () => {
   it('no SKILL.md references a bare (un-prefixed) old skill name via slash-command', () => {
     // After renaming, any "/mem-search"-style reference to another skill must be
     // "/ms-mem-search". Catch stragglers: a "/<oldname>" not preceded by "ms-".
-    const OLD = ['mem-search','timeline-report','how-it-works','smart-explore',
-      'knowledge-agent','weekly-digests','dashboard'];
+    const OLD = ['mem-search','how-it-works','smart-explore','dashboard'];
     for (const d of dirs) {
       const skillMd = join(SKILLS_DIR, d, 'SKILL.md');
       if (!existsSync(skillMd)) continue;
@@ -65,6 +61,21 @@ describe('skill namespace separation (ms- prefix)', () => {
         const src = readFileSync(join(SKILLS_DIR, d, file), 'utf-8');
         for (const match of src.matchAll(/\/(ms-[a-z0-9-]+)/g)) {
           expect(shipped.has(match[1]), `${d}/${file} references missing /${match[1]}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('every tool call in a skill code block names a tool the MCP server exposes', () => {
+    const server = readFileSync(join(import.meta.dir, '..', '..', 'src', 'servers', 'mcp-server.ts'), 'utf-8');
+    const exposed = new Set([...server.matchAll(/^    name: '([a-z_]+)',$/gm)].map(m => m[1]));
+    expect(exposed.has('observation_search')).toBe(true);
+    for (const d of dirs) {
+      const src = readFileSync(join(SKILLS_DIR, d, 'SKILL.md'), 'utf-8');
+      const blocks = [...src.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map(m => m[1]);
+      for (const block of blocks) {
+        for (const call of block.matchAll(/^(?:\d+\.\s+)?([a-z][a-z_]+)\(/gm)) {
+          expect(exposed.has(call[1]), `${d}/SKILL.md calls unknown tool ${call[1]}`).toBe(true);
         }
       }
     }

@@ -325,13 +325,5 @@ describe('Install Non-TTY Support', () => {
       );
       expect(nextStepsRegion).not.toContain('/mem-search');
     });
-
-    it('does not advertise /knowledge-agent in the post-install Next Steps', () => {
-      const nextStepsRegion = installSource.slice(
-        installSource.indexOf('const nextSteps = '),
-        installSource.indexOf("p.note(nextSteps.join"),
-      );
-      expect(nextStepsRegion).not.toContain('/knowledge-agent');
-    });
   });
 });
