@@ -145,11 +145,47 @@ async function status(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAdd
   return 0;
 }
 
+const USAGE: Record<LifecycleCommand, string> = {
+  start: 'memsmith start [--timeout <s>]',
+  stop: 'memsmith stop [--all]',
+  restart: 'memsmith restart [--timeout <s>]',
+  status: 'memsmith status',
+};
+
+const KNOWN_FLAGS: Record<LifecycleCommand, string[]> = {
+  start: ['--timeout'],
+  stop: ['--all'],
+  restart: ['--timeout'],
+  status: [],
+};
+
+function checkArgs(command: LifecycleCommand, argv: string[], d: LifecycleDeps): number | null {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    d.out(`Usage: ${USAGE[command]}`);
+    return 0;
+  }
+  const valueFlag = KNOWN_FLAGS[command].includes('--timeout');
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg.startsWith('-')) continue;
+    const name = arg.split('=')[0];
+    if (!KNOWN_FLAGS[command].includes(name)) {
+      d.err(`Unknown option: ${arg}`);
+      d.err(`Usage: ${USAGE[command]}`);
+      return 1;
+    }
+    if (valueFlag && !arg.includes('=')) i++;
+  }
+  return null;
+}
+
 export async function runLifecycle(
   command: LifecycleCommand,
   argv: string[],
   d: LifecycleDeps = defaultLifecycleDeps(),
 ): Promise<number> {
+  const argError = checkArgs(command, argv, d);
+  if (argError !== null) return argError;
   const addr = resolveServerAddress(d.serverUrl());
   if (addr.remote) {
     d.err(`MEMSMITH_SERVER_URL points at a remote server (${addr.baseUrl}). Lifecycle commands manage only a local server.`);
