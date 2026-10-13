@@ -142,8 +142,9 @@ running. No hook, script, or test depends on its current exit code.
 (`ServerService.ts:682`).
 
 **Installer auto-start.** `install.ts:1701-1731` runs
-`server-service.cjs start --daemon` and then the same health wait as
-`memsmith start`. The fallback messages at `:1695` and `:1722` say
+`server-service.cjs start --daemon` and does not wait for health, so a first
+install is not held up by the Postgres download. Its result line tells the user
+to run `memsmith status`. The fallback messages at `:1695` and `:1722` say
 `memsmith start`.
 
 **Removed.**
