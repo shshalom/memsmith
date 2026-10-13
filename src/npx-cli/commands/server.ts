@@ -1,59 +1,26 @@
 import { styleText } from 'node:util';
 import { readFlatSettings } from '../utils/settings.js';
-import {
-  runServerRestartCommand,
-  runServerStartCommand,
-  runServerStatusCommand,
-  runServerStopCommand,
-  runServerWorkerStartCommand,
-  runRestartCommand,
-  runServerApiKeyCommand,
-  runStartCommand,
-  runStatusCommand,
-  runStopCommand,
-} from './runtime.js';
+import { runServerApiKeyCommand, runServerWorkerStartCommand } from './runtime.js';
+import { runLifecycle, type LifecycleCommand, type LifecycleDeps } from './lifecycle.js';
+
+const LIFECYCLE = new Set<string>(['start', 'stop', 'restart', 'status']);
 
 function printServerUsage(): void {
-  console.error(`Usage: ${styleText('bold', 'npx memsmith server <command>')}`);
-  console.error('Commands: start, stop, restart, status, api-key create|list|revoke, keys rotate, worker start, jobs status|failed|retry|cancel');
+  console.error(`Usage: ${styleText('bold', 'memsmith server <command>')}`);
+  console.error('Commands: start [--timeout <s>], stop [--all], restart, status, api-key create|list|revoke, keys rotate, worker start, jobs status|failed|retry|cancel');
 }
 
-function runWorkerLifecycleCommand(command: string): boolean {
-  switch (command) {
-    case 'start':
-      runStartCommand();
-      return true;
-    case 'stop':
-      runStopCommand();
-      return true;
-    case 'restart':
-      runRestartCommand();
-      return true;
-    case 'status':
-      runStatusCommand();
-      return true;
-    default:
-      return false;
+export async function routeLifecycle(
+  namespace: 'top' | 'server' | 'worker',
+  argv: string[],
+  deps?: LifecycleDeps,
+): Promise<number | null> {
+  const sub = argv[0]?.toLowerCase();
+  if (!sub || !LIFECYCLE.has(sub)) return null;
+  if (namespace === 'worker') {
+    console.error(styleText('yellow', `\`memsmith worker\` is deprecated; use \`memsmith ${sub}\`.`));
   }
-}
-
-function runServerLifecycleCommand(command: string): boolean {
-  switch (command) {
-    case 'start':
-      runServerStartCommand();
-      return true;
-    case 'stop':
-      runServerStopCommand();
-      return true;
-    case 'restart':
-      runServerRestartCommand();
-      return true;
-    case 'status':
-      runServerStatusCommand();
-      return true;
-    default:
-      return false;
-  }
+  return runLifecycle(sub as LifecycleCommand, argv.slice(1), deps);
 }
 
 export async function runServerCommand(argv: string[] = []): Promise<void> {
@@ -64,9 +31,8 @@ export async function runServerCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  if (runServerLifecycleCommand(subCommand)) {
-    return;
-  }
+  const lifecycleCode = await routeLifecycle('server', argv);
+  if (lifecycleCode !== null) process.exit(lifecycleCode);
 
   if (subCommand === 'api-key') {
     const apiKeyCommand = argv[1]?.toLowerCase();
@@ -173,12 +139,12 @@ async function lookupApiKeyIdByPlaintext(rawKey: string): Promise<string | null>
   }
 }
 
-export function runWorkerAliasCommand(argv: string[] = []): void {
-  const subCommand = argv[0]?.toLowerCase();
-
-  if (!subCommand || !runWorkerLifecycleCommand(subCommand)) {
-    console.error(styleText('red', `Unknown worker command: ${subCommand ?? '(none)'}`));
-    console.error('Usage: npx memsmith worker start|stop|restart|status');
+export async function runWorkerAliasCommand(argv: string[] = []): Promise<void> {
+  const code = await routeLifecycle('worker', argv);
+  if (code === null) {
+    console.error(styleText('red', `Unknown worker command: ${argv[0] ?? '(none)'}`));
+    console.error('Usage: memsmith worker start|stop|restart|status');
     process.exit(1);
   }
+  process.exit(code);
 }
