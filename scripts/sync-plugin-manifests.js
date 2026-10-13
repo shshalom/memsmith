@@ -10,7 +10,6 @@ const rootDir = path.resolve(__dirname, '..');
 const packageJsonPath = path.join(rootDir, 'package.json');
 const codexPluginPath = path.join(rootDir, '.codex-plugin', 'plugin.json');
 const bundledCodexPluginPath = path.join(rootDir, 'plugin', '.codex-plugin', 'plugin.json');
-const claudePluginPath = path.join(rootDir, '.claude-plugin', 'plugin.json');
 const bundledClaudePluginPath = path.join(rootDir, 'plugin', '.claude-plugin', 'plugin.json');
 
 function readJson(filePath) {
@@ -22,9 +21,6 @@ function writeJson(filePath, value) {
 }
 
 function syncCodexPlugin(plugin, pkg) {
-  const author =
-    typeof plugin.author === 'object' && plugin.author ? plugin.author : {};
-
   return {
     ...plugin,
     name: pkg.name,
@@ -34,10 +30,7 @@ function syncCodexPlugin(plugin, pkg) {
     repository: normalizeRepositoryUrl(pkg.repository),
     license: pkg.license,
     keywords: pkg.keywords,
-    author: {
-      ...author,
-      name: normalizeAuthorName(pkg.author),
-    },
+    author: normalizeAuthor(pkg.author),
     interface: {
       ...plugin.interface,
       developerName: normalizeAuthorName(pkg.author),
@@ -56,11 +49,15 @@ function syncClaudePlugin(plugin, pkg) {
     repository: normalizeRepositoryUrl(pkg.repository),
     license: pkg.license,
     keywords: pkg.keywords,
-    author: {
-      ...(typeof plugin.author === 'object' && plugin.author ? plugin.author : {}),
-      name: normalizeAuthorName(pkg.author),
-    },
+    author: normalizeAuthor(pkg.author),
   };
+}
+
+function normalizeAuthor(author) {
+  if (author && typeof author === 'object') {
+    return author.url ? { name: author.name, url: author.url } : { name: author.name };
+  }
+  return { name: normalizeAuthorName(author) };
 }
 
 function normalizeAuthorName(author) {
@@ -70,14 +67,14 @@ function normalizeAuthorName(author) {
 }
 
 function normalizeRepositoryUrl(repository) {
-  if (typeof repository === 'string') return repository.replace(/\.git$/, '');
+  if (typeof repository === 'string') return repository.replace(/^git\+/, '').replace(/\.git$/, '');
   if (repository && typeof repository === 'object' && typeof repository.url === 'string')
-    return repository.url.replace(/\.git$/, '');
+    return repository.url.replace(/^git\+/, '').replace(/\.git$/, '');
   return '';
 }
 
 function main() {
-  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, claudePluginPath, bundledClaudePluginPath]) {
+  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, bundledClaudePluginPath]) {
     if (!fs.existsSync(filePath)) {
       console.error(`Missing required file: ${filePath}`);
       process.exit(1);
@@ -87,12 +84,10 @@ function main() {
   const pkg = readJson(packageJsonPath);
   const codexPlugin = readJson(codexPluginPath);
   const bundledCodexPlugin = readJson(bundledCodexPluginPath);
-  const claudePlugin = readJson(claudePluginPath);
   const bundledClaudePlugin = readJson(bundledClaudePluginPath);
 
   writeJson(codexPluginPath, syncCodexPlugin(codexPlugin, pkg));
   writeJson(bundledCodexPluginPath, syncCodexPlugin(bundledCodexPlugin, pkg));
-  writeJson(claudePluginPath, syncClaudePlugin(claudePlugin, pkg));
   writeJson(bundledClaudePluginPath, syncClaudePlugin(bundledClaudePlugin, pkg));
 
   console.log('✓ Synced plugin manifests from package.json');

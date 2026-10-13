@@ -1,24 +1,22 @@
 {
   "name": "memsmith",
   "version": "13.10.2",
-  "description": "Memory compression system for Claude Code - persist context across sessions",
+  "description": "Persistent, local-first memory for Claude Code, with optional shared team memory.",
   "author": {
-    "name": "Alex Newman"
+    "name": "shshalom",
+    "url": "https://github.com/shshalom"
   },
   "repository": "https://github.com/shshalom/memsmith",
   "license": "Apache-2.0",
   "keywords": [
-    "claude",
     "claude-code",
-    "claude-agent-sdk",
-    "mcp",
     "plugin",
     "memory",
-    "compression",
-    "knowledge-graph",
-    "transcript",
-    "typescript",
-    "nodejs"
+    "persistent-memory",
+    "team-memory",
+    "mcp",
+    "postgres",
+    "semantic-search"
   ],
   "homepage": "https://github.com/shshalom/memsmith#readme"
 }

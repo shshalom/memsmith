@@ -1,25 +1,25 @@
 {
   "name": "memsmith",
   "version": "13.10.2",
-  "description": "Memory compression system for Claude Code - persist context across sessions",
+  "description": "Persistent, local-first memory for Claude Code, with optional shared team memory.",
   "keywords": [
-    "claude",
     "claude-code",
-    "claude-agent-sdk",
-    "mcp",
     "plugin",
     "memory",
-    "compression",
-    "knowledge-graph",
-    "transcript",
-    "typescript",
-    "nodejs"
+    "persistent-memory",
+    "team-memory",
+    "mcp",
+    "postgres",
+    "semantic-search"
   ],
-  "author": "Alex Newman",
+  "author": {
+    "name": "shshalom",
+    "url": "https://github.com/shshalom"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shshalom/memsmith.git"
+    "url": "git+https://github.com/shshalom/memsmith.git"
   },
   "homepage": "https://github.com/shshalom/memsmith#readme",
   "bugs": {
@@ -27,7 +27,7 @@
   },
   "type": "module",
   "bin": {
-    "memsmith": "./dist/npx-cli/index.js"
+    "memsmith": "dist/npx-cli/index.js"
   },
   "exports": {
     "./modes/*": "./plugin/modes/*"
@@ -66,7 +66,6 @@
     "worker:tail": "tail -f 50 ~/.memsmith/logs/worker-$(date +%Y-%m-%d).log",
     "changelog:generate": "node scripts/generate-changelog.js",
     "discord:notify": "node scripts/discord-release-notify.js",
-
     "queue": "bun scripts/check-pending-queue.ts",
     "queue:process": "bun scripts/check-pending-queue.ts --process",
     "queue:clear:pending": "bun scripts/clear-pending-queue.ts --all --force",
@@ -83,7 +82,6 @@
     "translate:tier4": "npm run translate-readme -- it el hu fi da no",
     "translate:all": "npm run translate:tier1 & npm run translate:tier2 & npm run translate:tier3 & npm run translate:tier4 & wait",
     "bug-report": "bun scripts/bug-report/cli.ts",
-
     "lint:hook-io": "node scripts/check-hook-io-discipline.cjs",
     "lint:spawn-env": "node scripts/check-spawn-env-discipline.cjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/viewer/tsconfig.json",
@@ -99,7 +97,6 @@
     "test:server": "bun test tests/server/",
     "e2e:server:docker": "bash scripts/e2e-server-docker.sh",
     "check:postinstall-allowlist": "node scripts/check-postinstall-allowlist.js",
-
     "prepublishOnly": "npm run build && node scripts/check-postinstall-allowlist.js",
     "release": "np",
     "release:patch": "np patch --no-cleanup",
