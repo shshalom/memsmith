@@ -127,17 +127,42 @@ function isPortInUse(host: string, port: number): Promise<boolean> {
   });
 }
 
+export interface DoctorProbes {
+  probeVersion(bin: string): string | null;
+  isPluginInstalled(): boolean;
+  marketplaceDirectory(): string;
+  installedPluginVersion(): string;
+  probeServerHealth(baseUrl: string): Promise<{ reachable: boolean; version?: string }>;
+  readServerPidFile(): ReturnType<typeof readServerPidFile>;
+  verifyPidFileOwnership(info: NonNullable<ReturnType<typeof readServerPidFile>>): boolean;
+  isPortInUse(host: string, port: number): Promise<boolean>;
+  dataDir(): string;
+}
+
+const defaultProbes: DoctorProbes = {
+  probeVersion,
+  isPluginInstalled,
+  marketplaceDirectory: () => marketplaceDirectory(),
+  installedPluginVersion: () => installedPluginVersion(),
+  probeServerHealth,
+  readServerPidFile: () => readServerPidFile(),
+  verifyPidFileOwnership,
+  isPortInUse,
+  dataDir: resolveDataDir,
+};
+
 export async function collectChecks(
   fix: boolean,
   restarted: boolean,
   urlSource: ServerUrlSource = {},
+  probes: DoctorProbes = defaultProbes,
 ): Promise<{ checks: CheckResult[]; state: DoctorState }> {
   const address = resolveServerAddress(resolveServerUrl(urlSource));
   const checks: CheckResult[] = [];
-  const dataDir = resolveDataDir();
+  const dataDir = probes.dataDir();
 
   // 1. Bun (required — hooks run on Bun).
-  const bunVersion = probeVersion('bun');
+  const bunVersion = probes.probeVersion('bun');
   checks.push({
     name: 'Bun runtime',
     status: bunVersion ? 'ok' : 'fail',
@@ -146,7 +171,7 @@ export async function collectChecks(
   });
 
   // 2. uv (warn-only — only needed for vector search).
-  const uvVersion = probeVersion('uv');
+  const uvVersion = probes.probeVersion('uv');
   checks.push({
     name: 'uv (vector search)',
     status: uvVersion ? 'ok' : 'warn',
@@ -155,16 +180,16 @@ export async function collectChecks(
   });
 
   // 3. Plugin installed in the marketplace.
-  const installed = isPluginInstalled();
+  const installed = probes.isPluginInstalled();
   checks.push({
     name: 'Plugin installed',
     status: installed ? 'ok' : 'fail',
-    detail: installed ? marketplaceDirectory() : 'run `npx memsmith install`',
+    detail: installed ? probes.marketplaceDirectory() : 'run `npx memsmith install`',
     required: true,
   });
 
   // 4. Marketplace dependencies materialized.
-  const marketplaceNodeModules = join(marketplaceDirectory(), 'node_modules');
+  const marketplaceNodeModules = join(probes.marketplaceDirectory(), 'node_modules');
   const depsPresent = existsSync(marketplaceNodeModules);
   checks.push({
     name: 'Marketplace deps',
@@ -174,8 +199,8 @@ export async function collectChecks(
   });
 
   // 5. Server health.
-  const pluginVersion = installedPluginVersion();
-  const health = await probeServerHealth(address.baseUrl);
+  const pluginVersion = probes.installedPluginVersion();
+  const health = await probes.probeServerHealth(address.baseUrl);
   let serverStatus: CheckStatus;
   let serverDetail: string;
   if (address.remote) {
@@ -213,10 +238,10 @@ export async function collectChecks(
     });
   }
 
-  const pidInfo = readServerPidFile();
+  const pidInfo = probes.readServerPidFile();
   const state: DoctorState = {
-    pidFileStale: pidInfo !== null && !verifyPidFileOwnership(pidInfo),
-    portInUse: address.remote ? false : await isPortInUse(address.host, address.port),
+    pidFileStale: pidInfo !== null && !probes.verifyPidFileOwnership(pidInfo),
+    portInUse: address.remote ? false : await probes.isPortInUse(address.host, address.port),
     depsMissing: installed && !depsPresent,
     serverReachable: health.reachable,
     serverVersion: health.version,

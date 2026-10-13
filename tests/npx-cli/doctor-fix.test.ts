@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   applyRepairs,
   collectChecks,
+  type DoctorProbes,
   parseDoctorArgs,
   runDoctorCommand,
   planRepairs,
@@ -123,8 +124,22 @@ describe('doctor server address', () => {
   afterEach(() => { spyOn(process, 'exit').mockRestore(); spyOn(console, 'error').mockRestore(); });
 
   it('treats the remote server a team install configured as remote', async () => {
-    const { state } = await collectChecks(false, false, { settingsPath: settingsWith('https://team.example.invalid'), env: {} });
+    const empty = mkdtempSync(join(tmpdir(), 'ms-doc-empty-'));
+    const probed: string[] = [];
+    const probes: DoctorProbes = {
+      probeVersion: () => '1.0.0',
+      isPluginInstalled: () => true,
+      marketplaceDirectory: () => empty,
+      installedPluginVersion: () => '13.10.2',
+      probeServerHealth: async (baseUrl) => { probed.push(baseUrl); return { reachable: false }; },
+      readServerPidFile: () => null,
+      verifyPidFileOwnership: () => true,
+      isPortInUse: async (host) => { probed.push(`port:${host}`); return false; },
+      dataDir: () => empty,
+    };
+    const { state } = await collectChecks(false, false, { settingsPath: settingsWith('https://team.example.com'), env: {} }, probes);
     expect(state.remote).toBe(true);
+    expect(probed).toEqual(['https://team.example.com']);
   });
 
   it('exits 1 with a one-line message for a malformed URL', async () => {

@@ -220,6 +220,16 @@ describe('server address from settings.json', () => {
     expect(calls.err).toEqual(['Invalid MEMSMITH_SERVER_URL: not a url']);
     expect(calls.probes).toBe(0);
   });
+
+  it('exits 1 with a one-line message when settings.json is not valid JSON', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ms-lc-')), 'settings.json');
+    writeFileSync(path, '{ "MEMSMITH_SERVER_URL": ');
+    const { d, calls } = deps({ serverUrl: defaultLifecycleDeps({ settingsPath: path, env: {} }).serverUrl });
+    expect(await runLifecycle('status', [], d)).toBe(1);
+    expect(calls.err).toHaveLength(1);
+    expect(calls.err[0]).toStartWith(`Cannot read ${path}: `);
+    expect(calls.probes).toBe(0);
+  });
 });
 
 describe('--timeout validation', () => {

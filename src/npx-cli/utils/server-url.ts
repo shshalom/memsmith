@@ -11,7 +11,7 @@ export class ServerUrlError extends Error {}
 
 export function resolveServerUrl({ settingsPath = USER_SETTINGS_PATH, env = process.env }: ServerUrlSource = {}): string {
   if (env.MEMSMITH_SERVER_URL) return env.MEMSMITH_SERVER_URL;
-  
+
   let settings: Record<string, unknown> | null;
   try {
     settings = readFlatSettings(settingsPath);
