@@ -47,7 +47,8 @@
     "plugin/scripts/*.cjs",
     "plugin/skills",
     "plugin/ui",
-    "openclaw"
+    "openclaw",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=20.12.0",
