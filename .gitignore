@@ -11,7 +11,8 @@ dist/
 .install-version
 .claude/settings.local.json
 .claude/agents/
-.claude/skills/
+.claude/skills/*
+!.claude/skills/ms-version-bump/
 .claude/plans/
 .claude/worktrees/
 plugin/data/
