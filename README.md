@@ -49,7 +49,7 @@ Or install from the plugin marketplace inside Claude Code:
 ```
 
 Restart Claude Code. Context from previous sessions automatically appears in
-new sessions, and the dashboard opens in your browser at the address that
+new sessions, and the dashboard is available at the address that
 `memsmith status` prints. By default, the address is `http://127.0.0.1:` followed
 by a port derived from your user ID.
 
