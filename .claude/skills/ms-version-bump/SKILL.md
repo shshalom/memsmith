@@ -25,9 +25,9 @@ description: Automated semantic versioning and release workflow for Claude Code 
 
 ## Workflow
 
-1.  **Update**: Increment the version string in every path above. Do NOT touch `CHANGELOG.md` — it's regenerated.
+1.  **Update**: Increment the version string in every path above. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
 2.  **Verify**: `git grep -n "\"version\": \"<NEW>\""` — confirm all six files match. `git grep -n "\"version\": \"<OLD>\""` — should return zero hits.
-3.  **Build and sync**: `npm run build-and-sync` to regenerate artifacts, sync the local marketplace copy, restart the worker, and clear the queue. Do not use plain `npm run build` for release validation because it can leave the local marketplace/worker out of sync.
+3.  **Build and sync**: Run `npm run build-and-sync` to regenerate artifacts and sync the local marketplace copy, then run `memsmith restart`. Don't use plain `npm run build` for release validation: it leaves the local marketplace copy out of sync.
 4.  **Commit**: `git add -A && git commit -m "chore: bump version to X.Y.Z"`.
 5.  **Tag**: `git tag -a vX.Y.Z -m "Version X.Y.Z"`.
 6.  **Push**: `git push origin main && git push origin vX.Y.Z`.
@@ -46,13 +46,8 @@ description: Automated semantic versioning and release workflow for Claude Code 
     ```
     If the publish build touched local artifacts, run `npm run build-and-sync` again afterward.
 8.  **GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "RELEASE_NOTES"`.
-9.  **Changelog**: Regenerate via the project's changelog script:
-    ```bash
-    npm run changelog:generate
-    ```
-    (Runs `node scripts/generate-changelog.js`, which pulls releases from the GitHub API and rewrites `CHANGELOG.md`.)
-10. **Sync changelog**: Commit and push the updated `CHANGELOG.md`.
-11. **Finalize**: `git status` — working tree must be clean.
+9.  **Changelog check**: `npm run changelog:generate` adds an entry for any GitHub release from 13.10.2 on that `CHANGELOG.md` doesn't list yet. Because step 1 already added the version, it normally reports that the changelog is up to date.
+10. **Finalize**: `git status` — working tree must be clean.
 
 ## Checklist
 
@@ -62,5 +57,5 @@ description: Automated semantic versioning and release workflow for Claude Code 
 - [ ] Git tag created and pushed
 - [ ] **NPM publishing handed off to the human** (agent does NOT run `npm publish` — human raised security); once they publish, `npm view memsmith@X.Y.Z version` confirms it (so `npx memsmith@X.Y.Z` resolves)
 - [ ] GitHub release created with notes
-- [ ] `CHANGELOG.md` updated and pushed
+- [ ] `CHANGELOG.md` has the new version section and an empty `Unreleased` section
 - [ ] `git status` shows clean tree
