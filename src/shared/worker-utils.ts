@@ -19,7 +19,7 @@ import { captureCliEvent } from "../services/telemetry/cli-telemetry.js";
 //   - fetchWithTimeout        — the transport primitive ServerClient uses.
 //   - getWorkerPort/getWorkerHost/getWorkerApiRequestTimeoutMs/clearPortCache
 //     — the port/host settings resolution still used for display URLs (context
-//       + user-message hooks) and the installers.
+//       hook) and the installers.
 //   - recordWorkerUnreachable/setActiveHookType/getActiveHookType — the
 //       fail-loud telemetry helpers used by hook-command.ts.
 
@@ -212,8 +212,8 @@ function getFailLoudThreshold(): number {
  * Closed enum of hook handler names allowed as the `hook_type` telemetry
  * property. Mirrors the scrub whitelist comment (scrub.ts), the CLI
  * disclosure (npx-cli/commands/telemetry.ts), and docs/public/telemetry.mdx —
- * never widen one without the others. Events outside this set (user-message,
- * file-edit) simply omit hook_type.
+ * never widen one without the others. Events outside this set (file-edit)
+ * simply omit hook_type.
  */
 const TELEMETRY_HOOK_TYPES = ['context', 'session-init', 'observation', 'summarize', 'file-context'] as const;
 export type TelemetryHookType = (typeof TELEMETRY_HOOK_TYPES)[number];

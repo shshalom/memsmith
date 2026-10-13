@@ -494,7 +494,7 @@ Examples:
   memsmith antigravity-cli status      # Check if installed
   memsmith antigravity-cli uninstall   # Remove hooks + MCP
 
-For more info: https://docs.memsmith.ai/antigravity-cli/setup
+For more info: https://github.com/shshalom/memsmith/blob/main/docs/public/antigravity-cli/setup.mdx
       `);
       return 0;
   }

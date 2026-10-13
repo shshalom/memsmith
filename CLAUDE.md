@@ -40,9 +40,8 @@ running the same server engine (Postgres + pgvector + semantic search):
 
 ## Documentation
 
-**Public Docs**: https://docs.memsmith.ai (Mintlify)
-**Source**: `docs/public/` - MDX files, edit `docs.json` for navigation
-**Deploy**: Auto-deploys from GitHub on push to main
+**Source**: `docs/public/` - Mintlify MDX files; edit `docs.json` for navigation.
+**Hosting**: No hosted docs site yet. Link to the files on GitHub (https://github.com/shshalom/memsmith/tree/main/docs/public) or to the README.
 
 ## Important
 

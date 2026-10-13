@@ -82,14 +82,7 @@ describe('worker-unavailable transient path stays quiet (exit 0)', () => {
   });
 });
 
-describe('Edit 4A — user-message banner relocated to systemMessage (not stderr)', () => {
-  it('user-message handler source no longer writes the banner to stderr', () => {
-    const src = readFileSync(join(REPO_ROOT, 'src', 'cli', 'handlers', 'user-message.ts'), 'utf-8');
-    // No actual call (the comment mentions the API name; assert the invocation form).
-    expect(src).not.toContain('process.stderr.write(');
-    expect(src).toContain('systemMessage: bannerText');
-  });
-
+describe('systemMessage routing', () => {
   it('claude-code adapter routes systemMessage to the stdout JSON envelope (banner reaches the user via contract)', () => {
     const result: HookResult = { systemMessage: 'banner-text', exitCode: 0 };
     const output = claudeCodeAdapter.formatOutput(result) as Record<string, unknown>;

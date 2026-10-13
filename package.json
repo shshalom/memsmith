@@ -65,7 +65,6 @@
     "worker:logs": "tail -n 50 ~/.memsmith/logs/worker-$(date +%Y-%m-%d).log",
     "worker:tail": "tail -f 50 ~/.memsmith/logs/worker-$(date +%Y-%m-%d).log",
     "changelog:generate": "node scripts/generate-changelog.js",
-    "discord:notify": "node scripts/discord-release-notify.js",
     "queue": "bun scripts/check-pending-queue.ts",
     "queue:process": "bun scripts/check-pending-queue.ts --process",
     "queue:clear:pending": "bun scripts/clear-pending-queue.ts --all --force",

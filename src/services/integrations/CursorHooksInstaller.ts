@@ -473,7 +473,7 @@ Examples:
   memsmith cursor uninstall            # Remove from current project
   memsmith cursor status               # Check if hooks are installed
 
-For more info: https://docs.memsmith.ai/cursor
+For more info: https://github.com/shshalom/memsmith/blob/main/docs/public/cursor/index.mdx
       `);
       return 0;
     }
