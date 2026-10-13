@@ -49,11 +49,12 @@ describe('Plugin Distribution - Skills', () => {
     expect(frontmatter).toContain('description:');
   });
 
-  it('should reference the 3-layer search workflow', () => {
+  it('teaches the server-backed tools, not the removed worker tools', () => {
     const content = readFileSync(skillPath, 'utf-8');
-    expect(content).toContain('search');
-    expect(content).toContain('timeline');
-    expect(content).toContain('get_observations');
+    expect(content).toContain('observation_search(');
+    expect(content).toContain('observation_context(');
+    expect(content).toContain('note_add(');
+    expect(content).not.toMatch(/\b(timeline|get_observations)\(/);
   });
 });
 
