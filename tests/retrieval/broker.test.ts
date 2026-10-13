@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'bun:test';
 import { RetrievalBroker } from '../../src/services/retrieval/broker.js';
 import { SessionShownStore } from '../../src/services/retrieval/session-store.js';
-import { SessionTopicStore } from '../../src/services/retrieval/topic-store.js';
+import { CONSULT_WINDOW_MS, SessionTopicStore } from '../../src/services/retrieval/topic-store.js';
 import { topicKey } from '../../src/services/retrieval/topic-key.js';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
@@ -149,11 +149,20 @@ describe('Amendment 1 — block keys on consulted-topic, not hit count', () => {
     expect((await b.forToolIntent('Grep', { pattern: 'restart|ollama' })).block).toBe(false);
   });
 
-  it('still blocks a DIFFERENT topic in the same session', async () => {
-    const topics = freshTopics();
+  it('still blocks a DIFFERENT topic once the consult window has passed', async () => {
+    let now = 1_000_000;
+    const topics = new SessionTopicStore('sess-x', mkdtempSync(join(tmpdir(), 'brk-t-')), () => now);
     topics.markConsulted(topicKey('ollama restart'));
+    now += CONSULT_WINDOW_MS + 1;
     const b = new RetrievalBroker(deps(fakeRuntime([]), hard), freshStore(), topics);
     expect((await b.forToolIntent('Grep', { pattern: 'postgres pool' })).block).toBe(true);
+  });
+
+  it('lets a code-identifier search through right after a memory consult', async () => {
+    const topics = freshTopics();
+    topics.markConsulted(topicKey('why does generation fail on a fresh install'));
+    const b = new RetrievalBroker(deps(fakeRuntime([]), hard), freshStore(), topics);
+    expect((await b.forToolIntent('Grep', { pattern: 'ollamaCanGenerate' })).block).toBe(false);
   });
 
   it('never blocks in soft mode', async () => {
