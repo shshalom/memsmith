@@ -4,23 +4,50 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run every step except npm publish
+        type: boolean
+        default: true
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
-      - name: Install Bun (required by smoke:clean-room)
-        uses: oven-sh/setup-bun@v2
+      - run: npm install -g npm@^11.5.1
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Check tag matches package.json
+        if: github.ref_type == 'tag'
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
       - run: npm install --ignore-scripts
       - run: npm run build
       - run: npm run smoke:clean-room
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-artifacts
+          path: smoke-artifacts/
+      - name: Publish
+        if: github.ref_type == 'tag' && github.event_name == 'push'
+        run: npm publish --provenance

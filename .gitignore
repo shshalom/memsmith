@@ -61,3 +61,6 @@ bench/quality-eval/last-run.json
 # Personal AWS infrastructure scratch notes — account ids, security group
 # ids and ARNs. Useful recon if published; never meant to ship.
 .aws-state-rollback.txt
+
+# Server logs copied by a failed clean-room smoke run
+smoke-artifacts/

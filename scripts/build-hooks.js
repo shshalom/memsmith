@@ -478,7 +478,7 @@ async function buildHooks() {
       target: 'node18',
       format: 'esm',
       outfile: `${npxCliOutDir}/index.js`,
-      banner: { js: '#!/usr/bin/env node' },
+      banner: { js: "#!/usr/bin/env node\nimport { createRequire as __createRequire } from 'module';\nconst require = __createRequire(import.meta.url);" },
       minify: true,
       logLevel: 'error',
       external: [

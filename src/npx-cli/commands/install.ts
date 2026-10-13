@@ -5,6 +5,8 @@ import { spawnSync } from 'child_process';
 import { loadTelemetryConfig, saveTelemetryConfig } from '../../services/telemetry/consent.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 import { spawnHidden } from '../../shared/spawn.js';
+import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
+import { buildAutoStartCommand } from '../install/autostart.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
@@ -1681,7 +1683,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
-  // `memsmith server start`), NOT the local-runtime spawner. Skip the
+  // `memsmith start`), NOT the local-runtime spawner. Skip the
   // local autostart entirely so the server runtime never invokes the
   // local path (#2543).
   const autoStartSkipped = !isInteractive || options.noAutoStart || selectedRuntime === 'server';
@@ -1691,43 +1693,36 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting local runtime',
       task: async (message) => {
         if (selectedRuntime === 'server') {
-          return `Server runtime selected — start it with ${styleText('bold', 'npx memsmith server start')} ${styleText('dim', '(or via Docker compose)')}`;
+          return `Server runtime selected — start it with ${styleText('bold', 'memsmith start')} ${styleText('dim', '(or via Docker compose)')}`;
         }
         if (autoStartSkipped) {
           return isInteractive
             ? `Skipped (--no-auto-start)`
             : `Skipped (non-TTY)`;
         }
-        const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
-        const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'worker-service.cjs');
+        const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'server-service.cjs');
+        const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'server-service.cjs');
         const scriptPath = existsSync(marketplaceScriptPath) ? marketplaceScriptPath : cacheScriptPath;
-        // selectedRuntime is 'local' here: the server case returned above.
-        // startLocalRuntime() BLOCKS in the foreground server loop, so we must
-        // detach it. Mirror spawnDaemon's mechanism exactly: spawnHidden with
-        // detached:true + unref(), but invoke `local start` instead of `--daemon`.
-        message('Spawning embedded local runtime (detached)...');
+        message('Starting the local server in the background...');
         const runtimePath = resolveWorkerRuntimePath();
         if (!runtimePath) {
           workerStartResult = 'dead';
           return `Bun runtime not found — install from https://bun.sh ${styleText('yellow', '!')}`;
         }
-        const setsidPath = '/usr/bin/setsid';
-        const useSetsid = process.platform !== 'win32' && existsSync(setsidPath);
-        const execPath = useSetsid ? setsidPath : runtimePath;
-        const args = useSetsid
-          ? [runtimePath, scriptPath, 'local', 'start']
-          : [scriptPath, 'local', 'start'];
-        const child = spawnHidden(execPath, args, {
-          detached: true,
-          stdio: 'ignore',
+        const { execPath, args, env } = buildAutoStartCommand({
+          runtimePath,
+          scriptPath,
+          useSetsid: process.platform !== 'win32' && existsSync('/usr/bin/setsid'),
+          projectCwd: homedir(),
         });
+        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore', env: { ...sanitizeEnv(process.env), ...env } });
         if (child.pid === undefined) {
           workerStartResult = 'dead';
-          return `Local runtime did not start — try \`npx memsmith local start\` manually ${styleText('yellow', '!')}`;
+          return `Local server did not start — run ${styleText('bold', 'memsmith start')} ${styleText('yellow', '!')}`;
         }
         child.unref();
         workerStartResult = 'warming';
-        return `Local runtime starting in background ${styleText('yellow', '⏳')}`;
+        return `Local server starting in the background — check it with ${styleText('bold', 'memsmith status')} ${styleText('yellow', '⏳')}`;
       },
     },
   ]);
@@ -1810,15 +1805,14 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   const finalWorkerState = workerStartResult as 'ready' | 'warming' | 'dead';
   const workerAlive = finalWorkerState !== 'dead' || workerReady;
   const runtimeLabel = selectedRuntime === 'server' ? 'Server' : 'Local';
-  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx memsmith server start' : 'npx memsmith local start';
   const workerHeadline = autoStartSkipped
-    ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', runtimeStartCommand)}`
+    ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', 'memsmith start')}`
     : workerReady || finalWorkerState === 'ready'
       ? `${styleText('green', '✓')} ${runtimeLabel} running at ${styleText('underline', `http://localhost:${actualPort}`)}`
       : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', `http://localhost:${actualPort}`)} — give it ~30s, then refresh`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
-    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith local start')}`;
+    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'memsmith start')}`;
   const firstSuccessOpener = autoStartSkipped
     ? `once the local runtime is running, keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`
     : workerAlive
@@ -1912,6 +1906,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }, { person: true });
 }
 
+export async function installMarketplaceDependencies(): Promise<void> {
+  await runNpmInstallInMarketplace(createInstallSummary());
+}
+
 export async function runRepairCommand(): Promise<void> {
   const version = readPluginVersion();
   const cacheDir = pluginCacheDirectory(version);
@@ -1941,6 +1939,8 @@ export async function runRepairCommand(): Promise<void> {
         message('Reinstalling plugin dependencies…');
         const { bunPath } = await ensureBun();
         await installPluginDependencies(cacheDir, bunPath);
+        message('Reinstalling marketplace dependencies…');
+        await installMarketplaceDependencies();
         writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
         return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${styleText('green', 'OK')}`;
       },

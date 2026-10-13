@@ -93,22 +93,6 @@ function spawnBunServerCommand(command: string, extraArgs: string[] = []): void 
   spawnPlugin(bunPath, [serverScript, command, ...extraArgs]);
 }
 
-export function runServerStartCommand(): void {
-  spawnBunServerCommand('start');
-}
-
-export function runServerStopCommand(): void {
-  spawnBunServerCommand('stop');
-}
-
-export function runServerRestartCommand(): void {
-  spawnBunServerCommand('restart');
-}
-
-export function runServerStatusCommand(): void {
-  spawnBunServerCommand('status');
-}
-
 // Phase 10 — start the BullMQ generation worker (no HTTP). Use this in
 // Compose to scale generation horizontally while a single (or multiple)
 // HTTP-only server replicas serve writes/reads.
@@ -116,24 +100,13 @@ export function runServerWorkerStartCommand(): void {
   spawnBunServerCommand('worker', ['start']);
 }
 
-export function runStartCommand(): void {
-  spawnBunWorkerCommand('start');
-}
-
-export function runStopCommand(): void {
-  spawnBunWorkerCommand('stop');
-}
-
-export function runRestartCommand(): void {
-  spawnBunWorkerCommand('restart');
-}
-
-export function runStatusCommand(): void {
-  spawnBunWorkerCommand('status');
+export function serverApiKeyArgs(extraArgs: string[]): string[] {
+  return ['server', 'api-key', ...extraArgs];
 }
 
 export function runServerApiKeyCommand(extraArgs: string[] = []): void {
-  spawnBunWorkerCommand('server', ['api-key', ...extraArgs]);
+  const [command, ...rest] = serverApiKeyArgs(extraArgs);
+  spawnBunServerCommand(command, rest);
 }
 
 export function runAdoptCommand(extraArgs: string[] = []): void {

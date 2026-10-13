@@ -1,8 +1,7 @@
 /**
- * `npx memsmith doctor` — a minimal diagnostic that probes every layer an
- * operator would otherwise check by hand (#2548). Read-only: it never mutates
- * state. Exits 0 when all REQUIRED checks pass, 1 otherwise, so it is CI/script
- * friendly.
+ * `memsmith doctor` — a diagnostic that probes every layer an operator would
+ * otherwise check by hand (#2548). Read-only unless `--fix` is passed. Exits 0
+ * when all REQUIRED checks pass, 1 otherwise, so it is CI/script friendly.
  */
 
 import { existsSync, readFileSync } from 'fs';
@@ -10,8 +9,13 @@ import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { styleText } from 'node:util';
 import { isPluginInstalled, marketplaceDirectory, IS_WINDOWS } from '../utils/paths.js';
-import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { resolveDataDir } from '../../shared/paths.js';
+import { connect } from 'node:net';
+import { readServerPidFile, removeServerState } from '../../server/runtime/server-state.js';
+import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
+import { installedPluginVersion } from '../utils/paths.js';
+import { resolveServerAddress } from './lifecycle.js';
+import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 
 type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -38,22 +42,127 @@ function probeVersion(bin: string): string | null {
   }
 }
 
-async function probeWorkerHealth(workerPort: string): Promise<{ status: CheckStatus; detail: string }> {
-  const res = await fetch(`http://127.0.0.1:${workerPort}/api/health`, {
-    signal: AbortSignal.timeout(3000),
-  });
-  if (res.ok) {
-    return { status: 'ok', detail: `healthy at http://127.0.0.1:${workerPort}` };
-  }
-  return { status: 'warn', detail: `reachable but unhealthy (HTTP ${res.status}) on port ${workerPort}` };
+export type Repair = 'remove-stale-state' | 'install-deps' | 'restart' | 'start';
+
+export interface DoctorState {
+  pidFileStale: boolean;
+  portInUse: boolean;
+  depsMissing: boolean;
+  serverReachable: boolean;
+  serverVersion?: string;
+  pluginVersion: string;
+  remote: boolean;
 }
 
-export async function runDoctorCommand(): Promise<void> {
+export interface RepairDeps {
+  removeState(): void;
+  installDeps(): Promise<void>;
+  lifecycle(cmd: 'start' | 'restart'): Promise<number>;
+  out(line: string): void;
+}
+
+export type DoctorArgs =
+  | { kind: 'run'; fix: boolean }
+  | { kind: 'help' }
+  | { kind: 'unknown'; flag: string };
+
+export const DOCTOR_USAGE = 'Usage: memsmith doctor [--fix]';
+
+export function parseDoctorArgs(argv: string[]): DoctorArgs {
+  if (argv.includes('--help') || argv.includes('-h')) return { kind: 'help' };
+  const unknown = argv.find((arg) => arg !== '--fix');
+  if (unknown !== undefined) return { kind: 'unknown', flag: unknown };
+  return { kind: 'run', fix: argv.includes('--fix') };
+}
+
+export function versionMismatchStatus(ctx: { restarted: boolean }): CheckStatus {
+  return ctx.restarted ? 'fail' : 'warn';
+}
+
+export function planRepairs(s: DoctorState): Repair[] {
+  const repairs: Repair[] = [];
+  if (!s.remote && s.pidFileStale && !s.portInUse) repairs.push('remove-stale-state');
+  if (s.depsMissing) repairs.push('install-deps');
+  if (s.remote) return repairs;
+  if (!s.serverReachable) repairs.push('start');
+  else if (s.serverVersion && s.serverVersion !== s.pluginVersion) repairs.push('restart');
+  return repairs;
+}
+
+export async function applyRepairs(
+  repairs: Repair[],
+  deps: RepairDeps,
+): Promise<{ ok: true } | { ok: false; failed: Repair; error: string }> {
+  for (const repair of repairs) {
+    deps.out(`Fixing: ${repair}`);
+    try {
+      if (repair === 'remove-stale-state') deps.removeState();
+      else if (repair === 'install-deps') await deps.installDeps();
+      else if ((await deps.lifecycle(repair)) !== 0) {
+        return { ok: false, failed: repair, error: `memsmith ${repair} failed` };
+      }
+    } catch (error) {
+      return { ok: false, failed: repair, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  return { ok: true };
+}
+
+async function probeServerHealth(baseUrl: string): Promise<{ reachable: boolean; version?: string }> {
+  try {
+    const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const body = (await res.json().catch(() => ({}))) as { version?: unknown };
+    return { reachable: true, version: typeof body.version === 'string' ? body.version : undefined };
+  } catch {
+    return { reachable: false };
+  }
+}
+
+function isPortInUse(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port, timeout: 1000 });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('timeout', () => { socket.destroy(); resolve(false); });
+    socket.once('error', () => resolve(false));
+  });
+}
+
+export interface DoctorProbes {
+  probeVersion(bin: string): string | null;
+  isPluginInstalled(): boolean;
+  marketplaceDirectory(): string;
+  installedPluginVersion(): string;
+  probeServerHealth(baseUrl: string): Promise<{ reachable: boolean; version?: string }>;
+  readServerPidFile(): ReturnType<typeof readServerPidFile>;
+  verifyPidFileOwnership(info: NonNullable<ReturnType<typeof readServerPidFile>>): boolean;
+  isPortInUse(host: string, port: number): Promise<boolean>;
+  dataDir(): string;
+}
+
+const defaultProbes: DoctorProbes = {
+  probeVersion,
+  isPluginInstalled,
+  marketplaceDirectory: () => marketplaceDirectory(),
+  installedPluginVersion: () => installedPluginVersion(),
+  probeServerHealth,
+  readServerPidFile: () => readServerPidFile(),
+  verifyPidFileOwnership,
+  isPortInUse,
+  dataDir: resolveDataDir,
+};
+
+export async function collectChecks(
+  fix: boolean,
+  restarted: boolean,
+  urlSource: ServerUrlSource = {},
+  probes: DoctorProbes = defaultProbes,
+): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+  const address = resolveServerAddress(resolveServerUrl(urlSource));
   const checks: CheckResult[] = [];
-  const dataDir = resolveDataDir();
+  const dataDir = probes.dataDir();
 
   // 1. Bun (required — hooks run on Bun).
-  const bunVersion = probeVersion('bun');
+  const bunVersion = probes.probeVersion('bun');
   checks.push({
     name: 'Bun runtime',
     status: bunVersion ? 'ok' : 'fail',
@@ -62,7 +171,7 @@ export async function runDoctorCommand(): Promise<void> {
   });
 
   // 2. uv (warn-only — only needed for vector search).
-  const uvVersion = probeVersion('uv');
+  const uvVersion = probes.probeVersion('uv');
   checks.push({
     name: 'uv (vector search)',
     status: uvVersion ? 'ok' : 'warn',
@@ -71,16 +180,16 @@ export async function runDoctorCommand(): Promise<void> {
   });
 
   // 3. Plugin installed in the marketplace.
-  const installed = isPluginInstalled();
+  const installed = probes.isPluginInstalled();
   checks.push({
     name: 'Plugin installed',
     status: installed ? 'ok' : 'fail',
-    detail: installed ? marketplaceDirectory() : 'run `npx memsmith install`',
+    detail: installed ? probes.marketplaceDirectory() : 'run `npx memsmith install`',
     required: true,
   });
 
   // 4. Marketplace dependencies materialized.
-  const marketplaceNodeModules = join(marketplaceDirectory(), 'node_modules');
+  const marketplaceNodeModules = join(probes.marketplaceDirectory(), 'node_modules');
   const depsPresent = existsSync(marketplaceNodeModules);
   checks.push({
     name: 'Marketplace deps',
@@ -89,23 +198,25 @@ export async function runDoctorCommand(): Promise<void> {
     required: installed,
   });
 
-  // 5. Worker health.
-  const workerPort = SettingsDefaultsManager.get('MEMSMITH_WORKER_PORT');
-  let workerStatus: CheckStatus = 'fail';
-  let workerDetail = `no response on port ${workerPort} — start with \`npx memsmith start\``;
-  try {
-    const worker = await probeWorkerHealth(workerPort);
-    workerStatus = worker.status;
-    workerDetail = worker.detail;
-  } catch {
-    // leave as fail
+  // 5. Server health.
+  const pluginVersion = probes.installedPluginVersion();
+  const health = await probes.probeServerHealth(address.baseUrl);
+  let serverStatus: CheckStatus;
+  let serverDetail: string;
+  if (address.remote) {
+    serverStatus = 'warn';
+    serverDetail = `remote server at ${address.baseUrl}; not managed by doctor`;
+  } else if (!health.reachable) {
+    serverStatus = 'fail';
+    serverDetail = 'not running — run `memsmith start` or `memsmith doctor --fix`';
+  } else if (health.version && health.version !== pluginVersion) {
+    serverStatus = versionMismatchStatus({ restarted });
+    serverDetail = `running ${health.version}, plugin is ${pluginVersion} — run \`memsmith restart\``;
+  } else {
+    serverStatus = 'ok';
+    serverDetail = `healthy at ${address.baseUrl}${health.version ? ` (${health.version})` : ''}`;
   }
-  checks.push({
-    name: 'Worker daemon',
-    status: workerStatus,
-    detail: workerDetail,
-    required: false, // worker can be intentionally stopped; don't hard-fail
-  });
+  checks.push({ name: 'Server', status: serverStatus, detail: serverDetail, required: fix });
 
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');
@@ -127,6 +238,20 @@ export async function runDoctorCommand(): Promise<void> {
     });
   }
 
+  const pidInfo = probes.readServerPidFile();
+  const state: DoctorState = {
+    pidFileStale: pidInfo !== null && !probes.verifyPidFileOwnership(pidInfo),
+    portInUse: address.remote ? false : await probes.isPortInUse(address.host, address.port),
+    depsMissing: installed && !depsPresent,
+    serverReachable: health.reachable,
+    serverVersion: health.version,
+    pluginVersion,
+    remote: address.remote,
+  };
+  return { checks, state };
+}
+
+function printChecks(checks: CheckResult[]): void {
   const icon = (s: CheckStatus): string =>
     s === 'ok' ? styleText('green', '✓') : s === 'warn' ? styleText('yellow', '!') : styleText('red', '✗');
 
@@ -134,14 +259,64 @@ export async function runDoctorCommand(): Promise<void> {
   for (const c of checks) {
     console.log(`  ${icon(c.status)} ${c.name.padEnd(22)} ${styleText('dim', c.detail)}`);
   }
+}
 
+function reportExitCode(checks: CheckResult[]): number {
   const hardFailures = checks.filter((c) => c.required && c.status === 'fail');
   console.log('');
   if (hardFailures.length === 0) {
     console.log(styleText('green', 'All required checks passed.'));
-    process.exit(0);
-  } else {
-    console.log(styleText('red', `${hardFailures.length} required check(s) failed — see remediation above.`));
+    return 0;
+  }
+  console.log(styleText('red', `${hardFailures.length} required check(s) failed — see remediation above.`));
+  return 1;
+}
+
+async function collectChecksOrExit(
+  fix: boolean,
+  restarted: boolean,
+  urlSource: ServerUrlSource,
+): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+  try {
+    return await collectChecks(fix, restarted, urlSource);
+  } catch (error) {
+    if (!(error instanceof ServerUrlError)) throw error;
+    console.error(error.message);
     process.exit(1);
   }
+}
+
+export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrlSource = {}): Promise<void> {
+  const args = parseDoctorArgs(argv);
+  if (args.kind === 'help') {
+    console.log(DOCTOR_USAGE);
+    process.exit(0);
+  }
+  if (args.kind === 'unknown') {
+    console.error(`Unknown option: ${args.flag}\n${DOCTOR_USAGE}`);
+    process.exit(1);
+  }
+
+  const { checks, state } = await collectChecksOrExit(args.fix, false, urlSource);
+  printChecks(checks);
+  if (!args.fix) process.exit(reportExitCode(checks));
+
+  const repairs = planRepairs(state);
+  const result = await applyRepairs(repairs, {
+    removeState: () => removeServerState(),
+    installDeps: async () => (await import('./install.js')).installMarketplaceDependencies(),
+    lifecycle: async (cmd) => {
+      const { runLifecycle, defaultLifecycleDeps } = await import('./lifecycle.js');
+      return runLifecycle(cmd, [], defaultLifecycleDeps(urlSource));
+    },
+    out: (line) => console.log(styleText('cyan', `  → ${line}`)),
+  });
+  if (!result.ok) {
+    console.error(`Repair failed at ${result.failed}: ${result.error}`);
+    process.exit(1);
+  }
+
+  const after = await collectChecksOrExit(true, repairs.includes('restart') || repairs.includes('start'), urlSource);
+  printChecks(after.checks);
+  process.exit(reportExitCode(after.checks));
 }

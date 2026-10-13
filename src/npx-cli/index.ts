@@ -25,7 +25,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith install --ide <id>')}   Install for specific IDE
   ${styleText('cyan', 'npx memsmith install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
   ${styleText('cyan', 'npx memsmith install --model <id>')}   Set Claude model (when provider=claude)
-  ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip worker auto-start at the end
+  ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx memsmith install --runtime worker|server')}   Select runtime non-interactively (server brings up Docker pg+redis, generates an API key, injects the IDE MCP config)
   ${styleText('cyan', 'npx memsmith install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
@@ -34,19 +34,14 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith uninstall')}            Remove plugin and configs
   ${styleText('cyan', 'npx memsmith version')}              Print version
 
-${styleText('bold', 'Runtime Commands')} (requires Bun, delegates to installed plugin):
-  ${styleText('cyan', 'npx memsmith start')}                Start worker service
-  ${styleText('cyan', 'npx memsmith stop')}                 Stop worker service
-  ${styleText('cyan', 'npx memsmith restart')}              Restart worker service
-  ${styleText('cyan', 'npx memsmith status')}               Show worker status
-  ${styleText('cyan', 'npx memsmith doctor')}               Diagnose install/runtime health (bun, uv, worker)
+${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed plugin):
+  ${styleText('cyan', 'memsmith start [--timeout <s>]')}    Start the local server and wait until it is ready
+  ${styleText('cyan', 'memsmith stop [--all]')}             Stop the server (--all also stops embedded Postgres)
+  ${styleText('cyan', 'memsmith restart [--timeout <s>]')}  Restart the server
+  ${styleText('cyan', 'memsmith status')}                   Show server status (exit 1 when not running)
+  ${styleText('cyan', 'memsmith doctor [--fix]')}           Diagnose, and optionally repair, the install
+  ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys
   ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
-  ${styleText('cyan', 'npx memsmith server start')}         Start server service
-  ${styleText('cyan', 'npx memsmith server stop')}          Stop server service
-  ${styleText('cyan', 'npx memsmith server restart')}       Restart server service
-  ${styleText('cyan', 'npx memsmith server status')}        Show server status
-  ${styleText('cyan', 'npx memsmith server api-key create|list|revoke')}   Manage API keys
-  ${styleText('cyan', 'npx memsmith worker start|stop|restart|status')}    Worker compatibility aliases
   ${styleText('cyan', 'npx memsmith search <query>')}       Search observations
   ${styleText('cyan', 'npx memsmith adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
   ${styleText('cyan', 'npx memsmith cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
@@ -141,30 +136,17 @@ async function main(): Promise<void> {
       break;
     }
 
-    case 'start': {
-      const { runStartCommand } = await import('./commands/runtime.js');
-      runStartCommand();
-      break;
-    }
-    case 'stop': {
-      const { runStopCommand } = await import('./commands/runtime.js');
-      runStopCommand();
-      break;
-    }
-    case 'restart': {
-      const { runRestartCommand } = await import('./commands/runtime.js');
-      runRestartCommand();
-      break;
-    }
+    case 'start':
+    case 'stop':
+    case 'restart':
     case 'status': {
-      const { runStatusCommand } = await import('./commands/runtime.js');
-      runStatusCommand();
-      break;
+      const { routeLifecycle } = await import('./commands/server.js');
+      process.exit((await routeLifecycle('top', args)) ?? 1);
     }
 
     case 'doctor': {
       const { runDoctorCommand } = await import('./commands/doctor.js');
-      await runDoctorCommand();
+      await runDoctorCommand(args.slice(1));
       break;
     }
 
@@ -199,7 +181,7 @@ async function main(): Promise<void> {
 
     case 'worker': {
       const { runWorkerAliasCommand } = await import('./commands/server.js');
-      runWorkerAliasCommand(args.slice(1));
+      await runWorkerAliasCommand(args.slice(1));
       break;
     }
 

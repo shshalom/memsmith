@@ -27,7 +27,7 @@ running the same server engine (Postgres + pgvector + semantic search):
   the shipped default (`MEMSMITH_RUNTIME=local`); legacy `worker` settings remap to
   `local` transparently.
 - **`MEMSMITH_RUNTIME=local`**: runs an embedded Postgres in-process (no Docker) so a solo user gets Postgres + semantic search without a container. On first boot it imports any existing SQLite DB (`~/.memsmith/memsmith.db`) into Postgres — taxonomy-aware, idempotent (marker `~/.memsmith/.local-import-done`), with embedding backfill so semantic search works immediately.
-  - Manage it with: the `local start | stop | status` CLI (`src/services/local-runtime-cli.ts`).
+  - Manage it with `memsmith start | stop [--all] | restart | status` (`src/npx-cli/commands/lifecycle.ts`). `stop` leaves embedded Postgres running; `stop --all` stops it too.
   - Data dir: `~/.memsmith/pgdata`; downloaded binaries: `~/.memsmith/pg-binaries`.
   - Port: `55433` (override with `MEMSMITH_LOCAL_PG_PORT`). The port is fixed — the manager never wanders to a random port; if the port is held by a foreign process it fails loud.
 - **`MEMSMITH_RUNTIME=server`**: the same engine pointed at a remote Postgres (team mode).
