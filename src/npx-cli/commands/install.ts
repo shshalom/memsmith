@@ -1682,7 +1682,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
-  // `memsmith server start`), NOT the local-runtime spawner. Skip the
+  // `memsmith start`), NOT the local-runtime spawner. Skip the
   // local autostart entirely so the server runtime never invokes the
   // local path (#2543).
   const autoStartSkipped = !isInteractive || options.noAutoStart || selectedRuntime === 'server';
@@ -1708,12 +1708,13 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           workerStartResult = 'dead';
           return `Bun runtime not found — install from https://bun.sh ${styleText('yellow', '!')}`;
         }
-        const { execPath, args } = buildAutoStartCommand({
+        const { execPath, args, env } = buildAutoStartCommand({
           runtimePath,
           scriptPath,
           useSetsid: process.platform !== 'win32' && existsSync('/usr/bin/setsid'),
+          projectCwd: homedir(),
         });
-        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore' });
+        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...env } });
         if (child.pid === undefined) {
           workerStartResult = 'dead';
           return `Local server did not start — run ${styleText('bold', 'memsmith start')} ${styleText('yellow', '!')}`;
@@ -1803,15 +1804,14 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   const finalWorkerState = workerStartResult as 'ready' | 'warming' | 'dead';
   const workerAlive = finalWorkerState !== 'dead' || workerReady;
   const runtimeLabel = selectedRuntime === 'server' ? 'Server' : 'Local';
-  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx memsmith server start' : 'npx memsmith local start';
   const workerHeadline = autoStartSkipped
-    ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', runtimeStartCommand)}`
+    ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', 'memsmith start')}`
     : workerReady || finalWorkerState === 'ready'
       ? `${styleText('green', '✓')} ${runtimeLabel} running at ${styleText('underline', `http://localhost:${actualPort}`)}`
       : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', `http://localhost:${actualPort}`)} — give it ~30s, then refresh`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
-    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'npx memsmith local start')}`;
+    : `${styleText('yellow', '!')} Local runtime not yet ready on port ${styleText('cyan', String(localRuntimePort))} -- still starting up; check ${styleText('bold', 'memsmith status')} later, or start manually: ${styleText('bold', 'memsmith start')}`;
   const firstSuccessOpener = autoStartSkipped
     ? `once the local runtime is running, keep ${styleText('underline', `http://localhost:${localRuntimePort}`)} open in a browser`
     : workerAlive
