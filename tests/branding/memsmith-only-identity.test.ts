@@ -2,11 +2,12 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'path';
 import { execFileSync } from 'child_process';
 
-// Every shipped or public surface presents MemSmith only. The upstream
+// Every shipped or public surface presents MemSmith only: no upstream name,
+// author, domain, community invite, or analytics key. The upstream
 // attribution required by Apache-2.0 section 4(d) lives in NOTICE, which is
 // deliberately outside the scanned paths.
 const ROOT = join(import.meta.dir, '..', '..');
-const PATTERN = 'claude-mem|claude_mem|claudemem|thedotmack|alex newman';
+const PATTERN = 'claude-mem|claude_mem|claudemem|thedotmack|alex newman|alexnewman|cmem\\.ai|J4wttp9vDu|phc_BKJAeNbpj932';
 const SCANNED_DIRS = [
   'src/',
   'plugin/',
@@ -16,8 +17,9 @@ const SCANNED_DIRS = [
   'docs/public/',
   'cursor-hooks/',
   '.github/',
+  'install/',
 ];
-const SCANNED_FILES = new Set(['package.json', 'README.md', 'CLAUDE.md']);
+const SCANNED_FILES = new Set(['package.json', 'README.md', 'CLAUDE.md', 'SECURITY.md']);
 // Reads a claude-mem SQLite database for the import tool and names it as such.
 const ALLOWLIST = new Set(['src/server/runtime/import/sqliteReader.ts']);
 
