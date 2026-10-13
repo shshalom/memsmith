@@ -35,13 +35,16 @@ describe('MEMORY_TOOL_PATTERN', () => {
     'mcp__plugin_memsmith_mem__observation_search',
     'mcp__plugin_memsmith_mem__smart_search',
     'mcp__plugin_memsmith_mem__observation_context',
-    'mcp__plugin_claude-mem_mcp-search__observation_search',
   ]) {
     it(`recognises ${t} as a memory consultation`, () => {
       expect(MEMORY_TOOL_PATTERN.test(t)).toBe(true);
     });
   }
-  for (const t of ['Grep', 'Glob', 'Read', 'Bash', 'mcp__plugin_slack_slack__slack_read_channel']) {
+  for (const t of [
+    'Grep', 'Glob', 'Read', 'Bash',
+    'mcp__plugin_slack_slack__slack_read_channel',
+    'mcp__plugin_claude-mem_mcp-search__observation_search',
+  ]) {
     it(`does NOT treat ${t} as a memory consultation`, () => {
       expect(MEMORY_TOOL_PATTERN.test(t)).toBe(false);
     });

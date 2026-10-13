@@ -5,7 +5,7 @@ import type { Observation } from '../types';
 
 // MemSmith canonical observation taxonomy (the `code` mode's observation_types,
 // see plugin/modes/code.json). These are the types the server runtime actually
-// classifies observations into — NOT the legacy claude-mem set. Filter chips
+// classifies observations into, not the legacy taxonomy. Filter chips
 // must match the real taxonomy or they filter to nothing.
 const OBS_TYPES = [
   'discovery', 'feature', 'bugfix', 'refactor', 'change',

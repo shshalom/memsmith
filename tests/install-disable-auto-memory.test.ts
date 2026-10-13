@@ -7,7 +7,7 @@ import { disableClaudeAutoMemory } from '../src/npx-cli/commands/install.js';
 /**
  * Tests for auto-memory disable behavior in the install command.
  *
- * Closes anthropics/claude-code#23544 from claude-mem's side: installs now
+ * Closes anthropics/claude-code#23544 from MemSmith's side: installs now
  * require explicit consent before setting CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 in
  * ~/.claude/settings.json `env` block. The built-in MEMORY.md system creates
  * shadow state outside the user's control and competes with memsmith's
