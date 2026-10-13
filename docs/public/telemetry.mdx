@@ -1,19 +1,29 @@
 ---
 title: "Telemetry"
-description: "Anonymous usage analytics — on by default, fully documented, one command to opt out"
+description: "Anonymous usage analytics: off unless you configure a telemetry key"
 ---
 
 # Telemetry
 
-MemSmith collects anonymous usage analytics through PostHog to help prioritize fixes and features.
+MemSmith can send anonymous usage analytics to a PostHog project that you control.
 
-**It is on by default (opt-out).** Events are anonymous, identified only by a random install UUID, and every analytics property passes a strict whitelist — see [What is collected](#what-is-collected) and [What is NEVER collected](#what-is-never-collected) below. Turning it off is one command:
+**MemSmith ships without a telemetry key, so by default it sends nothing.** Every telemetry transport is a no-op until you set `MEMSMITH_TELEMETRY_KEY`, either as an environment variable or in `~/.memsmith/settings.json`:
+
+```json
+{
+  "MEMSMITH_TELEMETRY_KEY": "phc_your_project_key"
+}
+```
+
+To send to a self-hosted PostHog instance, also set `MEMSMITH_TELEMETRY_HOST`. With no key, `npx memsmith telemetry status` reports `disabled (no telemetry key configured)`.
+
+After you configure a key, telemetry is opt-out. Events are anonymous, identified only by a random install UUID, and every analytics property passes a strict whitelist. For details, see [What is collected](#what-is-collected) and [What is NEVER collected](#what-is-never-collected). To turn it off, run the following command:
 
 ```bash
 npx memsmith telemetry disable
 ```
 
-The standard [`DO_NOT_TRACK`](https://consoledonottrack.com) environment variable is also honored and overrides everything. The installer asks once at the end of `npx memsmith install` so the default is never silent for new installs — your answer (either way) is remembered and never re-asked, and the prompt is skipped entirely when `DO_NOT_TRACK` is set or in CI/non-interactive installs.
+MemSmith also honors the standard [`DO_NOT_TRACK`](https://consoledonottrack.com) environment variable, which overrides every other setting. When a key is configured, the installer asks once at the end of `npx memsmith install`. It remembers your answer and skips the prompt when `DO_NOT_TRACK` is set and in CI or non-interactive installs.
 
 ## How instrumentation works
 
@@ -194,9 +204,9 @@ A few things worth knowing:
 
 Analytics properties are enforced in code: they go through a whitelist (only the fields in the [What is collected](#what-is-collected) table survive), not a blocklist. Every whitelisted field is either a number, a boolean, or a value from a closed set we define — there is no analytics field that could carry free-form user content. Error text is the one free-form path, and it goes through the separate allow-then-redact scrubber instead.
 
-## How to opt out (four ways)
+## How to opt out
 
-Any one of these keeps telemetry off — they are checked in this order, first match wins:
+If no telemetry key is configured, telemetry is off and nothing else applies. With a key, any one of the following keeps telemetry off. MemSmith checks them in this order, and the first match wins:
 
 1. **`DO_NOT_TRACK`** — the [universal opt-out](https://consoledonottrack.com). Set `DO_NOT_TRACK=1` and telemetry is forced off, overriding everything else.
 2. **`MEMSMITH_TELEMETRY=0`** (also `false` / `off`) — environment override. (`MEMSMITH_TELEMETRY=1` conversely forces it on.)
@@ -247,4 +257,4 @@ Consent and the anonymous install ID are stored in `telemetry.json` inside the m
 }
 ```
 
-The `enabled` field is only present once you've made an explicit choice (installer prompt, `telemetry enable`, or `telemetry disable`). A file with just an `installId` means no decision was recorded and the default (on) applies. Delete the file to reset completely — a fresh install ID is generated on next use.
+The `enabled` field is only present once you've made an explicit choice (installer prompt, `telemetry enable`, or `telemetry disable`). A file with just an `installId` means no decision was recorded, so the default applies: on when a key is configured, off otherwise. Delete the file to reset completely — a fresh install ID is generated on next use.

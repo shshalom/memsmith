@@ -1,14 +1,13 @@
 /**
  * `npx memsmith telemetry [status|enable|disable]` — manage anonymous usage
- * analytics. Telemetry is ON by default (opt-out): anonymous events only,
- * identified by a random install UUID. Turn it off anytime with
+ * analytics. Nothing is sent unless a PostHog key is configured with
+ * MEMSMITH_TELEMETRY_KEY. With a key, telemetry is opt-out: turn it off with
  * `telemetry disable`, MEMSMITH_TELEMETRY=0, or DO_NOT_TRACK=1.
- *
- * Full privacy documentation: https://docs.memsmith.ai/telemetry
  */
 
 import * as p from '@clack/prompts';
 import { styleText } from 'node:util';
+import { getTelemetryApiKey } from '../../services/telemetry/common.js';
 import {
   explainTelemetryConsent,
   loadTelemetryConfig,
@@ -18,7 +17,7 @@ import {
   type TelemetryConsentSource,
 } from '../../services/telemetry/consent.js';
 
-const DOCS_URL = 'https://docs.memsmith.ai/telemetry';
+const DOCS_URL = 'https://github.com/shshalom/memsmith/blob/main/docs/public/telemetry.mdx';
 
 const COLLECTED_FIELDS = [
   'version          memsmith version (e.g. 13.4.2)',
@@ -112,6 +111,11 @@ function printTelemetryUsage(): void {
 function runTelemetryStatus(): void {
   // Status is read-only: it must never create telemetry.json as a side effect.
   const config = loadTelemetryConfig();
+  if (getTelemetryApiKey() === null) {
+    console.log(`${styleText('bold', 'Telemetry:')} disabled (no telemetry key configured)`);
+    console.log(`${styleText('bold', 'Docs:')} ${DOCS_URL}`);
+    return;
+  }
   const { enabled, source } = explainTelemetryConsent(process.env, config);
 
   const state = enabled ? styleText('green', 'ENABLED') : styleText('yellow', 'DISABLED');

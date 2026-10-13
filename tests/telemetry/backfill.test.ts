@@ -161,7 +161,7 @@ beforeEach(() => {
   process.env.MEMSMITH_DATA_DIR = tempDir;
   process.env.MEMSMITH_TELEMETRY = '1';
   delete process.env.MEMSMITH_TELEMETRY_DEBUG;
-  delete process.env.MEMSMITH_TELEMETRY_KEY;
+  process.env.MEMSMITH_TELEMETRY_KEY = 'phc_test_key';
   delete process.env.MEMSMITH_TELEMETRY_HOST;
   delete process.env.DO_NOT_TRACK;
   postHogConstructorCalls.length = 0;

@@ -40,7 +40,7 @@ export type TelemetryConsentExplanation = {
  * 1. DO_NOT_TRACK set (truthy) -> always off
  * 2. MEMSMITH_TELEMETRY env: '0'/'false'/'off' -> off, '1'/'true'/'on' -> on
  * 3. telemetry.json config: enabled === true -> on, enabled === false -> off
- * 4. Default: on (opt-out — anonymous events only; see docs.memsmith.ai/telemetry)
+ * 4. Default: on (opt-out). Callers send nothing without MEMSMITH_TELEMETRY_KEY.
  */
 export function explainTelemetryConsent(
   env: NodeJS.ProcessEnv,

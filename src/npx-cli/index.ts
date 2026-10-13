@@ -41,7 +41,7 @@ ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed pl
   ${styleText('cyan', 'memsmith status')}                   Show server status (exit 1 when not running)
   ${styleText('cyan', 'memsmith doctor [--fix]')}           Diagnose, and optionally repair, the install
   ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys
-  ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
+  ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (off unless MEMSMITH_TELEMETRY_KEY is set)
   ${styleText('cyan', 'npx memsmith search <query>')}       Search observations
   ${styleText('cyan', 'npx memsmith adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
   ${styleText('cyan', 'npx memsmith cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)

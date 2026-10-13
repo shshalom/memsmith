@@ -32,6 +32,7 @@ const ENV_KEYS = [
   'MEMSMITH_DATA_DIR',
   'MEMSMITH_TELEMETRY',
   'MEMSMITH_TELEMETRY_DEBUG',
+  'MEMSMITH_TELEMETRY_KEY',
   'DO_NOT_TRACK',
 ];
 
@@ -40,6 +41,7 @@ beforeAll(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'memsmith-shutdown-test-'));
   process.env.MEMSMITH_DATA_DIR = tempDir;
   process.env.MEMSMITH_TELEMETRY = '1';
+  process.env.MEMSMITH_TELEMETRY_KEY = 'phc_test_key';
   delete process.env.MEMSMITH_TELEMETRY_DEBUG;
   delete process.env.DO_NOT_TRACK;
   __resetTelemetryForTests();

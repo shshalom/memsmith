@@ -41,7 +41,7 @@ beforeAll(() => {
   process.env.MEMSMITH_TELEMETRY = '1';
   delete process.env.MEMSMITH_TELEMETRY_ERRORS;
   delete process.env.MEMSMITH_TELEMETRY_DEBUG;
-  delete process.env.MEMSMITH_TELEMETRY_KEY;
+  process.env.MEMSMITH_TELEMETRY_KEY = 'phc_test_key';
   delete process.env.DO_NOT_TRACK;
 });
 

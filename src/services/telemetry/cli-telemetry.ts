@@ -25,7 +25,8 @@ export async function captureCliEvent(
   opts?: { person?: boolean }
 ): Promise<void> {
   try {
-    if (!resolveTelemetryConsent(process.env, loadTelemetryConfig())) {
+    const apiKey = getTelemetryApiKey();
+    if (apiKey === null || !resolveTelemetryConsent(process.env, loadTelemetryConfig())) {
       return;
     }
 
@@ -46,7 +47,6 @@ export async function captureCliEvent(
       return;
     }
 
-    const apiKey = getTelemetryApiKey();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CAPTURE_TIMEOUT_MS);
     try {

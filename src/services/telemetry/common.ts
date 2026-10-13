@@ -5,23 +5,33 @@
  */
 
 import os from 'os';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { resolveDataDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 
 declare const __DEFAULT_PACKAGE_VERSION__: string;
 const packageVersion =
   typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DEFAULT_PACKAGE_VERSION__ : '0.0.0-dev';
 
-/**
- * Publishable PostHog project token (phc_...). Publishable tokens are safe to
- * embed: the capture endpoints are public POST-only ingestion.
- * `MEMSMITH_TELEMETRY_KEY` always overrides this constant.
- */
-export const TELEMETRY_PUBLIC_KEY = 'phc_BKJAeNbpj932N9qEiU6qhutZEiu6LLfRpXfTbLM9MLaG';
-
 export const DEFAULT_TELEMETRY_HOST = 'https://us.i.posthog.com';
 
-export function getTelemetryApiKey(): string {
-  return process.env.MEMSMITH_TELEMETRY_KEY || TELEMETRY_PUBLIC_KEY;
+/**
+ * MemSmith ships no telemetry key. Without one, every transport is a no-op.
+ * Reads `MEMSMITH_TELEMETRY_KEY` from the environment, then from settings.json.
+ * Never writes: `telemetry status` must not create files.
+ */
+export function getTelemetryApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
+  const fromEnv = env.MEMSMITH_TELEMETRY_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const raw = JSON.parse(readFileSync(join(resolveDataDir(), 'settings.json'), 'utf-8').replace(/^\uFEFF/, ''));
+    const flat = raw && typeof raw.env === 'object' && raw.env ? raw.env : raw;
+    const fromSettings = typeof flat?.MEMSMITH_TELEMETRY_KEY === 'string' ? flat.MEMSMITH_TELEMETRY_KEY.trim() : '';
+    return fromSettings || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getTelemetryHost(): string {
