@@ -95,10 +95,44 @@ args[0] = fixBrokenScriptPath(args[0]);
 
 const bunPath = findBun();
 
-if (!bunPath) {
+const BUN_MISSING_MESSAGE =
+  'MemSmith is installed but inactive: Bun is not installed, so memory capture and recall are off. ' +
+  'To turn MemSmith on, install Bun (curl -fsSL https://bun.sh/install | bash, or brew install oven-sh/bun/bun) ' +
+  'and restart Claude Code.';
+
+// A non-zero exit surfaces as a hook error on every prompt and tool call, so
+// hook invocations exit 0: the session-start context hook tells the user once,
+// the start hook keeps stdout empty for its trailing JSON, and every other hook
+// skips. Manual CLI use still fails with exit 1.
+function exitForMissingBun(argv) {
+  const isHook = argv[1] === 'hook';
+  const isStart = argv[1] === 'start';
+  if (isHook && argv[3] === 'context') {
+    const output = {
+      continue: true,
+      suppressOutput: true,
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: BUN_MISSING_MESSAGE },
+    };
+    // systemMessage reaches the user directly in Claude Code; other hosts'
+    // SessionStart validators are strict about unknown fields.
+    if (argv[2] === 'claude-code') output.systemMessage = BUN_MISSING_MESSAGE;
+    process.stdout.write(JSON.stringify(output) + '\n');
+    process.exit(0);
+  }
+  if (isStart) {
+    console.error(BUN_MISSING_MESSAGE);
+    process.exit(0);
+  }
+  if (isHook) {
+    process.exit(0);
+  }
   console.error('Error: Bun not found. Please install Bun: https://bun.sh');
   console.error('After installation, restart your terminal.');
   process.exit(1);
+}
+
+if (!bunPath) {
+  exitForMissingBun(args);
 }
 
 function collectStdin() {

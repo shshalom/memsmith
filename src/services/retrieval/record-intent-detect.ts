@@ -9,6 +9,7 @@ const RECORD_PATTERNS: RegExp[] = [
   /\bsave (this|that|it)\b/,
   /\bnote (this|that|for later)\b/,
   /\bmake a note\b/,
+  /\bjot (this |that |it )?down\b/,
   /\bkeep in mind (that)?\b/,
   /\bdon'?t forget (that|to)?\b/,
 ];

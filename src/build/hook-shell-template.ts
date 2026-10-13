@@ -252,7 +252,9 @@ export function buildShellCommand(options: ShellTemplateOptions): string {
   }
   let command = `${envPrefix}${options.trailingCommand.join(' ')}`;
   if (options.trailingJson) {
-    command += `; echo '${JSON.stringify(options.trailingJson)}'`;
+    // The host parses the whole of stdout as one JSON document, so the command's
+    // own stdout goes to stderr and the trailing marker is the only stdout.
+    command += ` >&2; echo '${JSON.stringify(options.trailingJson)}'`;
   }
   parts.push(command);
 
