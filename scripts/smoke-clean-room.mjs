@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -14,8 +14,13 @@ const deadline = Date.now() + 15 * 60 * 1000;
 const home = mkdtempSync(join(tmpdir(), 'memsmith-smoke-'));
 const prefix = join(home, 'npm-global');
 const memsmith = join(prefix, 'bin', 'memsmith');
+const workDir = join(home, 'work');
+const stepLogs = join(home, 'step-logs');
+mkdirSync(workDir);
+mkdirSync(stepLogs);
+const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('MEMSMITH_')));
 const env = {
-  ...process.env,
+  ...inherited,
   HOME: home,
   CLAUDE_CONFIG_DIR: join(home, '.claude'),
   MEMSMITH_DATA_DIR: join(home, '.memsmith'),
@@ -26,18 +31,35 @@ const env = {
   PATH: `${join(prefix, 'bin')}:${process.env.PATH}`,
 };
 
+function remaining(name) {
+  const ms = deadline - Date.now();
+  if (ms <= 0) throw new Error(`smoke timed out before: ${name}`);
+  return ms;
+}
+
+let stepIndex = 0;
 function step(name, cmd, args, expectCode = 0) {
-  if (Date.now() > deadline) throw new Error(`smoke timed out before: ${name}`);
+  const timeout = remaining(name);
   console.log(`\n▶ ${name}`);
-  const r = spawnSync(cmd, args, { env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', timeout: deadline - Date.now() });
-  process.stdout.write(r.stdout ?? '');
+  // A file, not a pipe: a daemon that inherits a pipe would hold spawnSync open until the timeout.
+  const logPath = join(stepLogs, `${String(++stepIndex).padStart(2, '0')}-${name.replace(/[^\w-]+/g, '_')}.log`);
+  const fd = openSync(logPath, 'w');
+  let r;
+  try {
+    r = spawnSync(cmd, args, { cwd: workDir, env, stdio: ['ignore', fd, fd], timeout });
+  } finally {
+    closeSync(fd);
+  }
+  const output = readFileSync(logPath, 'utf8');
+  process.stdout.write(output);
   if (r.status !== expectCode) throw new Error(`${name}: expected exit ${expectCode}, got ${r.status}${r.error ? ` (${r.error.message})` : ''}`);
-  return r.stdout ?? '';
+  return output;
 }
 
 function portFree(port) {
   return new Promise((done) => {
     const s = net.connect({ port: Number(port), host: '127.0.0.1' });
+    s.setTimeout(Math.min(5000, remaining(`probe port ${port}`)), () => { s.destroy(); done(false); });
     s.once('connect', () => { s.destroy(); done(false); });
     s.once('error', () => done(true));
   });
@@ -45,11 +67,11 @@ function portFree(port) {
 
 let failed = false;
 try {
-  execFileSync('bun', ['--version'], { stdio: 'ignore' });
+  execFileSync('bun', ['--version'], { stdio: 'ignore', timeout: remaining('bun --version') });
   for (const port of [serverPort, pgPort]) {
     if (!(await portFree(port))) throw new Error(`port ${port} is already in use; set SMOKE_SERVER_PORT / SMOKE_PG_PORT`);
   }
-  const tarball = execFileSync('npm', ['pack', '--silent', '--pack-destination', home], { cwd: repo, encoding: 'utf8' }).trim().split('\n').pop();
+  const tarball = execFileSync('npm', ['pack', '--silent', '--pack-destination', home], { cwd: repo, encoding: 'utf8', timeout: remaining('npm pack') }).trim().split('\n').pop();
   step('install tarball', 'npm', ['install', '-g', join(home, tarball)]);
   step('memsmith install', memsmith, ['install', '--no-auto-start', '--ide', 'claude-code']);
   step('memsmith start', memsmith, ['start']);
@@ -64,13 +86,14 @@ try {
 } catch (error) {
   failed = true;
   console.error(`\n✗ ${error.message}`);
-  const logs = join(home, '.memsmith', 'logs');
-  if (existsSync(logs)) {
-    mkdirSync(join(repo, 'smoke-artifacts'), { recursive: true });
-    for (const f of readdirSync(logs)) cpSync(join(logs, f), join(repo, 'smoke-artifacts', f), { recursive: true });
+  const artifacts = join(repo, 'smoke-artifacts');
+  for (const dir of [join(home, '.memsmith', 'logs'), stepLogs]) {
+    if (!existsSync(dir)) continue;
+    mkdirSync(artifacts, { recursive: true });
+    for (const f of readdirSync(dir)) cpSync(join(dir, f), join(artifacts, f), { recursive: true });
   }
 } finally {
-  if (existsSync(memsmith)) spawnSync(memsmith, ['stop', '--all'], { env, stdio: 'ignore', timeout: 60_000 });
+  if (existsSync(memsmith)) spawnSync(memsmith, ['stop', '--all'], { cwd: workDir, env, stdio: 'ignore', timeout: 60_000 });
   if (!process.env.SMOKE_KEEP_HOME) rmSync(home, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);
