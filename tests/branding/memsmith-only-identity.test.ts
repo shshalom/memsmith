@@ -17,7 +17,6 @@ const SCANNED_DIRS = [
   'docs/public/',
   'cursor-hooks/',
   '.github/',
-  'install/',
 ];
 const SCANNED_FILES = new Set(['package.json', 'README.md', 'CLAUDE.md', 'SECURITY.md']);
 // Reads a claude-mem SQLite database for the import tool and names it as such.
