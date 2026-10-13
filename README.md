@@ -49,7 +49,9 @@ Or install from the plugin marketplace inside Claude Code:
 ```
 
 Restart Claude Code. Context from previous sessions automatically appears in
-new sessions, and the dashboard is available at http://localhost:38879.
+new sessions, and the dashboard opens in your browser at the address that
+`memsmith status` prints. By default, the address is `http://127.0.0.1:` followed
+by a port derived from your user ID.
 
 > **Note:** `npm install -g memsmith` installs the `memsmith` CLI only. To
 > register the plugin hooks and set up the server, run `memsmith install`.
@@ -58,10 +60,10 @@ new sessions, and the dashboard is available at http://localhost:38879.
 
 | Command | What it does |
 | --- | --- |
-| `memsmith start` | Starts the local server and waits until it is ready. |
+| `memsmith start` | Starts the local server and waits until it is ready. Accepts `--timeout <s>` (default 300 seconds). |
 | `memsmith stop` | Stops the server. Embedded Postgres keeps running so the next start is fast. |
 | `memsmith stop --all` | Stops the server and embedded Postgres. |
-| `memsmith restart` | Restarts the server. |
+| `memsmith restart` | Restarts the server. Accepts `--timeout <s>` (default 300 seconds). |
 | `memsmith status` | Shows the server's state and version. Exits 1 when it is not running. |
 | `memsmith doctor` | Checks Bun, uv, the plugin install, and the server. |
 | `memsmith doctor --fix` | Also repairs stale state, missing dependencies, and a stopped or outdated server. |
@@ -76,7 +78,7 @@ Without a global install, prefix each command with `npx`, for example
 - 🔍 **Hybrid search** - Full-text plus semantic vector search, fused with reciprocal rank fusion
 - 📊 **Progressive disclosure** - Layered retrieval keeps token cost low; lower-ranked memories render at reduced detail
 - 🏠 **Local first** - Embedded Postgres and a local embedder; no Docker, no API keys, nothing leaves your machine in local mode
-- 🖥️ **Dashboard** - Real-time memory stream and team controls at http://localhost:38879
+- 🖥️ **Dashboard** - Real-time memory stream and team controls at the address that `memsmith status` prints
 - 🔒 **Privacy control** - Use `<private>` tags to exclude sensitive content from storage
 - 🤖 **Automatic operation** - No manual intervention required
 
