@@ -1,453 +1,145 @@
 ---
 title: "Configuration"
-description: "Environment variables and settings for MemSmith"
+description: "Settings for MemSmith"
 ---
 
 # Configuration
 
-## Settings File
+## Settings file
 
-Settings are managed in `~/.memsmith/settings.json`. The file is auto-created with defaults on first run.
+MemSmith reads its settings from `~/.memsmith/settings.json` and creates the file with defaults on first run. An environment variable with the same name overrides the file. After you change a setting, run `memsmith restart`.
 
-### Core Settings
-
-| Setting                       | Default                         | Description                           |
-|-------------------------------|---------------------------------|---------------------------------------|
-| `MEMSMITH_MODEL`            | `claude-haiku-4-5-20251001`     | Claude model used to compress observations (when using the Claude provider) |
-| `MEMSMITH_PROVIDER`         | `claude`                        | AI provider: `claude`, `gemini`, or `openrouter` |
-| `MEMSMITH_CLAUDE_AUTH_METHOD` | `subscription`                | Claude provider auth mode: `subscription`, `api-key`, or `gateway` |
-| `MEMSMITH_MODE`             | `code`                          | Active mode profile (for example, `code--es` or `code--chill`) |
-| `MEMSMITH_CONTEXT_OBSERVATIONS` | `50`                        | Number of observations to inject      |
-| `MEMSMITH_WORKER_PORT`      | `37700 + (uid % 100)`           | Worker service port (per-user default; override for fixed port) |
-| `MEMSMITH_WORKER_HOST`      | `127.0.0.1`                     | Worker service host address           |
-| `MEMSMITH_DATA_DIR`         | `~/.memsmith`                 | Data root — every other path (database, chroma, logs, settings.json, worker.pid) derives from this |
-| `MEMSMITH_SKIP_TOOLS`       | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Comma-separated tools to exclude from observations |
-
-### Gemini Provider Settings
-
-| Setting                       | Default                         | Description                           |
-|-------------------------------|---------------------------------|---------------------------------------|
-| `MEMSMITH_GEMINI_API_KEY`   | —                               | Gemini API key ([get free key](https://aistudio.google.com/app/apikey)) |
-| `MEMSMITH_GEMINI_MODEL`     | `gemini-2.5-flash-lite`          | Gemini model: `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3-flash-preview` |
-
-See [Gemini Provider](usage/gemini-provider) for detailed configuration and free tier information.
-
-### OpenRouter Provider Settings
-
-| Setting                                      | Default                     | Description                           |
-|----------------------------------------------|-----------------------------|---------------------------------------|
-| `MEMSMITH_OPENROUTER_API_KEY`              | —                           | OpenRouter API key ([get key](https://openrouter.ai/keys)) |
-| `MEMSMITH_OPENROUTER_MODEL`                | `xiaomi/mimo-v2-flash:free` | Model identifier (supports 100+ models) |
-| `MEMSMITH_OPENROUTER_SITE_URL`             | —                           | Optional: URL for analytics           |
-| `MEMSMITH_OPENROUTER_APP_NAME`             | `memsmith`                | Optional: App name for analytics      |
-
-See [OpenRouter Provider](usage/openrouter-provider) for detailed configuration, free model list, and usage guide.
-
-### Claude Gateway Settings
-
-Gateway credentials live in `~/.memsmith/.env`, not `settings.json`.
-
-| Env var | Default | Description |
-|---------|---------|-------------|
-| `ANTHROPIC_BASE_URL` | none | LiteLLM or Anthropic-compatible gateway URL for the Claude Agent SDK path |
-| `ANTHROPIC_AUTH_TOKEN` | none | Optional LiteLLM master key or virtual key |
-| `ANTHROPIC_API_KEY` | none | Direct Anthropic API key; normally omit this in LiteLLM gateway mode |
-
-Use [LiteLLM Gateway](configuration/litellm-gateway) when you want `MEMSMITH_PROVIDER=claude` to route through LiteLLM while preserving the Claude Agent SDK worker path.
-
-### System Configuration
-
-| Setting                       | Default                         | Description                           |
-|-------------------------------|---------------------------------|---------------------------------------|
-| `MEMSMITH_DATA_DIR`         | `~/.memsmith`                 | Data directory location               |
-| `MEMSMITH_LOG_LEVEL`        | `INFO`                          | Log verbosity (DEBUG, INFO, WARN, ERROR, SILENT) |
-| `MEMSMITH_PYTHON_VERSION`   | `3.13`                          | Python version for chroma-mcp         |
-| `CLAUDE_CODE_PATH`            | _(auto-detect)_                 | Path to Claude Code CLI (for Windows) |
-
-## Model Configuration
-
-Configure which Claude model compresses your observations (only applies when `MEMSMITH_PROVIDER=claude`).
-
-### Available Models
-
-| Value | Notes |
-|-------|-------|
-| `claude-haiku-4-5-20251001` | Default — fast and cheap, ideal for compression |
-| `claude-sonnet-4-6` | Balanced quality and cost |
-| `claude-opus-4-7` | Highest quality, most expensive |
-
-### Picking via the Installer
-
-`npx memsmith install` prompts for the Claude model (when the Claude provider is selected) and persists the choice to `~/.memsmith/settings.json`.
-
-### Manual Configuration
-
-Edit `~/.memsmith/settings.json`:
-
-```json
-{
-  "MEMSMITH_MODEL": "claude-haiku-4-5-20251001"
-}
-```
-
-## Mode Configuration
-
-Configure the active workflow mode and language.
-
-### Settings
+## Generation provider
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_MODE` | `code` | Defines behavior and language. See [Modes & Languages](modes). |
+| `MEMSMITH_PROVIDER` | `claude` | Generation provider: `claude`, `gemini`, `openrouter`, or `ollama`. |
+| `MEMSMITH_MODEL` | `claude-haiku-4-5-20251001` | Claude model, when the provider is `claude`. |
+| `MEMSMITH_CLAUDE_AUTH_METHOD` | `subscription` | Claude authentication: `subscription`, `api-key`, or `gateway`. |
+| `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
+| `MEMSMITH_GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini model. |
+| `MEMSMITH_GEMINI_RATE_LIMITING_ENABLED` | `true` | Spaces Gemini requests to stay within free-tier limits. |
+| `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
+| `MEMSMITH_OPENROUTER_MODEL` | `xiaomi/mimo-v2-flash:free` | OpenRouter model ID. |
+| `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
+| `MEMSMITH_OPENROUTER_SITE_URL` | empty | Optional site URL sent to OpenRouter. |
+| `MEMSMITH_OPENROUTER_APP_NAME` | `memsmith` | App name sent to OpenRouter. |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible base URL. |
+| `MEMSMITH_OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model. |
 
-### Examples
+For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usage/openrouter-provider).
 
-**Spanish Code Mode:**
+### Claude models
+
+When the provider is `claude`, `npx memsmith install` asks for a model and saves it as `MEMSMITH_MODEL`:
+
+| Value | Notes |
+|-------|-------|
+| `claude-haiku-4-5-20251001` | Default. Fast and low cost. |
+| `claude-sonnet-4-6` | Balanced quality and cost. |
+| `claude-opus-4-7` | Highest quality and cost. |
+
+### Claude gateway
+
+Gateway credentials live in `~/.memsmith/.env`, not in `settings.json`:
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_BASE_URL` | A LiteLLM or other Anthropic-compatible gateway URL. |
+| `ANTHROPIC_AUTH_TOKEN` | Optional gateway key. |
+| `ANTHROPIC_API_KEY` | A direct Anthropic API key. Usually omitted in gateway mode. |
+
+For details, see [LiteLLM gateway](/configuration/litellm-gateway).
+
+## Runtime and server
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_RUNTIME` | `local` | `local` runs an embedded Postgres on this machine. `server` connects to a team's MemSmith server. |
+| `MEMSMITH_SERVER_URL` | `http://127.0.0.1:<38877 + uid % 100>` | Address of the MemSmith server. The CLI and hooks read it from here. |
+| `MEMSMITH_SERVER_API_KEY` | empty | API key the hooks send to the server. The installer sets it. |
+| `MEMSMITH_SERVER_PROJECT_ID` | empty | Default project ID for the server runtime. |
+| `MEMSMITH_DATA_DIR` | `~/.memsmith` | Root directory for settings, logs, and the embedded Postgres data. |
+| `MEMSMITH_LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
+
+The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_LOCAL_PG_PORT` environment variable.
+
+## Capture
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_MODE` | `code` | Mode profile that controls observation types and language. See [Modes & languages](/modes). |
+| `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
+| `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
+| `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
+
+### Mode examples
+
 ```json
 {
   "MEMSMITH_MODE": "code--es"
 }
 ```
 
-**Chill code mode (fewer observations):**
 ```json
 {
   "MEMSMITH_MODE": "code--chill"
 }
 ```
 
-## Files and Directories
+## Context injection
 
-### Data Directory Structure
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_CONTEXT_OBSERVATIONS` | `50` | Maximum observations injected at session start. |
+| `MEMSMITH_CONTEXT_SESSION_COUNT` | `10` | Number of recent sessions that session-start context draws from. |
+| `MEMSMITH_SEMANTIC_INJECT` | `true` | Injects the most relevant memory on every prompt. |
+| `MEMSMITH_SEMANTIC_INJECT_LIMIT` | `5` | Observations injected per prompt. |
+| `MEMSMITH_RETRIEVAL_ENFORCEMENT` | `hard` | `hard` blocks some discovery tools until Claude consults memory on the topic. `soft` only injects. |
+| `MEMSMITH_USER_NOTE_BOOST` | `true` | Ranks user notes ahead of other observations in search results. |
+| `MEMSMITH_WELCOME_HINT_ENABLED` | `true` | Shows a hint during your first session in a project. |
 
-The data directory location depends on the environment:
-- **Production (installed plugin)**: `~/.memsmith/` (always, regardless of CLAUDE_PLUGIN_ROOT)
-- **Development**: Can be overridden with `MEMSMITH_DATA_DIR`
+## Team memory
 
-```
-~/.memsmith/
-├── memsmith.db           # SQLite database
-├── .install-version        # Version marker written by `npx memsmith install`/`repair`
-├── settings.json           # Worker port + provider/model settings
-└── logs/
-    ├── worker-out.log      # Worker stdout logs
-    └── worker-error.log    # Worker stderr logs
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_TEAM_INJECT` | `false` | Injects team memory at session start. |
+| `MEMSMITH_TEAM_SERVER_URL` | empty | Team server that team memory is read from. |
+| `MEMSMITH_TEAM_API_KEY` | empty | Read-scoped key for the team server. |
 
-### Plugin Directory Structure
+## Folder context files
 
-```
-${CLAUDE_PLUGIN_ROOT}/
-├── .claude-plugin/
-│   └── plugin.json         # Plugin metadata
-├── .mcp.json               # MCP server configuration
-├── hooks/
-│   └── hooks.json          # Hook configuration
-├── scripts/                # Built executables
-│   ├── version-check.js    # Sub-100ms Setup-hook version marker check
-│   ├── context-hook.js     # Context injection hook
-│   ├── new-hook.js         # Session creation hook
-│   ├── save-hook.js        # Observation capture hook
-│   ├── summary-hook.js     # Summary generation hook
-│   ├── worker-service.cjs  # Worker service (CJS)
-│   └── mcp-server.cjs      # MCP search server (CJS)
-└── ui/
-    └── viewer.html         # Web viewer UI bundle
-```
+MemSmith can generate `CLAUDE.md` files in your project folders with recent activity. This feature is off by default.
 
-## Plugin Configuration
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_FOLDER_CLAUDEMD_ENABLED` | `false` | Generates folder `CLAUDE.md` files. |
+| `MEMSMITH_FOLDER_USE_LOCAL_MD` | `false` | Writes `CLAUDE.local.md` instead of `CLAUDE.md`. |
 
-### Hooks Configuration
+For details, see [Folder context files](/usage/folder-context).
 
-Hooks are registered in `plugin/hooks/hooks.json`. The current shape uses a single dispatcher (`worker-service.cjs hook claude-code <event>`) launched through `bun-runner.js`, plus a fast Setup-phase `version-check.js`. The events wired up are:
+## Telemetry
 
-- `Setup` → `version-check.js` (sub-100ms `.install-version` check)
-- `SessionStart` → start the worker, then `hook claude-code context` (context injection)
-- `UserPromptSubmit` → `hook claude-code session-init`
-- `PreToolUse` (matcher `Read`) → `hook claude-code file-context`
-- `PostToolUse` (matcher `*`) → `hook claude-code observation`
-- `Stop` → `hook claude-code summarize`
-
-The exact `hooks.json` entries are written by the installer; do not hand-edit them in the marketplace copy unless you know what you're doing.
-
-### Search configuration
-
-MemSmith's MCP server makes memory tools available in Claude Code sessions with no extra configuration:
-
-- `observation_search` searches your observations.
-- `observation_context` returns the most relevant observations and a packed context string.
-- `note_add` records a note when you ask Claude to remember something.
+MemSmith sends no telemetry unless you set `MEMSMITH_TELEMETRY_KEY`. For details, see [Telemetry](/telemetry).
 
 ## Server management
 
-The MemSmith server starts automatically at the beginning of a session. To manage it yourself, run `memsmith start`, `memsmith stop`, `memsmith restart`, or `memsmith status`.
+The server starts automatically at the beginning of a session. To manage it yourself, run `memsmith start`, `memsmith stop`, `memsmith restart`, or `memsmith status`. To diagnose and repair the install, run `memsmith doctor --fix`.
 
-## Folder Context Files
+## Troubleshooting configuration
 
-MemSmith can automatically generate `CLAUDE.md` files in your project folders with activity timelines. This feature is disabled by default.
+### A change has no effect
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_FOLDER_CLAUDEMD_ENABLED` | `false` | Enable auto-generation of folder CLAUDE.md files |
+1. Confirm that `~/.memsmith/settings.json` is valid JSON.
+2. Confirm that no environment variable with the same name overrides it.
+3. Run `memsmith restart`.
 
-See [Folder Context Files](usage/folder-context) for full documentation on how this feature works, configuration options, and git integration recommendations.
+### The server port is in use
 
-## Context Injection Configuration
+Set `MEMSMITH_SERVER_URL` to `http://127.0.0.1:<free-port>` and run `memsmith restart`.
 
-MemSmith injects past observations into each new session, giving Claude awareness of recent work. You can configure exactly what gets injected using the **Context Settings Modal**.
+## Next steps
 
-### Context Settings Modal
-
-Access the settings modal from the web viewer (the worker prints its URL on startup; default is `http://127.0.0.1:<worker-port>`):
-
-1. Click the **gear icon** in the header
-2. Adjust settings in the right panel
-3. See changes reflected live in the **Terminal Preview** on the left
-4. Settings auto-save as you change them
-
-The Terminal Preview shows exactly what will be injected at the start of your next Claude Code session for the selected project.
-
-### Loading Settings
-
-Control how many observations are injected:
-
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| **Observations** | 50 | 1-200 | Total number of recent observations to include |
-| **Sessions** | 10 | 1-50 | Number of recent sessions to pull observations from |
-
-**Considerations**:
-- **Higher values** = More context but slower SessionStart and more tokens used
-- **Lower values** = Faster SessionStart but less historical awareness
-- Default of 50 observations from 10 sessions balances context richness with performance
-
-### Filter Settings
-
-Control which observation types and concepts are included:
-
-**Types** (select any combination):
-- `bugfix` - Bug fixes and error resolutions
-- `feature` - New functionality additions
-- `refactor` - Code restructuring
-- `discovery` - Learnings about how code works
-- `decision` - Architectural or design decisions
-- `change` - General code changes
-
-**Concepts** (select any combination):
-- `how-it-works` - System behavior explanations
-- `why-it-exists` - Rationale for code/design
-- `what-changed` - Change summaries
-- `problem-solution` - Problem/solution pairs
-- `gotcha` - Edge cases and pitfalls
-- `pattern` - Recurring patterns
-- `trade-off` - Design trade-offs
-
-Use "All" or "None" buttons to quickly select/deselect all options.
-
-### Display Settings
-
-Control how observations appear in the context:
-
-**Full Observations**:
-| Setting | Default | Options | Description |
-|---------|---------|---------|-------------|
-| **Count** | 5 | 0-20 | How many observations show expanded details |
-| **Field** | narrative | narrative, facts | Which field to expand |
-
-The most recent N observations (set by Count) show their full narrative or facts. Remaining observations show only title, type, and token counts in a compact table format.
-
-**Token Economics** (toggles):
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Read cost** | true | Show tokens to read each observation |
-| **Work investment** | true | Show tokens spent creating the observation |
-| **Savings** | true | Show total tokens saved by reusing context |
-
-Token economics help you understand the value of cached observations vs. re-reading files.
-
-### Advanced Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Model** | sonnet | AI model for generating observations |
-| **Worker Port** | `37700 + (uid % 100)` | Port for background worker service (override with `MEMSMITH_WORKER_PORT`) |
-| **MCP search server** | true | Enable Model Context Protocol search tools |
-| **Include last summary** | false | Add previous session's summary to context |
-| **Include last message** | false | Add previous session's final message |
-
-### Manual Configuration
-
-Settings are stored in `~/.memsmith/settings.json`:
-
-```json
-{
-  "MEMSMITH_CONTEXT_OBSERVATIONS": "100",
-  "MEMSMITH_CONTEXT_SESSION_COUNT": "20",
-  "MEMSMITH_CONTEXT_OBSERVATION_TYPES": "bugfix,decision,discovery",
-  "MEMSMITH_CONTEXT_OBSERVATION_CONCEPTS": "how-it-works,gotcha",
-  "MEMSMITH_CONTEXT_FULL_COUNT": "10",
-  "MEMSMITH_CONTEXT_FULL_FIELD": "narrative",
-  "MEMSMITH_CONTEXT_SHOW_READ_TOKENS": "true",
-  "MEMSMITH_CONTEXT_SHOW_WORK_TOKENS": "true",
-  "MEMSMITH_CONTEXT_SHOW_SAVINGS_AMOUNT": "true",
-  "MEMSMITH_CONTEXT_SHOW_LAST_SUMMARY": "false",
-  "MEMSMITH_CONTEXT_SHOW_LAST_MESSAGE": "false"
-}
-```
-
-**Note**: The Context Settings Modal (in the web viewer) is the recommended way to configure these settings, as it provides live preview of changes.
-
-## Customization
-
-Settings can be customized in `~/.memsmith/settings.json`.
-
-### Custom Data Directory
-
-Edit `~/.memsmith/settings.json`:
-```json
-{
-  "MEMSMITH_DATA_DIR": "/custom/path"
-}
-```
-
-### Custom Worker Port
-
-Edit `~/.memsmith/settings.json`:
-```json
-{
-  "MEMSMITH_WORKER_PORT": "38000"
-}
-```
-
-Then restart the worker:
-```bash
-npm run worker:restart
-```
-
-### Custom Model
-
-Edit `~/.memsmith/settings.json`:
-```json
-{
-  "MEMSMITH_MODEL": "opus"
-}
-```
-
-Then restart the worker:
-```bash
-export MEMSMITH_MODEL=opus
-npm run worker:restart
-```
-
-### Custom Skip Tools
-
-Control which tools are excluded from observations. Edit `~/.memsmith/settings.json`:
-```json
-{
-  "MEMSMITH_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill"
-}
-```
-
-**Default excluded tools:**
-- `ListMcpResourcesTool`
-- `SlashCommand`
-- `Skill`
-- `TodoWrite`
-- `AskUserQuestion`
-
-**Common customizations:**
-- Include TodoWrite: Remove from skip list to track task planning
-- Include AskUserQuestion: Remove to capture decision-making conversations
-- Skip additional tools: Add tool names to reduce observation noise
-
-Changes take effect on the next tool execution (no worker restart needed).
-
-## Advanced Configuration
-
-### Hook Timeouts
-
-Hook timeouts are written into `plugin/hooks/hooks.json` by the installer. The current defaults match the shape of the workload at each lifecycle stage:
-
-- Setup (`version-check.js`): 300s ceiling but normally < 100ms — only reads `.install-version`
-- SessionStart (worker-start + context): 60s
-- UserPromptSubmit: 60s
-- PreToolUse (file-context, Read matcher): 60s
-- PostToolUse (observation): 120s
-- Stop (summary): 120s
-
-The Setup hook never installs anything — runtime install (Bun, uv, `bun install`) happens in `npx memsmith install` / `npx memsmith repair` outside the session lifecycle.
-
-### Worker Memory Limit
-
-The worker service is managed by Bun and will automatically restart if it encounters issues. Memory usage is typically low (~100-200MB).
-
-### Logging Verbosity
-
-Enable debug logging:
-
-```bash
-export DEBUG=memsmith:*
-npm run worker:restart
-npm run worker:logs
-```
-
-## Configuration Best Practices
-
-1. **Use defaults**: Default configuration works for most use cases
-2. **Override selectively**: Only change what you need
-3. **Document changes**: Keep track of custom configurations
-4. **Test after changes**: Verify worker restarts successfully
-5. **Monitor logs**: Check worker logs after configuration changes
-
-## Troubleshooting Configuration
-
-### Configuration Not Applied
-
-1. Restart worker after changes:
-   ```bash
-   npm run worker:restart
-   ```
-
-2. Verify environment variables:
-   ```bash
-   echo $MEMSMITH_MODEL
-   echo $MEMSMITH_WORKER_PORT
-   ```
-
-3. Check worker logs:
-   ```bash
-   npm run worker:logs
-   ```
-
-### Invalid Model Name
-
-If you specify an invalid Claude model name, the worker logs a warning and uses the default. Valid Claude models for `MEMSMITH_MODEL`:
-
-- `claude-haiku-4-5-20251001` (default)
-- `claude-sonnet-4-6`
-- `claude-opus-4-7`
-
-### Port Already in Use
-
-The default worker port is `37700 + (uid % 100)`, so different OS users on the same machine get different ports automatically. If you still hit a collision (e.g. running multiple profiles as the same UID), set a fixed port:
-
-1. Set custom port:
-   ```bash
-   export MEMSMITH_WORKER_PORT=38000
-   ```
-
-2. Restart worker:
-   ```bash
-   npm run worker:restart
-   ```
-
-3. Verify new port:
-   ```bash
-   curl -s http://127.0.0.1:$MEMSMITH_WORKER_PORT/api/health | jq .port
-   ```
-
-## Next Steps
-
-- [Architecture Overview](architecture/overview) - Understand the system
-- [Troubleshooting](troubleshooting) - Common issues
-- [Development](development) - Building from source
+- [Modes & languages](/modes)
+- [Telemetry](/telemetry)
+- [Troubleshooting](/troubleshooting)

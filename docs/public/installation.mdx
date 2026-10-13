@@ -1,123 +1,121 @@
 ---
 title: "Installation"
-description: "Install MemSmith plugin for persistent memory across sessions"
+description: "Install MemSmith for persistent memory across sessions"
 ---
 
-# Installation Guide
+# Installation
 
-## Quick Start
+## Quick start
 
-### Option 1: npx (Recommended)
+### Option 1: npx (recommended)
 
-Install and configure MemSmith with a single command:
+To install and configure MemSmith, run:
 
 ```bash
 npx memsmith install
 ```
 
-The interactive installer will:
-- Run a runtime check (auto-installs Bun and uv if missing)
-- Detect your installed IDEs (Claude Code, Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI) and let you multi-select which ones to wire up
-- Offer to install Claude Code if it isn't found
-- Prompt for an LLM provider (Claude Code auth, Gemini API key, or OpenRouter API key)
-- Prompt for the Claude model used to compress observations (Haiku / Sonnet / Opus) when the Claude provider is selected
-- Copy plugin files into the marketplace directory and register the plugin
-- Auto-start the worker service
+The interactive installer does the following:
 
-### Option 2: Plugin Marketplace
+- Checks the runtime and installs Bun and uv if they're missing.
+- Detects your IDEs (Claude Code, Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, and others) and lets you choose which ones to set up.
+- Asks for a generation provider: Claude, Gemini, OpenRouter, or Ollama.
+- Copies the plugin files into the Claude Code marketplace directory and registers the plugin.
+- Starts the local MemSmith server.
 
-Install MemSmith directly from the plugin marketplace inside Claude Code:
+### Option 2: Plugin marketplace
+
+To install from the plugin marketplace inside Claude Code, run:
 
 ```bash
 /plugin marketplace add shshalom/memsmith
 /plugin install memsmith
 ```
 
-Both methods will automatically configure hooks and start the worker service. Start a new Claude Code session and you'll see context from previous sessions automatically loaded.
+Start a new Claude Code session. MemSmith starts its server on the first session.
 
-> **Important:** MemSmith is published on npm, but running `npm install -g memsmith` installs the
-> **SDK/library only**. It does **not** register plugin hooks or start the worker service.
-> Always install via `npx memsmith install` or the `/plugin` commands above.
+<Note>
+`npm install -g memsmith` installs the `memsmith` CLI only. To register the plugin hooks and set up the server, run `memsmith install`.
+</Note>
 
-## System Requirements
+## Non-interactive options
 
-- **Node.js**: 20.0.0 or higher
-- **Bun** ≥ 1.0 (auto-installed by `npx memsmith install` if missing)
-- **uv** (auto-installed if missing — provides Python for Chroma's embedding service)
-- **Claude Code** or another supported IDE (Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI)
-- **SQLite 3**: bundled via `bun:sqlite`
+| Option | Description |
+|--------|-------------|
+| `--ide <id>` | Sets up one IDE. IDs: `claude-code`, `cursor`, `opencode`, `windsurf`, `codex-cli`, `copilot-cli`, `antigravity`, `goose`, `roo-code`, `warp`. |
+| `--provider <name>` | Sets the generation provider: `claude`, `gemini`, or `openrouter`. |
+| `--model <id>` | Sets the Claude model when the provider is `claude`. |
+| `--runtime server --server-url <url>` | Connects to a team's MemSmith server instead of the local runtime. |
+| `--no-auto-start` | Skips starting the server at the end of the install. |
 
-## Advanced Installation
+## System requirements
 
-For development or testing, you can clone and build from source:
+- **Node.js** 20.12 or later
+- **Bun** 1.0 or later (installed automatically if missing)
+- **uv** (installed automatically if missing)
+- **Claude Code** or another supported IDE
 
-### Clone and Build
+You don't need Docker. The local runtime downloads and runs an embedded Postgres.
+
+## Runtimes
+
+- **Local (default):** A single-user server with an embedded Postgres. Data lives in `~/.memsmith/pgdata`, and Postgres listens on `127.0.0.1:55433`.
+- **Team:** Your hooks send observations to a shared MemSmith server backed by a remote Postgres. To set it up, run `npx memsmith install --runtime server --server-url <url>`.
+
+The MemSmith server listens on `127.0.0.1`. Its default port is `38877 + (your user ID % 100)`, so accounts on a shared machine don't collide.
+
+## Verify the installation
+
+1. Run `memsmith status`. It shows whether the server is running, its address, and the dashboard URL.
+2. Run `memsmith doctor` to check Bun, uv, the plugin install, and the server. To repair problems it finds, run `memsmith doctor --fix`.
+3. Open the **Dashboard** address from `memsmith status`.
+
+Without a global install, prefix each command with `npx`, for example `npx memsmith status`.
+
+## Where data lives
+
+MemSmith stores its state in `~/.memsmith/`:
+
+- `pgdata/`: the embedded Postgres data directory (local runtime)
+- `pg-binaries/`: downloaded Postgres binaries
+- `logs/memsmith-YYYY-MM-DD.log`: server logs
+- `settings.json`: your settings
+- `telemetry.json`: your telemetry choice and anonymous install ID, if any
+
+To use a different directory, set `MEMSMITH_DATA_DIR`.
+
+## Build from source
 
 ```bash
-# Clone the repository
 git clone https://github.com/shshalom/memsmith.git
 cd memsmith
-
-# Install dependencies
 npm install
-
-# Build hooks and worker service
 npm run build
-
-# Worker service will auto-start on first Claude Code session
-# Or manually start with:
-npm run worker:start
-
-# Verify worker is running
-npm run worker:status
 ```
 
-### Post-Installation Verification
+To run the tests, run `bun test`.
 
-#### 1. Automatic Dependency Installation
+## Upgrade
 
-Dependencies are installed automatically by `npx memsmith install` and `npx memsmith repair`. Heavy lifting (Bun + uv install, `bun install` inside the plugin cache) happens behind a visible installer spinner. The Setup hook only performs a sub-100ms `version-check.js` read of the `.install-version` marker — on mismatch it prints `run: npx memsmith repair` to stderr and exits 0, so it never blocks a session. Works cross-platform on Windows, macOS, and Linux.
-
-#### 2. Verify Plugin Installation
-
-Check that hooks are configured in Claude Code:
-```bash
-cat plugin/hooks/hooks.json
-```
-
-#### 3. Data Directory Location
-
-Data is stored in `~/.memsmith/`:
-- Database: `~/.memsmith/memsmith.db`
-- PID file: `~/.memsmith/.worker.pid`
-- Port file: `~/.memsmith/.worker.port`
-- Logs: `~/.memsmith/logs/worker-YYYY-MM-DD.log`
-- Settings: `~/.memsmith/settings.json`
-
-Override with environment variable:
-```bash
-export MEMSMITH_DATA_DIR=/custom/path
-```
-
-#### 4. Check Worker Logs
+To upgrade, run:
 
 ```bash
-npm run worker:logs
+npx memsmith update
 ```
 
-#### 5. Test Context Retrieval
+If you update the plugin another way, for example with `claude plugin update`, the Setup hook detects the version change and asks you to run `npx memsmith repair`.
+
+For the version history, see the [changelog](https://github.com/shshalom/memsmith/blob/main/CHANGELOG.md).
+
+## Uninstall
 
 ```bash
-npm run test:context
+npx memsmith uninstall
 ```
 
-## Upgrading
+Close all Claude Code sessions first. Otherwise, active hooks can recreate `~/.memsmith`.
 
-Upgrades are automatic when updating via the plugin marketplace. After an external upgrade (for example `claude plugin update`), the Setup hook detects a version-marker mismatch and asks you to run `npx memsmith repair`, which installs any missing runtime dependencies and refreshes the marker.
+## Next steps
 
-See [CHANGELOG](https://github.com/shshalom/memsmith/blob/main/CHANGELOG.md) for complete version history.
-
-## Next Steps
-
-- [Getting Started Guide](usage/getting-started) - Learn how MemSmith works automatically
-- [Configuration](configuration) - Customize MemSmith behavior
+- [Getting started](/usage/getting-started)
+- [Configuration](/configuration)
