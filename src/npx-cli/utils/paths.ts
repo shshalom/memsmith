@@ -72,9 +72,7 @@ export function installedPluginVersion(
   try {
     const version = JSON.parse(readFileSync(pluginJsonPath, 'utf-8')).version;
     if (typeof version === 'string' && version) return version;
-  } catch {
-    // Fall back to the running package's version
-  }
+  } catch {}
   return fallback();
 }
 

@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process';
 import { loadTelemetryConfig, saveTelemetryConfig } from '../../services/telemetry/consent.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 import { spawnHidden } from '../../shared/spawn.js';
+import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { buildAutoStartCommand } from '../install/autostart.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
@@ -1714,7 +1715,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           useSetsid: process.platform !== 'win32' && existsSync('/usr/bin/setsid'),
           projectCwd: homedir(),
         });
-        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...env } });
+        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore', env: { ...sanitizeEnv(process.env), ...env } });
         if (child.pid === undefined) {
           workerStartResult = 'dead';
           return `Local server did not start — run ${styleText('bold', 'memsmith start')} ${styleText('yellow', '!')}`;
