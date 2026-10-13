@@ -62,7 +62,7 @@ const HOOK_TIMEOUT_MS = 10000;
 
 // 7 confirmed-live hook events (B0). SessionEnd is deliberately excluded:
 // 'session-complete' has no handler in src/cli/handlers/index.ts — it was
-// removed on purpose (see CHANGELOG.md:777) since the worker self-completes.
+// removed on purpose because the server completes sessions itself.
 const ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT: Record<string, string> = {
   'SessionStart': 'context',
   'BeforeAgent': 'session-init',
