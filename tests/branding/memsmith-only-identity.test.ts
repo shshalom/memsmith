@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process';
 // attribution required by Apache-2.0 section 4(d) lives in NOTICE, which is
 // deliberately outside the scanned paths.
 const ROOT = join(import.meta.dir, '..', '..');
-const PATTERN = 'claude-mem|claude_mem|claudemem|thedotmack|alex newman|alexnewman|cmem\\.ai|J4wttp9vDu|phc_BKJAeNbpj932';
+const PATTERN = 'claude-mem|claude_mem|claudemem|thedotmack|alex newman|alexnewman|cmem\\.ai|J4wttp9vDu|phc_BKJAeNbpj932|memsmith\\.ai';
 const SCANNED_DIRS = [
   'src/',
   'plugin/',
