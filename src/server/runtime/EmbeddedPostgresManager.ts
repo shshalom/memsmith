@@ -26,6 +26,14 @@ export interface EmbeddedPostgresManagerOptions {
   driver?: EmbeddedPostgresDriver;
 }
 
+export type StopExternalResult = 'not-running' | 'stopped' | 'foreign' | 'survived';
+export interface StopExternalDeps {
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  isAlive?: (pid: number) => boolean;
+  sleep?: (ms: number) => Promise<void>;
+  phaseWaitMs?: number;
+}
+
 /**
  * Where the postgres BINARIES live. Deliberately the shared home, not the
  * per-run data dir: ~100MB of read-only content, identical for every data dir.
@@ -232,6 +240,49 @@ export class EmbeddedPostgresManager {
     }
     try { if (existsSync(this.paths.pidFile)) unlinkSync(this.paths.pidFile); } catch { /* best effort */ }
     this.connectionString = null;
+  }
+
+  // Stops a postgres started by another process (the server daemon). stop()
+  // cannot: it only knows an in-process instance.
+  async stopExternal(deps: StopExternalDeps = {}): Promise<StopExternalResult> {
+    const kill = deps.kill ?? ((p, s) => process.kill(p, s));
+    const isAlive = deps.isAlive ?? isPidAlive;
+    const sleep = deps.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+    const phaseWaitMs = deps.phaseWaitMs ?? 15_000;
+    const removePidFile = () => { try { if (existsSync(this.paths.pidFile)) unlinkSync(this.paths.pidFile); } catch { /* best effort */ } };
+
+    let lines: string[];
+    try {
+      lines = readFileSync(join(this.paths.dataDir, 'postmaster.pid'), 'utf8').split('\n').map((l) => l.trim());
+    } catch {
+      removePidFile();
+      return 'not-running';
+    }
+    const pid = Number.parseInt(lines[0] ?? '', 10);
+    if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) {
+      removePidFile();
+      return 'not-running';
+    }
+    if (lines[1] !== this.paths.dataDir || Number.parseInt(lines[3] ?? '', 10) !== this.port) {
+      return 'foreign';
+    }
+
+    const exitedWithin = async (): Promise<boolean> => {
+      for (let waited = 0; waited < phaseWaitMs; waited += 250) {
+        if (!isAlive(pid)) return true;
+        await sleep(250);
+      }
+      return !isAlive(pid);
+    };
+
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      try { kill(pid, signal); } catch { /* exited between checks */ }
+      if (await exitedWithin()) {
+        removePidFile();
+        return 'stopped';
+      }
+    }
+    return 'survived';
   }
 
   buildConnectionString(databaseName: string = 'postgres'): string {
