@@ -107,7 +107,7 @@ function writeMcpConfigAndContext(
   }
   summaryLines.push('');
   summaryLines.push('Next steps:');
-  summaryLines.push('  1. Start memsmith worker: npx memsmith start');
+  summaryLines.push('  1. Start the MemSmith server: npx memsmith start');
   summaryLines.push(`  2. Restart ${config.ideLabel} to pick up the MCP server`);
   summaryLines.push('');
   console.log(summaryLines.join('\n'));
@@ -227,7 +227,7 @@ Note: This is an MCP-only integration providing search tools and context.
 Transcript capture is not available for Goose.
 
 Next steps:
-  1. Start memsmith worker: npx memsmith start
+  1. Start the MemSmith server: npx memsmith start
   2. Restart Goose to pick up the MCP server
 `);
 }

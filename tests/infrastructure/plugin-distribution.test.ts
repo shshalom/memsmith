@@ -452,7 +452,7 @@ describe('Spawn-Contract Templating - Rule B installers bake absolute paths', ()
     );
     for (const name of [
       'getMcpServerAbsolutePath',
-      'getWorkerServiceAbsolutePath',
+      'getServerServiceAbsolutePath',
       'getBunAbsolutePath',
       'getNodeAbsolutePath',
       'getPluginRootAbsolutePath',

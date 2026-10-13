@@ -68,9 +68,18 @@ export function getMcpServerAbsolutePath(): string | null {
   return resolvePluginScript('mcp-server.cjs');
 }
 
-/** Absolute path to the bundled worker service (`worker-service.cjs`), or null. */
-export function getWorkerServiceAbsolutePath(): string | null {
-  return resolvePluginScript('worker-service.cjs');
+/** Absolute path to the bundled server script (`server-service.cjs`), or null. */
+export function getServerServiceAbsolutePath(): string | null {
+  return resolvePluginScript('server-service.cjs');
+}
+
+/**
+ * True when a hook command was written by a MemSmith installer for `platform`.
+ * Matches the retired `worker-service.cjs` too, so reinstall and uninstall
+ * replace hooks written by older releases.
+ */
+export function isMemSmithHookCommand(command: string, platform: string): boolean {
+  return /(?:worker|server)-service\.cjs/.test(command) && command.includes(`hook ${platform}`);
 }
 
 /**

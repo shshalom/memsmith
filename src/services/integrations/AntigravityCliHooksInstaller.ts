@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import {
-  getWorkerServiceAbsolutePath as findWorkerServicePath,
+  getServerServiceAbsolutePath,
   getBunAbsolutePath as findBunPath,
   getMcpServerAbsolutePath,
 } from './install-paths.js';
@@ -75,7 +75,7 @@ const ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT: Record<string, string> = {
 
 function buildHookCommand(
   bunPath: string,
-  workerServicePath: string,
+  serverScriptPath: string,
   antigravityEventName: string,
 ): string {
   const internalEvent = ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT[antigravityEventName];
@@ -84,9 +84,9 @@ function buildHookCommand(
   }
 
   const escapedBunPath = bunPath.replace(/\\/g, '\\\\');
-  const escapedWorkerPath = workerServicePath.replace(/\\/g, '\\\\');
+  const escapedScriptPath = serverScriptPath.replace(/\\/g, '\\\\');
 
-  return `"${escapedBunPath}" "${escapedWorkerPath}" hook antigravity-cli ${internalEvent}`;
+  return `"${escapedBunPath}" "${escapedScriptPath}" hook antigravity-cli ${internalEvent}`;
 }
 
 function createHookGroup(hookCommand: string): AntigravityHookGroup {
@@ -223,21 +223,21 @@ function setupRulesContextFile(): void {
 export async function installAntigravityCliHooks(): Promise<number> {
   console.log('\nInstalling MemSmith Antigravity CLI hooks + MCP...\n');
 
-  const workerServicePath = findWorkerServicePath();
-  if (!workerServicePath) {
-    console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/worker-service.cjs');
+  const serverScriptPath = getServerServiceAbsolutePath();
+  if (!serverScriptPath) {
+    console.error('Could not find server-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/server-service.cjs');
     return 1;
   }
 
   const bunPath = findBunPath();
   console.log(`  Using Bun runtime: ${bunPath}`);
-  console.log(`  Worker service: ${workerServicePath}`);
+  console.log(`  Server script: ${serverScriptPath}`);
 
   try {
     const hooksConfig: AntigravityHooksConfig = {};
     for (const antigravityEvent of Object.keys(ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT)) {
-      const command = buildHookCommand(bunPath, workerServicePath, antigravityEvent);
+      const command = buildHookCommand(bunPath, serverScriptPath, antigravityEvent);
       hooksConfig[antigravityEvent] = [createHookGroup(command)];
     }
 
@@ -254,10 +254,10 @@ Installation complete!
 Hooks installed to:    ${GEMINI_SETTINGS_PATH}
 MCP config installed to:
   ${ANTIGRAVITY_MCP_CONFIG_PATHS.join('\n  ')}
-Using unified CLI: bun worker-service.cjs hook antigravity-cli <event>
+Using unified CLI: bun server-service.cjs hook antigravity-cli <event>
 
 Next steps:
-  1. Start memsmith worker: memsmith start
+  1. Start the MemSmith server: memsmith start
   2. Restart Antigravity CLI (agy) to load the hooks
   3. Memory will be captured automatically during sessions
 
@@ -433,7 +433,7 @@ export function checkAntigravityCliHooksStatus(): number {
     console.log('Run: memsmith install --ide antigravity\n');
   } else {
     console.log(`Settings: ${GEMINI_SETTINGS_PATH}`);
-    console.log(`Mode: Unified CLI (bun worker-service.cjs hook antigravity-cli)`);
+    console.log(`Mode: Unified CLI (bun server-service.cjs hook antigravity-cli)`);
     console.log(`Events: ${installedEvents.length} of ${Object.keys(ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT).length} mapped`);
     for (const event of installedEvents) {
       const internalEvent = ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT[event] ?? 'unknown';
