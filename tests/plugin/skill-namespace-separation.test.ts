@@ -11,9 +11,16 @@ describe('skill namespace separation (ms- prefix)', () => {
   const dirs = readdirSync(SKILLS_DIR).filter(d =>
     statSync(join(SKILLS_DIR, d)).isDirectory());
 
-  it('has the expected 18 skills, all ms-prefixed', () => {
-    expect(dirs.length).toBe(18);
-    for (const d of dirs) expect(d.startsWith('ms-')).toBe(true);
+  it('ships exactly the memory skills, all ms-prefixed', () => {
+    expect([...dirs].sort()).toEqual([
+      'ms-dashboard',
+      'ms-how-it-works',
+      'ms-knowledge-agent',
+      'ms-mem-search',
+      'ms-smart-explore',
+      'ms-timeline-report',
+      'ms-weekly-digests',
+    ]);
   });
 
   it('each SKILL.md name: frontmatter matches its ms- directory name', () => {
@@ -31,9 +38,7 @@ describe('skill namespace separation (ms- prefix)', () => {
     // After renaming, any "/mem-search"-style reference to another skill must be
     // "/ms-mem-search". Catch stragglers: a "/<oldname>" not preceded by "ms-".
     const OLD = ['mem-search','timeline-report','how-it-works','smart-explore',
-      'learn-codebase','standup','babysit','design-is','knowledge-agent',
-      'make-plan','oh-my-issues','pathfinder','version-bump','weekly-digests',
-      'what-the','wowerpoint'];
+      'knowledge-agent','weekly-digests','dashboard'];
     for (const d of dirs) {
       const skillMd = join(SKILLS_DIR, d, 'SKILL.md');
       if (!existsSync(skillMd)) continue;
@@ -42,15 +47,24 @@ describe('skill namespace separation (ms- prefix)', () => {
         const bareSlash = new RegExp(`/${old}\\b`, 'g');
         for (const match of src.matchAll(bareSlash)) {
           const idx = match.index ?? 0;
-          // Skip matches that are part of a URL hostname
-          // (e.g. https://wowerpoint-api.<subdomain>.workers.dev).
-          // The regex matches the second `/` of `https://`, so look for `https:/`
-          // or `http:/` in the 20 chars preceding the match.
+          // The regex matches the second `/` of `https://` in a URL hostname.
           const urlCtx = src.slice(Math.max(0, idx - 20), idx);
           if (/https?:\//.test(urlCtx)) continue;
           const preceding = src.slice(Math.max(0, idx - 3), idx);
           expect(preceding.endsWith('ms-'),
             `${d}/SKILL.md has bare /${old} (must be /ms-${old})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('every /ms- reference in a skill names a skill the plugin ships', () => {
+    const shipped = new Set(dirs);
+    for (const d of dirs) {
+      for (const file of readdirSync(join(SKILLS_DIR, d)).filter(f => f.endsWith('.md'))) {
+        const src = readFileSync(join(SKILLS_DIR, d, file), 'utf-8');
+        for (const match of src.matchAll(/\/(ms-[a-z0-9-]+)/g)) {
+          expect(shipped.has(match[1]), `${d}/${file} references missing /${match[1]}`).toBe(true);
         }
       }
     }

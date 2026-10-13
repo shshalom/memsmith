@@ -7,8 +7,7 @@ private/
 antipattern-czar/
 
 # Maintainer dev-instruction files — never ship in the npm tarball (#2537).
-# Anchored paths so plugin-functional mode templates (e.g. plugin/modes/law-study-CLAUDE.md)
-# are NOT affected.
+# Anchored paths so a CLAUDE.md shipped deeper in the plugin tree is not excluded.
 /CLAUDE.md
 /plugin/CLAUDE.md
 /plugin/scripts/CLAUDE.md

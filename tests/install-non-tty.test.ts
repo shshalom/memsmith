@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const installSourcePath = join(
@@ -287,10 +287,6 @@ describe('Install Non-TTY Support', () => {
   });
 
   describe('post-install Next Steps copy', () => {
-    it('frames the choice as two paths', () => {
-      expect(installSource).toContain('Two paths from here:');
-    });
-
     it('sets timing honesty about second-session memory injection', () => {
       expect(installSource).toContain('Memory injection starts on your second session in a project.');
     });
@@ -300,8 +296,22 @@ describe('Install Non-TTY Support', () => {
       expect(installSource).toContain("styleText('cyan', '~/.memsmith')");
     });
 
-    it('keeps /learn-codebase as the optional front-load path', () => {
-      expect(installSource).toContain('/learn-codebase');
+    it('names only slash commands for skills the plugin ships', () => {
+      const nextStepsRegion = installSource.slice(
+        installSource.indexOf('const nextSteps = '),
+        installSource.indexOf("p.note(nextSteps.join"),
+      );
+      const shipped = new Set(
+        readdirSync(join(__dirname, '..', 'plugin', 'skills'), { withFileTypes: true })
+          .filter(entry => entry.isDirectory())
+          .map(entry => entry.name),
+      );
+      const commands = [...nextStepsRegion.matchAll(/(?<=[\s'"`])\/([a-z][a-z0-9-]*)(?![\w./-])/g)]
+        .map(match => match[1]);
+      expect(commands.length).toBeGreaterThan(0);
+      for (const command of commands) {
+        expect(shipped.has(command), `/${command} is not a shipped skill`).toBe(true);
+      }
     });
 
     it('demotes the uninstall caveat into a dim footer', () => {

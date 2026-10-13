@@ -16,7 +16,7 @@ Settings are managed in `~/.memsmith/settings.json`. The file is auto-created wi
 | `MEMSMITH_MODEL`            | `claude-haiku-4-5-20251001`     | Claude model used to compress observations (when using the Claude provider) |
 | `MEMSMITH_PROVIDER`         | `claude`                        | AI provider: `claude`, `gemini`, or `openrouter` |
 | `MEMSMITH_CLAUDE_AUTH_METHOD` | `subscription`                | Claude provider auth mode: `subscription`, `api-key`, or `gateway` |
-| `MEMSMITH_MODE`             | `code`                          | Active mode profile (e.g., `code--es`, `email-investigation`) |
+| `MEMSMITH_MODE`             | `code`                          | Active mode profile (for example, `code--es` or `code--chill`) |
 | `MEMSMITH_CONTEXT_OBSERVATIONS` | `50`                        | Number of observations to inject      |
 | `MEMSMITH_WORKER_PORT`      | `37700 + (uid % 100)`           | Worker service port (per-user default; override for fixed port) |
 | `MEMSMITH_WORKER_HOST`      | `127.0.0.1`                     | Worker service host address           |
@@ -109,10 +109,10 @@ Configure the active workflow mode and language.
 }
 ```
 
-**Email Investigation Mode:**
+**Chill code mode (fewer observations):**
 ```json
 {
-  "MEMSMITH_MODE": "email-investigation"
+  "MEMSMITH_MODE": "code--chill"
 }
 ```
 

@@ -1823,14 +1823,12 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     ``,
     `${styleText('bold', 'First success:')} ${firstSuccessOpener}, then open Claude Code in any project. Observations stream in as Claude reads, edits, and runs commands.`,
     ``,
-    `${styleText('bold', 'Two paths from here:')}`,
-    `  ${styleText('cyan', 'A.')} Just start working. Memory builds passively from your first prompt. (Recommended.)`,
-    `  ${styleText('cyan', 'B.')} Front-load it: open Claude Code and run ${styleText('bold', '/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
+    `${styleText('bold', 'Next:')} start working. Memory builds passively from your first prompt.`,
     ``,
     `Memory injection starts on your second session in a project.`,
     `Everything stays in ${styleText('cyan', '~/.memsmith')} on this machine.`,
     ``,
-    `${styleText('dim', 'How it works: /how-it-works   ·   Disable first-session hint: MEMSMITH_WELCOME_HINT_ENABLED=false')}`,
+    `${styleText('dim', 'How it works: /ms-how-it-works   ·   Disable first-session hint: MEMSMITH_WELCOME_HINT_ENABLED=false')}`,
     `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.memsmith will be recreated by active hooks.')}`,
   ];
 
