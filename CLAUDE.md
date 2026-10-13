@@ -5,7 +5,7 @@ MemSmith is a Claude Code plugin that gives agents persistent memory across sess
 ## Build
 
 ```bash
-npm run build-and-sync        # Build, sync to marketplace, restart worker
+npm run build-and-sync        # Build and sync to the local marketplace copy; then run `memsmith restart`
 ```
 
 ## File Locations
@@ -13,10 +13,11 @@ npm run build-and-sync        # Build, sync to marketplace, restart worker
 - **Source**: `<project-root>/src/`
 - **Built Plugin**: `<project-root>/plugin/`
 - **Installed Plugin**: `~/.claude/plugins/marketplaces/shshalom/`
-- **Database**: `~/.memsmith/memsmith.db`
-- **Chroma**: `~/.memsmith/chroma/`
 - **Embedded PG data dir** (local runtime): `~/.memsmith/pgdata`
 - **Embedded PG binaries** (local runtime): `~/.memsmith/pg-binaries`
+- **Settings**: `~/.memsmith/settings.json`; Claude gateway credentials in `~/.memsmith/.env`
+- **Logs**: `~/.memsmith/logs/memsmith-YYYY-MM-DD.log`
+- **Legacy SQLite DB** (read once, if present, by the first local-runtime boot import): `~/.memsmith/memsmith.db`
 
 ## Runtimes
 
@@ -45,7 +46,7 @@ running the same server engine (Postgres + pgvector + semantic search):
 
 ## Important
 
-No need to edit the changelog ever, it's generated automatically.
+Add user-facing changes to the `Unreleased` section of `CHANGELOG.md`. `npm run changelog:generate` only adds entries for GitHub releases from 13.10.2 on.
 
 ## Daily Maintenance
 
@@ -54,5 +55,5 @@ Run a daily version check across all package manifests and upgrade every depende
 - Check `package.json` (root) and all nested `package.json` files (e.g. `plugin/`) for outdated dependencies via `npm outdated`.
 - Upgrade every package to `latest` (use `npm install <pkg>@latest` for each, or `npx npm-check-updates -u && npm install`). Bump majors too.
 - Run `npm audit fix` to resolve advisories.
-- After upgrades, run `npm run build-and-sync` and verify the worker starts and tests pass. Fix any breakage caused by major bumps in the same change.
+- After upgrades, run `npm run build-and-sync`, run `memsmith restart`, and verify that the server starts and tests pass. Fix any breakage caused by major bumps in the same change.
 - Commit the updated `package.json` and `package-lock.json` files.
