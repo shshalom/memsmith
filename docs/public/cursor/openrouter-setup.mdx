@@ -1,124 +1,62 @@
 ---
 title: "Cursor + OpenRouter Setup"
-description: "Use MemSmith in Cursor with OpenRouter's 100+ AI models"
+description: "Use MemSmith in Cursor with OpenRouter models"
 ---
 
-# Cursor + OpenRouter Setup
+# Cursor + OpenRouter setup
 
-This guide walks you through setting up MemSmith in Cursor using OpenRouter. OpenRouter provides access to 100+ AI models from various providers, including several free options.
+This guide sets up MemSmith in Cursor with OpenRouter as the generation provider. OpenRouter gives you access to many models, including free ones, through a single API key.
 
-<Info>
-**Model variety:** Access Claude, GPT-4, Gemini, Llama, Mistral, and many more through a single API key.
-</Info>
+## Step 1: Get an OpenRouter API key
 
-## Step 1: Get an OpenRouter API Key
+1. Go to [OpenRouter](https://openrouter.ai) and sign in.
+2. Open [API Keys](https://openrouter.ai/keys) and click **Create Key**.
+3. Copy the key.
 
-1. Go to [OpenRouter](https://openrouter.ai)
-2. Sign up or sign in
-3. Navigate to [API Keys](https://openrouter.ai/keys)
-4. Click **Create Key**
-5. Copy your API key - you'll need it in Step 3
-
-<Tip>
-**Free models available:** OpenRouter offers free versions of several models including Gemini Flash and others. Check the [model list](https://openrouter.ai/models?show_free=true) for current free options.
-</Tip>
-
-## Step 2: Clone and Build MemSmith
+## Step 2: Install MemSmith for Cursor
 
 ```bash
-# Clone the repository
-git clone https://github.com/shshalom/memsmith.git
-cd memsmith
-
-# Install dependencies
-bun install
-
-# Build the project
-bun run build
+npx memsmith install --ide cursor --provider openrouter
 ```
 
-## Step 3: Configure OpenRouter Provider
+For details about what the installer does, see [Cursor integration](/cursor/index).
 
-### Option A: Interactive Setup (Recommended)
+## Step 3: Add your API key
 
-Run the setup wizard which guides you through everything:
-
-```bash
-bun run cursor:setup
-```
-
-When prompted for provider, select **OpenRouter**.
-
-### Option B: Manual Configuration
-
-Create the settings file manually:
-
-```bash
-# Create settings directory
-mkdir -p ~/.memsmith
-
-# Create settings file with OpenRouter configuration
-cat > ~/.memsmith/settings.json << 'EOF'
-{
-  "MEMSMITH_PROVIDER": "openrouter",
-  "MEMSMITH_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
-}
-EOF
-```
-
-Replace `YOUR_OPENROUTER_API_KEY` with your actual API key.
-
-Then install hooks and start the worker:
-
-```bash
-bun run cursor:install
-bun run worker:start
-```
-
-## Step 4: Restart Cursor
-
-Close and reopen Cursor IDE for the hooks to take effect.
-
-## Step 5: Verify Installation
-
-```bash
-# Check worker is running
-bun run worker:status
-
-# Check hooks are installed
-bun run cursor:status
-```
-
-Open http://localhost:37777 to see the memory viewer.
-
-## Recommended Models
-
-### Free Models
-
-| Model | Provider | Notes |
-|-------|----------|-------|
-| `google/gemini-2.0-flash-exp:free` | Google | Fast, capable |
-| `xiaomi/mimo-v2-flash:free` | Xiaomi | Good general purpose |
-
-### Paid Models (Low Cost)
-
-| Model | Approx. Cost | Notes |
-|-------|--------------|-------|
-| `anthropic/claude-3-haiku` | ~$0.25/1M tokens | Fast, efficient |
-| `google/gemini-flash-1.5` | ~$0.075/1M tokens | Great value |
-| `mistralai/mistral-7b-instruct` | ~$0.07/1M tokens | Budget option |
-
-To specify a model, add to your settings:
+Add the provider and key to `~/.memsmith/settings.json`:
 
 ```json
 {
   "MEMSMITH_PROVIDER": "openrouter",
-  "MEMSMITH_OPENROUTER_API_KEY": "your-key",
-  "MEMSMITH_OPENROUTER_MODEL": "google/gemini-2.0-flash-exp:free"
+  "MEMSMITH_OPENROUTER_API_KEY": "your-api-key"
 }
 ```
 
-## Custom OpenAI-Compatible Endpoints
+Then restart the server so it picks up the key:
+
+```bash
+memsmith restart
+```
+
+## Step 4: Verify
+
+1. Run `memsmith status` and confirm that the server is running.
+2. Open the **Dashboard** address that `memsmith status` prints.
+3. Restart Cursor and start a chat. Observations appear in the dashboard as the agent works.
+
+## Choose a model
+
+The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEMSMITH_OPENROUTER_MODEL` to its OpenRouter ID. Free models have a `:free` suffix; see the [model list](https://openrouter.ai/models).
+
+```json
+{
+  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_OPENROUTER_API_KEY": "your-api-key",
+  "MEMSMITH_OPENROUTER_MODEL": "google/gemini-2.5-flash"
+}
+```
+
+## Custom OpenAI-compatible endpoints
 
 The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `MEMSMITH_OPENROUTER_MODEL` is sent verbatim.
 
@@ -162,7 +100,7 @@ Any OpenAI-compatible gateway works the same way:
 }
 ```
 
-## Cost Management
+## Cost management
 
 OpenRouter charges per token. To manage costs:
 
@@ -178,58 +116,26 @@ OpenRouter charges per token. To manage costs:
 
 ### "OpenRouter API key not configured"
 
-Ensure your settings file exists with the correct format:
-
-```bash
-cat ~/.memsmith/settings.json
-```
-
-Should output something like:
-```json
-{
-  "MEMSMITH_PROVIDER": "openrouter",
-  "MEMSMITH_OPENROUTER_API_KEY": "sk-or-..."
-}
-```
+Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_PROVIDER` set to `openrouter` and a non-empty `MEMSMITH_OPENROUTER_API_KEY`, then run `memsmith restart`.
 
 ### Model not found
 
-1. Check the model ID is correct at [OpenRouter Models](https://openrouter.ai/models)
-2. Some models may require payment - check if you have credits
-3. Free models have `:free` suffix in their ID
+Check the model ID on [OpenRouter Models](https://openrouter.ai/models). Paid models need account credits.
 
 ### Rate limits
 
-OpenRouter rate limits vary by model and your account tier. If you hit limits:
-1. Wait briefly and retry
-2. Consider upgrading your OpenRouter account tier
-3. Switch to a less popular model
+OpenRouter rate limits vary by model and account. Wait and retry, or choose a less busy model.
 
 ### API errors
 
-Check the worker logs for details:
+Check the server logs in `~/.memsmith/logs/`. Common causes are an invalid key, missing credits, or a model that's temporarily unavailable.
 
-```bash
-bun run worker:logs
-```
+## Switch providers
 
-Common issues:
-- Invalid API key (regenerate at OpenRouter)
-- Insufficient credits for paid models
-- Model temporarily unavailable
+To switch providers, change `MEMSMITH_PROVIDER` to `claude`, `gemini`, or `ollama`, set that provider's key if it needs one, and run `memsmith restart`.
 
-## Switching Providers Later
+## Next steps
 
-You can switch between OpenRouter, Gemini, and Claude SDK at any time by updating your settings. No restart required - changes take effect on the next observation.
-
-```json
-{
-  "MEMSMITH_PROVIDER": "gemini"
-}
-```
-
-## Next Steps
-
-- [Cursor Integration Overview](/cursor/index) - All Cursor features
-- [Gemini Setup](/cursor/gemini-setup) - Alternative free provider
-- [Configuration Reference](../configuration) - All settings options
+- [Cursor integration](/cursor/index)
+- [Gemini setup](/cursor/gemini-setup)
+- [Configuration](/configuration)
