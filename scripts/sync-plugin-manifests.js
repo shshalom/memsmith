@@ -11,6 +11,7 @@ const packageJsonPath = path.join(rootDir, 'package.json');
 const codexPluginPath = path.join(rootDir, '.codex-plugin', 'plugin.json');
 const bundledCodexPluginPath = path.join(rootDir, 'plugin', '.codex-plugin', 'plugin.json');
 const bundledClaudePluginPath = path.join(rootDir, 'plugin', '.claude-plugin', 'plugin.json');
+const marketplacePath = path.join(rootDir, '.claude-plugin', 'marketplace.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -53,6 +54,17 @@ function syncClaudePlugin(plugin, pkg) {
   };
 }
 
+function syncMarketplace(marketplace, pkg) {
+  return {
+    ...marketplace,
+    plugins: (marketplace.plugins ?? []).map((plugin) =>
+      plugin.name === pkg.name
+        ? { ...plugin, version: pkg.version, description: pkg.description }
+        : plugin,
+    ),
+  };
+}
+
 function normalizeAuthor(author) {
   if (author && typeof author === 'object') {
     return author.url ? { name: author.name, url: author.url } : { name: author.name };
@@ -74,7 +86,7 @@ function normalizeRepositoryUrl(repository) {
 }
 
 function main() {
-  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, bundledClaudePluginPath]) {
+  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, bundledClaudePluginPath, marketplacePath]) {
     if (!fs.existsSync(filePath)) {
       console.error(`Missing required file: ${filePath}`);
       process.exit(1);
@@ -89,6 +101,7 @@ function main() {
   writeJson(codexPluginPath, syncCodexPlugin(codexPlugin, pkg));
   writeJson(bundledCodexPluginPath, syncCodexPlugin(bundledCodexPlugin, pkg));
   writeJson(bundledClaudePluginPath, syncClaudePlugin(bundledClaudePlugin, pkg));
+  writeJson(marketplacePath, syncMarketplace(readJson(marketplacePath), pkg));
 
   console.log('✓ Synced plugin manifests from package.json');
 }
