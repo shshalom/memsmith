@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { basename, dirname, join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'fs';
+import { homedir } from 'os';
+import { basename, dirname, join, resolve } from 'path';
 import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
@@ -36,8 +37,106 @@ const MARKER_NOTE =
 // rowCount is number | null to match pg.QueryResult (pg returns null for non-SELECT statements).
 interface QueryablePool { query(text: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>; }
 
+// The nearest enclosing git work tree (a `.git` directory, or a `.git` file for
+// worktrees and submodules). A home directory that is itself a repo (dotfiles)
+// is not a project root: it would fold every non-git project under it into one.
+function findGitRoot(start: string): string | null {
+  const home = resolve(homedir());
+  let dir = start;
+  for (;;) {
+    if (dir === home) return null;
+    if (existsSync(join(dir, '.git'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * The directory that owns this project's identity marker: the nearest marker
+ * between `cwd` and the git root, else the git root, else (outside git) `cwd`.
+ * Sessions started anywhere in a repo must resolve to one identity, or each
+ * subfolder gets its own team, database, and memory.
+ */
+export function resolveProjectRoot(cwd: string): string {
+  const start = resolve(cwd);
+  const gitRoot = findGitRoot(start);
+  const stop = gitRoot ?? start;
+  let dir = start;
+  for (;;) {
+    if (existsSync(join(dir, MARKER_RELATIVE_PATH))) return dir;
+    if (dir === stop) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return stop;
+}
+
+const NESTED_SCAN_MAX_DEPTH = 3;
+const NESTED_SCAN_MAX_DIRS = 2000;
+const NESTED_SCAN_SKIP = new Set(['node_modules', 'Pods', 'DerivedData', 'build', 'dist', 'vendor', 'target']);
+
+// Markers minted by sessions started in subfolders of this repo. Bounded, run
+// only when a root identity is about to be minted, and never crosses into a
+// nested work tree or submodule, which is a project of its own.
+function findNestedMarkerDirs(root: string): string[] {
+  const found: string[] = [];
+  let visited = 0;
+  const walk = (dir: string, depth: number) => {
+    if (depth > NESTED_SCAN_MAX_DEPTH || visited >= NESTED_SCAN_MAX_DIRS) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || NESTED_SCAN_SKIP.has(entry.name)) continue;
+      visited++;
+      const child = join(dir, entry.name);
+      if (existsSync(join(child, '.git'))) continue;
+      if (existsSync(join(child, MARKER_RELATIVE_PATH))) found.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return found;
+}
+
+// A single local subfolder identity in a repo whose root has none. Team markers
+// are excluded: their membership is per-directory state the join flow owns.
+function adoptableNestedMarker(root: string): { dir: string; marker: ProjectMarker } | null {
+  if (findGitRoot(root) !== root) return null;
+  const nested = findNestedMarkerDirs(root);
+  if (nested.length > 1) {
+    logger.warn('IDENTITY', 'several subfolder identities found; minting a separate root identity', { root, nested });
+    return null;
+  }
+  if (nested.length === 0) return null;
+  const marker = readMarkerAt(nested[0]);
+  if (!marker || marker.runtime === 'server') return null;
+  return { dir: nested[0], marker };
+}
+
+// After adoption the subfolder marker would shadow the root one (nearest wins)
+// and the two copies could drift, so it is set aside rather than deleted.
+// Skipped if the marker changed since it was adopted (a join or convert wrote
+// to it meanwhile), so that write is not moved out of reach.
+function retireNestedMarker(dir: string, adopted: ProjectMarker): void {
+  const p = join(dir, MARKER_RELATIVE_PATH);
+  const current = readMarkerAt(dir);
+  if (!current || JSON.stringify(current) !== JSON.stringify(adopted)) return;
+  try {
+    renameSync(p, `${p}.adopted-by-root.bak`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; // a concurrent adopter got there first
+    logger.warn('IDENTITY', 'could not set aside adopted subfolder marker', { path: p, error: String(error) });
+  }
+}
+
 function readMarker(cwd: string): ProjectMarker | null {
-  const p = join(cwd, MARKER_RELATIVE_PATH);
+  return readMarkerAt(resolveProjectRoot(cwd));
+}
+
+function readMarkerAt(root: string): ProjectMarker | null {
+  const p = join(root, MARKER_RELATIVE_PATH);
   if (!existsSync(p)) return null;
   try {
     const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProjectMarker>;
@@ -111,7 +210,7 @@ export function writeProjectDatabaseName(cwd: string, databaseName: string): voi
 }
 
 function writeMarker(cwd: string, marker: ProjectMarker): void {
-  const p = join(cwd, MARKER_RELATIVE_PATH);
+  const p = join(resolveProjectRoot(cwd), MARKER_RELATIVE_PATH);
   const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
@@ -136,7 +235,7 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
  * credential store uses for its lock.
  */
 function createMarkerIfAbsent(cwd: string, candidate: ProjectMarker): ProjectMarker {
-  const p = join(cwd, MARKER_RELATIVE_PATH);
+  const p = join(resolveProjectRoot(cwd), MARKER_RELATIVE_PATH);
   const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   try {
@@ -235,29 +334,39 @@ export async function ensureProjectIdentity(
   cwd: string,
   store?: CredentialStore,
 ): Promise<{ teamId: string; projectId: string }> {
-  const existing = readMarker(cwd);
+  const root = resolveProjectRoot(cwd);
+  const existing = readMarkerAt(root);
   let teamId: string;
   let projectId: string;
   if (existing) {
     teamId = existing.teamId;
     projectId = existing.projectId;
   } else {
+    // A repo whose only identity was minted from one subfolder keeps that
+    // identity, so its memory follows the whole repo instead of being stranded.
+    const adoptable = adoptableNestedMarker(root);
+    const adopted = adoptable?.marker ?? null;
     // Concurrent starts all reach here having seen no marker. Let the filesystem
     // pick the winner and adopt it, rather than each session proceeding under
     // its own id — half of them would otherwise write memory under a projectId
     // the marker does not name.
-    const candidate: ProjectMarker = { teamId: randomUUID(), projectId: randomUUID(), note: MARKER_NOTE };
-    const won = createMarkerIfAbsent(cwd, candidate);
+    const candidate: ProjectMarker = adopted
+      ? { ...adopted, note: MARKER_NOTE }
+      : { teamId: randomUUID(), projectId: randomUUID(), note: MARKER_NOTE };
+    const won = createMarkerIfAbsent(root, candidate);
     teamId = won.teamId;
     projectId = won.projectId;
-    if (won.projectId === candidate.projectId) {
-      logger.info('IDENTITY', 'minted project identity', { teamId, projectId, cwd });
+    if (won.projectId !== candidate.projectId) {
+      logger.info('IDENTITY', 'adopted project identity minted by a concurrent session', { teamId, projectId, root });
+    } else if (adoptable) {
+      retireNestedMarker(adoptable.dir, adoptable.marker);
+      logger.info('IDENTITY', 'adopted subfolder identity for the repo root', { teamId, projectId, root, from: adoptable.dir });
     } else {
-      logger.info('IDENTITY', 'adopted project identity minted by a concurrent session', { teamId, projectId, cwd });
+      logger.info('IDENTITY', 'minted project identity', { teamId, projectId, root });
     }
   }
   // basename of a path ending in a separator is '' — fall back to the id.
-  await upsertTeamAndProject(pool, teamId, projectId, basename(cwd) || undefined, cwd);
+  await upsertTeamAndProject(pool, teamId, projectId, basename(root) || undefined, root);
   // NEVER MINT A KEY FOR A TEAM THIS MACHINE HAS NOT LOGGED INTO.
   //
   // The key guarantee below exists to close dark capture: a LOCAL marker with no
@@ -277,7 +386,7 @@ export async function ensureProjectIdentity(
   // is cached (applyConvertJoin does that). Capture still works meanwhile —
   // selectRuntime keeps such a project on the local runtime precisely so nothing
   // is dropped.
-  const marker = existing ?? readMarker(cwd);
+  const marker = existing ?? readMarkerAt(root);
   const isTeamMarker = marker?.runtime === 'server' || (marker?.runtime as string) === 'server-beta';
   const alreadyLoggedIn = isTeamMarker && Boolean(store?.resolveKeyForTeam(teamId));
   if (store && (!isTeamMarker || alreadyLoggedIn)) {

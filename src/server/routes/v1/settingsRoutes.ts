@@ -6,14 +6,13 @@ import { SETTING_KEYS, getSettingKey, validateSettingValue } from '../../setting
 import { buildIdentityPayload } from './identity-payload.js';
 import { resolveProjectRuntime } from './project-runtime.js';
 import { CredentialStore } from '../../../services/identity/credential-store.js';
-import { readFileSync, existsSync } from 'fs';
-import { basename, join } from 'path';
+import { basename } from 'path';
 import {
   isLocalhost,
   hasLoopbackHostHeader,
   hasForwardedClientHeaders,
 } from '../../middleware/request-auth-helpers.js';
-import type { ProjectMarker } from '../../../services/identity/project-identity.js';
+import { readProjectMarker as readSharedProjectMarker, type ProjectMarker } from '../../../services/identity/project-identity.js';
 
 /** Minimal shape of the pg pool the projects route needs (base DB only —
  * `projects`/`teams` are ACCOUNT tables, never per-project). */
@@ -66,18 +65,9 @@ export interface SettingsRouteDeps {
 
 // ── Identity route ────────────────────────────────────────────────────────────
 
-const MARKER_RELATIVE_PATH = '.memsmith/project.json';
-
 function readProjectMarker(cwd: string): { teamId: string; projectId: string } | null {
-  const p = join(cwd, MARKER_RELATIVE_PATH);
-  if (!existsSync(p)) return null;
-  try {
-    const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<{ teamId: string; projectId: string }>;
-    if (m.teamId && m.projectId) return { teamId: m.teamId, projectId: m.projectId };
-    return null;
-  } catch {
-    return null;
-  }
+  const m = readSharedProjectMarker(cwd);
+  return m ? { teamId: m.teamId, projectId: m.projectId } : null;
 }
 
 export interface IdentityRouteDeps {
@@ -229,22 +219,7 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
 }
 
 function readServerProjectMarker(cwd: string): ProjectMarker | null {
-  const p = join(cwd, MARKER_RELATIVE_PATH);
-  if (!existsSync(p)) return null;
-  try {
-    const m = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProjectMarker>;
-    if (m.teamId && m.projectId) {
-      return {
-        teamId: m.teamId,
-        projectId: m.projectId,
-        note: m.note ?? '',
-        ...(m.runtime ? { runtime: m.runtime } : {}),
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return readSharedProjectMarker(cwd);
 }
 
 // ── Settings routes ───────────────────────────────────────────────────────────
