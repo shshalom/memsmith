@@ -170,42 +170,17 @@ Hooks are registered in `plugin/hooks/hooks.json`. The current shape uses a sing
 
 The exact `hooks.json` entries are written by the installer; do not hand-edit them in the marketplace copy unless you know what you're doing.
 
-### Search Configuration
+### Search configuration
 
-MemSmith provides MCP search tools for querying your project history.
+MemSmith's MCP server makes memory tools available in Claude Code sessions with no extra configuration:
 
-**No configuration required** - MCP tools are automatically available in Claude Code sessions.
+- `observation_search` searches your observations.
+- `observation_context` returns the most relevant observations and a packed context string.
+- `note_add` records a note when you ask Claude to remember something.
 
-Search operations are provided via:
-- **MCP Server**: 3 tools (search, timeline, get_observations) with progressive disclosure
-- **HTTP API**: 10 endpoints on the worker service port (per-user, default `37700 + (uid % 100)`; see `~/.memsmith/settings.json`)
-- **Auto-Invocation**: Claude recognizes natural language queries about past work
+## Server management
 
-## Version Channel
-
-MemSmith supports switching between stable and beta versions via the web viewer UI.
-
-### Accessing Version Channel
-
-1. Open the viewer at the worker URL (default `http://127.0.0.1:<worker-port>`; the active port is the value of `MEMSMITH_WORKER_PORT` in `~/.memsmith/settings.json`)
-2. Click the Settings gear icon
-3. Find the **Version Channel** section
-
-### Switching Versions
-
-- **Try Beta**: Click "Try Beta (Endless Mode)" to switch to the beta branch with experimental features
-- **Switch to Stable**: Click "Switch to Stable" to return to the production release
-- **Check for Updates**: Pull the latest changes for your current branch
-
-**Your memory data is preserved** when switching versions. Only the plugin code changes.
-
-<Note>
-Endless Mode is experimental and slower than standard mode. See [Beta Features](beta-features) for full details and important limitations.
-</Note>
-
-## Worker Service Management
-
-Worker service is managed by Bun as a background process. The worker auto-starts on first session and runs continuously in the background.
+The MemSmith server starts automatically at the beginning of a session. To manage it yourself, run `memsmith start`, `memsmith stop`, `memsmith restart`, or `memsmith status`.
 
 ## Folder Context Files
 

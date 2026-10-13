@@ -38,14 +38,10 @@
           "usage/getting-started",
           "usage/openrouter-provider",
           "usage/gemini-provider",
-          "usage/search-tools",
           "usage/claude-desktop",
           "usage/private-tags",
           "usage/export-import",
-          "usage/manual-recovery",
-          "usage/folder-context",
-          "beta-features",
-          "endless-mode"
+          "usage/folder-context"
         ]
       },
       {
@@ -100,12 +96,8 @@
         "icon": "diagram-project",
         "pages": [
           "architecture/overview",
-          "architecture-evolution",
           "hooks-architecture",
-          "architecture/hooks",
-          "architecture/worker-service",
-          "architecture/database",
-          "architecture/search-architecture"
+          "architecture/hooks"
         ]
       }
     ]
