@@ -193,11 +193,7 @@ See the [LICENSE](LICENSE) file for full details. See [docs/license.md](docs/lic
 and [docs/ip-boundary.md](docs/ip-boundary.md) for licensing scope and the
 open/commercial boundary.
 
-**Note on Ragtime**: The `ragtime/` directory is licensed under the Apache
-License 2.0. See [ragtime/LICENSE](ragtime/LICENSE) for details.
-
 ## Credits
 
-MemSmith is based on the open source
-[claude-mem](https://github.com/thedotmack/claude-mem) plugin by Alex Newman
-and draws on ideas from the wider open source agent memory ecosystem.
+MemSmith includes software derived from an Apache-2.0 licensed open source
+project. See the [NOTICE](NOTICE) file for attribution.

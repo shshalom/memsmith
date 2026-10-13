@@ -453,7 +453,7 @@ A background service connects to the worker's SSE stream and forwards `new_obser
 | `project` | string | `"openclaw"` | Project name scoping observations in the database |
 | `syncMemoryFile` | boolean | `true` | Inject observation context into agent system prompt |
 | `syncMemoryFileExclude` | string[] | `[]` | Agent IDs excluded from context injection |
-| `workerPort` | number | `37777` | Claude-mem worker service port |
+| `workerPort` | number | `37777` | MemSmith worker service port |
 | `observationFeed.enabled` | boolean | `false` | Stream observations to a messaging channel |
 | `observationFeed.channel` | string | — | Channel type: `telegram`, `discord`, `slack`, `signal`, `whatsapp`, `line` |
 | `observationFeed.to` | string | — | Target chat/channel/user ID |

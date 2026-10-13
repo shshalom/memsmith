@@ -54,7 +54,7 @@ A clear description of what the bug is.
 What you expected to happen.
 
 ### Environment
-- **Claude-mem version**:
+- **MemSmith version**:
 - **Claude Code version**:
 - **OS**:
 - **Platform**:

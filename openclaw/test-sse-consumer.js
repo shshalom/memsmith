@@ -8,7 +8,7 @@ const logs = [];
 
 const mockApi = {
   id: "memsmith",
-  name: "Claude-Mem (Persistent Memory)",
+  name: "MemSmith (Persistent Memory)",
   version: "1.0.0",
   source: "/test/extensions/memsmith/dist/index.js",
   config: {},

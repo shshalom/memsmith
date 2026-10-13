@@ -7,10 +7,10 @@ description: "Add persistent memory to Antigravity CLI with memsmith"
 
 > **Give Antigravity CLI persistent memory across sessions.**
 
-Antigravity CLI (`agy`) is Google's standalone successor to Gemini CLI — it reuses Gemini CLI's `~/.gemini/` config tree and, per Google, "keeps the most critical features of Gemini CLI: Agent Skills, Hooks, Subagents, and Extensions." Claude-mem changes what happens across sessions by capturing observations, decisions, and patterns — then injecting relevant context into each new session.
+Antigravity CLI (`agy`) is Google's standalone successor to Gemini CLI — it reuses Gemini CLI's `~/.gemini/` config tree and, per Google, "keeps the most critical features of Gemini CLI: Agent Skills, Hooks, Subagents, and Extensions." MemSmith changes what happens across sessions by capturing observations, decisions, and patterns — then injecting relevant context into each new session.
 
 <Info>
-**How it works:** Claude-mem installs lifecycle hooks into Antigravity CLI's shared `~/.gemini/settings.json` that capture tool usage, agent responses, and session events. A local worker service extracts semantic observations and injects relevant history at session start — via `GEMINI.md`, an MCP server, and a rules file.
+**How it works:** MemSmith installs lifecycle hooks into Antigravity CLI's shared `~/.gemini/settings.json` that capture tool usage, agent responses, and session events. A local worker service extracts semantic observations and injects relevant history at session start — via `GEMINI.md`, an MCP server, and a rules file.
 </Info>
 
 <Note>
@@ -41,7 +41,7 @@ The installer will:
 
 ### Step 2: Configure an AI provider
 
-Claude-mem needs an AI provider to extract observations from your sessions. Choose one:
+MemSmith needs an AI provider to extract observations from your sessions. Choose one:
 
 <Tabs>
   <Tab title="Gemini API (Free)">
@@ -114,7 +114,7 @@ Open http://localhost:37777 to see the memory viewer.
 
 ### Step 4: Start using Antigravity CLI
 
-Launch Antigravity CLI normally. Claude-mem works in the background:
+Start Antigravity CLI as usual. MemSmith runs in the background:
 
 ```bash
 agy
@@ -124,7 +124,7 @@ On session start, you'll see memsmith context injected with your recent observat
 
 ## What gets captured
 
-Claude-mem registers all 8 confirmed Antigravity CLI lifecycle hooks (verified against a live install):
+MemSmith registers all 8 confirmed Antigravity CLI lifecycle hooks (verified against a live install):
 
 | Hook | Internal event | Purpose |
 |------|-----------------|---------|
@@ -141,7 +141,7 @@ All 8 events above are **confirmed** — verified directly against a live, alrea
 
 ## MCP registration
 
-Antigravity CLI has native MCP support, but which config path it reads was genuinely ambiguous at the time of writing — two real candidate paths exist on disk with no definitive documentation resolving which one `agy` loads. Claude-mem writes to **both**, safely and idempotently:
+Antigravity CLI has native MCP support, but which config path it reads was genuinely ambiguous at the time of writing — two real candidate paths exist on disk with no definitive documentation resolving which one `agy` loads. MemSmith writes to **both**, safely and idempotently:
 
 - `~/.gemini/antigravity/mcp_config.json`
 - `~/.gemini/config/mcp_config.json`

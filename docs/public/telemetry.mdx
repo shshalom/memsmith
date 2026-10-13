@@ -5,7 +5,7 @@ description: "Anonymous usage analytics — on by default, fully documented, one
 
 # Telemetry
 
-Claude-mem includes anonymous usage analytics (via PostHog) to help prioritize fixes and features.
+MemSmith collects anonymous usage analytics through PostHog to help prioritize fixes and features.
 
 **It is on by default (opt-out).** Events are anonymous, identified only by a random install UUID, and every analytics property passes a strict whitelist — see [What is collected](#what-is-collected) and [What is NEVER collected](#what-is-never-collected) below. Turning it off is one command:
 
@@ -17,7 +17,7 @@ The standard [`DO_NOT_TRACK`](https://consoledonottrack.com) environment variabl
 
 ## How instrumentation works
 
-Claude-mem has a single instrumentation path (`instrument()` in `src/services/telemetry/instrument.ts`). Every observable event is described once and fans out to two sinks:
+MemSmith has a single instrumentation path (`instrument()` in `src/services/telemetry/instrument.ts`). Every observable event is described once and fans out to two sinks:
 
 - **The local logger — always, at full fidelity.** Logging keeps working with telemetry off, and the local log never goes through the scrubber. This is where the complete, unredacted detail lives — on your machine.
 - **Telemetry — only when consent passes.** The telemetry copy is scrubbed (the [whitelist](#what-is-collected) for structured properties; [allow-then-redact](#error-tracking) for error text) and, for high-volume events, rolled up into per-session/per-window aggregates before anything is sent.
@@ -130,7 +130,7 @@ One value is derived server-side rather than sent by the client: PostHog resolve
 
 ## Error tracking
 
-Claude-mem captures real errors to PostHog Error Tracking as `$exception` events. **This is a deliberate change from the old strictly-whitelist-only posture:** error messages and stack traces are free-form text, so the property whitelist (which only passes known closed-set keys) would drop them entirely. Instead, error text takes a separate **allow-then-redact** path (`src/services/telemetry/error-scrub.ts`): we keep the diagnostic text and aggressively strip anything that could leak PII or secrets.
+MemSmith captures real errors to PostHog Error Tracking as `$exception` events. **This is a deliberate change from the old strictly-whitelist-only posture:** error messages and stack traces are free-form text, so the property whitelist (which only passes known closed-set keys) would drop them entirely. Instead, error text takes a separate **allow-then-redact** path (`src/services/telemetry/error-scrub.ts`): we keep the diagnostic text and aggressively strip anything that could leak PII or secrets.
 
 **What is kept (redacted):**
 

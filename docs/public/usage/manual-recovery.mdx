@@ -7,7 +7,7 @@ description: "Recover stuck observations after worker crashes or restarts"
 
 ## Overview
 
-Claude-mem's manual recovery system helps you recover observations that get stuck in the processing queue after worker crashes, system restarts, or unexpected shutdowns.
+Use manual recovery to reprocess observations that get stuck in the processing queue after a crash, a system restart, or an unexpected shutdown.
 
 **Key Change in v5.x**: Automatic recovery on worker startup is now disabled. This gives you explicit control over when reprocessing happens, preventing unexpected duplicate observations.
 

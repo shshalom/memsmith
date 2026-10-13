@@ -923,7 +923,7 @@ The worker automatically strips privacy tags before storage:
 ```typescript
 class WorkerUnavailableError extends Error {
   constructor() {
-    super('Claude-mem worker is not running or unreachable');
+    super('MemSmith worker is not running or unreachable');
     this.name = 'WorkerUnavailableError';
   }
 }

@@ -107,8 +107,7 @@
           "architecture/hooks",
           "architecture/worker-service",
           "architecture/database",
-          "architecture/search-architecture",
-          "architecture/pm2-to-bun-migration"
+          "architecture/search-architecture"
         ]
       }
     ]

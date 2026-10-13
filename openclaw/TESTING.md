@@ -1,4 +1,4 @@
-# OpenClaw Claude-Mem Plugin — Testing Guide
+# OpenClaw MemSmith Plugin — Testing Guide
 
 ## Quick Start (Docker)
 
@@ -177,7 +177,7 @@ For testing with a real memsmith worker and real messaging channel:
 ### Prerequisites
 
 - OpenClaw gateway installed and configured
-- Claude-Mem worker running on port 37777
+- MemSmith worker running on port 37777
 - Plugin built: `cd openclaw && npm run build`
 
 ### 1. Install the plugin
@@ -238,7 +238,7 @@ Start a Claude Code session with memsmith enabled and perform any action. The wo
 Check the target messaging channel for:
 
 ```
-🧠 Claude-Mem Observation
+🧠 MemSmith Observation
 **Observation Title**
 Optional subtitle
 ```

@@ -1,6 +1,6 @@
 # MemSmith: AI Development Instructions
 
-Claude-mem is a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations using the Claude Agent SDK, and injects relevant context into future sessions.
+MemSmith is a Claude Code plugin that gives agents persistent memory across sessions. Hooks capture tool usage, a configurable generation provider (Claude, Gemini, OpenRouter, or Ollama) turns it into observations, and a Postgres-backed server (pgvector and semantic search) stores them and injects relevant context into future sessions. The server runs as a local single-user runtime or as a shared team runtime.
 
 ## Build
 
