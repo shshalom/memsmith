@@ -14,7 +14,7 @@ import { resolveDataDir } from '../../shared/paths.js';
 import { connect } from 'node:net';
 import { readServerPidFile, removeServerState } from '../../server/runtime/server-state.js';
 import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
-import { readPluginVersion } from '../utils/paths.js';
+import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
 
 type CheckStatus = 'ok' | 'warn' | 'fail';
@@ -75,6 +75,10 @@ export function parseDoctorArgs(argv: string[]): DoctorArgs {
   return { kind: 'run', fix: argv.includes('--fix') };
 }
 
+export function versionMismatchStatus(ctx: { restarted: boolean }): CheckStatus {
+  return ctx.restarted ? 'fail' : 'warn';
+}
+
 export function planRepairs(s: DoctorState): Repair[] {
   const repairs: Repair[] = [];
   if (!s.remote && s.pidFileStale && !s.portInUse) repairs.push('remove-stale-state');
@@ -123,7 +127,7 @@ function isPortInUse(host: string, port: number): Promise<boolean> {
   });
 }
 
-async function collectChecks(fix: boolean): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+async function collectChecks(fix: boolean, restarted: boolean): Promise<{ checks: CheckResult[]; state: DoctorState }> {
   const checks: CheckResult[] = [];
   const dataDir = resolveDataDir();
 
@@ -166,7 +170,7 @@ async function collectChecks(fix: boolean): Promise<{ checks: CheckResult[]; sta
 
   // 5. Server health.
   const address = resolveServerAddress(SettingsDefaultsManager.get('MEMSMITH_SERVER_URL'));
-  const pluginVersion = readPluginVersion();
+  const pluginVersion = installedPluginVersion();
   const health = await probeServerHealth(address.baseUrl);
   let serverStatus: CheckStatus;
   let serverDetail: string;
@@ -177,7 +181,7 @@ async function collectChecks(fix: boolean): Promise<{ checks: CheckResult[]; sta
     serverStatus = 'fail';
     serverDetail = 'not running — run `memsmith start` or `memsmith doctor --fix`';
   } else if (health.version && health.version !== pluginVersion) {
-    serverStatus = 'warn';
+    serverStatus = versionMismatchStatus({ restarted });
     serverDetail = `running ${health.version}, plugin is ${pluginVersion} — run \`memsmith restart\``;
   } else {
     serverStatus = 'ok';
@@ -250,11 +254,12 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  const { checks, state } = await collectChecks(args.fix);
+  const { checks, state } = await collectChecks(args.fix, false);
   printChecks(checks);
   if (!args.fix) process.exit(reportExitCode(checks));
 
-  const result = await applyRepairs(planRepairs(state), {
+  const repairs = planRepairs(state);
+  const result = await applyRepairs(repairs, {
     removeState: () => removeServerState(),
     installDeps: async () => (await import('./install.js')).installMarketplaceDependencies(),
     lifecycle: async (cmd) => (await import('./lifecycle.js')).runLifecycle(cmd, []),
@@ -265,7 +270,7 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  const after = await collectChecks(true);
+  const after = await collectChecks(true, repairs.includes('restart') || repairs.includes('start'));
   printChecks(after.checks);
   process.exit(reportExitCode(after.checks));
 }

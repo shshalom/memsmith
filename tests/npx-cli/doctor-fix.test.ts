@@ -1,8 +1,13 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { installedPluginVersion } from '../../src/npx-cli/utils/paths.js';
 import { describe, expect, it } from 'bun:test';
 import {
   applyRepairs,
   parseDoctorArgs,
   planRepairs,
+  versionMismatchStatus,
   type DoctorState,
 } from '../../src/npx-cli/commands/doctor.js';
 
@@ -29,6 +34,10 @@ describe('planRepairs', () => {
   it('installs missing dependencies before starting', () => {
     expect(planRepairs({ ...healthy, depsMissing: true, serverReachable: false, portInUse: false }))
       .toEqual(['install-deps', 'start']);
+  });
+
+  it('never removes state for a remote server, even with a stale pid file and a free port', () => {
+    expect(planRepairs({ ...healthy, remote: true, pidFileStale: true, portInUse: false })).toEqual([]);
   });
 
   it('plans no server repair for a remote server', () => {
@@ -75,5 +84,29 @@ describe('parseDoctorArgs', () => {
   it('rejects unknown flags instead of ignoring them', () => {
     expect(parseDoctorArgs(['--force'])).toEqual({ kind: 'unknown', flag: '--force' });
     expect(parseDoctorArgs(['--fix', '--force'])).toEqual({ kind: 'unknown', flag: '--force' });
+  });
+});
+
+describe('versionMismatchStatus', () => {
+  it('warns on a plain read-only mismatch', () => {
+    expect(versionMismatchStatus({ restarted: false })).toBe('warn');
+  });
+
+  it('fails when a restart did not converge', () => {
+    expect(versionMismatchStatus({ restarted: true })).toBe('fail');
+  });
+});
+
+describe('installedPluginVersion', () => {
+  it('prefers the marketplace plugin.json over the running package', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ms-market-'));
+    mkdirSync(join(root, 'plugin', '.claude-plugin'), { recursive: true });
+    writeFileSync(join(root, 'plugin', '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '9.9.9' }));
+    expect(installedPluginVersion(root, () => '1.0.0')).toBe('9.9.9');
+  });
+
+  it('falls back when the marketplace plugin.json is absent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ms-market-'));
+    expect(installedPluginVersion(root, () => '1.0.0')).toBe('1.0.0');
   });
 });

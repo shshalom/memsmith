@@ -64,6 +64,20 @@ export function npmPackagePluginDirectory(): string {
   return join(npmPackageRootDirectory(), 'plugin');
 }
 
+export function installedPluginVersion(
+  marketplaceRoot: string = marketplaceDirectory(),
+  fallback: () => string = readPluginVersion,
+): string {
+  const pluginJsonPath = join(marketplaceRoot, 'plugin', '.claude-plugin', 'plugin.json');
+  try {
+    const version = JSON.parse(readFileSync(pluginJsonPath, 'utf-8')).version;
+    if (typeof version === 'string' && version) return version;
+  } catch {
+    // Fall back to the running package's version
+  }
+  return fallback();
+}
+
 export function readPluginVersion(): string {
   const pluginJsonPath = join(npmPackagePluginDirectory(), '.claude-plugin', 'plugin.json');
   if (existsSync(pluginJsonPath)) {

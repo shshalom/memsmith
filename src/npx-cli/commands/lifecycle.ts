@@ -9,7 +9,7 @@ import { paths } from '../../shared/paths.js';
 import { getBunPath } from '../install/setup-runtime.js';
 import { EmbeddedPostgresManager } from '../../server/runtime/EmbeddedPostgresManager.js';
 import { selectRuntime } from '../../services/hooks/runtime-selector.js';
-import { isPluginInstalled, marketplaceDirectory, readPluginVersion } from '../utils/paths.js';
+import { isPluginInstalled, marketplaceDirectory, installedPluginVersion } from '../utils/paths.js';
 
 export type LifecycleCommand = 'start' | 'stop' | 'restart' | 'status';
 
@@ -250,7 +250,7 @@ export function defaultLifecycleDeps(): LifecycleDeps {
     stopPostgres: () => new EmbeddedPostgresManager().stopExternal(),
     postgresRunning: () => new EmbeddedPostgresManager().isRunning(),
     runtime: () => selectRuntime(marketplaceDirectory()),
-    pluginVersion: readPluginVersion,
+    pluginVersion: () => installedPluginVersion(),
     serverUrl: () => SettingsDefaultsManager.get('MEMSMITH_SERVER_URL'),
     logPath: () => join(paths.logsDir(), `memsmith-${new Date().toISOString().slice(0, 10)}.log`),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
