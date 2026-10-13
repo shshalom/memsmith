@@ -21,7 +21,7 @@ export interface LifecycleDeps {
   runScript(args: string[], env: Record<string, string>): Promise<{ code: number; stdout: string }>;
   probeHealth(baseUrl: string): Promise<HealthResult>;
   isAlive(pid: number): boolean;
-  stopProcess(pid: number): Promise<'exited' | 'survived'>;
+  stopProcess(pid: number, termWaitMs?: number): Promise<'exited' | 'survived'>;
   stopPostgres(): Promise<'not-running' | 'stopped' | 'foreign' | 'survived'>;
   postgresRunning(): boolean;
   runtime(): 'local' | 'server';
@@ -49,15 +49,17 @@ export function resolveServerAddress(url: string): { host: string; port: number;
   };
 }
 
-function parseDaemonPid(stdout: string): number | null {
+function parseSpawnedPid(stdout: string): number | null {
   for (const line of stdout.trim().split('\n').reverse()) {
     try {
-      const pid = (JSON.parse(line) as { pid?: unknown }).pid;
-      if (typeof pid === 'number') return pid;
+      const parsed = JSON.parse(line) as { pid?: unknown; status?: unknown };
+      if (typeof parsed.pid === 'number') return parsed.status === 'starting' ? parsed.pid : null;
     } catch { /* not the JSON line */ }
   }
   return null;
 }
+
+const START_KILL_TERM_WAIT_MS = 10_000;
 
 async function start(argv: string[], d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddress>): Promise<number> {
   const { values } = parseArgs({ args: argv, options: { timeout: { type: 'string' } }, strict: false });
@@ -74,7 +76,7 @@ async function start(argv: string[], d: LifecycleDeps, addr: ReturnType<typeof r
     d.err(`Server failed to start. Log: ${d.logPath()}`);
     return 1;
   }
-  const pid = parseDaemonPid(result.stdout);
+  const pid = parseSpawnedPid(result.stdout);
 
   const deadline = d.now() + timeoutS * 1000;
   while (d.now() < deadline) {
@@ -91,8 +93,14 @@ async function start(argv: string[], d: LifecycleDeps, addr: ReturnType<typeof r
     await d.sleep(POLL_MS);
   }
 
-  if (pid !== null) await d.stopProcess(pid);
-  d.err(`Server did not become ready within ${timeoutS}s and was stopped. Log: ${d.logPath()}`);
+  const timedOut = `Server did not become ready within ${timeoutS}s`;
+  if (pid === null) {
+    d.err(`${timedOut}. The daemon PID is unknown, so nothing was stopped. Log: ${d.logPath()}`);
+  } else if ((await d.stopProcess(pid, START_KILL_TERM_WAIT_MS)) === 'survived') {
+    d.err(`${timedOut}. The daemon is still running (PID ${pid}); kill it manually. Log: ${d.logPath()}`);
+  } else {
+    d.err(`${timedOut} and was stopped. Log: ${d.logPath()}`);
+  }
   return 1;
 }
 
@@ -183,7 +191,7 @@ export function defaultLifecycleDeps(): LifecycleDeps {
       let stdout = '';
       child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
       child.on('error', (error) => fail(`Failed to start Bun: ${error.message}`));
-      child.on('close', (code) => resolve({ code: code ?? 0, stdout }));
+      child.on('close', (code) => resolve({ code: code ?? 1, stdout }));
     }),
     probeHealth: async (baseUrl) => {
       try {
@@ -202,7 +210,7 @@ export function defaultLifecycleDeps(): LifecycleDeps {
       }
     },
     isAlive: isPidAlive,
-    stopProcess: async (pid) => (await import('../../server/runtime/stop-process.js')).stopProcess(pid),
+    stopProcess: async (pid, termWaitMs) => (await import('../../server/runtime/stop-process.js')).stopProcess(pid, { termWaitMs }),
     stopPostgres: () => new EmbeddedPostgresManager().stopExternal(),
     postgresRunning: () => new EmbeddedPostgresManager().isRunning(),
     runtime: () => selectRuntime(marketplaceDirectory()),
