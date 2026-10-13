@@ -53,7 +53,7 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       }),
       resolveRuntimeContext: () => ({
         runtime: 'server',
-        projectId: 'memsmith',
+        projectId: 'd5a3275d-8fe3-44ba-b4d6-063f7dd032ae',
         serverBaseUrl: 'http://server.test',
         client: {
           searchObservations: async (input: unknown) => {
@@ -82,7 +82,9 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
     // Injection is NOT query-driven at SessionStart — recent mode (empty query).
     expect(searchCalls).toHaveLength(1);
     expect((searchCalls[0] as { query: string }).query).toBe('');
-    expect((searchCalls[0] as { projectId: string }).projectId).toBe('memsmith');
+    // The key-bound project id, never the folder name: the server 403s any
+    // project other than the key's (fresh-install rehearsal, 2026-10-07).
+    expect((searchCalls[0] as { projectId: string }).projectId).toBe('d5a3275d-8fe3-44ba-b4d6-063f7dd032ae');
   });
 
   it('injects empty (never throws) when no observations exist', async () => {

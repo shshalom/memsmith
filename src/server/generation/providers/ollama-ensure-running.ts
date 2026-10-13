@@ -72,9 +72,32 @@ export async function ollamaCanGenerate(options: CanGenerateOptions): Promise<bo
       }),
       signal: AbortSignal.timeout(options.timeoutMs ?? READINESS_TIMEOUT_MS),
     });
+    // Only a 5xx means the backend cannot generate. A 4xx (a model that is not
+    // pulled, or not loaded yet) comes from a healthy daemon, and restarting it
+    // fixes nothing while killing whatever else it is serving.
+    return response.status < 500;
+  } catch (error) {
+    // A timed-out generate is ambiguous. Ollama serves one generation at a time,
+    // so the probe queues behind any in-flight observation (20-60s on a 14B
+    // model); treating that as broken made the caller kill ollama mid-generation
+    // and left a cold model that timed out the next probe too. /api/ps is not
+    // queued behind generation: a daemon that answers it is busy, one that
+    // cannot is wedged.
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return daemonResponsive(options.origin, fetchImpl);
+    }
+    // Unreachable or malformed origin: cannot generate.
+    return false;
+  }
+}
+
+const RESPONSIVE_TIMEOUT_MS = 3_000;
+
+async function daemonResponsive(origin: string, fetchImpl: typeof fetch): Promise<boolean> {
+  try {
+    const response = await fetchImpl(`${origin}/api/ps`, { signal: AbortSignal.timeout(RESPONSIVE_TIMEOUT_MS) });
     return response.ok;
   } catch {
-    // Unreachable, aborted, malformed origin — all mean "cannot generate".
     return false;
   }
 }

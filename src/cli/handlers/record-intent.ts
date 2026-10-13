@@ -14,34 +14,53 @@ export function stripRecordIntentPrompt(prompt: string): string {
   return stripMemoryTags(prompt);
 }
 
-// Layer-2 backstop trigger: POST the prompt to /v1/record-intent so the server
-// provider can classify+compose+capture a record request the agent may have
-// missed. Fail-open: never blocks the prompt; any error → continue.
-export const recordIntentHandler: EventHandler = {
-  async execute(input: NormalizedHookInput): Promise<HookResult> {
-    const prompt = (input.prompt ?? '').trim();
-    if (!prompt) return CONTINUE;
-    // Arm the per-session record-intent flag so the PreToolUse interceptor can
-    // re-tag observation_add calls in this turn. Best-effort; never blocks.
-    try {
-      new RecordArmedStore(input.sessionId).write({
-        armed: isRecordIntent(prompt),
-        promptId: input.turnId ?? null,
-        ts: Date.now(),
-      });
-    } catch {
-      // best-effort; a failed arm just leaves the interceptor treating the turn as not-armed
-    }
-    try {
-      const settings = loadFromFileOnce();
-      if (settings.MEMSMITH_RECORD_INTENT_BACKSTOP !== 'true') return CONTINUE;
-      const runtime = resolveRuntimeContext();
-      if (runtime.runtime !== 'server') return CONTINUE;
-      // Best-effort fire; the server writes on a positive classification.
-      await runtime.client.recordIntent({ projectId: runtime.projectId, prompt: stripRecordIntentPrompt(prompt) });
-    } catch (err) {
-      logger.debug('HOOK', 'record-intent backstop failed (fail-open)', { error: err instanceof Error ? err.message : String(err) });
-    }
-    return CONTINUE;
-  },
+// Layer-2 backstop: for a prompt the deterministic detector flags as a record
+// request, POST it to /v1/record-intent so the server writes the note even if
+// the agent skips note_add. Unflagged prompts never reach the provider: the
+// local model classifies ordinary questions as record requests and invents
+// note content, and user-directed notes skip the quality floor. Fail-open:
+// never blocks the prompt.
+export interface RecordIntentDeps {
+  loadSettings: () => { MEMSMITH_RECORD_INTENT_BACKSTOP?: string };
+  resolveRuntime: () => ReturnType<typeof resolveRuntimeContext>;
+  armedStore: (sessionId: string) => Pick<RecordArmedStore, 'write'>;
+}
+
+const defaultDeps: RecordIntentDeps = {
+  loadSettings: loadFromFileOnce,
+  resolveRuntime: () => resolveRuntimeContext(),
+  armedStore: (sessionId) => new RecordArmedStore(sessionId),
 };
+
+export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps): EventHandler {
+  return {
+    async execute(input: NormalizedHookInput): Promise<HookResult> {
+      const prompt = (input.prompt ?? '').trim();
+      if (!prompt) return CONTINUE;
+      const armed = isRecordIntent(prompt);
+      try {
+        deps.armedStore(input.sessionId).write({
+          armed,
+          promptId: input.turnId ?? null,
+          ts: Date.now(),
+        });
+      } catch {
+        // best-effort; a failed arm just leaves the interceptor treating the turn as not-armed
+      }
+      if (!armed) return CONTINUE;
+      try {
+        const settings = deps.loadSettings();
+        if (settings.MEMSMITH_RECORD_INTENT_BACKSTOP !== 'true') return CONTINUE;
+        const runtime = deps.resolveRuntime();
+        if (runtime.runtime !== 'server') return CONTINUE;
+        // Best-effort fire; the server writes on a positive classification.
+        await runtime.client.recordIntent({ projectId: runtime.projectId, prompt: stripRecordIntentPrompt(prompt) });
+      } catch (err) {
+        logger.debug('HOOK', 'record-intent backstop failed (fail-open)', { error: err instanceof Error ? err.message : String(err) });
+      }
+      return CONTINUE;
+    },
+  };
+}
+
+export const recordIntentHandler: EventHandler = createRecordIntentHandler();

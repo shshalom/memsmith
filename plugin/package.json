@@ -1,6 +1,6 @@
 {
   "name": "memsmith-plugin",
-  "version": "13.10.1",
+  "version": "13.10.2",
   "private": true,
   "description": "Runtime dependencies for memsmith bundled hooks",
   "type": "module",

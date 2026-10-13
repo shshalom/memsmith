@@ -67,6 +67,8 @@ export interface ServerRuntimeState {
   port: number;
   host: string;
   startedAt: string;
+  /** Read by hooks to mint identities. Name only, never credentials. */
+  accountDatabase?: string;
   bootstrap: ServerServiceGraph['postgres']['bootstrap'];
   boundaries: {
     queueManager: ReturnType<ServerServiceGraph['queueManager']['getHealth']>;
@@ -597,6 +599,7 @@ export class ServerService {
       port: this.boundPort ?? this.requestedPort,
       host: this.host,
       startedAt: new Date().toISOString(),
+      accountDatabase: databaseNameFromUrl(process.env.MEMSMITH_SERVER_DATABASE_URL),
       bootstrap: this.graph.postgres.bootstrap,
       boundaries: {
         queueManager: this.graph.queueManager.getHealth(),
@@ -696,16 +699,15 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
 
   switch (command) {
     case 'start': {
-      const existing = readServerPidFile();
-      const hasRunningServer = verifyPidFileOwnership(existing);
+      const running = await findRunningServer(port, host);
       const wantsDaemon = startCommandWantsDaemon(argv.slice(1));
       const cwd = process.env.MEMSMITH_PROJECT_CWD ?? process.cwd();
       const isLocal = selectRuntime(cwd) === 'local';
 
-      const action = resolveStartAction({ wantsDaemon, isLocal, hasRunningServer });
+      const action = resolveStartAction({ wantsDaemon, isLocal, hasRunningServer: running !== null });
 
       if (action === 'reuse') {
-        console.log(JSON.stringify({ status: 'ready', runtime: SERVER_RUNTIME, pid: existing!.pid, port: existing!.port }));
+        console.log(JSON.stringify({ status: 'ready', runtime: SERVER_RUNTIME, pid: running!.pid, port: running!.port }));
         return;
       }
 
@@ -1357,6 +1359,16 @@ function spawnServerDaemon(port: number): number | undefined {
   return child.pid;
 }
 
+function databaseNameFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function writeServerState(state: ServerRuntimeState): void {
   mkdirSync(dirname(paths.serverRuntime()), { recursive: true });
   const pidInfo: PidInfo = {
@@ -1400,6 +1412,28 @@ function removeServerState(): void {
   rmSync(paths.serverPid(), { force: true });
   rmSync(paths.serverPort(), { force: true });
   rmSync(paths.serverRuntime(), { force: true });
+}
+
+export interface RunningServerDeps {
+  readPidFile?: () => PidInfo | null;
+  isPortInUse?: (port: number, host: string) => Promise<boolean>;
+}
+
+// A missing or stale pid file does not mean nothing is listening, so a listener
+// on the port counts as running, matching runServerForeground's own guard.
+export async function findRunningServer(
+  port: number,
+  host: string,
+  deps: RunningServerDeps = {},
+): Promise<{ pid: number | null; port: number } | null> {
+  const existing = (deps.readPidFile ?? readServerPidFile)();
+  if (verifyPidFileOwnership(existing)) {
+    return { pid: existing!.pid, port: existing!.port };
+  }
+  if (await (deps.isPortInUse ?? isPortInUse)(port, host)) {
+    return { pid: null, port };
+  }
+  return null;
 }
 
 async function isPortInUse(port: number, host: string): Promise<boolean> {

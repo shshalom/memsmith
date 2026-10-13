@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { SessionTopicStore } from '../../src/services/retrieval/topic-store.js';
+import { CONSULT_WINDOW_MS, SessionTopicStore } from '../../src/services/retrieval/topic-store.js';
 
 let base: string;
 beforeEach(() => { base = mkdtempSync(join(tmpdir(), 'ms-topic-')); });
@@ -24,9 +24,46 @@ describe('SessionTopicStore', () => {
     expect(new SessionTopicStore('sess-2', base).hasConsulted('ollama restart')).toBe(false);
   });
 
-  it('does not leak across topics', () => {
-    const s = new SessionTopicStore('sess-1', base);
+  it('does not leak across topics once the consult window has passed', () => {
+    let now = 1_000_000;
+    const s = new SessionTopicStore('sess-1', base, () => now);
     s.markConsulted('ollama restart');
+    now += CONSULT_WINDOW_MS + 1;
+    expect(s.hasConsulted('postgres pool')).toBe(false);
+    expect(s.hasConsulted('ollama restart')).toBe(true);
+  });
+
+  it('covers follow-up searches with unrelated terms inside the consult window', () => {
+    let now = 1_000_000;
+    const s = new SessionTopicStore('sess-1', base, () => now);
+    s.markConsulted('default fresh generation install missing model ollama provider');
+    now += CONSULT_WINDOW_MS - 1;
+    expect(new SessionTopicStore('sess-1', base, () => now).hasConsulted('ollamacangenerate')).toBe(true);
+  });
+
+  it('extends the window with each new consult', () => {
+    let now = 1_000_000;
+    const s = new SessionTopicStore('sess-1', base, () => now);
+    s.markConsulted('first question');
+    now += CONSULT_WINDOW_MS - 1;
+    s.markConsulted('second question');
+    now += CONSULT_WINDOW_MS - 1;
+    expect(s.hasConsulted('next_attempt_at')).toBe(true);
+  });
+
+  it('ignores a consult stamped in the future', () => {
+    let now = 1_000_000;
+    const s = new SessionTopicStore('sess-1', base, () => now);
+    s.markConsulted('ollama restart');
+    now -= 60 * 60_000;
+    expect(s.hasConsulted('postgres pool')).toBe(false);
+  });
+
+  it('still reads topics written by the earlier array format', () => {
+    mkdirSync(join(base, 'sess-1'), { recursive: true });
+    writeFileSync(join(base, 'sess-1', 'consulted.json'), JSON.stringify(['ollama restart']));
+    const s = new SessionTopicStore('sess-1', base);
+    expect(s.hasConsulted('ollama restart')).toBe(true);
     expect(s.hasConsulted('postgres pool')).toBe(false);
   });
 

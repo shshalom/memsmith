@@ -313,6 +313,12 @@ export class ServerClient {
     );
   }
 
+  // Effective settings for the key's team, including dashboard overrides.
+  // Called on session start, so it gets a short timeout of its own.
+  async getResolvedSettings(timeoutMs = 2_000): Promise<{ settings: Record<string, { value: unknown; source?: string }> }> {
+    return this.request('GET', '/v1/settings', undefined, timeoutMs);
+  }
+
   // Phase 8 — MCP `observation_generation_status`. Server returns the same
   // payload as `/v1/jobs/:id` so MCP clients and REST clients see identical
   // job status (including transport state).
@@ -426,6 +432,7 @@ export class ServerClient {
     method: 'GET' | 'POST',
     path: string,
     body?: unknown,
+    timeoutMs: number = this.timeoutMs,
   ): Promise<T> {
     if (!this.apiKey || !this.apiKey.trim()) {
       throw new ServerClientError(
@@ -448,7 +455,7 @@ export class ServerClient {
 
     let response: Response;
     try {
-      response = await this.fetchWithTimeout(url, init, this.timeoutMs);
+      response = await this.fetchWithTimeout(url, init, timeoutMs);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const isTimeout = /timed out|timeout/i.test(message);
