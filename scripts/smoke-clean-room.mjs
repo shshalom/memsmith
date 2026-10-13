@@ -76,7 +76,8 @@ try {
   step('memsmith install', memsmith, ['install', '--no-auto-start', '--ide', 'claude-code']);
   step('memsmith start', memsmith, ['start']);
   const status = step('memsmith status (running)', memsmith, ['status']);
-  if (!status.includes(version)) throw new Error(`status does not report version ${version}`);
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!new RegExp(`Version:\\s+${escaped}\\s+\\(`).test(status)) throw new Error(`status does not report server version ${version}`);
   step('memsmith stop --all', memsmith, ['stop', '--all']);
   step('memsmith status (stopped)', memsmith, ['status'], 1);
   for (const port of [serverPort, pgPort]) {
