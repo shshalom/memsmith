@@ -26,6 +26,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 - The memory gate and the tool-intent hook accept only MemSmith's own MCP tools.
 - The post-install message and `ms-how-it-works` point only at skills that ship.
+- `npx memsmith install --ide cursor`, `--ide antigravity`, and `--ide windsurf` write hooks that run the shipped `server-service.cjs` instead of the retired worker script, which made those installs fail.
+- `npx memsmith install --runtime local` is accepted. The help advertises `local|server`; `worker` still works as a legacy alias for `local`.
 
 ## [13.10.2] - 2026-10-13
 

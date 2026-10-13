@@ -43,9 +43,9 @@ Start a new Claude Code session. MemSmith starts its server on the first session
 | Option | Description |
 |--------|-------------|
 | `--ide <id>` | Sets up one IDE. IDs: `claude-code`, `cursor`, `opencode`, `windsurf`, `codex-cli`, `copilot-cli`, `antigravity`, `goose`, `roo-code`, `warp`. |
-| `--provider <name>` | Sets the generation provider: `claude`, `gemini`, or `openrouter`. |
+| `--provider <name>` | Sets the generation provider: `claude`, `gemini`, `openrouter`, or `ollama`. |
 | `--model <id>` | Sets the Claude model when the provider is `claude`. |
-| `--runtime server --server-url <url>` | Connects to a team's MemSmith server instead of the local runtime. |
+| `--runtime local\|server` | Selects the runtime. `local` (the default) runs an embedded Postgres; `server` connects to a team's MemSmith server. Add `--server-url <url>` for the server address. |
 | `--no-auto-start` | Skips starting the server at the end of the install. |
 
 ## System requirements
