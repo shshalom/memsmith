@@ -85,8 +85,7 @@
           "telemetry",
           "development",
           "troubleshooting",
-          "platform-integration",
-          "openclaw-integration"
+          "platform-integration"
         ]
       },
       {

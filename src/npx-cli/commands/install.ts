@@ -357,23 +357,6 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
       };
     }
 
-    case 'openclaw': {
-      return {
-        title: 'OpenClaw: installing plugin',
-        task: async (message) => {
-          message('Loading OpenClaw installer…');
-          const { installOpenClawIntegration } = await import('../../services/integrations/OpenClawInstaller.js');
-          message('Copying plugin files…');
-          const { result, output } = await bufferConsole(() => installOpenClawIntegration());
-          if (result !== 0) {
-            recordFailure('OpenClaw: plugin installation failed', output);
-            return `OpenClaw: plugin installation failed ${styleText('red', 'FAIL')}`;
-          }
-          return `OpenClaw: plugin installed ${styleText('green', 'OK')}`;
-        },
-      };
-    }
-
     case 'codex-cli': {
       return {
         title: 'Codex CLI: registering hooks marketplace',
@@ -652,7 +635,6 @@ function copyPluginToMarketplace(): void {
     'plugin',
     'package.json',
     'package-lock.json',
-    'openclaw',
     'dist',
     'LICENSE',
     'README.md',

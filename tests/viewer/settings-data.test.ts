@@ -4,7 +4,7 @@ import { fetchSettings, patchSettings } from '../../src/ui/viewer/utils/settings
 
 // Snapshot real fetch BEFORE any test mutates globalThis.fetch, and restore
 // after each test. globalThis.fetch replacement is process-global and leaks
-// into subsequent test files (e.g. request-id.test.ts, openclaw/index.test.ts)
+// into subsequent test files (e.g. request-id.test.ts)
 // which make real HTTP calls and break when fetch is still mocked.
 const origFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = origFetch; });

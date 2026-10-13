@@ -49,8 +49,8 @@ ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed pl
   ${styleText('cyan', 'npx memsmith antigravity-cli install|status|uninstall')}   Manage Antigravity CLI hooks + MCP config
 
 ${styleText('bold', 'IDE Identifiers')}:
-  claude-code, cursor, opencode, openclaw,
-  windsurf, codex-cli, copilot-cli, antigravity, goose,
+  claude-code, cursor, opencode, windsurf,
+  codex-cli, copilot-cli, antigravity, goose,
   roo-code, warp
 `);
 }

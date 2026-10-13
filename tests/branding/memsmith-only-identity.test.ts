@@ -14,7 +14,6 @@ const SCANNED_DIRS = [
   '.codex-plugin/',
   '.agents/',
   'docs/public/',
-  'openclaw/',
   'cursor-hooks/',
   '.github/',
 ];
@@ -26,8 +25,6 @@ function isScanned(file: string): boolean {
   return SCANNED_FILES.has(file) || SCANNED_DIRS.some(dir => file.startsWith(dir));
 }
 
-// Scans the whole tree and filters by path: some endpoint-security agents kill
-// a git process whose arguments name the openclaw directory.
 function upstreamReferences(): string[] {
   try {
     return execFileSync(
