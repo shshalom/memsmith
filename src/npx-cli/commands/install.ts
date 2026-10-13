@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process';
 import { loadTelemetryConfig, saveTelemetryConfig } from '../../services/telemetry/consent.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 import { spawnHidden } from '../../shared/spawn.js';
+import { buildAutoStartCommand } from '../install/autostart.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
@@ -1691,43 +1692,35 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting local runtime',
       task: async (message) => {
         if (selectedRuntime === 'server') {
-          return `Server runtime selected — start it with ${styleText('bold', 'npx memsmith server start')} ${styleText('dim', '(or via Docker compose)')}`;
+          return `Server runtime selected — start it with ${styleText('bold', 'memsmith start')} ${styleText('dim', '(or via Docker compose)')}`;
         }
         if (autoStartSkipped) {
           return isInteractive
             ? `Skipped (--no-auto-start)`
             : `Skipped (non-TTY)`;
         }
-        const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
-        const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'worker-service.cjs');
+        const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'server-service.cjs');
+        const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'server-service.cjs');
         const scriptPath = existsSync(marketplaceScriptPath) ? marketplaceScriptPath : cacheScriptPath;
-        // selectedRuntime is 'local' here: the server case returned above.
-        // startLocalRuntime() BLOCKS in the foreground server loop, so we must
-        // detach it. Mirror spawnDaemon's mechanism exactly: spawnHidden with
-        // detached:true + unref(), but invoke `local start` instead of `--daemon`.
-        message('Spawning embedded local runtime (detached)...');
+        message('Starting the local server in the background...');
         const runtimePath = resolveWorkerRuntimePath();
         if (!runtimePath) {
           workerStartResult = 'dead';
           return `Bun runtime not found — install from https://bun.sh ${styleText('yellow', '!')}`;
         }
-        const setsidPath = '/usr/bin/setsid';
-        const useSetsid = process.platform !== 'win32' && existsSync(setsidPath);
-        const execPath = useSetsid ? setsidPath : runtimePath;
-        const args = useSetsid
-          ? [runtimePath, scriptPath, 'local', 'start']
-          : [scriptPath, 'local', 'start'];
-        const child = spawnHidden(execPath, args, {
-          detached: true,
-          stdio: 'ignore',
+        const { execPath, args } = buildAutoStartCommand({
+          runtimePath,
+          scriptPath,
+          useSetsid: process.platform !== 'win32' && existsSync('/usr/bin/setsid'),
         });
+        const child = spawnHidden(execPath, args, { detached: true, stdio: 'ignore' });
         if (child.pid === undefined) {
           workerStartResult = 'dead';
-          return `Local runtime did not start — try \`npx memsmith local start\` manually ${styleText('yellow', '!')}`;
+          return `Local server did not start — run ${styleText('bold', 'memsmith start')} ${styleText('yellow', '!')}`;
         }
         child.unref();
         workerStartResult = 'warming';
-        return `Local runtime starting in background ${styleText('yellow', '⏳')}`;
+        return `Local server starting in the background — check it with ${styleText('bold', 'memsmith status')} ${styleText('yellow', '⏳')}`;
       },
     },
   ]);

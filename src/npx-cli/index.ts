@@ -25,7 +25,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith install --ide <id>')}   Install for specific IDE
   ${styleText('cyan', 'npx memsmith install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
   ${styleText('cyan', 'npx memsmith install --model <id>')}   Set Claude model (when provider=claude)
-  ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip worker auto-start at the end
+  ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx memsmith install --runtime worker|server')}   Select runtime non-interactively (server brings up Docker pg+redis, generates an API key, injects the IDE MCP config)
   ${styleText('cyan', 'npx memsmith install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
