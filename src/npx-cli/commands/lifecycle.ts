@@ -4,12 +4,12 @@ import { parseArgs, styleText } from 'node:util';
 import { spawnHidden } from '../../shared/spawn.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { isPidAlive } from '../../supervisor/process-registry.js';
-import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { paths } from '../../shared/paths.js';
 import { getBunPath } from '../install/setup-runtime.js';
 import { EmbeddedPostgresManager } from '../../server/runtime/EmbeddedPostgresManager.js';
 import { selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { isPluginInstalled, marketplaceDirectory, installedPluginVersion } from '../utils/paths.js';
+import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 
 export type LifecycleCommand = 'start' | 'stop' | 'restart' | 'status';
 
@@ -39,7 +39,15 @@ const POLL_MS = 500;
 const DEFAULT_TIMEOUT_S = 300;
 
 export function resolveServerAddress(url: string): { host: string; port: number; baseUrl: string; remote: boolean } {
-  const parsed = new URL(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ServerUrlError(`Invalid MEMSMITH_SERVER_URL: ${url}`);
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) {
+    throw new ServerUrlError(`Invalid MEMSMITH_SERVER_URL: ${url}`);
+  }
   const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
   return {
     host: parsed.hostname,
@@ -67,7 +75,7 @@ async function start(argv: string[], d: LifecycleDeps, addr: ReturnType<typeof r
 
   const existing = await d.probeHealth(addr.baseUrl);
   if (existing.reachable) {
-    d.out(`Server is already running at ${addr.baseUrl}`);
+    printStatus(d, addr, existing);
     return 0;
   }
 
@@ -127,7 +135,10 @@ async function stop(argv: string[], d: LifecycleDeps, addr: ReturnType<typeof re
 }
 
 async function status(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddress>): Promise<number> {
-  const health = await d.probeHealth(addr.baseUrl);
+  return printStatus(d, addr, await d.probeHealth(addr.baseUrl));
+}
+
+function printStatus(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddress>, health: HealthResult): number {
   const runtime = d.runtime();
   const pgLine = runtime === 'local' ? `  Postgres:  ${d.postgresRunning() ? 'running' : 'stopped'}` : null;
   if (!health.reachable) {
@@ -164,7 +175,6 @@ function checkArgs(command: LifecycleCommand, argv: string[], d: LifecycleDeps):
     d.out(`Usage: ${USAGE[command]}`);
     return 0;
   }
-  const valueFlag = KNOWN_FLAGS[command].includes('--timeout');
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith('-')) continue;
@@ -174,9 +184,21 @@ function checkArgs(command: LifecycleCommand, argv: string[], d: LifecycleDeps):
       d.err(`Usage: ${USAGE[command]}`);
       return 1;
     }
-    if (valueFlag && !arg.includes('=')) i++;
+    if (name !== '--timeout') continue;
+    const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+    if (!isValidTimeout(value)) {
+      d.err(`Invalid --timeout: ${value ?? '(missing value)'}`);
+      d.err(`Usage: ${USAGE[command]}`);
+      return 1;
+    }
   }
   return null;
+}
+
+function isValidTimeout(value: string | undefined): boolean {
+  if (value === undefined || value.trim() === '' || value.startsWith('-')) return false;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0;
 }
 
 export async function runLifecycle(
@@ -186,7 +208,14 @@ export async function runLifecycle(
 ): Promise<number> {
   const argError = checkArgs(command, argv, d);
   if (argError !== null) return argError;
-  const addr = resolveServerAddress(d.serverUrl());
+  let addr: ReturnType<typeof resolveServerAddress>;
+  try {
+    addr = resolveServerAddress(d.serverUrl());
+  } catch (error) {
+    if (!(error instanceof ServerUrlError)) throw error;
+    d.err(error.message);
+    return 1;
+  }
   if (addr.remote) {
     d.err(`MEMSMITH_SERVER_URL points at a remote server (${addr.baseUrl}). Lifecycle commands manage only a local server.`);
     return 1;
@@ -208,7 +237,7 @@ function serverScriptPath(): string {
   return existsSync(renamed) ? renamed : join(scriptsDir, 'server-beta-service.cjs');
 }
 
-export function defaultLifecycleDeps(): LifecycleDeps {
+export function defaultLifecycleDeps(urlSource: ServerUrlSource = {}): LifecycleDeps {
   const fail = (message: string): never => {
     console.error(styleText('red', message));
     process.exit(1);
@@ -251,7 +280,7 @@ export function defaultLifecycleDeps(): LifecycleDeps {
     postgresRunning: () => new EmbeddedPostgresManager().isRunning(),
     runtime: () => selectRuntime(marketplaceDirectory()),
     pluginVersion: () => installedPluginVersion(),
-    serverUrl: () => SettingsDefaultsManager.get('MEMSMITH_SERVER_URL'),
+    serverUrl: () => resolveServerUrl(urlSource),
     logPath: () => join(paths.logsDir(), `memsmith-${new Date().toISOString().slice(0, 10)}.log`),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),

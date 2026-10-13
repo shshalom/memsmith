@@ -7,7 +7,7 @@ const LIFECYCLE = new Set<string>(['start', 'stop', 'restart', 'status']);
 
 function printServerUsage(): void {
   console.error(`Usage: ${styleText('bold', 'memsmith server <command>')}`);
-  console.error('Commands: start [--timeout <s>], stop [--all], restart, status, api-key create|list|revoke, keys rotate, worker start, jobs status|failed|retry|cancel');
+  console.error('Commands: start [--timeout <s>], stop [--all], restart [--timeout <s>], status, api-key create|list|revoke, keys rotate, worker start, jobs status|failed|retry|cancel');
 }
 
 export async function routeLifecycle(

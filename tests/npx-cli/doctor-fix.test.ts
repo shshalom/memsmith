@@ -2,10 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { installedPluginVersion } from '../../src/npx-cli/utils/paths.js';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   applyRepairs,
+  collectChecks,
   parseDoctorArgs,
+  runDoctorCommand,
   planRepairs,
   versionMismatchStatus,
   type DoctorState,
@@ -108,5 +110,29 @@ describe('installedPluginVersion', () => {
   it('falls back when the marketplace plugin.json is absent', () => {
     const root = mkdtempSync(join(tmpdir(), 'ms-market-'));
     expect(installedPluginVersion(root, () => '1.0.0')).toBe('1.0.0');
+  });
+});
+
+describe('doctor server address', () => {
+  function settingsWith(url: string): string {
+    const path = join(mkdtempSync(join(tmpdir(), 'ms-doc-')), 'settings.json');
+    writeFileSync(path, JSON.stringify({ MEMSMITH_SERVER_URL: url }));
+    return path;
+  }
+
+  afterEach(() => { spyOn(process, 'exit').mockRestore(); spyOn(console, 'error').mockRestore(); });
+
+  it('treats the remote server a team install configured as remote', async () => {
+    const { state } = await collectChecks(false, false, { settingsPath: settingsWith('https://team.example.invalid'), env: {} });
+    expect(state.remote).toBe(true);
+  });
+
+  it('exits 1 with a one-line message for a malformed URL', async () => {
+    const exit = spyOn(process, 'exit').mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
+    const errors: string[] = [];
+    spyOn(console, 'error').mockImplementation((line: string) => { errors.push(line); });
+    await expect(runDoctorCommand([], { settingsPath: settingsWith('not a url'), env: {} })).rejects.toThrow('exit 1');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(errors).toEqual(['Invalid MEMSMITH_SERVER_URL: not a url']);
   });
 });

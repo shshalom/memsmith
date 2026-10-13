@@ -37,7 +37,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
 ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed plugin):
   ${styleText('cyan', 'memsmith start [--timeout <s>]')}    Start the local server and wait until it is ready
   ${styleText('cyan', 'memsmith stop [--all]')}             Stop the server (--all also stops embedded Postgres)
-  ${styleText('cyan', 'memsmith restart')}                  Restart the server
+  ${styleText('cyan', 'memsmith restart [--timeout <s>]')}  Restart the server
   ${styleText('cyan', 'memsmith status')}                   Show server status (exit 1 when not running)
   ${styleText('cyan', 'memsmith doctor [--fix]')}           Diagnose, and optionally repair, the install
   ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys

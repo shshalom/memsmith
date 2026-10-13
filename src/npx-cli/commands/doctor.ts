@@ -9,13 +9,13 @@ import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { styleText } from 'node:util';
 import { isPluginInstalled, marketplaceDirectory, IS_WINDOWS } from '../utils/paths.js';
-import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { resolveDataDir } from '../../shared/paths.js';
 import { connect } from 'node:net';
 import { readServerPidFile, removeServerState } from '../../server/runtime/server-state.js';
 import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
 import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
+import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 
 type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -127,7 +127,12 @@ function isPortInUse(host: string, port: number): Promise<boolean> {
   });
 }
 
-async function collectChecks(fix: boolean, restarted: boolean): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+export async function collectChecks(
+  fix: boolean,
+  restarted: boolean,
+  urlSource: ServerUrlSource = {},
+): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+  const address = resolveServerAddress(resolveServerUrl(urlSource));
   const checks: CheckResult[] = [];
   const dataDir = resolveDataDir();
 
@@ -169,7 +174,6 @@ async function collectChecks(fix: boolean, restarted: boolean): Promise<{ checks
   });
 
   // 5. Server health.
-  const address = resolveServerAddress(SettingsDefaultsManager.get('MEMSMITH_SERVER_URL'));
   const pluginVersion = installedPluginVersion();
   const health = await probeServerHealth(address.baseUrl);
   let serverStatus: CheckStatus;
@@ -243,7 +247,21 @@ function reportExitCode(checks: CheckResult[]): number {
   return 1;
 }
 
-export async function runDoctorCommand(argv: string[] = []): Promise<void> {
+async function collectChecksOrExit(
+  fix: boolean,
+  restarted: boolean,
+  urlSource: ServerUrlSource,
+): Promise<{ checks: CheckResult[]; state: DoctorState }> {
+  try {
+    return await collectChecks(fix, restarted, urlSource);
+  } catch (error) {
+    if (!(error instanceof ServerUrlError)) throw error;
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
+export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrlSource = {}): Promise<void> {
   const args = parseDoctorArgs(argv);
   if (args.kind === 'help') {
     console.log(DOCTOR_USAGE);
@@ -254,7 +272,7 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  const { checks, state } = await collectChecks(args.fix, false);
+  const { checks, state } = await collectChecksOrExit(args.fix, false, urlSource);
   printChecks(checks);
   if (!args.fix) process.exit(reportExitCode(checks));
 
@@ -262,7 +280,10 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
   const result = await applyRepairs(repairs, {
     removeState: () => removeServerState(),
     installDeps: async () => (await import('./install.js')).installMarketplaceDependencies(),
-    lifecycle: async (cmd) => (await import('./lifecycle.js')).runLifecycle(cmd, []),
+    lifecycle: async (cmd) => {
+      const { runLifecycle, defaultLifecycleDeps } = await import('./lifecycle.js');
+      return runLifecycle(cmd, [], defaultLifecycleDeps(urlSource));
+    },
     out: (line) => console.log(styleText('cyan', `  → ${line}`)),
   });
   if (!result.ok) {
@@ -270,7 +291,7 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  const after = await collectChecks(true, repairs.includes('restart') || repairs.includes('start'));
+  const after = await collectChecksOrExit(true, repairs.includes('restart') || repairs.includes('start'), urlSource);
   printChecks(after.checks);
   process.exit(reportExitCode(after.checks));
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { resolveServerAddress, runLifecycle, type HealthResult, type LifecycleDeps } from '../../src/npx-cli/commands/lifecycle.js';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { defaultLifecycleDeps, resolveServerAddress, runLifecycle, type HealthResult, type LifecycleDeps } from '../../src/npx-cli/commands/lifecycle.js';
 
 function deps(over: Partial<LifecycleDeps> & { health?: HealthResult[] } = {}) {
   const calls: { order: string[]; termWaits: (number | undefined)[]; scripts: string[][]; envs: Record<string, string>[]; stopped: number[]; out: string[]; err: string[]; pgStops: number; probes: number } =
@@ -111,10 +114,13 @@ describe('start', () => {
     expect(calls.err.join('\n')).toContain('exited during startup');
   });
 
-  it('reuses a running server without spawning', async () => {
+  it('reuses a running server without spawning and prints its full status', async () => {
     const { d, calls } = deps({ health: [ready] });
     expect(await runLifecycle('start', [], d)).toBe(0);
     expect(calls.scripts).toEqual([]);
+    const text = calls.out.join('\n');
+    expect(text).toContain('PID:       777');
+    expect(text).toContain('Version:   13.10.2 (plugin 13.10.2)');
   });
 
   it('refuses to manage a remote server', async () => {
@@ -180,4 +186,60 @@ describe('status', () => {
     expect(text).toContain('13.10.2');
     expect(text).toContain('http://127.0.0.1:38900');
   });
+});
+
+describe('server address from settings.json', () => {
+  function settingsWith(url: string): string {
+    const path = join(mkdtempSync(join(tmpdir(), 'ms-lc-')), 'settings.json');
+    writeFileSync(path, JSON.stringify({ MEMSMITH_SERVER_URL: url }));
+    return path;
+  }
+
+  it('refuses to manage the remote server a team install configured', async () => {
+    const real = defaultLifecycleDeps({ settingsPath: settingsWith('https://team.example.com'), env: {} });
+    const { d, calls } = deps({ serverUrl: real.serverUrl });
+    expect(await runLifecycle('start', [], d)).toBe(1);
+    expect(calls.scripts).toEqual([]);
+    expect(calls.err.join('\n')).toContain('https://team.example.com');
+  });
+
+  it('prefers MEMSMITH_SERVER_URL from the environment over settings.json', async () => {
+    const real = defaultLifecycleDeps({
+      settingsPath: settingsWith('https://team.example.com'),
+      env: { MEMSMITH_SERVER_URL: 'http://127.0.0.1:38900' },
+    });
+    const { d, calls } = deps({ serverUrl: real.serverUrl, health: [ready] });
+    expect(await runLifecycle('status', [], d)).toBe(0);
+    expect(calls.out.join('\n')).toContain('http://127.0.0.1:38900');
+  });
+
+  it('exits 1 with a one-line message for a malformed URL', async () => {
+    const real = defaultLifecycleDeps({ settingsPath: settingsWith('not a url'), env: {} });
+    const { d, calls } = deps({ serverUrl: real.serverUrl });
+    expect(await runLifecycle('status', [], d)).toBe(1);
+    expect(calls.err).toEqual(['Invalid MEMSMITH_SERVER_URL: not a url']);
+    expect(calls.probes).toBe(0);
+  });
+});
+
+describe('--timeout validation', () => {
+  for (const argv of [['restart', '--timeout', '5m'], ['start', '--timeout'], ['start', '--timeout', '--all'], ['start', '--timeout=0'], ['start', '--timeout', '-5']]) {
+    it(`rejects ${argv.join(' ')} before acting`, async () => {
+      const { d, calls } = deps();
+      expect(await runLifecycle(argv[0] as 'start' | 'restart', argv.slice(1), d)).toBe(1);
+      expect(calls.scripts).toEqual([]);
+      expect(calls.stopped).toEqual([]);
+      expect(calls.probes).toBe(0);
+      expect(calls.err[0]).toStartWith('Invalid --timeout');
+      expect(calls.err.join('\n')).toContain('Usage:');
+    });
+  }
+
+  for (const argv of [['--timeout=5'], ['--timeout', '5']]) {
+    it(`accepts start ${argv.join(' ')} and uses it as the deadline`, async () => {
+      const { d, calls } = deps({ health: [{ reachable: false }, booting] });
+      expect(await runLifecycle('start', argv, d)).toBe(1);
+      expect(calls.err.join('\n')).toContain('within 5s');
+    });
+  }
 });
