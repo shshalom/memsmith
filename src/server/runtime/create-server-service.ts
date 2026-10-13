@@ -15,11 +15,12 @@ import {
   listProjectTargets, sweepAllProjects,
 } from './multi-project-recovery.js';
 import {
-  DEFAULT_DRAIN_BATCH, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
+  DEFAULT_DRAIN_BATCH, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
   requeueDrainedJobs, resolveQueueConcurrency,
 } from './generation-drain.js';
 import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
 import { runContinuousDrain } from './continuous-drain.js';
+import { runRetrySweep } from './retry-sweep.js';
 import { backfillEmbeddings, loadUnembeddedRows } from './embedding-backfill.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
@@ -441,6 +442,29 @@ export async function createServerService(
           // that could not be published still advances and cannot loop forever.
           return jobs.length;
         },
+      });
+
+      await runRetrySweep<PostgresPool>({
+        listPools: async () => {
+          const pools: PostgresPool[] = [pool];
+          if (!poolRegistry) return pools;
+          const targets = await listProjectTargets(pool, { baseProjectId: localDevProjectId });
+          for (const t of targets) {
+            try {
+              const p = await poolRegistry.registry.getPool(t.databaseName, { teamId: t.teamId, projectId: t.projectId });
+              if (!pools.includes(p)) pools.push(p);
+            } catch { /* project database not provisioned yet */ }
+          }
+          return pools;
+        },
+        sweepPool: async (p) => {
+          const jobs = await claimDueRetries(p);
+          if (jobs.length === 0) return 0;
+          return (await requeueDrainedJobs(jobs, { resolveQueue })).requeued;
+        },
+        sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+        isClosed: () => false,
+        onRequeued: (count) => logger.info('SYSTEM', 'requeued generation retries', { count }),
       });
     })().catch(() => { /* never blocks boot */ });
   }

@@ -63,6 +63,49 @@ function toJob(row: Record<string, unknown>): DrainableJob | null {
   };
 }
 
+/** How long a claimed retry stays invisible to the next sweep. */
+export const RETRY_LEASE_MINUTES = 10;
+
+/**
+ * Claim retries whose backoff has elapsed.
+ *
+ * The inline queue has no retry timer: a transient failure sets the row back to
+ * `queued` with a `next_attempt_at`, and only the boot drain ever reloaded such
+ * rows, so a single Ollama hiccup parked the job until the next restart.
+ *
+ * `attempts > 0` limits this to retries; first attempts are already in memory.
+ * Claiming pushes `next_attempt_at` out by a lease so a job still waiting in the
+ * in-memory queue is not claimed twice; the worker clears it on pickup and a
+ * renewed failure sets a fresh one. Never throws.
+ */
+export async function claimDueRetries(
+  pool: DrainQueryable,
+  opts: { batchSize?: number; leaseMinutes?: number } = {},
+): Promise<DrainableJob[]> {
+  try {
+    const result = await pool.query(
+      `UPDATE observation_generation_jobs
+          SET next_attempt_at = now() + make_interval(mins => $2::int), updated_at = now()
+        WHERE id IN (
+          SELECT id FROM observation_generation_jobs
+           WHERE status = 'queued'
+             AND attempts > 0
+             AND attempts < max_attempts
+             AND next_attempt_at IS NOT NULL
+             AND next_attempt_at <= now()
+           ORDER BY next_attempt_at ASC
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED)
+        RETURNING id, job_type, project_id, team_id, agent_event_id,
+                  source_type, source_id, server_session_id, payload, bullmq_job_id`,
+      [opts.batchSize ?? DEFAULT_DRAIN_BATCH, opts.leaseMinutes ?? RETRY_LEASE_MINUTES],
+    );
+    return result.rows.map(toJob).filter((j): j is DrainableJob => j !== null);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Load queued generation jobs so a restart no longer abandons them.
  *

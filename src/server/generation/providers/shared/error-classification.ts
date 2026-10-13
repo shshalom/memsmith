@@ -106,6 +106,17 @@ export function classifyHttpProviderError(input: ClassifyHttpInput): ServerClass
     });
   }
 
+  // A local Ollama answers "model not found" while it restarts, before its model
+  // registry has loaded, so for Ollama this is retryable. A model that really is
+  // missing fails after its attempts; the boot reclaim revives such jobs, so they
+  // complete once the user pulls the model, and session start says which to pull.
+  if (status === 404 && providerLabel.toLowerCase() === 'ollama' && lower.includes('model') && lower.includes('not found')) {
+    return new ServerClassifiedProviderError(`${providerLabel} model not available yet (status 404)`, {
+      kind: 'transient',
+      cause,
+    });
+  }
+
   if (status === 400 || status === 404) {
     return new ServerClassifiedProviderError(`${providerLabel} bad request (status ${status})`, {
       kind: 'unrecoverable',

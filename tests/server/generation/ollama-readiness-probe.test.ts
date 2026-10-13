@@ -63,6 +63,16 @@ describe('ollamaCanGenerate', () => {
     expect(ok).toBe(true);
   });
 
+  it('is true when the model is missing, so a healthy daemon is not restarted', async () => {
+    // Restarting cannot pull a model; it only kills whatever ollama is serving.
+    const ok = await ollamaCanGenerate({
+      origin: 'http://127.0.0.1:11434',
+      model: 'qwen2.5:14b',
+      fetchImpl: fakeFetch({ status: 404, body: JSON.stringify({ error: "model 'qwen2.5:14b' not found" }) }) as unknown as typeof fetch,
+    });
+    expect(ok).toBe(true);
+  });
+
   it('is false when the daemon is unreachable', async () => {
     // The failure mode the original design DID handle. It must keep working.
     const ok = await ollamaCanGenerate({
@@ -83,19 +93,40 @@ describe('ollamaCanGenerate', () => {
     expect(ok).toBe(false);
   });
 
-  it('bounds how long it waits', async () => {
-    // A wedged backend can hang rather than 500. Blocking the queue forever on
-    // the probe would be its own silent stall.
+  // Every request hangs until its signal fires; /api/ps answers only when `psAnswers`.
+  function hangingGenerate(psAnswers: boolean) {
+    return ((u: unknown, init?: { signal?: AbortSignal }) => {
+      if (psAnswers && String(u).endsWith('/api/ps')) {
+        return Promise.resolve(new Response(JSON.stringify({ models: [{ name: 'qwen2.5:14b' }] }), { status: 200 }));
+      }
+      return new Promise((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => rej(init.signal!.reason));
+      });
+    }) as unknown as typeof fetch;
+  }
+
+  it('bounds how long it waits and reports a wedged daemon as unable to generate', async () => {
+    // A wedged backend can hang rather than 500: generate AND /api/ps hang.
     const started = Date.now();
     const ok = await ollamaCanGenerate({
       origin: 'http://127.0.0.1:11434',
       model: 'qwen2.5:14b',
       timeoutMs: 50,
-      fetchImpl: ((_u: unknown, init?: { signal?: AbortSignal }) => new Promise((_res, rej) => {
-        init?.signal?.addEventListener('abort', () => rej(new Error('aborted')));
-      })) as unknown as typeof fetch,
+      fetchImpl: hangingGenerate(false),
     });
     expect(ok).toBe(false);
-    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('treats a busy daemon as healthy so it is not killed mid-generation', async () => {
+    // Observed 2026-10-07: the probe queued behind an in-flight generation, timed
+    // out, and the caller killed ollama every few minutes. /api/ps still answers.
+    const ok = await ollamaCanGenerate({
+      origin: 'http://127.0.0.1:11434',
+      model: 'qwen2.5:14b',
+      timeoutMs: 50,
+      fetchImpl: hangingGenerate(true),
+    });
+    expect(ok).toBe(true);
   });
 });

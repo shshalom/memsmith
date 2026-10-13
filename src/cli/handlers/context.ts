@@ -71,11 +71,38 @@ async function defaultMintProjectIdentity(cwd: string): Promise<{ teamId: string
   return ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
 }
 
+// Team-runtime projects generate on the team server, so a missing local Ollama
+// is not a fault there. Local projects read the provider the server resolved,
+// which includes a provider chosen in the dashboard.
+async function defaultCheckGenerationReadiness(
+  settings: object,
+  cwd: string,
+  runtime: RuntimeContext,
+): Promise<string | null> {
+  const [{ checkGenerationReadiness }, { selectRuntime }] = await Promise.all([
+    import('./generation-readiness.js'),
+    import('../../services/hooks/runtime-selector.js'),
+  ]);
+  if (selectRuntime(cwd) === 'server') return null;
+  let resolved: { provider?: string; model?: string } | null = null;
+  if (runtime.runtime === 'server') {
+    try {
+      const { settings: effective } = await runtime.client.getResolvedSettings();
+      resolved = {
+        provider: typeof effective.provider?.value === 'string' ? effective.provider.value : undefined,
+        model: typeof effective.model?.value === 'string' ? effective.model.value : undefined,
+      };
+    } catch { /* server not ready yet: fall back to the settings file */ }
+  }
+  return checkGenerationReadiness(settings as Record<string, unknown>, process.env, {}, resolved);
+}
+
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
   getProjectContext: defaultGetProjectContext,
   loadFromFileOnce: defaultLoadFromFileOnce,
   mintProjectIdentity: defaultMintProjectIdentity,
+  checkGenerationReadiness: defaultCheckGenerationReadiness,
 };
 
 let dependencies = defaultDependencies;
@@ -103,15 +130,16 @@ export function setContextDependenciesForTesting(
 // non-empty when observations DO exist for the project.
 async function fetchPrimaryInjection(
   runtime: RuntimeContext,
-  args: { projectId: string; platformSource?: string; limit?: number },
+  args: { platformSource?: string; limit?: number },
 ): Promise<string> {
   if (runtime.runtime !== 'server') {
     // No server context reachable (embedded PG not yet available). Skip cleanly.
     return '';
   }
   try {
+    // Must be the key's project id: the server refuses any other project (403).
     const response = await runtime.client.searchObservations({
-      projectId: args.projectId,
+      projectId: runtime.projectId,
       query: '', // empty query = "list recent" (ServerV1PostgresRoutes /v1/search)
       limit: args.limit ?? SESSION_START_RECENT_LIMIT,
       ...(args.platformSource !== undefined ? { platformSource: args.platformSource } : {}),
@@ -193,7 +221,6 @@ export const contextHandler: EventHandler = {
       // same way POST /v1/context packs its context string.
       const runtime = dependencies.resolveRuntimeContext();
       additionalContext = (await fetchPrimaryInjection(runtime, {
-        projectId: context.primary,
         // Honour MEMSMITH_CONTEXT_SESSION_COUNT. `settings` is already loaded
         // above for showTerminalOutput, so this costs nothing.
         limit: resolveSessionStartLimit(settings.MEMSMITH_CONTEXT_SESSION_COUNT),
@@ -357,12 +384,23 @@ export const contextHandler: EventHandler = {
       }
     }
 
+    const readinessProblem = await dependencies.checkGenerationReadiness(
+      settings,
+      cwd,
+      dependencies.resolveRuntimeContext(),
+    );
+    if (readinessProblem) {
+      additionalContext = `⚠ ${readinessProblem}\nTell the user this before anything else.\n\n${additionalContext}`;
+    }
+
     return {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
         additionalContext
       },
-      systemMessage
+      systemMessage: readinessProblem
+        ? [readinessProblem, systemMessage].filter(Boolean).join('\n\n')
+        : systemMessage,
     };
   }
 };
