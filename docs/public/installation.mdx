@@ -118,7 +118,9 @@ It keeps your settings and doesn't ask the installer questions again. When it fi
 | `--force` | Reinstalls the plugin files even when they're current, or installs this CLI's version over a newer installed plugin. |
 | `--no-self-update` | Uses the CLI you ran instead of checking npm for a newer one. |
 
-If you update the plugin another way, for example with `claude plugin update`, the server keeps running the old version. MemSmith warns you about this at the start of the next session. To fix it, run `memsmith restart`.
+If you update the plugin another way, for example with `claude plugin update`, the server keeps running the old version. MemSmith warns you about this at the start of the next session. To fix it, run `npx memsmith@latest update`.
+
+If an update fails after it stopped the server, it tells you so. To retry the update and start the server again, run `npx memsmith@latest update --force`.
 
 For the version history, see the [changelog](https://github.com/shshalom/memsmith/blob/main/CHANGELOG.md).
 

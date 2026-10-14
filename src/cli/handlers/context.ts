@@ -99,16 +99,16 @@ async function defaultCheckGenerationReadiness(
   return checkGenerationReadiness(settings as Record<string, unknown>, process.env, {}, resolved);
 }
 
-// Only a local server is ours to restart; a team server is upgraded by its operator.
 async function defaultCheckServerVersion(cwd: string, runtime: RuntimeContext): Promise<string | null> {
-  if (runtime.runtime !== 'server') return null;
-  const [{ selectRuntime }, { probeServerVersion, serverVersionSkewNotice }] = await Promise.all([
+  const [{ selectRuntime }, { checkServerVersion }] = await Promise.all([
     import('../../services/hooks/runtime-selector.js'),
     import('./server-version-skew.js'),
   ]);
-  if (selectRuntime(cwd) === 'server') return null;
-  const pluginVersion = typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DEFAULT_PACKAGE_VERSION__ : '';
-  return serverVersionSkewNotice(await probeServerVersion(runtime.serverBaseUrl), pluginVersion);
+  return checkServerVersion({
+    projectRuntime: selectRuntime(cwd),
+    serverBaseUrl: runtime.runtime === 'server' ? runtime.serverBaseUrl : null,
+    pluginVersion: typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DEFAULT_PACKAGE_VERSION__ : '',
+  });
 }
 
 const defaultDependencies = {

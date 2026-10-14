@@ -92,8 +92,8 @@ that the versions match. It doesn't ask the installer questions again. When it
 finishes, run `/reload-plugins` in Claude Code, or restart Claude Code.
 
 If Claude Code updates the plugin on its own, the server keeps running the old
-version until it restarts. MemSmith then warns you at the start of the next
-session; run `memsmith restart` or `memsmith update`.
+version. MemSmith warns you about this at the start of the next session. To fix
+it, run `npx memsmith@latest update`.
 
 ## Key features
 
