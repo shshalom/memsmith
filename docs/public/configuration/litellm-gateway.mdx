@@ -1,99 +1,24 @@
 ---
 title: "LiteLLM Gateway"
-description: "Route memsmith's Claude Agent SDK worker through LiteLLM while keeping one agentic execution path"
+description: "Route MemSmith generation through LiteLLM or another OpenAI-compatible gateway"
 ---
 
 # LiteLLM Gateway
 
+MemSmith can send its generation requests through LiteLLM or any other gateway that exposes an OpenAI-compatible chat completions API. Use the `openrouter` provider and point its base URL at the gateway. The gateway then handles model routing, centralized keys, budgets, and logging.
+
 <Warning>
-Claude gateway generation isn't supported. The MemSmith server calls the Anthropic Messages API directly with `ANTHROPIC_API_KEY` and ignores `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. To route generation through an OpenAI-compatible gateway such as LiteLLM, set `MEMSMITH_SERVER_PROVIDER` to `openrouter`, set `MEMSMITH_OPENROUTER_BASE_URL` to the gateway URL, and set `MEMSMITH_OPENROUTER_API_KEY` to the gateway key. For details, see [Configuration](../configuration).
+Claude gateway generation isn't supported. The `claude` provider calls the Anthropic Messages API directly and needs an Anthropic API key (`ANTHROPIC_API_KEY` in `~/.memsmith/.env`). It ignores `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`, so an Anthropic-compatible gateway or bridge can't stand in for it.
 </Warning>
-
-memsmith can route its background memory agent through a LiteLLM proxy. This lets teams keep memsmith's Claude Agent SDK workflow while using LiteLLM for model routing, centralized credentials, usage tracking, budgets, audit logs, and provider failover.
-
-The important detail: memsmith does **not** call LiteLLM with the OpenAI client directly. memsmith still uses the Claude Agent SDK, and the SDK sends Anthropic-format requests to LiteLLM. LiteLLM then translates those requests to the upstream model provider you configured.
-
-```text
-Claude Code session
-  -> memsmith hooks
-  -> memsmith worker
-  -> Claude Agent SDK subprocess
-  -> ANTHROPIC_BASE_URL=http://localhost:4000
-  -> LiteLLM proxy
-  -> OpenAI / Azure / Vertex / Bedrock / OpenRouter / local model
-```
-
-This keeps the memory agent on one implementation path. The Claude provider, knowledge agents, session resume behavior, XML observation prompts, and queue retry logic all continue to use the same SDK code path whether the upstream model is Anthropic or routed through LiteLLM.
-
-## When to Use This
-
-Use LiteLLM gateway mode when you want:
-
-- A single organization-level LLM gateway for memsmith traffic
-- Provider routing without changing memsmith source code
-- Centralized API keys instead of storing provider keys in each developer's memsmith settings
-- LiteLLM budgets, rate limits, logging, fallback routing, or virtual keys
-- A non-Anthropic upstream model while preserving the Claude Agent SDK execution path used by memsmith
-
-Use the native [OpenRouter Provider](../usage/openrouter-provider) or [Gemini Provider](../usage/gemini-provider) instead if you want memsmith's REST providers directly and do not need the Claude Agent SDK path.
-
-## Architecture
-
-### One Agent Path
-
-The LiteLLM integration is intentionally small. There is no custom LiteLLM provider, no Python handler, and no OpenAI-compatible server embedded in memsmith.
-
-At runtime:
-
-1. The installer or user writes gateway settings to `~/.memsmith/.env`.
-2. `~/.memsmith/settings.json` keeps `MEMSMITH_PROVIDER` set to `claude`.
-3. The worker starts the Claude Agent SDK with an isolated environment.
-4. The SDK reads `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`.
-5. LiteLLM receives the SDK's Anthropic-format request.
-6. LiteLLM maps the request to the upstream provider and model configured in LiteLLM.
-7. The SDK response is parsed by the normal memsmith observation pipeline.
-
-The code paths involved are:
-
-| Layer | Responsibility |
-| --- | --- |
-| `src/npx-cli/commands/install.ts` | Prompts for "LiteLLM or custom gateway", stores the gateway URL/token, and allows custom gateway model names |
-| `src/shared/EnvManager.ts` | Stores credentials in `~/.memsmith/.env`, blocks shell-leaked auth vars, and injects only explicit memsmith credentials |
-| `src/services/worker/ClaudeProvider.ts` | Starts the Claude Agent SDK for observation extraction with the isolated environment |
-| `src/services/worker/knowledge/KnowledgeAgent.ts` | Uses the same isolated SDK path for knowledge corpus Q&A |
-
-### Why `MEMSMITH_PROVIDER` Stays `claude`
-
-LiteLLM is a gateway for the Claude Agent SDK path, not a fourth memsmith provider.
-
-```json
-{
-  "MEMSMITH_PROVIDER": "claude",
-  "MEMSMITH_CLAUDE_AUTH_METHOD": "gateway",
-  "MEMSMITH_MODEL": "claude-haiku-4-5-20251001"
-}
-```
-
-Keeping the provider as `claude` matters because the worker should continue to use `ClaudeProvider`, not the native Gemini or OpenRouter REST providers. The gateway URL changes where the SDK sends model traffic; it does not change how memsmith manages memory sessions.
 
 ## Configure LiteLLM
 
-LiteLLM must expose an Anthropic-compatible endpoint for Claude Code / Claude Agent SDK traffic. Anthropic's gateway guidance recommends the unified LiteLLM endpoint as the normal setup:
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:4000
-```
-
-For memsmith, that value goes in `~/.memsmith/.env`, not your shell, so the background worker uses it consistently across restarts.
-
-### Minimal LiteLLM Example
-
-Create a LiteLLM config that defines the model name memsmith will request:
+Define the model name that MemSmith requests:
 
 ```yaml
 # litellm-config.yaml
 model_list:
-  - model_name: claude-haiku-4-5-20251001
+  - model_name: memsmith-generation
     litellm_params:
       model: openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
@@ -109,200 +34,29 @@ OPENAI_API_KEY=sk-your-openai-key \
 litellm --config litellm-config.yaml --host 127.0.0.1 --port 4000
 ```
 
-In this example, memsmith asks the SDK for `claude-haiku-4-5-20251001`, LiteLLM accepts that model alias, and LiteLLM forwards the request to `openai/gpt-4o-mini`.
+## Configure MemSmith
 
-<Note>
-The alias in `model_name` must match `MEMSMITH_MODEL`, or `MEMSMITH_MODEL` must be changed to match your LiteLLM alias. memsmith does not translate model names.
-</Note>
-
-## Configure memsmith
-
-### Option 1: Installer
-
-Run the installer:
-
-```bash
-npx memsmith install
-```
-
-Choose:
-
-1. `Claude Agent SDK`
-2. `API key or gateway`
-3. `LiteLLM or custom gateway`
-4. Your LiteLLM URL, for example `http://127.0.0.1:4000`
-5. Your LiteLLM key/token if the proxy requires one
-6. The model alias LiteLLM should receive
-
-The installer stores provider settings in `~/.memsmith/settings.json` and gateway credentials in `~/.memsmith/.env`.
-
-### Option 2: Manual Files
-
-Edit `~/.memsmith/settings.json`:
+Set these keys in `~/.memsmith/settings.json`:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "claude",
-  "MEMSMITH_CLAUDE_AUTH_METHOD": "gateway",
-  "MEMSMITH_MODEL": "claude-haiku-4-5-20251001"
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_MODEL": "memsmith-generation",
+  "MEMSMITH_OPENROUTER_BASE_URL": "http://127.0.0.1:4000/v1",
+  "MEMSMITH_OPENROUTER_API_KEY": "sk-litellm-local"
 }
 ```
 
-Edit `~/.memsmith/.env`:
+- `MEMSMITH_SERVER_MODEL` must match a `model_name` in the LiteLLM config. MemSmith doesn't translate model names.
+- `MEMSMITH_OPENROUTER_API_KEY` is the LiteLLM master key or a virtual key. MemSmith sends it as `Authorization: Bearer <key>`.
 
-```bash
-# ~/.memsmith/.env
-ANTHROPIC_BASE_URL=http://127.0.0.1:4000
-ANTHROPIC_AUTH_TOKEN=sk-litellm-local
-```
+Then run `memsmith restart`. A provider chosen on the dashboard **Settings** tab overrides `MEMSMITH_SERVER_PROVIDER` in the file.
 
-If your LiteLLM proxy does not require authentication, omit `ANTHROPIC_AUTH_TOKEN`.
+## Verify
 
-Restart the worker after manual edits:
-
-```bash
-npm run worker:restart
-```
-
-## Environment Isolation
-
-memsmith deliberately does not trust whatever Anthropic credentials happen to be exported in your shell or project `.env` file.
-
-The worker blocks inherited `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and stale `CLAUDE_CODE_OAUTH_TOKEN` values. It then re-injects only the credentials stored in `~/.memsmith/.env`.
-
-This avoids two common failure modes:
-
-- A project-level `ANTHROPIC_API_KEY` silently bypasses LiteLLM and bills the public Anthropic API.
-- An expired Claude Code OAuth token overrides a configured gateway token and causes confusing auth failures.
-
-If `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY` is present in `~/.memsmith/.env`, the worker treats that as explicit gateway/API configuration and skips Claude OAuth lookup. This prevents a configured gateway from falling back to `api.anthropic.com`.
-
-## Model Names
-
-`MEMSMITH_MODEL` is passed through to the Claude Agent SDK. In gateway mode, memsmith allows any non-empty model string because the valid model list is owned by LiteLLM.
-
-Recommended pattern:
-
-```yaml
-model_list:
-  - model_name: claude-haiku-4-5-20251001
-    litellm_params:
-      model: openai/gpt-4o-mini
-      api_key: os.environ/OPENAI_API_KEY
-```
-
-Then keep:
-
-```json
-{
-  "MEMSMITH_MODEL": "claude-haiku-4-5-20251001"
-}
-```
-
-Alternatively, use a descriptive custom alias:
-
-```yaml
-model_list:
-  - model_name: memory-compressor
-    litellm_params:
-      model: azure/gpt-4o-mini-memory
-      api_base: os.environ/AZURE_API_BASE
-      api_key: os.environ/AZURE_API_KEY
-      api_version: "2024-10-21"
-```
-
-```json
-{
-  "MEMSMITH_MODEL": "memory-compressor"
-}
-```
-
-## Request Flow
-
-When a Claude Code session produces transcript events, memsmith's worker queues them for observation extraction. In gateway mode the extraction flow is:
-
-1. The worker loads pending messages for a memory session.
-2. `ClaudeProvider` builds the observation prompt and selected model.
-3. `buildIsolatedEnvWithFreshOAuth()` loads `~/.memsmith/.env`.
-4. The SDK subprocess starts with `ANTHROPIC_BASE_URL` pointing at LiteLLM.
-5. LiteLLM receives the Anthropic-format request.
-6. LiteLLM routes to the configured upstream model.
-7. The SDK streams the assistant response back to the worker.
-8. memsmith parses observations, stores them in SQLite, and syncs searchable embeddings.
-
-## What LiteLLM Does and Does Not Replace
-
-LiteLLM replaces:
-
-- Upstream model selection
-- Provider credentials
-- Gateway-level budgets and rate limits
-- Gateway-level logging and auditing
-- Optional routing/fallback policies inside LiteLLM
-
-LiteLLM does not replace:
-
-- memsmith's worker process
-- The Claude Agent SDK subprocess
-- memsmith's observation XML format
-- SQLite storage
-- Chroma/vector sync
-- Hook installation
-- Session resume handling inside memsmith
-
-## Verification
-
-Check memsmith's worker logs:
-
-```bash
-npm run worker:logs
-```
-
-You should see SDK startup logs that report gateway auth, followed by normal observation processing.
-
-Check LiteLLM's logs for a corresponding request to the configured model alias. If LiteLLM never receives traffic, confirm:
-
-- `MEMSMITH_PROVIDER` is `claude`
-- `MEMSMITH_CLAUDE_AUTH_METHOD` is `gateway`
-- `ANTHROPIC_BASE_URL` is in `~/.memsmith/.env`
-- The worker was restarted after manual edits
-- The LiteLLM URL does not include an extra `/v1` suffix for the unified Anthropic endpoint
-
-## Troubleshooting
-
-### LiteLLM returns "model not found"
-
-The model name sent by memsmith does not match a LiteLLM `model_name`. Make `MEMSMITH_MODEL` and the LiteLLM alias match exactly.
-
-### memsmith still uses Anthropic directly
-
-Check `~/.memsmith/.env`. Gateway settings must be stored there. Shell exports are not the reliable configuration source for the worker.
-
-Also make sure `ANTHROPIC_BASE_URL` is present. A token alone authenticates a gateway, but the base URL is what redirects traffic away from the default Anthropic endpoint.
-
-### Authentication fails
-
-If LiteLLM uses a master key or virtual key, store it as `ANTHROPIC_AUTH_TOKEN` in `~/.memsmith/.env`. The Claude Agent SDK sends this value as gateway authorization.
-
-If you previously configured a direct Anthropic API key, remove `ANTHROPIC_API_KEY` from `~/.memsmith/.env` for gateway mode unless your gateway explicitly expects that variable.
-
-### Requests fail after changing files
-
-Restart the worker:
-
-```bash
-npm run worker:restart
-```
-
-The SDK environment is built when SDK subprocesses are spawned. Restarting guarantees the next memory agent process sees the new gateway values.
-
-### Tool use behaves differently than full Claude Code
-
-memsmith's memory worker disables file and shell tools for observation extraction. The LiteLLM gateway is only handling the model call used to compress and summarize memory; it is not a replacement for your interactive Claude Code tool loop.
+Run `memsmith doctor`. The **Generation** check reports `openrouter · API key present`. Doctor doesn't call the gateway, so confirm that requests arrive in the LiteLLM logs after your next Claude Code session.
 
 ## Related
 
-- [Custom Anthropic-Compatible Backends](custom-anthropic-backends)
 - [Configuration](../configuration)
-- [Anthropic LLM gateway configuration](https://docs.anthropic.com/en/docs/claude-code/llm-gateway)
-- [LiteLLM documentation](https://docs.litellm.ai/)
+- [OpenRouter Provider](../usage/openrouter-provider)

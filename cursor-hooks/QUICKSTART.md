@@ -32,16 +32,26 @@ memsmith cursor status
 
 ## Configure Provider (Required for Standalone)
 
-If you don't have Claude Code, configure a provider for AI summarization:
+The default provider is Ollama, which runs locally and needs no API key. To use a hosted provider instead, edit `~/.memsmith/settings.json` and then run `memsmith restart`. You can also choose the provider on the dashboard **Settings** tab.
 
-```bash
-# Option A: Gemini (free tier available - recommended)
-memsmith settings set MEMSMITH_SERVER_PROVIDER gemini
-memsmith settings set MEMSMITH_GEMINI_API_KEY your-api-key
+Option A, Gemini (free tier available):
 
-# Option B: OpenRouter (free models available)
-memsmith settings set MEMSMITH_SERVER_PROVIDER openrouter
-memsmith settings set MEMSMITH_OPENROUTER_API_KEY your-api-key
+```json
+{
+  "MEMSMITH_SERVER_PROVIDER": "gemini",
+  "MEMSMITH_SERVER_MODEL": "gemini-2.5-flash",
+  "MEMSMITH_GEMINI_API_KEY": "your-api-key"
+}
+```
+
+Option B, OpenRouter (free models available):
+
+```json
+{
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_MODEL": "anthropic/claude-3.5-sonnet",
+  "MEMSMITH_OPENROUTER_API_KEY": "your-api-key"
+}
 ```
 
 **Get free API keys**:
