@@ -3,7 +3,7 @@
 // The installer saves Gemini and OpenRouter keys to ~/.memsmith/settings.json and
 // the Anthropic key to ~/.memsmith/.env. The server process is not launched with
 // either file exported into its environment, so credentials resolve here from
-// env > settings file > .env.
+// env > settings file, except the Anthropic key, which prefers ~/.memsmith/.env.
 
 import { loadMemSmithEnv } from '../../shared/EnvManager.js';
 import { readFlatSettings } from '../../shared/flat-settings.js';
@@ -44,7 +44,9 @@ export function resolveGenerationCredentials(provider: string, s: GenerationConf
   switch (provider) {
     case 'claude':
     case 'anthropic':
-      return { apiKey: firstNonBlank(env.ANTHROPIC_API_KEY, env.MEMSMITH_ANTHROPIC_API_KEY, dotEnv.ANTHROPIC_API_KEY) };
+      // .env first: EnvManager treats a shell ANTHROPIC_API_KEY as untrusted
+      // (#733, a project .env can inject one), so it is only a fallback.
+      return { apiKey: firstNonBlank(dotEnv.ANTHROPIC_API_KEY, env.MEMSMITH_ANTHROPIC_API_KEY, env.ANTHROPIC_API_KEY) };
     case 'gemini':
       return { apiKey: firstNonBlank(env.GEMINI_API_KEY, env.MEMSMITH_GEMINI_API_KEY, settings.MEMSMITH_GEMINI_API_KEY) };
     case 'openrouter':

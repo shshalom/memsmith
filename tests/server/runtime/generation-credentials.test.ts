@@ -32,6 +32,14 @@ describe('resolveGenerationCredentials', () => {
       .toBe('sk-ant');
   });
 
+  it('prefers the saved Anthropic key over one inherited from the shell', () => {
+    const creds = resolveGenerationCredentials('claude', sources({
+      env: { ANTHROPIC_API_KEY: 'from-shell' },
+      dotEnv: { ANTHROPIC_API_KEY: 'from-dotenv' },
+    }));
+    expect(creds.apiKey).toBe('from-dotenv');
+  });
+
   it('lets the environment override the settings file', () => {
     const creds = resolveGenerationCredentials('gemini', sources({
       env: { MEMSMITH_GEMINI_API_KEY: 'from-env' },
