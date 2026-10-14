@@ -52,17 +52,37 @@ function installCommands(host: OllamaHost): string[] {
   return [`Download Ollama from ${DOWNLOAD_URL}`];
 }
 
-export function startAction(host: OllamaHost): OllamaAction {
-  return host.platform === 'darwin' && host.installedViaBrew ? { kind: 'brew-start' } : { kind: 'serve' };
+const DEFAULT_OLLAMA_PORT = '11434';
+
+/** `host:port` for OLLAMA_HOST, so `ollama serve` and `ollama pull` use the configured address. */
+export function ollamaHostFor(origin: string): string {
+  const url = new URL(origin);
+  return url.port ? url.host : `${url.hostname}:${DEFAULT_OLLAMA_PORT}`;
 }
 
-export function actionCommand(action: OllamaAction): string {
+function usesDefaultPort(origin: string): boolean {
+  return ollamaHostFor(origin).endsWith(`:${DEFAULT_OLLAMA_PORT}`);
+}
+
+// The Homebrew service always listens on the default port.
+export function startAction(host: OllamaHost, origin: string): OllamaAction {
+  return host.platform === 'darwin' && host.installedViaBrew && usesDefaultPort(origin) ? { kind: 'brew-start' } : { kind: 'serve' };
+}
+
+const OLLAMA_MODEL_NAME = /^[\w.:\/-]+$/;
+
+export function isValidOllamaModel(model: string): boolean {
+  return OLLAMA_MODEL_NAME.test(model);
+}
+
+export function actionCommand(action: OllamaAction, origin?: string): string {
+  const prefix = origin && !usesDefaultPort(origin) ? `OLLAMA_HOST=${ollamaHostFor(origin)} ` : '';
   switch (action.kind) {
     case 'brew-install': return 'brew install ollama && brew services start ollama';
     case 'linux-install': return LINUX_INSTALL_COMMAND;
     case 'brew-start': return 'brew services start ollama';
-    case 'serve': return 'ollama serve';
-    case 'pull': return `ollama pull ${action.model}`;
+    case 'serve': return `${prefix}ollama serve`;
+    case 'pull': return `${prefix}ollama pull ${action.model}`;
   }
 }
 
@@ -74,11 +94,14 @@ export function decideOllamaStep(ctx: {
   origin: string;
 }): OllamaDecision {
   const { state, mode, host, model, origin } = ctx;
-  const pull = `ollama pull ${model}`;
+  const pull = actionCommand({ kind: 'pull', model }, origin);
 
   if (state === 'ready') return { kind: 'ready', message: `Ollama is ready: ${model} at ${origin}.` };
   if (state === 'unknown') {
     return { kind: 'warn', message: `Something answered at ${origin}, but not like Ollama. Check MEMSMITH_OLLAMA_URL.`, commands: [] };
+  }
+  if (!isValidOllamaModel(model)) {
+    return { kind: 'warn', message: `"${model}" is not a valid Ollama model name. Fix MEMSMITH_SERVER_MODEL in ~/.memsmith/settings.json.`, commands: [] };
   }
 
   if (!host.localTarget) {
@@ -108,8 +131,8 @@ export function decideOllamaStep(ctx: {
   }
 
   if (state === 'not-running') {
-    const action = startAction(host);
-    return offer(`Ollama is installed but not running at ${origin}.`, 'Start Ollama now?', action, [actionCommand(action), pull]);
+    const action = startAction(host, origin);
+    return offer(`Ollama is installed but not running at ${origin}.`, 'Start Ollama now?', action, [actionCommand(action, origin), pull]);
   }
 
   return offer(
@@ -122,12 +145,13 @@ export function decideOllamaStep(ctx: {
 
 export interface CommandRunner {
   /** Runs attached to the terminal; resolves to the exit code. */
-  run(cmd: string, args: string[]): Promise<number>;
-  spawnDetached(cmd: string, args: string[]): boolean;
+  run(cmd: string, args: string[], extraEnv?: Record<string, string>): Promise<number>;
+  spawnDetached(cmd: string, args: string[], extraEnv?: Record<string, string>): boolean;
   succeeds(cmd: string, args: string[]): boolean;
 }
 
-export async function executeOllamaAction(action: OllamaAction, runner: CommandRunner): Promise<boolean> {
+export async function executeOllamaAction(action: OllamaAction, runner: CommandRunner, ollamaHost?: string): Promise<boolean> {
+  const hostEnv = ollamaHost ? { OLLAMA_HOST: ollamaHost } : undefined;
   switch (action.kind) {
     case 'brew-install':
       return (await runner.run('brew', ['install', 'ollama'])) === 0
@@ -137,9 +161,10 @@ export async function executeOllamaAction(action: OllamaAction, runner: CommandR
     case 'brew-start':
       return (await runner.run('brew', ['services', 'start', 'ollama'])) === 0;
     case 'serve':
-      return runner.spawnDetached('ollama', ['serve']);
+      return runner.spawnDetached('ollama', ['serve'], hostEnv);
     case 'pull':
-      return (await runner.run('ollama', ['pull', action.model])) === 0;
+      if (!isValidOllamaModel(action.model)) return false;
+      return (await runner.run('ollama', ['pull', action.model], hostEnv)) === 0;
   }
 }
 
@@ -175,7 +200,7 @@ export async function runOllamaSetup(deps: OllamaSetupDeps): Promise<{ ready: bo
     }
     const { action } = decision;
     if (attempted.has(action.kind)) {
-      warnWithCommands(deps, `Ollama is still not ready after \`${actionCommand(action)}\`.`, [actionCommand(action), `ollama pull ${deps.model}`]);
+      warnWithCommands(deps, `Ollama is still not ready after \`${actionCommand(action, deps.origin)}\`.`, [actionCommand(action, deps.origin), actionCommand({ kind: 'pull', model: deps.model }, deps.origin)]);
       return { ready: false };
     }
     if (decision.kind === 'ask') {
@@ -187,7 +212,7 @@ export async function runOllamaSetup(deps: OllamaSetupDeps): Promise<{ ready: bo
     }
     attempted.add(action.kind);
     if (!(await deps.run(action))) {
-      warnWithCommands(deps, `\`${actionCommand(action)}\` failed.`, [actionCommand(action)]);
+      warnWithCommands(deps, `\`${actionCommand(action, deps.origin)}\` failed.`, [actionCommand(action, deps.origin)]);
       return { ready: false };
     }
     if (action.kind !== 'pull') await deps.waitUntilUp();
@@ -195,17 +220,33 @@ export async function runOllamaSetup(deps: OllamaSetupDeps): Promise<{ ready: bo
   return { ready: false };
 }
 
-export function defaultCommandRunner(): CommandRunner {
-  const shell = process.platform === 'win32';
+const PROXY_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+
+// sanitizeEnv strips proxy settings for the SDK subprocess, but brew, the
+// install script, and `ollama pull` need them behind a corporate proxy.
+export function pickProxyVars(env: NodeJS.ProcessEnv): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const name of PROXY_VARS) {
+    for (const key of [name, name.toLowerCase()]) {
+      const value = env[key];
+      if (value !== undefined) picked[key] = value;
+    }
+  }
+  return picked;
+}
+
+// No shell anywhere: the model name reaches `ollama pull` as an argument, never
+// as shell text. The Linux installer pipes through `sh -c` with a fixed string.
+export function defaultCommandRunner(baseEnv: NodeJS.ProcessEnv = process.env): CommandRunner {
   return {
-    run: (cmd, args) => new Promise((resolve) => {
-      const child = spawn(cmd, args, { stdio: 'inherit', shell, env: sanitizeEnv(process.env) });
+    run: (cmd, args, extraEnv) => new Promise((resolve) => {
+      const child = spawn(cmd, args, { stdio: 'inherit', env: { ...sanitizeEnv(baseEnv), ...pickProxyVars(baseEnv), ...extraEnv } });
       child.on('error', () => resolve(127));
       child.on('close', (code) => resolve(code ?? 1));
     }),
-    spawnDetached: (cmd, args) => {
+    spawnDetached: (cmd, args, extraEnv) => {
       try {
-        const child = spawn(cmd, args, { detached: true, stdio: 'ignore', shell, env: sanitizeEnv(process.env) });
+        const child = spawn(cmd, args, { detached: true, stdio: 'ignore', env: { ...sanitizeEnv(baseEnv), ...pickProxyVars(baseEnv), ...extraEnv } });
         child.on('error', () => {});
         child.unref();
         return child.pid !== undefined;
@@ -215,7 +256,7 @@ export function defaultCommandRunner(): CommandRunner {
     },
     succeeds: (cmd, args) => {
       try {
-        return spawnSync(cmd, args, { stdio: 'ignore', shell, env: sanitizeEnv(process.env), timeout: 10_000 }).status === 0;
+        return spawnSync(cmd, args, { stdio: 'ignore', env: { ...sanitizeEnv(baseEnv), ...pickProxyVars(baseEnv) }, timeout: 10_000 }).status === 0;
       } catch {
         return false;
       }

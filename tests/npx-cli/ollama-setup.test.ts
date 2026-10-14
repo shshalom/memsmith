@@ -6,7 +6,10 @@
 import { describe, it, expect } from 'bun:test';
 import {
   decideOllamaStep,
+  defaultCommandRunner,
   executeOllamaAction,
+  isValidOllamaModel,
+  ollamaHostFor,
   runOllamaSetup,
   type CommandRunner,
   type OllamaHost,
@@ -133,12 +136,13 @@ describe('decideOllamaStep', () => {
 
 function recordingRunner(exitCode = 0) {
   const calls: string[] = [];
+  const envs: Array<Record<string, string> | undefined> = [];
   const runner: CommandRunner = {
-    run: async (cmd, args) => { calls.push([cmd, ...args].join(' ')); return exitCode; },
-    spawnDetached: (cmd, args) => { calls.push(`detached: ${[cmd, ...args].join(' ')}`); return true; },
+    run: async (cmd, args, extraEnv) => { calls.push([cmd, ...args].join(' ')); envs.push(extraEnv); return exitCode; },
+    spawnDetached: (cmd, args, extraEnv) => { calls.push(`detached: ${[cmd, ...args].join(' ')}`); envs.push(extraEnv); return true; },
     succeeds: () => true,
   };
-  return { calls, runner };
+  return { calls, envs, runner };
 }
 
 describe('executeOllamaAction', () => {
@@ -158,6 +162,27 @@ describe('executeOllamaAction', () => {
     const { calls, runner } = recordingRunner();
     await executeOllamaAction({ kind: 'serve' }, runner);
     expect(calls).toEqual(['detached: ollama serve']);
+  });
+
+  it('starts ollama serve rather than the Homebrew service for a custom port', () => {
+    const d = decideOllamaStep({ state: 'not-running', mode: 'interactive', host: macBrew, model: MODEL, origin: 'http://127.0.0.1:11500' });
+    expect(d).toMatchObject({ kind: 'ask', action: { kind: 'serve' } });
+    if (d.kind === 'ask') expect(d.declineCommands).toEqual(['OLLAMA_HOST=127.0.0.1:11500 ollama serve', `OLLAMA_HOST=127.0.0.1:11500 ollama pull ${MODEL}`]);
+  });
+
+  it('points ollama serve and ollama pull at a custom loopback port', async () => {
+    const host = ollamaHostFor('http://127.0.0.1:11500');
+    expect(host).toBe('127.0.0.1:11500');
+    const { envs, runner } = recordingRunner();
+    await executeOllamaAction({ kind: 'serve' }, runner, host);
+    await executeOllamaAction({ kind: 'pull', model: MODEL }, runner, host);
+    expect(envs).toEqual([{ OLLAMA_HOST: '127.0.0.1:11500' }, { OLLAMA_HOST: '127.0.0.1:11500' }]);
+  });
+
+  it('refuses to pull a model name that is not a plain Ollama name', async () => {
+    const { calls, runner } = recordingRunner();
+    expect(await executeOllamaAction({ kind: 'pull', model: 'qwen; rm -rf ~' }, runner)).toBe(false);
+    expect(calls).toEqual([]);
   });
 
   it('reports a failed command', async () => {
@@ -233,5 +258,47 @@ describe('runOllamaSetup', () => {
     expect(await runOllamaSetup(h.deps)).toEqual({ ready: false });
     expect(h.ran).toEqual(['brew-start']);
     expect(h.warnings.join('\n')).toContain('brew services start ollama');
+  });
+});
+
+describe('isValidOllamaModel', () => {
+  it('accepts names, tags, and namespaced models', () => {
+    for (const m of ['qwen2.5:14b', 'llama3.1', 'hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M', 'library/mistral:7b-instruct']) {
+      expect(isValidOllamaModel(m)).toBe(true);
+    }
+  });
+
+  it('rejects anything a shell could interpret', () => {
+    for (const m of ['', 'qwen; rm -rf ~', 'a b', '$(id)', 'x&y', 'm|n', '`id`']) {
+      expect(isValidOllamaModel(m)).toBe(false);
+    }
+  });
+
+  it('makes the setup warn instead of offering a pull', () => {
+    const d = decideOllamaStep({ state: 'model-missing', mode: 'opt-in', host: macBrew, model: 'bad model', origin: ORIGIN });
+    expect(d.kind).toBe('warn');
+    if (d.kind === 'warn') expect(d.message).toContain('not a valid Ollama model name');
+  });
+});
+
+// Behind a corporate proxy, `brew install`, the Linux script, and `ollama pull`
+// all need the proxy variables that sanitizeEnv strips for the SDK subprocess.
+// The runner takes the base environment as an argument: setting HTTP_PROXY on
+// process.env here would make Bun's fetch use the proxy for later tests.
+describe.skipIf(process.platform === 'win32')('defaultCommandRunner environment', () => {
+  const base = { PATH: process.env.PATH, HTTP_PROXY: 'http://proxy:1', https_proxy: 'http://proxy:2', CLAUDE_CODE_EFFORT_LEVEL: 'high' };
+
+  it('passes proxy variables through in both cases', () => {
+    const runner = defaultCommandRunner(base);
+    expect(runner.succeeds('sh', ['-c', '[ "$HTTP_PROXY" = "http://proxy:1" ] && [ "$https_proxy" = "http://proxy:2" ]'])).toBe(true);
+  });
+
+  it('still strips what sanitizeEnv strips', () => {
+    expect(defaultCommandRunner(base).succeeds('sh', ['-c', '[ -z "$CLAUDE_CODE_EFFORT_LEVEL" ]'])).toBe(true);
+  });
+
+  it('hands OLLAMA_HOST to the command', async () => {
+    const code = await defaultCommandRunner(base).run('sh', ['-c', '[ "$OLLAMA_HOST" = "127.0.0.1:11500" ]'], { OLLAMA_HOST: '127.0.0.1:11500' });
+    expect(code).toBe(0);
   });
 });
