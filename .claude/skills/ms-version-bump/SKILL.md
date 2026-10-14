@@ -1,61 +1,43 @@
 ---
 name: ms-version-bump
-description: Automated semantic versioning and release workflow for Claude Code plugins. Handles version increments across package.json, marketplace.json, plugin.json manifests, build verification, git tagging, GitHub releases, and changelog generation. NPM publishing (so `npx memsmith@X.Y.Z` resolves) is handed off to the human maintainer, who raised npm security.
+description: Release workflow for MemSmith. Bumps the version in package.json, syncs every manifest with the build, updates the changelog, and pushes a v* tag that publishes to npm through the trusted-publishing workflow.
 ---
 
-# Version Bump & Release Workflow
+# Version bump and release
 
-**IMPORTANT:** Plan and write detailed release notes before starting.
-
-**CRITICAL:** Commit EVERYTHING (including build artifacts). At the end of this workflow, NOTHING should be left uncommitted or unpushed. Run `git status` at the end to verify.
+Write the release notes before you start. At the end, nothing is left uncommitted or unpushed.
 
 ## Preparation
 
-1.  **Analyze**: Determine if the change is **PATCH** (bug fixes), **MINOR** (features), or **MAJOR** (breaking).
-2.  **Environment**: Identify repository owner/name from `git remote -v`.
-3.  **Paths — every file that carries the version string**:
-    - `package.json` — **the npm/npx-published version** (`npx memsmith@X.Y.Z` resolves from this)
-    - `plugin/package.json` — bundled plugin runtime deps
-    - `.claude-plugin/marketplace.json` — version inside `plugins[0].version`
-    - `plugin/.claude-plugin/plugin.json` — bundled Claude-plugin manifest
-    - `.codex-plugin/plugin.json` — Codex-plugin manifest
-    - `plugin/.codex-plugin/plugin.json` — bundled Codex-plugin manifest
+1. **Choose the bump**: PATCH for fixes, MINOR for features, MAJOR for breaking changes.
+2. **Know what carries the version.** Edit only `package.json` by hand. `npm run build` syncs the rest from it:
+   - `scripts/sync-plugin-manifests.js` writes `plugin/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `plugin/.codex-plugin/plugin.json`, and the `memsmith` entry in `.claude-plugin/marketplace.json`.
+   - `scripts/build-hooks.js` writes `plugin/package.json` and bakes the version into the bundles.
 
-    Verify coverage before editing: `git grep -l "\"version\": \"<OLD>\""` should list all six. If a new manifest has been added since this doc was last updated, update this list.
+   Nothing else needs a manual version edit.
 
 ## Workflow
 
-1.  **Update**: Increment the version string in every path above. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
-2.  **Verify**: `git grep -n "\"version\": \"<NEW>\""` — confirm all six files match. `git grep -n "\"version\": \"<OLD>\""` — should return zero hits.
-3.  **Build and sync**: Run `npm run build-and-sync` to regenerate artifacts and sync the local marketplace copy, then run `memsmith restart`. Don't use plain `npm run build` for release validation: it leaves the local marketplace copy out of sync.
-4.  **Commit**: `git add -A && git commit -m "chore: bump version to X.Y.Z"`.
-5.  **Tag**: `git tag -a vX.Y.Z -m "Version X.Y.Z"`.
-6.  **Push**: `git push origin main && git push origin vX.Y.Z`.
-7.  **Publish to npm — HAND OFF TO HUMAN.** The human maintainer raised npm
-    security, so publishing now requires credentials/2FA only they can provide.
-    The agent MUST NOT run `npm publish` (or `np` / `npm run release:*`, which
-    also publish) itself. **Hand off NPM publishing to the human now:** stop and
-    tell them the version is committed, tagged, and pushed, and that they must
-    publish to npm to make `npx memsmith@X.Y.Z` resolve. Give them the command:
-    ```bash
-    npm publish   # run by the HUMAN — the prepublishOnly script rebuilds the package
-    ```
-    Wait for the human to confirm they published, then verify it landed:
-    ```bash
-    npm view memsmith@X.Y.Z version   # should print X.Y.Z
-    ```
-    If the publish build touched local artifacts, run `npm run build-and-sync` again afterward.
-8.  **GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "RELEASE_NOTES"`.
-9.  **Changelog check**: `npm run changelog:generate` adds an entry for any GitHub release from 13.10.2 on that `CHANGELOG.md` doesn't list yet. Because step 1 already added the version, it normally reports that the changelog is up to date.
-10. **Finalize**: `git status` — working tree must be clean.
+1. **Bump**: `npm version X.Y.Z --no-git-tag-version`.
+2. **Changelog**: In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add an empty `## [Unreleased]` above it.
+3. **Build**: `npm run build`. Then confirm that every manifest carries the new version: `git grep -n "\"version\": \"X.Y.Z\""` lists `package.json`, `plugin/package.json`, the three plugin manifests, and `.claude-plugin/marketplace.json`, and `git grep -n "\"version\": \"<OLD>\""` returns nothing.
+4. **Test**: `bun test` and `npx tsc --noEmit`.
+5. **Commit**: `git add -A && git commit -m "chore: release X.Y.Z"`.
+6. **Tag**: `git tag -a vX.Y.Z -m "Version X.Y.Z"`.
+7. **Push**: `git push origin main --follow-tags`. The `v*` tag starts `.github/workflows/npm-publish.yml`, which checks that the tag matches `package.json`, builds, runs the clean-room smoke test, and publishes with npm trusted publishing. Don't run `npm publish` yourself.
+8. **Watch the run**: `gh run watch`. If it fails, fix the cause, and release a new patch version rather than moving the tag.
+9. **Verify**: `npm view memsmith@X.Y.Z version` prints `X.Y.Z`.
+10. **GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "RELEASE_NOTES"`.
+11. **Local copy (optional)**: To run the new version locally, run `npm run build-and-sync`, then `memsmith restart`.
+12. **Finalize**: `git status` shows a clean tree.
 
 ## Checklist
 
-- [ ] All six config files have matching versions
-- [ ] `git grep` for old version returns zero hits
-- [ ] `npm run build-and-sync` succeeded
-- [ ] Git tag created and pushed
-- [ ] **NPM publishing handed off to the human** (agent does NOT run `npm publish` — human raised security); once they publish, `npm view memsmith@X.Y.Z version` confirms it (so `npx memsmith@X.Y.Z` resolves)
-- [ ] GitHub release created with notes
+- [ ] `package.json` bumped, and `npm run build` synced every manifest
 - [ ] `CHANGELOG.md` has the new version section and an empty `Unreleased` section
-- [ ] `git status` shows clean tree
+- [ ] Tests and type check pass
+- [ ] Commit and `vX.Y.Z` tag pushed with `--follow-tags`
+- [ ] The publish workflow run succeeded
+- [ ] `npm view memsmith@X.Y.Z version` confirms the release
+- [ ] GitHub release created
+- [ ] `git status` shows a clean tree
