@@ -7,6 +7,7 @@ import {
   applyRepairs,
   collectChecks,
   generationCheck,
+  probeGenerationStatus,
   type DoctorProbes,
   type GenerationStatus,
   parseDoctorArgs,
@@ -249,5 +250,32 @@ describe('applyRepairs for generation', () => {
     });
     expect(ran).toEqual(['start', 'pull']);
     expect(result).toEqual({ ok: true });
+  });
+});
+
+// The dashboard's provider outranks the settings file. Doctor read only the
+// settings file, so a user who switched to Claude on the dashboard was told
+// Ollama was broken and `--fix` would pull a 9 GB model nobody uses.
+describe('probeGenerationStatus', () => {
+  const sources = { env: {}, settings: { MEMSMITH_SERVER_PROVIDER: 'ollama' }, dotEnv: { ANTHROPIC_API_KEY: 'k' } };
+
+  it('uses the provider the server resolved, and never probes Ollama for it', async () => {
+    let probed = false;
+    const status = await probeGenerationStatus({ provider: 'claude' }, sources, async () => { probed = true; return 'model-missing'; });
+    expect(status).toEqual({ provider: 'claude', missingCredential: null });
+    expect(probed).toBe(false);
+    expect(planRepairs({ ...healthy, generation: status })).toEqual([]);
+  });
+
+  it('falls back to the settings file when the server is down', async () => {
+    const status = await probeGenerationStatus(null, sources, async () => 'model-missing');
+    expect(status).toMatchObject({ provider: 'ollama', ollama: 'model-missing' });
+    expect(planRepairs({ ...healthy, generation: status })).toEqual(['pull-ollama-model']);
+  });
+
+  it('checks the model the server resolved', async () => {
+    let probedModel = '';
+    await probeGenerationStatus({ provider: 'ollama', model: 'llama3.3:70b' }, sources, async (target) => { probedModel = target.model; return 'ready'; });
+    expect(probedModel).toBe('llama3.3:70b');
   });
 });

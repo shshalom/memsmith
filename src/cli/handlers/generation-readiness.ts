@@ -13,7 +13,7 @@ const DEFAULT_OLLAMA_URL = 'http://localhost:11434/v1';
 const DEFAULT_OLLAMA_MODEL = 'qwen2.5:14b';
 const PROBE_TIMEOUT_MS = 1500;
 
-/** Provider and model as the server resolves them (env > dashboard > settings file > default). */
+/** Provider and model as the server resolves them (dashboard > env > settings file > default). */
 export interface ResolvedGenerationSettings {
   provider?: string;
   model?: string;

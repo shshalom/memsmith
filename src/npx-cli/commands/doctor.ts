@@ -16,13 +16,26 @@ import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
 import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
-import { resolveOllamaTarget } from '../../cli/handlers/generation-readiness.js';
-import { loadGenerationConfigSources, missingGenerationCredential } from '../../server/runtime/generation-credentials.js';
-import { resolveGenerationProviderName, GENERATION_PROVIDERS } from '../../server/runtime/resolve-generation-provider.js';
+import {
+  resolveOllamaTarget,
+  type OllamaTarget,
+  type ResolvedGenerationSettings,
+} from '../../cli/handlers/generation-readiness.js';
+import {
+  loadGenerationConfigSources,
+  missingGenerationCredential,
+  type GenerationConfigSources,
+} from '../../server/runtime/generation-credentials.js';
+import {
+  resolveGenerationProviderName,
+  GENERATION_PROVIDERS,
+  type GenerationProviderName,
+} from '../../server/runtime/resolve-generation-provider.js';
 import {
   defaultCommandRunner,
   detectOllamaHost,
   executeOllamaAction,
+  ollamaHostFor,
   probeOllamaState,
   startAction,
   waitForOllama,
@@ -190,30 +203,61 @@ export interface DoctorProbes {
   verifyPidFileOwnership(info: NonNullable<ReturnType<typeof readServerPidFile>>): boolean;
   isPortInUse(host: string, port: number): Promise<boolean>;
   dataDir(): string;
-  generation(): Promise<GenerationStatus>;
+  generation(serverReachable: boolean): Promise<GenerationStatus>;
 }
 
-async function probeGeneration(): Promise<GenerationStatus> {
-  const sources = loadGenerationConfigSources();
-  const provider = resolveGenerationProviderName(sources.env, sources.settings);
-  if (provider === null) {
-    return { provider: null, configured: String(sources.env.MEMSMITH_SERVER_PROVIDER || sources.settings.MEMSMITH_SERVER_PROVIDER) };
+/**
+ * `resolved` is what the running server reports (dashboard > env > settings
+ * file > default); null means the server is down, so env and settings.json
+ * stand in for it.
+ */
+export async function probeGenerationStatus(
+  resolved: ResolvedGenerationSettings | null,
+  sources: GenerationConfigSources,
+  probeState: (target: OllamaTarget) => Promise<OllamaState>,
+): Promise<GenerationStatus> {
+  const configured = resolved?.provider ?? resolveGenerationProviderName(sources.env, sources.settings);
+  if (!configured || !(GENERATION_PROVIDERS as readonly string[]).includes(configured)) {
+    return { provider: null, configured: String(configured ?? sources.env.MEMSMITH_SERVER_PROVIDER ?? sources.settings.MEMSMITH_SERVER_PROVIDER) };
   }
+  const provider = configured as GenerationProviderName;
   if (provider !== 'ollama') return { provider, missingCredential: missingGenerationCredential(provider, sources) };
-  const target = resolveOllamaTarget(sources.settings, sources.env);
+  const target = resolveOllamaTarget(sources.settings, sources.env, resolved);
   if (!target) return { provider: 'ollama', ollama: 'unknown', model: '', origin: 'MEMSMITH_OLLAMA_URL' };
-  const ollama = await probeOllamaState(target, defaultCommandRunner());
-  return { provider: 'ollama', ollama, model: target.model, origin: target.origin, local: target.local };
+  return { provider: 'ollama', ollama: await probeState(target), model: target.model, origin: target.origin, local: target.local };
 }
 
-async function repairOllama(action: 'start' | 'pull'): Promise<boolean> {
+async function fetchResolvedGeneration(): Promise<ResolvedGenerationSettings | null> {
+  try {
+    const { resolveRuntimeContext } = await import('../../services/hooks/runtime-selector.js');
+    const runtime = resolveRuntimeContext(process.cwd());
+    if (runtime.runtime !== 'server') return null;
+    const { settings } = await runtime.client.getResolvedSettings();
+    return {
+      provider: typeof settings.provider?.value === 'string' ? settings.provider.value : undefined,
+      model: typeof settings.model?.value === 'string' ? settings.model.value : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function probeGeneration(serverReachable: boolean): Promise<GenerationStatus> {
+  const resolved = serverReachable ? await fetchResolvedGeneration() : null;
+  const runner = defaultCommandRunner();
+  return probeGenerationStatus(resolved, loadGenerationConfigSources(), (target) => probeOllamaState(target, runner));
+}
+
+async function repairOllama(action: 'start' | 'pull', status: GenerationStatus | undefined): Promise<boolean> {
   const sources = loadGenerationConfigSources();
-  const target = resolveOllamaTarget(sources.settings, sources.env);
+  const model = status?.provider === 'ollama' ? status.model : undefined;
+  const target = resolveOllamaTarget(sources.settings, sources.env, model ? { model } : null);
   if (!target) return false;
   const runner = defaultCommandRunner();
-  if (action === 'pull') return executeOllamaAction({ kind: 'pull', model: target.model }, runner);
+  const ollamaHost = ollamaHostFor(target.origin);
+  if (action === 'pull') return executeOllamaAction({ kind: 'pull', model: target.model }, runner, ollamaHost);
   const host = detectOllamaHost(runner, target, process.stdin.isTTY === true);
-  return (await executeOllamaAction(startAction(host), runner)) && waitForOllama(target);
+  return (await executeOllamaAction(startAction(host, target.origin), runner, ollamaHost)) && waitForOllama(target);
 }
 
 const defaultProbes: DoctorProbes = {
@@ -296,7 +340,7 @@ export async function collectChecks(
   }
   checks.push({ name: 'Server', status: serverStatus, detail: serverDetail, required: fix });
 
-  const generation = await probes.generation();
+  const generation = await probes.generation(health.reachable && !address.remote);
   checks.push(generationCheck(generation, address.remote));
 
   // 6. Last recorded install error (surface remediation if present).
@@ -391,7 +435,7 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
       const { runLifecycle, defaultLifecycleDeps } = await import('./lifecycle.js');
       return runLifecycle(cmd, [], defaultLifecycleDeps(urlSource));
     },
-    ollama: repairOllama,
+    ollama: (action) => repairOllama(action, state.generation),
     out: (line) => console.log(styleText('cyan', `  → ${line}`)),
   });
   if (!result.ok) {
