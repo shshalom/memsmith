@@ -11,45 +11,27 @@ MemSmith reads its settings from `~/.memsmith/settings.json` and creates the fil
 
 ## Generation provider
 
+The generation provider turns captured session activity into memories. The default is Ollama, which runs a local model on your machine and needs no API key. `npx memsmith install` asks which provider to use and writes these settings. A provider that you choose on the dashboard **Settings** tab overrides the settings file.
+
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_PROVIDER` | `claude` | Generation provider: `claude`, `gemini`, `openrouter`, or `ollama`. |
-| `MEMSMITH_MODEL` | `claude-haiku-4-5-20251001` | Claude model, when the provider is `claude`. |
-| `MEMSMITH_CLAUDE_AUTH_METHOD` | `subscription` | Claude authentication: `subscription`, `api-key`, or `gateway`. |
-| `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
-| `MEMSMITH_GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini model. |
-| `MEMSMITH_GEMINI_RATE_LIMITING_ENABLED` | `true` | Spaces Gemini requests to stay within free-tier limits. |
-| `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
-| `MEMSMITH_OPENROUTER_MODEL` | `xiaomi/mimo-v2-flash:free` | OpenRouter model ID. |
-| `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
-| `MEMSMITH_OPENROUTER_SITE_URL` | empty | Optional site URL sent to OpenRouter. |
-| `MEMSMITH_OPENROUTER_APP_NAME` | `memsmith` | App name sent to OpenRouter. |
+| `MEMSMITH_SERVER_PROVIDER` | `ollama` | Generation provider: `ollama`, `claude`, `gemini`, or `openrouter`. |
+| `MEMSMITH_SERVER_MODEL` | `qwen2.5:14b` | Model that the provider runs. Set a model that belongs to the provider, for example `claude-haiku-4-5-20251001` for `claude`. |
 | `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible base URL. |
-| `MEMSMITH_OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model. |
+| `MEMSMITH_OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. |
+| `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
+| `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
+| `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
+
+The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `ANTHROPIC_API_KEY`, not in `settings.json`. The server calls the Anthropic Messages API directly, so the `claude` provider needs an API key; a Claude subscription doesn't work for generation.
+
+Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_MODEL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
 
 For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usage/openrouter-provider).
 
-### Claude models
+### Check generation
 
-When the provider is `claude`, `npx memsmith install` asks for a model and saves it as `MEMSMITH_MODEL`:
-
-| Value | Notes |
-|-------|-------|
-| `claude-haiku-4-5-20251001` | Default. Fast and low cost. |
-| `claude-sonnet-4-6` | Balanced quality and cost. |
-| `claude-opus-4-7` | Highest quality and cost. |
-
-### Claude gateway
-
-Gateway credentials live in `~/.memsmith/.env`, not in `settings.json`:
-
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_BASE_URL` | A LiteLLM or other Anthropic-compatible gateway URL. |
-| `ANTHROPIC_AUTH_TOKEN` | Optional gateway key. |
-| `ANTHROPIC_API_KEY` | A direct Anthropic API key. Usually omitted in gateway mode. |
-
-For details, see [LiteLLM gateway](/configuration/litellm-gateway).
+To confirm that the configured provider can generate, run `memsmith doctor`. The **Generation** check reports whether Ollama is reachable and has the model, or whether a hosted provider's API key is present. `memsmith doctor --fix` starts an installed Ollama and downloads a missing model; it doesn't install Ollama.
 
 ## Runtime and server
 

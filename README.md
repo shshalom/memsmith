@@ -45,6 +45,15 @@ Or install from the plugin marketplace inside Claude Code:
 /plugin install memsmith@shshalom
 ```
 
+The installer asks which generation provider turns your sessions into
+memories. The default is Ollama, which runs a local model on your machine and
+needs no API key. If you choose Ollama, the installer checks that it is
+installed, running, and has the model (`qwen2.5:14b`, about 9 GB), and offers
+to set up whatever is missing. To use Claude, Gemini, or OpenRouter instead,
+choose it at the prompt and paste an API key, or run
+`npx memsmith install --provider claude`. To check generation later, run
+`memsmith doctor`.
+
 Restart Claude Code. Context from previous sessions automatically appears in
 new sessions, and the dashboard is available at the address that
 `memsmith status` prints. By default, the address is `http://127.0.0.1:` followed
@@ -62,8 +71,8 @@ by a port derived from your user ID.
 | `memsmith stop --all` | Stops the server and embedded Postgres. |
 | `memsmith restart` | Restarts the server. Accepts `--timeout <s>` (default 300 seconds). |
 | `memsmith status` | Shows the server's state and version. Exits 1 when it is not running. |
-| `memsmith doctor` | Checks Bun, uv, the plugin install, and the server. |
-| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, and a stopped or outdated server. |
+| `memsmith doctor` | Checks Bun, uv, the plugin install, the server, and whether the generation provider can create memories. |
+| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model. |
 
 Without a global install, prefix each command with `npx`, for example
 `npx memsmith status`.
