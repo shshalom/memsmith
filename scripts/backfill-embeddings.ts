@@ -10,33 +10,34 @@
 // process (model cold-start is amortised across all rows). Dry-run by default.
 //
 // Usage:
-//   bun scripts/backfill-embeddings.ts                 # dry-run (counts only)
-//   bun scripts/backfill-embeddings.ts --execute       # embed + write
-//   bun scripts/backfill-embeddings.ts --execute --limit 20   # cap (testing)
-//   bun scripts/backfill-embeddings.ts --execute --only-migrated  # id LIKE 'cmem-%'
+//   bun scripts/backfill-embeddings.ts --cwd ~/Workspace/App            # dry-run (counts only)
+//   bun scripts/backfill-embeddings.ts --cwd ... --execute              # embed + write
+//   bun scripts/backfill-embeddings.ts --cwd ... --execute --limit 20   # cap (testing)
+//   bun scripts/backfill-embeddings.ts --cwd ... --execute --only-migrated  # id LIKE 'cmem-%'
 //
-// Env:
-//   PG DSN = MEMSMITH_SERVER_DATABASE_URL
-//            ?? postgres://postgres:postgres@localhost:55432/memsmith
+// The target is the local database of the MemSmith project at --cwd.
 
 import { Pool } from 'pg';
 import { embed } from '../src/server/generation/embedder.js';
+import { requireDirectory, resolveLocalTarget } from './lib/local-target.js';
 
 interface Args {
   execute: boolean;
   limit: number | null;
   onlyMigrated: boolean;
   batch: number;
+  cwd: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { execute: false, limit: null, onlyMigrated: false, batch: 32 };
+  const out: Args = { execute: false, limit: null, onlyMigrated: false, batch: 32, cwd: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--execute') out.execute = true;
     else if (a === '--limit') out.limit = Number(argv[++i]);
     else if (a === '--only-migrated') out.onlyMigrated = true;
     else if (a === '--batch') out.batch = Number(argv[++i]);
+    else if (a === '--cwd') out.cwd = requireDirectory(argv[++i]);
   }
   return out;
 }
@@ -49,9 +50,8 @@ function toVectorLiteral(vec: number[]): string {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const dsn =
-    process.env.MEMSMITH_SERVER_DATABASE_URL ??
-    'postgres://postgres:postgres@localhost:55432/memsmith';
+  if (!args.cwd) throw new Error('--cwd <project directory> is required');
+  const { dsn, databaseName } = resolveLocalTarget(args.cwd);
 
   const where = args.onlyMigrated
     ? `embedding_vec IS NULL AND id LIKE 'cmem-%'`
@@ -59,7 +59,7 @@ async function main() {
   const limitClause = args.limit ? ` LIMIT ${args.limit}` : '';
 
   console.log(`[backfill] mode=${args.execute ? 'EXECUTE' : 'DRY-RUN'} onlyMigrated=${args.onlyMigrated} limit=${args.limit ?? 'none'} batch=${args.batch}`);
-  console.log(`[backfill] target=${dsn.replace(/:[^:@/]+@/, ':****@')}`);
+  console.log(`[backfill] target=${databaseName}`);
 
   const pool = new Pool({ connectionString: dsn });
   try {
@@ -119,17 +119,6 @@ async function main() {
 
     const remain = await pool.query(`SELECT count(*) FROM observations WHERE ${where}`);
     console.log(`[backfill] done. embedded ${done}, failed ${failed}, still-null (matching filter) ${remain.rows[0].count}`);
-
-    // Verify: a semantic query now returns migrated rows.
-    const vq = toVectorLiteral(await embed('the claude-mem to memsmith rebrand decision'));
-    const check = await pool.query(
-      `SELECT id, left(content, 60) AS snip FROM observations
-        WHERE embedding_vec IS NOT NULL
-        ORDER BY embedding_vec OPERATOR(public.<=>) $1::public.vector LIMIT 3`,
-      [vq],
-    );
-    console.log('[backfill] semantic sanity — nearest to "rebrand decision":');
-    for (const r of check.rows) console.log(`  - ${r.id}: ${r.snip}`);
   } finally {
     await pool.end();
   }
