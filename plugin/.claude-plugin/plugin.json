@@ -1,6 +1,6 @@
 {
   "name": "memsmith",
-  "version": "13.10.3",
+  "version": "13.11.0",
   "description": "Persistent, local-first memory for Claude Code, with optional shared team memory.",
   "author": {
     "name": "shshalom",
