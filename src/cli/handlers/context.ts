@@ -113,19 +113,39 @@ async function defaultCheckServerVersion(cwd: string, runtime: RuntimeContext): 
 
 // Team projects are configured by the team server's operator, so only local
 // projects on Claude Code get the in-chat setup.
-async function defaultCheckSetup(cwd: string, platform: string | undefined): Promise<{ notice: string; directive: string } | null> {
+export async function checkSetupFor(
+  cwd: string,
+  platform: string | undefined,
+  deps: {
+    projectRuntime: (cwd: string) => 'local' | 'server';
+    readSettings: () => Record<string, unknown> | null;
+    markers: () => { pending: boolean; complete: boolean };
+    env: Record<string, string | undefined>;
+  },
+): Promise<{ notice: string; directive: string } | null> {
   if (platform !== 'claude-code') return null;
-  const [{ selectRuntime }, setup, { readFlatSettings }, { USER_SETTINGS_PATH, DATA_DIR }] = await Promise.all([
+  if (deps.projectRuntime(cwd) === 'server') return null;
+  const setup = await import('../../shared/setup-state.js');
+  const markers = deps.markers();
+  let rawSettings: Record<string, unknown> | null = null;
+  try { rawSettings = deps.readSettings(); } catch { /* unreadable settings: the markers decide */ }
+  if (!setup.isSetupNeeded({ ...markers, rawSettings, env: deps.env })) return null;
+  return { notice: setup.MARKETPLACE_SETUP_USER_NOTICE, directive: setup.MARKETPLACE_SETUP_DIRECTIVE };
+}
+
+async function defaultCheckSetup(cwd: string, platform: string | undefined): Promise<{ notice: string; directive: string } | null> {
+  const [{ selectRuntime }, { readSetupMarkers }, { readFlatSettings }, { USER_SETTINGS_PATH, DATA_DIR }] = await Promise.all([
     import('../../services/hooks/runtime-selector.js'),
     import('../../shared/setup-state.js'),
     import('../../shared/flat-settings.js'),
     import('../../shared/paths.js'),
   ]);
-  if (selectRuntime(cwd) === 'server') return null;
-  let raw: Record<string, unknown> | null = null;
-  try { raw = readFlatSettings(USER_SETTINGS_PATH); } catch { /* unreadable settings: treat as missing */ }
-  if (setup.isSetupComplete(raw, process.env, setup.markerExists(DATA_DIR))) return null;
-  return { notice: setup.MARKETPLACE_SETUP_USER_NOTICE, directive: setup.MARKETPLACE_SETUP_DIRECTIVE };
+  return checkSetupFor(cwd, platform, {
+    projectRuntime: selectRuntime,
+    readSettings: () => readFlatSettings(USER_SETTINGS_PATH),
+    markers: () => readSetupMarkers(DATA_DIR),
+    env: process.env,
+  });
 }
 
 const defaultDependencies = {

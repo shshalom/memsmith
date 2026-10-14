@@ -10,7 +10,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Added
 
-- A marketplace install now ends with the same setup as `npx memsmith install`. The plugin's Setup hook installs Bun when it's missing (opt out with `MEMSMITH_SKIP_BUN_INSTALL=1`), and in the first session Claude asks you the installer's questions (generation provider, Ollama setup) and runs `npx memsmith install` for you. Claude never asks for an API key in chat. Installs that already chose a provider aren't asked again.
+- A marketplace install now ends with the same setup as `npx memsmith install`. At the start of the first session, MemSmith installs Bun when it's missing (opt out with `MEMSMITH_SKIP_BUN_INSTALL=1`; a failed attempt waits a day before retrying), and Claude asks you the installer's questions (generation provider, Ollama setup) and runs `npx memsmith install` for you. Claude never asks for an API key in chat. Only a fresh marketplace install is asked: the prompt appears when the server created `settings.json` from its defaults, which an `npx memsmith install` never leaves behind.
 
 ### Changed
 

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, mkdirSync, appendFileSync, writeFileSync } fr
 import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { ensureBun } from './bun-bootstrap.js';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -93,7 +94,13 @@ if (args.length === 0) {
 
 args[0] = fixBrokenScriptPath(args[0]);
 
-const bunPath = findBun();
+const bunPath = findBun() || (args[1] === 'start' ? ensureBun({
+  findBun,
+  log: (line) => console.error(`[memsmith] ${line}`),
+  disabled: process.env.MEMSMITH_SKIP_BUN_INSTALL === '1',
+  skipInstall: Boolean(process.env.CI),
+  attemptStampPath: join(process.env.MEMSMITH_DATA_DIR || join(homedir(), '.memsmith'), '.bun-install-attempt'),
+}) : null);
 
 const BUN_MISSING_MESSAGE =
   'MemSmith is installed but inactive: Bun is not installed, so memory capture and recall are off. ' +

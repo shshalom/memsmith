@@ -1,42 +1,68 @@
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  isSetupComplete,
-  markerExists,
-  writeSetupMarker,
+  isSetupNeeded,
+  readSetupMarkers,
+  writeSetupComplete,
+  writeSetupPending,
   MARKETPLACE_SETUP_DIRECTIVE,
 } from '../../src/shared/setup-state.js';
+import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManager.js';
 
-describe('isSetupComplete', () => {
-  it('is false for a marketplace install: server defaults, no provider, no marker', () => {
-    expect(isSetupComplete({ MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_PORT: '38877' }, {}, false)).toBe(false);
-    expect(isSetupComplete(null, {}, false)).toBe(false);
+const base = { pending: true, complete: false, rawSettings: { MEMSMITH_RUNTIME: 'local' }, env: {} };
+
+describe('isSetupNeeded', () => {
+  it('is true only for a server-created settings file with no provider chosen', () => {
+    expect(isSetupNeeded(base)).toBe(true);
   });
 
-  it('is true once the installer has run, whatever version wrote the settings', () => {
-    expect(isSetupComplete({}, {}, true)).toBe(true);
-    expect(isSetupComplete({ MEMSMITH_SERVER_PROVIDER: 'ollama' }, {}, false)).toBe(true);
-    expect(isSetupComplete({ MEMSMITH_PROVIDER: 'claude' }, {}, false)).toBe(true);
+  it('never asks an existing install, which has no pending marker', () => {
+    expect(isSetupNeeded({ ...base, pending: false, rawSettings: null })).toBe(false);
   });
 
-  it('is true when the environment chooses the provider', () => {
-    expect(isSetupComplete(null, { MEMSMITH_SERVER_PROVIDER: 'gemini' }, false)).toBe(true);
+  it('stops asking once the installer has run or a provider is chosen', () => {
+    expect(isSetupNeeded({ ...base, complete: true })).toBe(false);
+    expect(isSetupNeeded({ ...base, rawSettings: { MEMSMITH_SERVER_PROVIDER: 'ollama' } })).toBe(false);
+    expect(isSetupNeeded({ ...base, rawSettings: { MEMSMITH_PROVIDER: 'claude' } })).toBe(false);
+    expect(isSetupNeeded({ ...base, env: { MEMSMITH_SERVER_PROVIDER: 'gemini' } })).toBe(false);
   });
 
   it('ignores blank provider values', () => {
-    expect(isSetupComplete({ MEMSMITH_SERVER_PROVIDER: '  ' }, { MEMSMITH_SERVER_PROVIDER: '' }, false)).toBe(false);
+    expect(isSetupNeeded({ ...base, rawSettings: { MEMSMITH_SERVER_PROVIDER: ' ' }, env: { MEMSMITH_SERVER_PROVIDER: '' } })).toBe(true);
   });
 });
 
-describe('setup marker', () => {
-  it('is written by the installer and read back', () => {
+describe('setup markers', () => {
+  it('the server marks setup pending when it creates settings.json from its defaults', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ms-setup-'));
     try {
-      expect(markerExists(dir)).toBe(false);
-      writeSetupMarker(join(dir, 'nested'));
-      expect(markerExists(join(dir, 'nested'))).toBe(true);
+      SettingsDefaultsManager.loadFromFile(join(dir, 'settings.json'));
+      expect(readSetupMarkers(dir)).toEqual({ pending: true, complete: false });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an existing settings.json never gets the pending marker', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-setup-'));
+    try {
+      require('fs').writeFileSync(join(dir, 'settings.json'), JSON.stringify({ MEMSMITH_RUNTIME: 'local' }));
+      SettingsDefaultsManager.loadFromFile(join(dir, 'settings.json'));
+      expect(readSetupMarkers(dir).pending).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('completing setup clears the pending marker', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-setup-'));
+    try {
+      writeSetupPending(dir);
+      writeSetupComplete(dir);
+      expect(readSetupMarkers(dir)).toEqual({ pending: false, complete: true });
+      expect(existsSync(join(dir, '.setup-pending'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -44,9 +70,8 @@ describe('setup marker', () => {
 });
 
 describe('MARKETPLACE_SETUP_DIRECTIVE', () => {
-  it('runs the real installer non-interactively and keeps API keys out of chat', () => {
-    expect(MARKETPLACE_SETUP_DIRECTIVE).toContain('npx --yes memsmith@latest install --ide claude-code --provider ollama --setup-ollama');
+  it('keeps API keys out of chat and restarts only after the install finishes', () => {
     expect(MARKETPLACE_SETUP_DIRECTIVE).toContain('Never ask for the API key in chat');
-    expect(MARKETPLACE_SETUP_DIRECTIVE).toContain('npx --yes memsmith@latest restart');
+    expect(MARKETPLACE_SETUP_DIRECTIVE).toContain('When the install command has finished, run `npx --yes memsmith@latest restart`');
   });
 });

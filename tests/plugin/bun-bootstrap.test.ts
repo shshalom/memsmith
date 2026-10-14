@@ -44,6 +44,45 @@ describe('ensureBun', () => {
     expect(h.logs.at(-1)).toContain('brew install oven-sh/bun/bun');
   });
 
+  it('waits a day after a failed attempt instead of retrying on every session start', () => {
+    const { mkdtempSync, rmSync } = require('fs');
+    const { join } = require('path');
+    const { tmpdir } = require('os');
+    const dir = mkdtempSync(join(tmpdir(), 'ms-bunstamp-'));
+    const stamp = join(dir, '.bun-install-attempt');
+    try {
+      const commands: string[] = [];
+      const run = (now: number) => ensureBun({
+        findBun: () => null,
+        runInstaller: (command: string) => { commands.push(command); throw new Error('offline'); },
+        log: () => {},
+        platform: 'linux',
+        attemptStampPath: stamp,
+        now,
+      });
+      const t0 = Date.now();
+      run(t0);
+      run(t0 + 60 * 60 * 1000);
+      expect(commands).toHaveLength(1);
+      run(t0 + 25 * 60 * 60 * 1000);
+      expect(commands).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips the install in CI', () => {
+    let ran = false;
+    expect(ensureBun({ findBun: () => null, runInstaller: () => { ran = true; }, log: () => {}, skipInstall: true })).toBeNull();
+    expect(ran).toBe(false);
+  });
+
+  it('reports when the installer finished but bun still cannot be found', () => {
+    const h = harness([null, null]);
+    expect(h.result()).toBeNull();
+    expect(h.logs.at(-1)).toContain('bun was not found');
+  });
+
   it('never installs when the user opted out', () => {
     const h = harness([null]);
     expect(h.result({ disabled: true })).toBeNull();

@@ -35,8 +35,8 @@ To install from the plugin marketplace inside Claude Code, run:
 
 Restart Claude Code. A marketplace install copies the plugin but skips the installer, so MemSmith finishes the setup itself:
 
-1. On the first launch, the plugin's Setup hook installs the plugin's dependencies, and installs Bun if it's missing. To skip the Bun install, set `MEMSMITH_SKIP_BUN_INSTALL=1`.
-2. In the first session, Claude asks which generation provider to use and whether to set up Ollama, then runs `npx memsmith install` with your answers. For Claude, Gemini, or OpenRouter, Claude asks you to add the API key in your own terminal; it never asks for the key in chat.
+1. At the start of the first session, MemSmith installs Bun if it's missing, using Bun's official installer (into `~/.bun`, no `sudo`). If that fails, it tells you how to install Bun and waits a day before trying again. To skip the automatic install, set `MEMSMITH_SKIP_BUN_INSTALL=1`.
+2. In that session, Claude asks which generation provider to use and whether to set up Ollama, then runs `npx memsmith install` with your answers. For Claude, Gemini, or OpenRouter, Claude asks you to add the API key in your own terminal; it never asks for the key in chat.
 
 To do the setup yourself instead, run `npx memsmith install`.
 

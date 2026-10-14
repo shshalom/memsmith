@@ -45,10 +45,10 @@ Or install from the plugin marketplace inside Claude Code:
 /plugin install memsmith@shshalom
 ```
 
-A marketplace install copies the plugin but skips the installer. On the first
-launch, MemSmith installs Bun if it's missing, and in your first session Claude
-asks you the installer's questions and runs `npx memsmith install` for you, so
-both paths end with the same setup. Claude never asks for an API key in chat.
+A marketplace install copies the plugin but skips the installer. In your first
+session, MemSmith installs Bun if it's missing, and Claude asks you the
+installer's questions and runs `npx memsmith install` for you, so both paths
+end with the same setup. Claude never asks for an API key in chat.
 
 The installer asks which generation provider turns your sessions into
 memories. The default is Ollama, which runs a local model on your machine and

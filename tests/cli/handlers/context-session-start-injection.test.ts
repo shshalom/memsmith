@@ -17,6 +17,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import {
+  checkSetupFor,
   contextHandler,
   setContextDependenciesForTesting,
 } from '../../../src/cli/handlers/context.js';
@@ -290,5 +291,30 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
     } finally {
       rmSync(freshCwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe('checkSetupFor', () => {
+  const pendingDeps = {
+    projectRuntime: () => 'local' as const,
+    readSettings: () => ({ MEMSMITH_RUNTIME: 'local' }),
+    markers: () => ({ pending: true, complete: false }),
+    env: {},
+  };
+
+  it('asks for setup on Claude Code when the server created the settings', async () => {
+    expect(await checkSetupFor('/w', 'claude-code', pendingDeps)).not.toBeNull();
+  });
+
+  it('skips other tools, team projects, and finished installs', async () => {
+    expect(await checkSetupFor('/w', 'codex', pendingDeps)).toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...pendingDeps, projectRuntime: () => 'server' as const })).toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...pendingDeps, markers: () => ({ pending: false, complete: false }) })).toBeNull();
+  });
+
+  it('lets the markers decide when settings.json cannot be parsed', async () => {
+    const broken = { ...pendingDeps, readSettings: () => { throw new SyntaxError('Unexpected token'); } };
+    expect(await checkSetupFor('/w', 'claude-code', broken)).not.toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...broken, markers: () => ({ pending: false, complete: false }) })).toBeNull();
   });
 });
