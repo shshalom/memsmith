@@ -91,3 +91,51 @@ describe('toolIntentHandler — memory tool calls unlock the topic', () => {
     expect(new WarmPathStore('sw', base).has('/a/x.ts')).toBe(true);
   });
 });
+
+describe('toolIntentHandler — a memory read answers the pending information request', () => {
+  const { AnswerGateStore } = require('../../../src/services/retrieval/answer-gate-store.js');
+  const PROMPT_TOPIC = topicKey('why did we switch the queue engine to inline');
+
+  function pendingSession(sessionId: string) {
+    const base = mkdtempSync(join(tmpdir(), 'ti-ag-'));
+    new AnswerGateStore(sessionId, base).beginTurn({ pending: true, topic: PROMPT_TOPIC });
+    return base;
+  }
+
+  for (const tool of [
+    'mcp__plugin_memsmith_mem__observation_search',
+    'mcp__plugin_memsmith_mem__observation_context',
+    'mcp__plugin_memsmith_mem__session_start_context',
+  ]) {
+    it(`${tool} satisfies the pending request`, async () => {
+      const base = pendingSession('sa');
+      await toolIntentHandler.execute({ sessionId: 'sa', cwd: '/tmp', toolName: tool, toolInput: { query: 'queue engine' } } as any, { sessionBaseDir: base } as any);
+      expect(new AnswerGateStore('sa', base).isUnsatisfied()).toBe(false);
+    });
+  }
+
+  it('marks the prompt topic consulted so the follow-up Grep on it is not gated', async () => {
+    const base = pendingSession('sb');
+    await toolIntentHandler.execute({
+      sessionId: 'sb', cwd: '/tmp',
+      toolName: 'mcp__plugin_memsmith_mem__observation_search',
+      toolInput: { query: 'bullmq redis laptops' },
+    } as any, { sessionBaseDir: base } as any);
+    expect(new SessionTopicStore('sb', base, () => Number.MAX_SAFE_INTEGER).hasConsulted(PROMPT_TOPIC)).toBe(true);
+  });
+
+  for (const tool of [
+    'mcp__plugin_memsmith_mem__smart_search',
+    'mcp__plugin_memsmith_mem__smart_outline',
+    'mcp__plugin_memsmith_mem__observation_add',
+    'mcp__plugin_memsmith_mem__note_add',
+    'Grep',
+    'Read',
+  ]) {
+    it(`${tool} does not satisfy the pending request`, async () => {
+      const base = pendingSession('sc');
+      await toolIntentHandler.execute({ sessionId: 'sc', cwd: '/tmp', toolName: tool, toolInput: { query: 'queue engine', pattern: 'queue' } } as any, { sessionBaseDir: base } as any);
+      expect(new AnswerGateStore('sc', base).isUnsatisfied()).toBe(true);
+    });
+  }
+});
