@@ -100,3 +100,12 @@ describe('promptInjectionHandler — edge cases', () => {
     expect(res.hookSpecificOutput).toBeUndefined();
   });
 });
+
+describe('promptInjectionHandler — directive reflects the mode', () => {
+  it('warns about the Stop gate only in hard mode', async () => {
+    const hard = await run(setup().handler, 'why did we switch the queue engine to inline?');
+    const soft = await run(setup({ MEMSMITH_RETRIEVAL_ENFORCEMENT: 'soft' }).handler, 'why did we switch the queue engine to inline?');
+    expect(hard.hookSpecificOutput?.additionalContext ?? '').toContain('Hard mode');
+    expect(soft.hookSpecificOutput?.additionalContext ?? '').not.toContain('Hard mode');
+  });
+});

@@ -66,7 +66,7 @@ export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
     '   (memory, then CLAUDE.md, then specs, then code).',
   ];
   if (mode === 'hard') {
-    lines.push('Hard mode: the turn cannot end until memory has been searched for this question.');
+    lines.push('Hard mode: an answer given without a memory search is sent back to search first.');
   }
   return lines.join('\n');
 }
