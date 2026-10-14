@@ -56,8 +56,6 @@ export interface SettingsDefaults {
   MEMSMITH_WORKER_HOST: string;
   MEMSMITH_API_TIMEOUT_MS: string;
   MEMSMITH_SKIP_TOOLS: string;
-  MEMSMITH_PROVIDER: string;  
-  MEMSMITH_CLAUDE_AUTH_METHOD: string;  
   MEMSMITH_GEMINI_API_KEY: string;
   MEMSMITH_GEMINI_MODEL: string;  
   MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: string;
@@ -137,8 +135,6 @@ export class SettingsDefaultsManager {
     MEMSMITH_WORKER_HOST: '127.0.0.1',
     MEMSMITH_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
     MEMSMITH_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
-    MEMSMITH_PROVIDER: 'claude',  // Default to Claude
-    MEMSMITH_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
     MEMSMITH_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
     MEMSMITH_GEMINI_MODEL: 'gemini-2.5-flash-lite',  // Default Gemini model (highest free tier RPM)
     MEMSMITH_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users

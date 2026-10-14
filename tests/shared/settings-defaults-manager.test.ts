@@ -143,13 +143,13 @@ describe('SettingsDefaultsManager', () => {
       it('should handle all settings keys correctly', () => {
         const fullSettings = SettingsDefaultsManager.getAllDefaults();
         fullSettings.MEMSMITH_MODEL = 'all-keys-model';
-        fullSettings.MEMSMITH_PROVIDER = 'gemini';
+        fullSettings.MEMSMITH_GEMINI_MODEL = 'all-keys-gemini';
         writeFileSync(settingsPath, JSON.stringify(fullSettings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
         expect(result.MEMSMITH_MODEL).toBe('all-keys-model');
-        expect(result.MEMSMITH_PROVIDER).toBe('gemini');
+        expect(result.MEMSMITH_GEMINI_MODEL).toBe('all-keys-gemini');
       });
     });
 
@@ -321,13 +321,21 @@ describe('SettingsDefaultsManager', () => {
       expect(defaults.MEMSMITH_WORKER_PORT).toBeDefined();
       expect(defaults.MEMSMITH_WORKER_HOST).toBeDefined();
 
-      expect(defaults.MEMSMITH_PROVIDER).toBeDefined();
       expect(defaults.MEMSMITH_GEMINI_API_KEY).toBeDefined();
       expect(defaults.MEMSMITH_OPENROUTER_API_KEY).toBeDefined();
 
       expect(defaults.MEMSMITH_DATA_DIR).toBeDefined();
       expect(defaults.MEMSMITH_LOG_LEVEL).toBeDefined();
     });
+  });
+
+  // A fresh settings.json was seeded with MEMSMITH_PROVIDER=claude and
+  // MEMSMITH_CLAUDE_AUTH_METHOD=subscription, keys generation never read, so the
+  // file claimed Claude while generation ran on Ollama.
+  it('does not seed the legacy provider keys that generation never read', () => {
+    const defaults = SettingsDefaultsManager.getAllDefaults() as unknown as Record<string, unknown>;
+    expect(defaults).not.toHaveProperty('MEMSMITH_PROVIDER');
+    expect(defaults).not.toHaveProperty('MEMSMITH_CLAUDE_AUTH_METHOD');
   });
 
   describe('get', () => {
