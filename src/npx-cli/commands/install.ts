@@ -8,7 +8,7 @@ import { getTelemetryApiKey } from '../../services/telemetry/common.js';
 import { spawnHidden } from '../../shared/spawn.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { buildAutoStartCommand } from '../install/autostart.js';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
@@ -24,22 +24,25 @@ import {
 } from '../install/setup-runtime.js';
 import { playBanner } from '../banner.js';
 import { normalizeRuntimeFlag } from './server-runtime-setup.js';
+import { apiKeySettingFor, GENERATION_PROVIDER_CHOICES } from '../install/generation-provider.js';
 import {
-  apiKeySettingFor,
-  GENERATION_PROVIDER_CHOICES,
-  initialGenerationProvider,
-  providerSettingsUpdates,
-} from '../install/generation-provider.js';
+  chooseGenerationProvider,
+  currentGenerationSelection,
+  ollamaSetupMode,
+  ollamaSetupPlan,
+  type ProviderOutcome,
+  type ResolvedSettingsSnapshot,
+} from '../install/provider-prompt.js';
 import { loadGenerationConfigSources, missingGenerationCredential } from '../../server/runtime/generation-credentials.js';
 import { resolveOllamaTarget } from '../../cli/handlers/generation-readiness.js';
 import {
   defaultCommandRunner,
   detectOllamaHost,
   executeOllamaAction,
+  ollamaHostFor,
   probeOllamaState,
   runOllamaSetup,
   waitForOllama,
-  type OllamaSetupMode,
 } from '../install/ollama-setup.js';
 import { ErrorSeverity } from '../install/error-taxonomy.js';
 import {
@@ -764,7 +767,9 @@ function mergeSettings(updates: Record<string, string>): boolean {
       current[key] = value;
     }
 
-    writeFileSync(path, JSON.stringify(current, null, 2), 'utf-8');
+    // settings.json holds the Gemini and OpenRouter API keys the server reads.
+    writeFileSync(path, JSON.stringify(current, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    chmodSync(path, 0o600);
     return true;
   } catch (error: unknown) {
     log.error(`Failed to write settings to ${path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -957,11 +962,6 @@ async function promptClaudeModel(current: string | undefined): Promise<string> {
   return result;
 }
 
-function ollamaSetupMode(options: InstallOptions): OllamaSetupMode {
-  if (options.setupOllama) return 'opt-in';
-  return isInteractive && !options.provider ? 'interactive' : 'non-interactive';
-}
-
 async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary): Promise<void> {
   const target = resolveOllamaTarget(readUserSettings(), process.env);
   if (!target) {
@@ -973,14 +973,15 @@ async function setupOllamaForInstall(options: InstallOptions, summary: InstallSu
     return;
   }
   const runner = defaultCommandRunner();
+  const ollamaHost = ollamaHostFor(target.origin);
   const { ready } = await runOllamaSetup({
-    mode: ollamaSetupMode(options),
+    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama }),
     host: detectOllamaHost(runner, target, process.stdin.isTTY === true),
     model: target.model,
     origin: target.origin,
     probe: () => probeOllamaState(target, runner),
     confirm: async (question) => (await p.confirm({ message: question, initialValue: true })) === true,
-    run: (action) => executeOllamaAction(action, runner),
+    run: (action) => executeOllamaAction(action, runner, ollamaHost),
     waitUntilUp: () => waitForOllama(target),
     out: (line) => log.info(line),
     warn: (line) => log.warn(line),
@@ -994,76 +995,53 @@ async function setupOllamaForInstall(options: InstallOptions, summary: InstallSu
   }
 }
 
-async function promptProvider(options: InstallOptions): Promise<ProviderId> {
+// Best effort: a dashboard override outranks settings.json, so start from what
+// the running server resolves when it answers.
+async function fetchResolvedGenerationSettings(): Promise<ResolvedSettingsSnapshot | null> {
+  try {
+    const { resolveRuntimeContext } = await import('../../services/hooks/runtime-selector.js');
+    const runtime = resolveRuntimeContext(process.cwd());
+    if (runtime.runtime !== 'server') return null;
+    const { settings } = await runtime.client.getResolvedSettings(1_500);
+    return { provider: settings.provider, model: settings.model };
+  } catch {
+    return null;
+  }
+}
+
+async function promptProvider(options: InstallOptions): Promise<ProviderOutcome> {
   const settings = readUserSettings();
-  const current = {
-    provider: initialGenerationProvider(settings, process.env),
-    model: typeof settings.MEMSMITH_SERVER_MODEL === 'string' ? settings.MEMSMITH_SERVER_MODEL : undefined,
-  };
-  const save = (provider: ProviderId, extra: { model?: string; apiKey?: string } = {}): void => {
-    const updates = providerSettingsUpdates(provider, { model: extra.model ?? options.model, apiKey: extra.apiKey, current });
-    if (mergeSettings(updates)) {
-      log.info(`Saved generation provider=${provider} (model ${updates.MEMSMITH_SERVER_MODEL}) to ~/.memsmith/settings.json`);
-    }
-  };
-  const warnIfKeyMissing = (provider: ProviderId): void => {
-    const missing = missingGenerationCredential(provider, loadGenerationConfigSources());
-    if (missing) log.warn(`Generation provider ${provider} needs an API key before it can create memories. Set ${missing}.`);
-  };
-
-  if (!isInteractive) {
-    if (!options.provider) return current.provider;
-    save(options.provider);
-    warnIfKeyMissing(options.provider);
-    return options.provider;
-  }
-
-  let selectedProvider: ProviderId;
-  if (options.provider) {
-    selectedProvider = options.provider;
-  } else {
-    const providerResult = await p.select<ProviderId>({
-      message: 'Which generation provider should turn your sessions into memories?',
-      options: GENERATION_PROVIDER_CHOICES.map((c) => ({ value: c.value, label: c.label, hint: c.hint })),
-      initialValue: current.provider,
-    });
-    if (p.isCancel(providerResult)) cancelInstall();
-    selectedProvider = providerResult;
-  }
-
-  if (selectedProvider === 'ollama') {
-    save('ollama');
-    return 'ollama';
-  }
-
-  if (selectedProvider === 'claude') {
-    if (!(await promptAnthropicApiKey())) {
-      log.warn(`API key prompt cancelled — generation provider stays ${current.provider}.`);
-      return current.provider;
-    }
-    const model = options.model ?? await promptClaudeModel(current.provider === 'claude' ? current.model : undefined);
-    save('claude', { model });
-    return 'claude';
-  }
-
-  const keySetting = apiKeySettingFor(selectedProvider)!;
-  const existingKey = typeof settings[keySetting] === 'string' ? (settings[keySetting] as string).trim() : '';
-  if (existingKey) {
-    save(selectedProvider);
-    return selectedProvider;
-  }
-  const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
-  const apiKeyResult = await p.password({
-    message: `Paste your ${providerLabel} API key:`,
-    mask: '*',
-    validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
+  const current = currentGenerationSelection(settings, process.env, await fetchResolvedGenerationSettings());
+  return chooseGenerationProvider(options, current, {
+    interactive: isInteractive,
+    selectProvider: async (initial) => {
+      const result = await p.select<ProviderId>({
+        message: 'Which generation provider should turn your sessions into memories?',
+        options: GENERATION_PROVIDER_CHOICES.map((c) => ({ value: c.value, label: c.label, hint: c.hint })),
+        initialValue: initial,
+      });
+      if (p.isCancel(result)) cancelInstall();
+      return result;
+    },
+    anthropicKey: promptAnthropicApiKey,
+    claudeModel: promptClaudeModel,
+    hostedKey: async (provider) => {
+      const result = await p.password({
+        message: `Paste your ${provider === 'gemini' ? 'Gemini' : 'OpenRouter'} API key:`,
+        mask: '*',
+        validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
+      });
+      return p.isCancel(result) ? null : String(result);
+    },
+    hasSavedKey: (provider) => {
+      const keySetting = apiKeySettingFor(provider);
+      return Boolean(keySetting && typeof settings[keySetting] === 'string' && (settings[keySetting] as string).trim());
+    },
+    saveSettings: mergeSettings,
+    missingCredential: (provider) => missingGenerationCredential(provider, loadGenerationConfigSources()),
+    info: (line) => log.info(line),
+    warn: (line) => log.warn(line),
   });
-  if (p.isCancel(apiKeyResult)) {
-    log.warn(`API key prompt cancelled — generation provider stays ${current.provider}.`);
-    return current.provider;
-  }
-  save(selectedProvider, { apiKey: String(apiKeyResult) });
-  return selectedProvider;
 }
 
 /**
@@ -1219,11 +1197,8 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   const selectedRuntime = await promptRuntime(options);
-  const selectedProvider = await promptProvider(options);
-  // A team server generates on its own machine; local Ollama is irrelevant there.
-  if (selectedProvider === 'ollama' && selectedRuntime === 'local') {
-    await setupOllamaForInstall(options, summary);
-  }
+  const providerOutcome = await promptProvider(options);
+  const selectedProvider = providerOutcome.provider;
 
   let workerStartResult: 'ready' | 'warming' | 'dead' = 'dead';
   // Claude Code consumes the marketplace plugin system directly, so any selection
@@ -1374,6 +1349,13 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     autoMemoryStatus = 'left-enabled';
     log.info('Claude Code: leaving native auto-memory enabled unless you explicitly opt in to disabling it.');
   }
+
+  // After the plugin and runtime are in place, so a long model download does
+  // not hold up the rest of the install; before auto-start, so the server finds
+  // Ollama ready.
+  const ollamaPlan = ollamaSetupPlan(providerOutcome, selectedRuntime, options.setupOllama === true);
+  if (ollamaPlan.ignored) log.warn(ollamaPlan.ignored);
+  if (ollamaPlan.run) await setupOllamaForInstall(options, summary);
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
   // `memsmith start`), NOT the local-runtime spawner. Skip the
