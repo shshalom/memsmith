@@ -5,7 +5,7 @@
 // information about past work, and has memory been searched for it yet?
 // Written by UserPromptSubmit, updated by PreToolUse on a memory read, read by
 // Stop — three short-lived processes, so it lives in the session directory next
-// to shown.json and consulted.json. Each UserPromptSubmit overwrites it, which is
+// to consulted.json, resolved the same way SessionTopicStore resolves it. Each UserPromptSubmit overwrites it, which is
 // what scopes it to one turn. Every failure degrades to "nothing pending": a
 // broken file can cost a missed gate, never a wedged turn.
 
@@ -21,12 +21,21 @@ export interface AnswerGateState {
   ts: number;
 }
 
+/**
+ * A pending request this old belongs to a turn whose Stop never reached the
+ * gate (a crash, a killed session); blocking on it would gate an unrelated turn.
+ */
+export const ANSWER_GATE_PENDING_TTL_MS = 30 * 60_000;
+
 export class AnswerGateStore {
   private readonly path: string;
 
-  constructor(sessionId: string, baseDir: string = join(homedir(), '.memsmith', 'sessions')) {
-    const safeId = (sessionId ?? '').replace(/[^A-Za-z0-9._-]/g, '_') || 'unknown';
-    this.path = join(baseDir, safeId, 'answer-gate.json');
+  constructor(
+    sessionId: string,
+    baseDir: string = join(homedir(), '.memsmith', 'sessions'),
+    private readonly now: () => number = Date.now,
+  ) {
+    this.path = join(baseDir, sessionId || 'unknown', 'answer-gate.json');
   }
 
   read(): AnswerGateState | null {
@@ -48,11 +57,13 @@ export class AnswerGateStore {
 
   isUnsatisfied(): boolean {
     const s = this.read();
-    return s !== null && s.pending && !s.satisfied && !s.blocked;
+    if (s === null || !s.pending || s.satisfied || s.blocked) return false;
+    const age = this.now() - s.ts;
+    return age >= 0 && age <= ANSWER_GATE_PENDING_TTL_MS;
   }
 
   beginTurn(turn: { pending: boolean; topic: string }): void {
-    this.write({ pending: turn.pending, satisfied: false, blocked: false, topic: turn.topic, ts: Date.now() });
+    this.write({ pending: turn.pending, satisfied: false, blocked: false, topic: turn.topic, ts: this.now() });
   }
 
   markSatisfied(): void {

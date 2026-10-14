@@ -40,6 +40,12 @@ export function buildNoOpResult(event: string): HookResult {
   return result;
 }
 
+/** answer-gate is the Stop hook and runs summarize, so its failures stay
+ *  reported under the closed telemetry enum's 'summarize'. */
+export function telemetryHookEvent(event: string): string {
+  return event === 'answer-gate' ? 'summarize' : event;
+}
+
 export function isWorkerUnavailableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
@@ -104,7 +110,7 @@ export async function hookCommand(platform: string, event: string, options: Hook
   resetHookIoState();
   // Register the hook event for the threshold-gated hook_failed telemetry
   // (closed enum enforced inside; non-enum events just omit hook_type).
-  setActiveHookType(event);
+  setActiveHookType(telemetryHookEvent(event));
 
   // Hook IO Discipline (issue #2292):
   // We BUFFER stderr during handler execution so that unsolicited writes from

@@ -3,9 +3,10 @@
 //
 // Is this prompt a request for information about past work? Such prompts must
 // be answered from a memory search, not from the session-start context. Pure and
-// deterministic; never throws. When a prompt is ambiguous between a question and
-// a task it classifies as 'info-request' — a wrongly gated task costs one memory
-// search, a wrongly ungated question costs an answer nobody checked.
+// deterministic; never throws. When a short prompt is ambiguous between a
+// question and a task it classifies as 'info-request' — a wrongly gated task
+// costs one memory search, a wrongly ungated question costs an answer nobody
+// checked. A longer prompt needs an explicit past-work signal.
 
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
 

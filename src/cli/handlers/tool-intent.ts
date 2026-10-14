@@ -32,14 +32,13 @@ const ALLOW: HookResult = Object.freeze({
 export const MEMORY_TOOL_PATTERN = /^mcp__plugin_memsmith_mem__/;
 
 /**
- * The memory reads that answer a pending information request. smart_* are code
- * structure tools and the *_add / record tools are writes, so none of them is
- * the agent looking up what memory holds.
+ * The memory searches that answer a pending information request.
+ * session_start_context returns orientation context, which does not answer a
+ * question; smart_* are code structure tools; the *_add / record tools are writes.
  */
 export const MEMORY_READ_TOOLS: ReadonlySet<string> = new Set([
   'mcp__plugin_memsmith_mem__observation_search',
   'mcp__plugin_memsmith_mem__observation_context',
-  'mcp__plugin_memsmith_mem__session_start_context',
 ]);
 
 /** Test seam: lets tests point the session stores at a temp dir. */

@@ -79,7 +79,7 @@ In `hard` mode, when your prompt asks about past work and Claude answers without
 
 ### `memsmith enforcement status` shows a different mode than you expect
 
-The status line shows the mode that the hooks use and where it comes from: `default`, `set in settings.json`, or `set by the MEMSMITH_RETRIEVAL_ENFORCEMENT environment variable`. The environment variable overrides `settings.json`.
+The status line shows the mode that the hooks use and where it comes from: `default`, `set in settings.json`, or `set by the MEMSMITH_RETRIEVAL_ENFORCEMENT environment variable`. The environment variable overrides `settings.json`. The command reads the environment of the shell you run it in, which can differ from the environment Claude Code started its hooks with.
 
 ## MCP tool issues
 

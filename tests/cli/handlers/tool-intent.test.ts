@@ -105,7 +105,6 @@ describe('toolIntentHandler — a memory read answers the pending information re
   for (const tool of [
     'mcp__plugin_memsmith_mem__observation_search',
     'mcp__plugin_memsmith_mem__observation_context',
-    'mcp__plugin_memsmith_mem__session_start_context',
   ]) {
     it(`${tool} satisfies the pending request`, async () => {
       const base = pendingSession('sa');
@@ -125,6 +124,7 @@ describe('toolIntentHandler — a memory read answers the pending information re
   });
 
   for (const tool of [
+    'mcp__plugin_memsmith_mem__session_start_context',
     'mcp__plugin_memsmith_mem__smart_search',
     'mcp__plugin_memsmith_mem__smart_outline',
     'mcp__plugin_memsmith_mem__observation_add',

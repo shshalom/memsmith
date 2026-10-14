@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { AnswerGateStore } from '../../src/services/retrieval/answer-gate-store.js';
+import { ANSWER_GATE_PENDING_TTL_MS, AnswerGateStore } from '../../src/services/retrieval/answer-gate-store.js';
+import { SessionTopicStore } from '../../src/services/retrieval/topic-store.js';
 
 const freshDir = () => mkdtempSync(join(tmpdir(), 'ms-answer-gate-'));
 
@@ -52,10 +53,28 @@ describe('AnswerGateStore', () => {
     expect(new AnswerGateStore('s1', dir).isUnsatisfied()).toBe(false);
   });
 
-  it('does not escape the base dir for an odd session id', () => {
+  it('ignores a pending request older than the TTL', () => {
     const dir = freshDir();
-    const s = new AnswerGateStore('../../etc/x', dir);
+    let now = 1_000_000;
+    const s = new AnswerGateStore('s1', dir, () => now);
     s.beginTurn({ pending: true, topic: 't' });
+    now += ANSWER_GATE_PENDING_TTL_MS - 1;
     expect(s.isUnsatisfied()).toBe(true);
+    now += 2;
+    expect(s.isUnsatisfied()).toBe(false);
+  });
+
+  it('lives in the same session directory as the consulted-topic store', () => {
+    const dir = freshDir();
+    new SessionTopicStore('sess-x', dir).markConsulted('queue engine');
+    new AnswerGateStore('sess-x', dir).beginTurn({ pending: true, topic: 't' });
+    expect(existsSync(join(dir, 'sess-x', 'consulted.json'))).toBe(true);
+    expect(existsSync(join(dir, 'sess-x', 'answer-gate.json'))).toBe(true);
+  });
+
+  it('uses the unknown directory for an empty session id, as the topic store does', () => {
+    const dir = freshDir();
+    new AnswerGateStore('', dir).beginTurn({ pending: true, topic: 't' });
+    expect(existsSync(join(dir, 'unknown', 'answer-gate.json'))).toBe(true);
   });
 });
