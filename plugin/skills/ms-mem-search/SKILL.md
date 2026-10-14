@@ -19,40 +19,38 @@ Use this skill when the user asks about earlier sessions, not the current conver
 
 ### Step 1: Search
 
-Call `observation_search` to get a ranked list of matching observations:
+Call `observation_search` to get a ranked index of matching observations:
 
 ```
-observation_search(query="authentication token expiry", limit=20)
+observation_search(query="authentication token expiry")
 ```
+
+Each result is one entry: id, date, type, title, and a snippet of about 200 characters.
 
 Parameters:
 
 - `query` (string, required): The search terms.
-- `limit` (number, optional): Maximum results. The default is 20 and the maximum is 100.
+- `limit` (number, optional): Maximum results. The default is 10 and the maximum is 25.
 - `projectId` (string, optional): The project to search. Defaults to the current project from settings.
 - `platformSource` (string, optional): Restricts results to one agent's memory, such as `claude`, `codex`, or `cursor`.
 
-Read the titles and snippets, and decide which results are relevant. Discard the rest.
+Read the titles and snippets, and decide which results are relevant. Discard the rest. If nothing is relevant, search again with different terms before you conclude that memory has no record.
 
-### Step 2: Get context for the results that matter
+### Step 2: Fetch the records that matter
 
-Call `observation_context` with a query narrowed to the relevant results, such as a title or a distinctive phrase from step 1:
+Call `observation_get` with the ids of the relevant results:
 
 ```
-observation_context(query="JWT refresh token expiry fix", limit=5)
+observation_get(ids=["<id>", "<id>"])
 ```
 
-It returns the top matching observations and a packed context string that is ready to use in your answer.
+It returns each full record: the body, why it was done, the files involved, and any rejected alternatives. You can pass up to 10 ids per call.
 
-Parameters:
-
-- `query` (string, required): The focused query.
-- `limit` (number, optional): Maximum observations. The default is 10 and the maximum is 50. Keep it small.
-- `projectId` and `platformSource` (optional): Same as `observation_search`.
+To get the full bodies of the top few matches in one call without choosing, use `observation_context(query="...", limit=5)`. The default is 5 and the maximum is 10.
 
 ### Step 3: Answer
 
-Answer from the retrieved observations, and say which ones you relied on. If memory has nothing relevant, say so before you fall back to reading code.
+Answer from the retrieved observations, and say which ones you relied on. If memory has nothing relevant, say so before you fall back to reading code. Verify load-bearing claims against the current code.
 
 ## Record a user-directed note
 
@@ -66,4 +64,4 @@ Write the note so it makes sense on its own in a future session. Don't use `obse
 
 ## Why search first
 
-A search result costs far fewer tokens than full context. Searching broadly, then requesting context for only a few results, keeps the answer grounded without filling the context window.
+An index entry costs far fewer tokens than a full record. Searching broadly, then fetching only the few records that matter, keeps the answer grounded without filling the context window.

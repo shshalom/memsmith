@@ -71,7 +71,7 @@ This is expected: `memsmith stop` leaves embedded Postgres running so the next s
 
 ### A tool call is blocked with a memory-first message
 
-With `MEMSMITH_RETRIEVAL_ENFORCEMENT` set to `hard` (the default), MemSmith blocks some discovery tools until Claude consults memory on the topic. Claude can unblock itself by calling `observation_search` or `observation_context`. To inject memory without blocking, set `MEMSMITH_RETRIEVAL_ENFORCEMENT` to `soft`.
+With `MEMSMITH_RETRIEVAL_ENFORCEMENT` set to `hard` (the default), MemSmith blocks some discovery tools until Claude consults memory on the topic. Claude can unblock itself by calling `observation_search`, `observation_get`, or `observation_context`. To inject memory without blocking, set `MEMSMITH_RETRIEVAL_ENFORCEMENT` to `soft`.
 
 ### Claude is sent back to search memory before it finishes an answer
 

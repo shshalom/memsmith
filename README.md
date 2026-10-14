@@ -139,12 +139,13 @@ filter-before-fetching workflow:
 
 **Search and recall:**
 
-- **`observation_search`** - Full-text search across observations, with project and platform filters
-- **`smart_search`** - Hybrid semantic and keyword search over the memory corpus
-- **`observation_context`** - Chronological context around a specific observation
+- **`observation_search`** - Ranked index of matching observations: id, date, type, title, and a short snippet (10 results by default, up to 25)
+- **`observation_get`** - Full records for ids chosen from the index (up to 10 per call)
+- **`observation_context`** - Full bodies of the top few matches in one call (5 by default, up to 10)
 
-**Progressive disclosure for file memory:**
+**Code exploration:**
 
+- **`smart_search`** - Search the codebase for symbols, functions, and classes
 - **`smart_outline`** - Structural map of a file with line numbers, cheaper than re-reading it
 - **`smart_unfold`** - Expand only the sections you need
 
@@ -152,9 +153,10 @@ filter-before-fetching workflow:
 
 - **`note_add`** - Record a user-directed note ("remember that...") as a findable user note
 
-Start broad with `observation_search` or `smart_search`, then narrow with
-`observation_context` before fetching full details. The `ms-mem-search` skill
-wraps this workflow for natural language queries.
+Search with `observation_search`, then fetch full records with `observation_get`
+for only the results that matter. Each tool's output is capped so it fits in the
+agent's context. The `ms-mem-search` skill wraps this workflow for natural
+language queries.
 
 ## Configuration
 

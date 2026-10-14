@@ -18,7 +18,7 @@ MemSmith integrates with Cursor through Cursor hooks and an MCP server:
 1. Hooks send prompts, shell commands, MCP tool calls, and file edits to the MemSmith server.
 2. The server turns them into observations with your configured generation provider and stores them in Postgres.
 3. MemSmith writes relevant history into a Cursor rules file so new chats start with context.
-4. The MCP server lets the agent search memory with `observation_search` and `observation_context`.
+4. The MCP server lets the agent search memory with `observation_search` and read full records with `observation_get`.
 
 ## Prerequisites
 
