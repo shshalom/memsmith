@@ -54,7 +54,7 @@ MemSmith needs an AI provider to extract observations from your sessions. Choose
     mkdir -p ~/.memsmith
     cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "MEMSMITH_PROVIDER": "gemini",
+      "MEMSMITH_SERVER_PROVIDER": "gemini",
       "MEMSMITH_GEMINI_API_KEY": "YOUR_API_KEY"
     }
     EOF
@@ -71,7 +71,7 @@ MemSmith needs an AI provider to extract observations from your sessions. Choose
     mkdir -p ~/.memsmith
     cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "MEMSMITH_PROVIDER": "claude"
+      "MEMSMITH_SERVER_PROVIDER": "claude"
     }
     EOF
     ```
@@ -88,7 +88,7 @@ MemSmith needs an AI provider to extract observations from your sessions. Choose
     mkdir -p ~/.memsmith
     cat > ~/.memsmith/settings.json << 'EOF'
     {
-      "MEMSMITH_PROVIDER": "openrouter",
+      "MEMSMITH_SERVER_PROVIDER": "openrouter",
       "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
     }
     EOF

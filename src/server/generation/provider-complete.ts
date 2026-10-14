@@ -10,13 +10,19 @@ import { DEFAULT_SERVER_CLAUDE_MODEL } from './providers/ClaudeObservationProvid
 import { DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from './providers/GeminiObservationProvider.js';
 import { DEFAULT_MODEL as OPENROUTER_DEFAULT_MODEL } from './providers/OpenRouterObservationProvider.js';
 import { DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL } from './providers/OllamaObservationProvider.js';
+import { resolveOpenRouterChatCompletionsUrl } from '../../shared/openrouter-base-url.js';
+import {
+  loadGenerationConfigSources,
+  resolveGenerationCredentials,
+  type GenerationConfigSources,
+} from '../runtime/generation-credentials.js';
 
-interface Deps { fetchImpl?: typeof fetch }
+interface Deps { fetchImpl?: typeof fetch; sources?: GenerationConfigSources }
 
 // Minimal plain chat-completion using the user's configured provider — for the
-// record-intent Layer-2 backstop. Reads API key / model / base URL from env,
-// keyed by providerLabel, mirroring instantiateServerGenerationProvider
-// (create-server-service.ts). Fail-open: any error / non-ok / empty → null.
+// record-intent Layer-2 backstop. Credentials come from the same resolver as
+// generation, so both read the same keys in the same order.
+// Fail-open: any error / non-ok / empty → null.
 export async function providerComplete(
   input: { provider: ServerGenerationProvider; system: string; user: string },
   deps: Deps = {},
@@ -24,25 +30,24 @@ export async function providerComplete(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const model = process.env.MEMSMITH_SERVER_MODEL;
   try {
+    const { apiKey, baseUrl } = resolveGenerationCredentials(
+      input.provider.providerLabel,
+      deps.sources ?? loadGenerationConfigSources(),
+    );
     switch (input.provider.providerLabel) {
       case 'ollama': {
-        const base = (process.env.MEMSMITH_OLLAMA_URL ?? process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '');
-        const url = base.endsWith('/v1/chat/completions') ? base : `${base}/v1/chat/completions`;
-        const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY;
+        const url = ollamaChatCompletionsUrl(baseUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434/v1');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
         return await openaiChat(fetchImpl, url, headers, model ?? OLLAMA_DEFAULT_MODEL, input.system, input.user);
       }
       case 'openrouter': {
-        const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.MEMSMITH_OPENROUTER_API_KEY ?? '';
         if (!apiKey) return null;
-        const rawBase = process.env.MEMSMITH_OPENROUTER_BASE_URL ?? process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
-        const base = rawBase.replace(/\/$/, '');
+        const base = (baseUrl ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '');
         const url = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
         return await openaiChat(fetchImpl, url, { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, model ?? OPENROUTER_DEFAULT_MODEL, input.system, input.user);
       }
       case 'claude': {
-        const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.MEMSMITH_ANTHROPIC_API_KEY ?? '';
         if (!apiKey) return null;
         const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -60,7 +65,6 @@ export async function providerComplete(
         return text || null;
       }
       case 'gemini': {
-        const apiKey = process.env.GEMINI_API_KEY ?? process.env.MEMSMITH_GEMINI_API_KEY ?? '';
         if (!apiKey) return null;
         const m = model ?? GEMINI_DEFAULT_MODEL;
         const url = `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -84,6 +88,12 @@ export async function providerComplete(
     logger.debug('SYSTEM', 'providerComplete failed (fail-open)', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
+}
+
+// OLLAMA_URL is often a bare origin; Ollama serves the OpenAI API under /v1.
+function ollamaChatCompletionsUrl(base: string): string {
+  const trimmed = base.replace(/\/$/, '');
+  return resolveOpenRouterChatCompletionsUrl(new URL(trimmed).pathname === '/' ? `${trimmed}/v1` : trimmed);
 }
 
 async function openaiChat(

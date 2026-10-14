@@ -19,7 +19,8 @@ The interactive installer does the following:
 
 - Checks the runtime and installs Bun and uv if they're missing.
 - Detects your IDEs (Claude Code, Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, and others) and lets you choose which ones to set up.
-- Asks for a generation provider: Claude, Gemini, OpenRouter, or Ollama.
+- Asks for a generation provider. Ollama is the recommended default: it runs a local model, keeps your data on your machine, and needs no API key. Claude, Gemini, and OpenRouter need an API key, which the installer asks for.
+- If you choose Ollama, checks that Ollama is installed, running, and has the model (`qwen2.5:14b`, about 9 GB). With your consent, it installs Ollama (Homebrew on macOS, the official script on Linux), starts it, and downloads the model. On Windows and on macOS without Homebrew, it prints the install steps instead.
 - Copies the plugin files into the Claude Code marketplace directory and registers the plugin.
 - Starts the local MemSmith server.
 
@@ -43,8 +44,9 @@ Start a new Claude Code session. MemSmith starts its server on the first session
 | Option | Description |
 |--------|-------------|
 | `--ide <id>` | Sets up one IDE. IDs: `claude-code`, `cursor`, `opencode`, `windsurf`, `codex-cli`, `copilot-cli`, `antigravity`, `goose`, `roo-code`, `warp`. |
-| `--provider <name>` | Sets the generation provider: `claude`, `gemini`, `openrouter`, or `ollama`. |
-| `--model <id>` | Sets the Claude model when the provider is `claude`. |
+| `--provider <name>` | Sets the generation provider without the prompt: `ollama` (the default), `claude`, `gemini`, or `openrouter`. For Ollama, the installer only checks it and prints the fix commands; it doesn't install or download anything. |
+| `--model <id>` | Sets the generation model for the chosen provider. |
+| `--setup-ollama` | Installs Ollama, starts it, and downloads the model without asking. On Linux without a terminal, the installer prints the install command instead of running it, because the script can prompt for `sudo`. |
 | `--runtime local\|server` | Selects the runtime. `local` (the default) runs an embedded Postgres; `server` connects to a team's MemSmith server. Add `--server-url <url>` for the server address. |
 | `--no-auto-start` | Skips starting the server at the end of the install. |
 

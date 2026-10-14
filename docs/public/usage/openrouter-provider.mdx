@@ -71,7 +71,7 @@ All free models support:
 
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
-| `MEMSMITH_PROVIDER` | `claude`, `gemini`, `openrouter` | `claude` | AI provider for observation extraction |
+| `MEMSMITH_SERVER_PROVIDER` | `ollama`, `claude`, `gemini`, `openrouter` | `ollama` | Generation provider |
 | `MEMSMITH_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
 | `MEMSMITH_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
 | `MEMSMITH_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
@@ -93,7 +93,7 @@ Edit `~/.memsmith/settings.json`:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
   "MEMSMITH_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
 }
@@ -170,13 +170,13 @@ You can switch between providers at any time:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter"
+  "MEMSMITH_SERVER_PROVIDER": "openrouter"
 }
 ```
 
 ## Error Behavior
 
-If OpenRouter errors, memsmith logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `MEMSMITH_PROVIDER` in settings.
+If OpenRouter errors, memsmith logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `MEMSMITH_SERVER_PROVIDER` in settings.
 
 **Throwing conditions:**
 - Rate limiting (HTTP 429)

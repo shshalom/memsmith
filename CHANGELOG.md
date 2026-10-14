@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Changed
+
+- The installer's provider prompt now drives generation. It lists Ollama first as the recommended default and writes `MEMSMITH_SERVER_PROVIDER` and `MEMSMITH_SERVER_MODEL`, which the server reads. It previously recommended Claude and saved `MEMSMITH_PROVIDER`, which generation never read, so every install generated with Ollama.
+- Choosing Claude in the installer asks for an Anthropic API key only. The server calls the Anthropic Messages API directly and can't use a Claude subscription or a gateway.
+
+### Added
+
+- When you choose Ollama, the installer checks that Ollama is installed, running, and has the model, and offers to install it, start it, and download the model. Non-interactive installs print the fix commands instead. `--setup-ollama` performs the steps without asking.
+- `memsmith doctor` has a **Generation** check that uses the provider the running server resolves, including a dashboard override. `memsmith doctor --fix` starts a stopped Ollama and downloads a missing model.
+
+### Fixed
+
+- The server reads the API keys the installer saves: Gemini and OpenRouter keys in `~/.memsmith/settings.json` and the Anthropic key in `~/.memsmith/.env`. It previously read them from its process environment only.
+- The provider and model in `~/.memsmith/settings.json` apply to generation. A provider chosen on the dashboard still takes precedence.
+
+### Upgrade notes
+
+- If you picked Claude, Gemini, or OpenRouter in an earlier installer, MemSmith has been generating with Ollama. Upgrading doesn't switch you, because the old `MEMSMITH_PROVIDER` value is ignored rather than migrated. To use a hosted provider, rerun `npx memsmith install` and choose it, or choose it on the dashboard **Settings** tab.
+- If `~/.memsmith/settings.json` already sets `MEMSMITH_SERVER_PROVIDER`, generation now uses that provider. Before, the per-job provider ignored the file and used Ollama. If the file names a hosted provider with a saved key, paid API calls can start after you upgrade.
+- The settings file now applies to every server setting, not only the provider: any key from the dashboard **Settings** tab, such as `MEMSMITH_TIERING` or `MEMSMITH_QUALITY_FLOOR`, set in `~/.memsmith/settings.json` takes effect. A dashboard override and the environment still win.
+- Claude generation requires an Anthropic API key. If you used a Claude gateway such as LiteLLM, set `MEMSMITH_SERVER_PROVIDER` to `openrouter` and `MEMSMITH_OPENROUTER_BASE_URL` to the gateway's OpenAI-compatible URL.
+- API key precedence is the MemSmith variable (`MEMSMITH_ANTHROPIC_API_KEY`, `MEMSMITH_GEMINI_API_KEY`, `MEMSMITH_OPENROUTER_API_KEY`), then the saved file, then the generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`).
+- New fresh settings files no longer contain `MEMSMITH_PROVIDER` or `MEMSMITH_CLAUDE_AUTH_METHOD`, and the installer writes `settings.json` with mode 0600.
+
 ## [13.10.3] - 2026-10-14
 
 ### Changed

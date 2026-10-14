@@ -27,7 +27,7 @@ Add the provider and key to `~/.memsmith/settings.json`:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "your-api-key"
 }
 ```
@@ -50,7 +50,7 @@ The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEM
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "your-api-key",
   "MEMSMITH_OPENROUTER_MODEL": "google/gemini-2.5-flash"
 }
@@ -68,7 +68,7 @@ The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPE
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "https://api.deepseek.com",
   "MEMSMITH_OPENROUTER_MODEL": "deepseek-chat",
   "MEMSMITH_OPENROUTER_API_KEY": "YOUR_DEEPSEEK_API_KEY"
@@ -81,7 +81,7 @@ LM Studio exposes an OpenAI-compatible server. No API key is required for local 
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
   "MEMSMITH_OPENROUTER_MODEL": "your-local-model-id"
 }
@@ -93,7 +93,7 @@ Any OpenAI-compatible gateway works the same way:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "https://my-gateway.example.com/v1",
   "MEMSMITH_OPENROUTER_MODEL": "model-id",
   "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
@@ -116,7 +116,7 @@ OpenRouter charges per token. To manage costs:
 
 ### "OpenRouter API key not configured"
 
-Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_PROVIDER` set to `openrouter` and a non-empty `MEMSMITH_OPENROUTER_API_KEY`, then run `memsmith restart`.
+Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_SERVER_PROVIDER` set to `openrouter` and a non-empty `MEMSMITH_OPENROUTER_API_KEY`, then run `memsmith restart`.
 
 ### Model not found
 
@@ -132,7 +132,7 @@ Check the server logs in `~/.memsmith/logs/`. Common causes are an invalid key, 
 
 ## Switch providers
 
-To switch providers, change `MEMSMITH_PROVIDER` to `claude`, `gemini`, or `ollama`, set that provider's key if it needs one, and run `memsmith restart`.
+To switch providers, change `MEMSMITH_SERVER_PROVIDER` to `claude`, `gemini`, or `ollama`, set that provider's key if it needs one, and run `memsmith restart`.
 
 ## Next steps
 

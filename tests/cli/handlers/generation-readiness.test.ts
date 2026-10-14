@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { checkGenerationReadiness } from '../../../src/cli/handlers/generation-readiness.js';
+import { checkGenerationReadiness, probeOllama, resolveOllamaTarget } from '../../../src/cli/handlers/generation-readiness.js';
 
 // A fresh install generates with Ollama by default; without Ollama or its model,
 // every captured event failed generation and nothing was ever remembered, with
@@ -64,5 +64,35 @@ describe('checkGenerationReadiness', () => {
     });
     expect(message).toBeNull();
     expect(probed).toBe(false);
+  });
+});
+
+// The installer and `memsmith doctor` reuse this probe to decide what to set up,
+// so it must tell "nothing listening" apart from "model missing".
+describe('probeOllama', () => {
+  it('distinguishes ready, model missing, and unreachable', async () => {
+    const url = fakeOllama(['qwen2.5:14b']);
+    const target = resolveOllamaTarget({ MEMSMITH_OLLAMA_URL: url }, {})!;
+    expect(await probeOllama(target)).toBe('ready');
+    expect(await probeOllama({ ...target, model: 'llama3.1:8b' })).toBe('model-missing');
+    server!.stop(true);
+    server = null;
+    expect(await probeOllama(target)).toBe('unreachable');
+  });
+});
+
+describe('resolveOllamaTarget', () => {
+  it('lets the environment override the settings file URL', () => {
+    const target = resolveOllamaTarget({ MEMSMITH_OLLAMA_URL: 'http://a:1/v1' }, { MEMSMITH_OLLAMA_URL: 'http://127.0.0.1:9' });
+    expect(target?.origin).toBe('http://127.0.0.1:9');
+  });
+
+  it('marks a loopback Ollama as local and another host as remote', () => {
+    expect(resolveOllamaTarget({}, {})?.local).toBe(true);
+    expect(resolveOllamaTarget({ MEMSMITH_OLLAMA_URL: 'http://gpu-box:11434/v1' }, {})?.local).toBe(false);
+  });
+
+  it('uses the model the installer saved', () => {
+    expect(resolveOllamaTarget({ MEMSMITH_SERVER_MODEL: 'llama3.3:70b' }, {})?.model).toBe('llama3.3:70b');
   });
 });

@@ -8,7 +8,7 @@ import { getTelemetryApiKey } from '../../services/telemetry/common.js';
 import { spawnHidden } from '../../shared/spawn.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { buildAutoStartCommand } from '../install/autostart.js';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
@@ -24,6 +24,27 @@ import {
 } from '../install/setup-runtime.js';
 import { playBanner } from '../banner.js';
 import { normalizeRuntimeFlag } from './server-runtime-setup.js';
+import { apiKeySettingFor, GENERATION_PROVIDER_CHOICES } from '../install/generation-provider.js';
+import {
+  chooseGenerationProvider,
+  currentGenerationSelection,
+  ollamaSetupMode,
+  ollamaSetupPlan,
+  shouldQueryRunningServer,
+  type ProviderOutcome,
+  type ResolvedSettingsSnapshot,
+} from '../install/provider-prompt.js';
+import { loadGenerationConfigSources, missingGenerationCredential } from '../../server/runtime/generation-credentials.js';
+import { resolveOllamaTarget } from '../../cli/handlers/generation-readiness.js';
+import {
+  defaultCommandRunner,
+  detectOllamaHost,
+  executeOllamaAction,
+  ollamaHostFor,
+  probeOllamaState,
+  runOllamaSetup,
+  waitForOllama,
+} from '../install/ollama-setup.js';
 import { ErrorSeverity } from '../install/error-taxonomy.js';
 import {
   createInstallSummary,
@@ -159,7 +180,7 @@ import {
   writeJsonFileAtomic,
 } from '../utils/paths.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
-import { readFlatSettings } from '../utils/settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';
 import { detectInstalledIDEs } from './ide-detection.js';
 
@@ -747,7 +768,9 @@ function mergeSettings(updates: Record<string, string>): boolean {
       current[key] = value;
     }
 
-    writeFileSync(path, JSON.stringify(current, null, 2), 'utf-8');
+    // settings.json holds the Gemini and OpenRouter API keys the server reads.
+    writeFileSync(path, JSON.stringify(current, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    chmodSync(path, 0o600);
     return true;
   } catch (error: unknown) {
     log.error(`Failed to write settings to ${path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -756,8 +779,6 @@ function mergeSettings(updates: Record<string, string>): boolean {
 }
 
 type ProviderId = 'claude' | 'gemini' | 'openrouter' | 'ollama';
-type ClaudeAccessMode = 'subscription' | 'api-key';
-type ClaudeApiMode = 'direct' | 'gateway';
 // Phase 1d: Persisted DB literals (`server_beta_schema_migrations`, job_type
 // enums, `server-beta-worker` lockedBy marker) are intentionally preserved in
 // the source code; runtime-selector dual-accepts both `'server'` and
@@ -765,26 +786,6 @@ type ClaudeApiMode = 'direct' | 'gateway';
 // form `'server'` going forward (settings keys: MEMSMITH_SERVER_{URL,
 // API_KEY,PROJECT_ID}).
 type RuntimeId = 'local' | 'server';
-
-function readRawStoredAuthMethod(): 'subscription' | 'api-key' | 'gateway' | undefined {
-  try {
-    const value = readFlatSettings(USER_SETTINGS_PATH)?.MEMSMITH_CLAUDE_AUTH_METHOD;
-    if (value === 'subscription' || value === 'api-key' || value === 'gateway') return value;
-    return undefined;
-  } catch {
-    // [ANTI-PATTERN IGNORED]: settings.json is optional and may be absent or hand-edited into invalid JSON; falling back to env-based auth detection in resolveClaudeAuthMethod is the designed recovery.
-    return undefined;
-  }
-}
-
-function resolveClaudeAuthMethod(): 'subscription' | 'api-key' | 'gateway' {
-  const stored = readRawStoredAuthMethod();
-  if (stored) return stored;
-  const env = loadMemSmithEnv();
-  if (env.ANTHROPIC_BASE_URL?.trim()) return 'gateway';
-  if (env.ANTHROPIC_API_KEY?.trim()) return 'api-key';
-  return 'subscription';
-}
 
 const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:38877';
 
@@ -902,322 +903,160 @@ async function bootstrapAndPersistServerApiKey(): Promise<void> {
   );
 }
 
-async function promptProvider(options: InstallOptions): Promise<ProviderId> {
-  const initialProvider = (getSetting('MEMSMITH_PROVIDER') as ProviderId) || 'claude';
-
-  const persistClaudeProvider = (authMethod?: 'subscription' | 'api-key' | 'gateway') => {
-    const resolvedAuthMethod = authMethod ?? resolveClaudeAuthMethod();
-    const wrote = mergeSettings({
-      MEMSMITH_PROVIDER: 'claude',
-      MEMSMITH_CLAUDE_AUTH_METHOD: resolvedAuthMethod,
-    });
-    if (wrote) log.info('Saved Claude Agent SDK configuration to ~/.memsmith/settings.json');
-  };
-
-  const useSubscriptionAuth = () => {
-    persistClaudeProvider('subscription');
-    saveMemSmithEnv({
-      ANTHROPIC_API_KEY: '',
-      ANTHROPIC_BASE_URL: '',
-      ANTHROPIC_AUTH_TOKEN: '',
-    });
-    log.info('Configured memsmith to use your logged-in Claude SDK account.');
-  };
-
-  const configureDirectApiKey = async (): Promise<void> => {
-    const existing = loadMemSmithEnv().ANTHROPIC_API_KEY || '';
-    if (existing.trim().length > 0) {
-      const choice = await p.select<'keep' | 'replace'>({
-        message: 'An Anthropic API key is already configured. Keep it or enter a new one?',
-        options: [
-          { value: 'keep', label: 'Keep existing key' },
-          { value: 'replace', label: 'Enter a new key (rotate)' },
-        ],
-        initialValue: 'keep',
-      });
-      if (p.isCancel(choice)) {
-        log.warn('API key prompt cancelled — leaving existing configuration untouched.');
-        return;
-      }
-      if (choice === 'keep') {
-        saveMemSmithEnv({
-          ANTHROPIC_API_KEY: existing.trim(),
-          ANTHROPIC_BASE_URL: '',
-          ANTHROPIC_AUTH_TOKEN: '',
-        });
-        persistClaudeProvider('api-key');
-        return;
-      }
-    }
-
-    const apiKeyResult = await p.password({
-      message: 'Paste your Anthropic API key:',
-      mask: '*',
-      validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
-    });
-
-    if (p.isCancel(apiKeyResult)) {
-      log.warn('API key prompt cancelled — leaving existing configuration untouched.');
-      return;
-    }
-
-    saveMemSmithEnv({
-      ANTHROPIC_API_KEY: String(apiKeyResult).trim(),
-      ANTHROPIC_BASE_URL: '',
-      ANTHROPIC_AUTH_TOKEN: '',
-    });
-    persistClaudeProvider('api-key');
-    log.info('Saved Anthropic API key for the Claude Agent SDK path.');
-  };
-
-  const configureGateway = async (): Promise<void> => {
-    const existing = loadMemSmithEnv();
-    const baseUrlResult = await p.text({
-      message: 'Gateway URL:',
-      placeholder: existing.ANTHROPIC_BASE_URL || 'http://localhost:4000',
-      defaultValue: existing.ANTHROPIC_BASE_URL || '',
-      validate: (v?: string) => {
-        const value = v?.trim() ?? '';
-        if (!value) return 'Gateway URL required';
-        try {
-          new URL(value);
-          return undefined;
-        } catch {
-          // [ANTI-PATTERN IGNORED]: a URL parse failure here just means the user typed an invalid gateway URL; the recovery is the inline validation message the prompt displays on every attempt.
-          return 'Enter a valid URL, for example http://localhost:4000';
-        }
-      },
-    });
-
-    if (p.isCancel(baseUrlResult)) {
-      log.warn('Gateway setup cancelled — leaving existing configuration untouched.');
-      return;
-    }
-
-    const tokenResult = await p.password({
-      message: 'Gateway key/token (leave blank to keep current token, or type a new one):',
-      mask: '*',
-    });
-
-    const tokenCancelled = p.isCancel(tokenResult);
-    const tokenInput = tokenCancelled ? '' : String(tokenResult).trim();
-    const env: Record<string, string> = {
-      ANTHROPIC_API_KEY: '',
-      ANTHROPIC_BASE_URL: String(baseUrlResult).trim(),
-    };
-    if (!tokenCancelled && tokenInput.length > 0) {
-      env.ANTHROPIC_AUTH_TOKEN = tokenInput;
-    }
-    saveMemSmithEnv(env);
-    persistClaudeProvider('gateway');
-    if (tokenCancelled || tokenInput.length === 0) {
-      log.info('Gateway URL saved; existing gateway token preserved.');
-    } else {
-      log.info('Configured Claude Agent SDK gateway in ~/.memsmith/.env.');
-    }
-  };
-
-  if (!isInteractive) {
-    if (options.provider) {
-      if (options.provider === 'claude') {
-        persistClaudeProvider();
-        return 'claude';
-      }
-      const wrote = mergeSettings({ MEMSMITH_PROVIDER: options.provider });
-      if (wrote) log.info(`Saved provider=${options.provider} to ~/.memsmith/settings.json`);
-      log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set MEMSMITH_${options.provider.toUpperCase()}_API_KEY and MEMSMITH_PROVIDER in settings.json or env manually if not already set.`);
-      return options.provider;
-    }
-    return initialProvider;
+function readUserSettings(): Record<string, unknown> {
+  try {
+    return readFlatSettings(USER_SETTINGS_PATH) ?? {};
+  } catch {
+    return {};
   }
+}
 
-  const runClaudeAuthFlow = async (): Promise<void> => {
-    const resolvedAuthMethod = resolveClaudeAuthMethod();
-    const initialAccessMode: ClaudeAccessMode =
-      resolvedAuthMethod === 'subscription' ? 'subscription' : 'api-key';
+const CLAUDE_MODEL_CHOICES = [
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced quality and cost)' },
+  { value: 'claude-opus-4-7', label: 'Opus 4.7 (highest quality, most expensive)' },
+];
 
-    const result = await p.select<ClaudeAccessMode>({
-      message: 'Do you use a subscription plan or an API key/gateway for the memory agent?',
+function cancelInstall(): never {
+  p.cancel('Installation cancelled.');
+  process.exit(0);
+}
+
+/** Returns false when the user cancels, leaving the existing key untouched. */
+async function promptAnthropicApiKey(): Promise<boolean> {
+  const existing = loadMemSmithEnv().ANTHROPIC_API_KEY?.trim() ?? '';
+  if (existing) {
+    const choice = await p.select<'keep' | 'replace'>({
+      message: 'An Anthropic API key is already configured. Keep it or enter a new one?',
       options: [
-        { value: 'subscription', label: 'Subscription plan (recommended — uses your logged-in Claude SDK account)' },
-        { value: 'api-key', label: 'API key or gateway (Anthropic, LiteLLM, or compatible proxy)' },
+        { value: 'keep', label: 'Keep existing key' },
+        { value: 'replace', label: 'Enter a new key (rotate)' },
       ],
-      initialValue: initialAccessMode,
+      initialValue: 'keep',
     });
-
-    if (p.isCancel(result)) {
-      p.cancel('Installation cancelled.');
-      process.exit(0);
-    }
-    if (result === 'subscription') {
-      useSubscriptionAuth();
-      return;
-    }
-
-    const apiModeResult = await p.select<ClaudeApiMode>({
-      message: 'How should memsmith connect?',
-      options: [
-        { value: 'direct', label: 'Anthropic API key' },
-        { value: 'gateway', label: 'LiteLLM or custom gateway' },
-      ],
-      initialValue: resolvedAuthMethod === 'gateway' || loadMemSmithEnv().ANTHROPIC_BASE_URL ? 'gateway' : 'direct',
-    });
-
-    if (p.isCancel(apiModeResult)) {
-      p.cancel('Installation cancelled.');
-      process.exit(0);
-    }
-
-    if (apiModeResult === 'gateway') {
-      await configureGateway();
-    } else {
-      await configureDirectApiKey();
-    }
-  };
-
-  let selectedProvider: ProviderId;
-  if (options.provider) {
-    selectedProvider = options.provider;
-  } else {
-    const providerResult = await p.select<ProviderId>({
-      message: 'Which memory provider do you want to use?',
-      options: [
-        { value: 'claude', label: 'Claude Agent SDK (recommended)' },
-        { value: 'gemini', label: 'Gemini' },
-        { value: 'openrouter', label: 'OpenRouter' },
-        { value: 'ollama', label: 'Ollama (local)' },
-      ],
-      initialValue: initialProvider,
-    });
-    if (p.isCancel(providerResult)) {
-      p.cancel('Installation cancelled.');
-      process.exit(0);
-    }
-    selectedProvider = providerResult;
+    if (p.isCancel(choice)) return false;
+    if (choice === 'keep') return true;
   }
-
-  if (selectedProvider === 'claude') {
-    await runClaudeAuthFlow();
-    return 'claude';
-  }
-
-  if (selectedProvider === 'ollama') {
-    // Ollama is keyless — no API key needed. Just persist the provider selection.
-    const wrote = mergeSettings({ MEMSMITH_PROVIDER: 'ollama' });
-    if (wrote) log.info(`Saved provider=ollama to ~/.memsmith/settings.json`);
-    return 'ollama';
-  }
-
-  const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
-  const keyEnvName = selectedProvider === 'gemini'
-    ? 'MEMSMITH_GEMINI_API_KEY'
-    : 'MEMSMITH_OPENROUTER_API_KEY';
-
-  const existingKey = getSetting(keyEnvName as keyof SettingsDefaults) as string | undefined;
-  if (existingKey && existingKey.trim().length > 0) {
-    const wrote = mergeSettings({ MEMSMITH_PROVIDER: selectedProvider });
-    if (wrote) log.info(`Saved provider=${selectedProvider} to ~/.memsmith/settings.json`);
-    return selectedProvider;
-  }
-
   const apiKeyResult = await p.password({
-    message: `Paste your ${providerLabel} API key:`,
+    message: 'Paste your Anthropic API key:',
     mask: '*',
     validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
   });
-
-  if (p.isCancel(apiKeyResult)) {
-    log.warn(`API key prompt cancelled — falling back to Claude provider.`);
-    persistClaudeProvider();
-    return 'claude';
-  }
-
-  const apiKey = String(apiKeyResult).trim();
-  const wrote = mergeSettings({
-    MEMSMITH_PROVIDER: selectedProvider,
-    [keyEnvName]: apiKey,
+  if (p.isCancel(apiKeyResult)) return false;
+  saveMemSmithEnv({
+    ANTHROPIC_API_KEY: String(apiKeyResult).trim(),
+    ANTHROPIC_BASE_URL: '',
+    ANTHROPIC_AUTH_TOKEN: '',
   });
-  if (wrote) {
-    log.info(`Saved provider=${selectedProvider} to ~/.memsmith/settings.json`);
-  }
-  return selectedProvider;
+  log.info('Saved the Anthropic API key to ~/.memsmith/.env.');
+  return true;
 }
 
-async function promptClaudeModel(options: InstallOptions): Promise<void> {
-  const allowed = new Set([
-    'claude-haiku-4-5-20251001',
-    'claude-sonnet-4-6',
-    'claude-opus-4-7',
-  ]);
-  const allowCustomModel = resolveClaudeAuthMethod() === 'gateway';
-
-  if (options.model && !allowCustomModel) {
-    if (!allowed.has(options.model)) {
-      throw new Error(
-        `Unknown Claude model: ${options.model}. Allowed: ${[...allowed].join(', ')}`,
-      );
-    }
-    const wrote = mergeSettings({ MEMSMITH_MODEL: options.model });
-    if (wrote) {
-      log.info(`Saved Claude model=${options.model} to ~/.memsmith/settings.json`);
-    }
-    return;
-  }
-  if (options.model && allowCustomModel) {
-    const wrote = mergeSettings({ MEMSMITH_MODEL: options.model });
-    if (wrote) {
-      log.info(`Saved gateway model=${options.model} to ~/.memsmith/settings.json`);
-    }
-    return;
-  }
-
-  if (!isInteractive) return;
-
-  const initialModel = getSetting('MEMSMITH_MODEL');
-
-  if (allowCustomModel) {
-    const result = await p.text({
-      message: 'Which model should the gateway use?',
-      placeholder: 'claude-haiku-4-5-20251001',
-      defaultValue: initialModel || 'claude-haiku-4-5-20251001',
-      validate: (v?: string) => (!v || v.trim().length === 0) ? 'Model required' : undefined,
-    });
-
-    if (p.isCancel(result)) {
-      p.cancel('Installation cancelled.');
-      process.exit(0);
-    }
-
-    const selectedModel = String(result).trim();
-    const wrote = mergeSettings({ MEMSMITH_MODEL: selectedModel });
-    if (wrote) {
-      log.info(`Saved gateway model=${selectedModel} to ~/.memsmith/settings.json`);
-    }
-    return;
-  }
-
-  const initialValue = allowed.has(initialModel) ? initialModel : 'claude-haiku-4-5-20251001';
-
+async function promptClaudeModel(current: string | undefined): Promise<string> {
+  const known = CLAUDE_MODEL_CHOICES.some((c) => c.value === current);
   const result = await p.select<string>({
     message: 'Which Claude model should memsmith use to compress observations?\nThis runs whenever you and Claude touch a file — keep it cheap and fast.',
-    options: [
-      { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
-      { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced quality and cost)' },
-      { value: 'claude-opus-4-7', label: 'Opus 4.7 (highest quality, most expensive)' },
-    ],
-    initialValue,
+    options: CLAUDE_MODEL_CHOICES,
+    initialValue: known ? current : CLAUDE_MODEL_CHOICES[0].value,
   });
+  if (p.isCancel(result)) cancelInstall();
+  return result;
+}
 
-  if (p.isCancel(result)) {
-    p.cancel('Installation cancelled.');
-    process.exit(0);
+async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary): Promise<void> {
+  const target = resolveOllamaTarget(readUserSettings(), process.env);
+  if (!target) {
+    summary.warnings.push({
+      component: 'ollama',
+      message: 'MEMSMITH_OLLAMA_URL is not a valid URL, so MemSmith cannot reach Ollama.',
+      remediation: 'Fix MEMSMITH_OLLAMA_URL in ~/.memsmith/settings.json (default http://localhost:11434/v1).',
+    });
+    return;
   }
-  const selectedModel = result as string;
+  const runner = defaultCommandRunner();
+  const ollamaHost = ollamaHostFor(target.origin);
+  const { ready } = await runOllamaSetup({
+    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama }),
+    host: detectOllamaHost(runner, target, process.stdin.isTTY === true),
+    model: target.model,
+    origin: target.origin,
+    probe: () => probeOllamaState(target, runner),
+    confirm: async (question) => (await p.confirm({ message: question, initialValue: true })) === true,
+    run: (action) => executeOllamaAction(action, runner, ollamaHost),
+    waitUntilUp: () => waitForOllama(target),
+    out: (line) => log.info(line),
+    warn: (line) => log.warn(line),
+  });
+  if (!ready) {
+    summary.warnings.push({
+      component: 'ollama',
+      message: `Ollama is not ready (${target.origin}, model ${target.model}), so MemSmith captures sessions but cannot create memories yet.`,
+      remediation: 'Follow the Ollama steps printed above, then run `memsmith doctor` to confirm. `npx memsmith install --provider ollama --setup-ollama` performs them for you.',
+    });
+  }
+}
 
-  const wrote = mergeSettings({ MEMSMITH_MODEL: selectedModel });
-  if (wrote) {
-    log.info(`Saved Claude model=${selectedModel} to ~/.memsmith/settings.json`);
+// Best effort: a dashboard override outranks settings.json, so start from what
+// the running server resolves when it answers.
+async function fetchResolvedGenerationSettings(
+  chosenRuntime: RuntimeId,
+  settingsBeforeInstall: Record<string, unknown>,
+): Promise<ResolvedSettingsSnapshot | null> {
+  const savedUrl = settingsBeforeInstall.MEMSMITH_SERVER_URL;
+  const existingServerUrl = process.env.MEMSMITH_SERVER_URL
+    || (typeof savedUrl === 'string' && savedUrl ? savedUrl : SettingsDefaultsManager.getAllDefaults().MEMSMITH_SERVER_URL);
+  if (!shouldQueryRunningServer({ chosenRuntime, existingRuntime: settingsBeforeInstall.MEMSMITH_RUNTIME, existingServerUrl })) {
+    return null;
   }
+  try {
+    const { resolveRuntimeContext } = await import('../../services/hooks/runtime-selector.js');
+    const runtime = resolveRuntimeContext(process.cwd());
+    if (runtime.runtime !== 'server') return null;
+    const { settings } = await runtime.client.getResolvedSettings(1_500);
+    return { provider: settings.provider, model: settings.model };
+  } catch {
+    return null;
+  }
+}
+
+async function promptProvider(
+  options: InstallOptions,
+  chosenRuntime: RuntimeId,
+  settingsBeforeInstall: Record<string, unknown>,
+): Promise<ProviderOutcome> {
+  const settings = readUserSettings();
+  const resolved = await fetchResolvedGenerationSettings(chosenRuntime, settingsBeforeInstall);
+  const current = currentGenerationSelection(settings, process.env, resolved);
+  return chooseGenerationProvider(options, current, {
+    interactive: isInteractive,
+    selectProvider: async (initial) => {
+      const result = await p.select<ProviderId>({
+        message: 'Which generation provider should turn your sessions into memories?',
+        options: GENERATION_PROVIDER_CHOICES.map((c) => ({ value: c.value, label: c.label, hint: c.hint })),
+        initialValue: initial,
+      });
+      if (p.isCancel(result)) cancelInstall();
+      return result;
+    },
+    anthropicKey: promptAnthropicApiKey,
+    claudeModel: promptClaudeModel,
+    hostedKey: async (provider) => {
+      const result = await p.password({
+        message: `Paste your ${provider === 'gemini' ? 'Gemini' : 'OpenRouter'} API key:`,
+        mask: '*',
+        validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
+      });
+      return p.isCancel(result) ? null : String(result);
+    },
+    hasSavedKey: (provider) => {
+      const keySetting = apiKeySettingFor(provider);
+      return Boolean(keySetting && typeof settings[keySetting] === 'string' && (settings[keySetting] as string).trim());
+    },
+    saveSettings: mergeSettings,
+    missingCredential: (provider) => missingGenerationCredential(provider, loadGenerationConfigSources()),
+    info: (line) => log.info(line),
+    warn: (line) => log.warn(line),
+  });
 }
 
 /**
@@ -1259,6 +1098,8 @@ export interface InstallOptions {
   ide?: string;
   provider?: 'claude' | 'gemini' | 'openrouter' | 'ollama';
   model?: string;
+  /** Install, start, and pull Ollama without asking (still never prompts for sudo without a terminal). */
+  setupOllama?: boolean;
   noAutoStart?: boolean;
   disableAutoMemory?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
@@ -1370,11 +1211,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     selectedIDEs = ['claude-code'];
   }
 
+  const settingsBeforeInstall = readUserSettings();
   const selectedRuntime = await promptRuntime(options);
-  const selectedProvider = await promptProvider(options);
-  if (selectedProvider === 'claude') {
-    await promptClaudeModel(options);
-  }
+  const providerOutcome = await promptProvider(options, selectedRuntime, settingsBeforeInstall);
+  const selectedProvider = providerOutcome.provider;
 
   let workerStartResult: 'ready' | 'warming' | 'dead' = 'dead';
   // Claude Code consumes the marketplace plugin system directly, so any selection
@@ -1525,6 +1365,13 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     autoMemoryStatus = 'left-enabled';
     log.info('Claude Code: leaving native auto-memory enabled unless you explicitly opt in to disabling it.');
   }
+
+  // After the plugin and runtime are in place, so a long model download does
+  // not hold up the rest of the install; before auto-start, so the server finds
+  // Ollama ready.
+  const ollamaPlan = ollamaSetupPlan(providerOutcome, selectedRuntime, options.setupOllama === true);
+  if (ollamaPlan.ignored) log.warn(ollamaPlan.ignored);
+  if (ollamaPlan.run) await setupOllamaForInstall(options, summary);
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
   // `memsmith start`), NOT the local-runtime spawner. Skip the

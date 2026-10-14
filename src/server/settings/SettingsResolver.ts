@@ -1,26 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { SettingsStore } from './SettingsStore.js';
 import { getSettingKey, coerceEnvValue, validateSettingValue, SETTING_KEYS } from './settingKeys.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
+import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 
 export interface ResolvedSetting {
   value: unknown;
-  source: 'user' | 'team' | 'env' | 'default';
+  source: 'user' | 'team' | 'env' | 'file' | 'default';
 }
 
 interface CacheEntry { overrides: Record<string, unknown>; expiresAt: number; }
+
+function readUserSettingsFile(): Record<string, unknown> {
+  try {
+    return readFlatSettings(USER_SETTINGS_PATH) ?? {};
+  } catch {
+    return {};
+  }
+}
 
 export class SettingsResolver {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly readFile: () => Record<string, unknown>;
+  private fileCache: CacheEntry | null = null;
 
   constructor(
     private readonly store: SettingsStore,
-    opts?: { ttlMs?: number; now?: () => number },
+    opts?: { ttlMs?: number; now?: () => number; fileSettings?: () => Record<string, unknown> },
   ) {
     this.ttlMs = opts?.ttlMs ?? 2000;
     // Injectable clock for tests; Date.now is fine in production.
     this.now = opts?.now ?? (() => Date.now());
+    this.readFile = opts?.fileSettings ?? readUserSettingsFile;
+  }
+
+  private fileSettings(): Record<string, unknown> {
+    if (this.fileCache && this.fileCache.expiresAt > this.now()) return this.fileCache.overrides;
+    const overrides = this.readFile();
+    this.fileCache = { overrides, expiresAt: this.now() + this.ttlMs };
+    return overrides;
   }
 
   private async overrides(teamId: string): Promise<Record<string, unknown>> {
@@ -53,6 +73,15 @@ export class SettingsResolver {
       const coerced = coerceEnvValue(spec, raw);
       const v = validateSettingValue(spec, coerced);
       if (v.ok) return { value: v.value, source: 'env' };
+    }
+
+    const fromFile = this.fileSettings()[spec.env];
+    if (typeof fromFile === 'string' && fromFile !== '') {
+      const v = validateSettingValue(spec, coerceEnvValue(spec, fromFile));
+      if (v.ok) return { value: v.value, source: 'file' };
+    } else if (fromFile !== undefined && fromFile !== null && fromFile !== '') {
+      const v = validateSettingValue(spec, fromFile);
+      if (v.ok) return { value: v.value, source: 'file' };
     }
 
     return { value: spec.default, source: 'default' };

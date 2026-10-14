@@ -24,8 +24,9 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith')}                     Interactive install
   ${styleText('cyan', 'npx memsmith install')}              Interactive install
   ${styleText('cyan', 'npx memsmith install --ide <id>')}   Install for specific IDE
-  ${styleText('cyan', 'npx memsmith install --provider claude|gemini|openrouter|ollama')}   Set the generation provider non-interactively
-  ${styleText('cyan', 'npx memsmith install --model <id>')}   Set Claude model (when provider=claude)
+  ${styleText('cyan', 'npx memsmith install --provider ollama|claude|gemini|openrouter')}   Set the generation provider (default: ollama) without the prompt
+  ${styleText('cyan', 'npx memsmith install --model <id>')}   Set the generation model for the chosen provider
+  ${styleText('cyan', 'npx memsmith install --setup-ollama')}   Install Ollama, start it, and download its model without asking
   ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx memsmith install --runtime local|server')}   Select runtime non-interactively (local: embedded Postgres, the default; server: a team MemSmith server)
@@ -65,6 +66,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
       'server-url': { type: 'string' },
       'no-auto-start': { type: 'boolean' },
       'disable-auto-memory': { type: 'boolean' },
+      'setup-ollama': { type: 'boolean' },
     },
     strict: false,
     allowPositionals: true,
@@ -87,6 +89,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     model: flag('model'),
     noAutoStart: values['no-auto-start'] === true,
     disableAutoMemory: values['disable-auto-memory'] === true,
+    setupOllama: values['setup-ollama'] === true,
     runtime,
     serverUrl: flag('server-url'),
   };

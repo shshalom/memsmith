@@ -16,6 +16,31 @@ import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
 import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
+import {
+  resolveOllamaTarget,
+  type OllamaTarget,
+  type ResolvedGenerationSettings,
+} from '../../cli/handlers/generation-readiness.js';
+import {
+  loadGenerationConfigSources,
+  missingGenerationCredential,
+  type GenerationConfigSources,
+} from '../../server/runtime/generation-credentials.js';
+import {
+  resolveGenerationProviderName,
+  GENERATION_PROVIDERS,
+  type GenerationProviderName,
+} from '../../server/runtime/resolve-generation-provider.js';
+import {
+  defaultCommandRunner,
+  detectOllamaHost,
+  executeOllamaAction,
+  ollamaHostFor,
+  probeOllamaState,
+  startAction,
+  waitForOllama,
+  type OllamaState,
+} from '../install/ollama-setup.js';
 
 type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -42,7 +67,12 @@ function probeVersion(bin: string): string | null {
   }
 }
 
-export type Repair = 'remove-stale-state' | 'install-deps' | 'restart' | 'start';
+export type Repair = 'remove-stale-state' | 'install-deps' | 'restart' | 'start' | 'start-ollama' | 'pull-ollama-model';
+
+export type GenerationStatus =
+  | { provider: null; configured: string }
+  | { provider: 'ollama'; ollama: OllamaState; model: string; origin: string; local?: boolean }
+  | { provider: 'claude' | 'gemini' | 'openrouter'; missingCredential: string | null };
 
 export interface DoctorState {
   pidFileStale: boolean;
@@ -52,12 +82,14 @@ export interface DoctorState {
   serverVersion?: string;
   pluginVersion: string;
   remote: boolean;
+  generation?: GenerationStatus;
 }
 
 export interface RepairDeps {
   removeState(): void;
   installDeps(): Promise<void>;
   lifecycle(cmd: 'start' | 'restart'): Promise<number>;
+  ollama(action: 'start' | 'pull'): Promise<boolean>;
   out(line: string): void;
 }
 
@@ -79,11 +111,40 @@ export function versionMismatchStatus(ctx: { restarted: boolean }): CheckStatus 
   return ctx.restarted ? 'fail' : 'warn';
 }
 
+export function generationCheck(status: GenerationStatus, remote: boolean): CheckResult {
+  const result = (s: CheckStatus, detail: string): CheckResult => ({ name: 'Generation', status: s, detail, required: true });
+  if (remote) return { ...result('warn', 'runs on the team server; not checked locally'), required: false };
+  if (status.provider === null) {
+    return result('fail', `MEMSMITH_SERVER_PROVIDER "${status.configured}" is not one of ${GENERATION_PROVIDERS.join(', ')}`);
+  }
+  if (status.provider !== 'ollama') {
+    return status.missingCredential
+      ? result('fail', `${status.provider} · no API key — set ${status.missingCredential}`)
+      : result('ok', `${status.provider} · API key present`);
+  }
+  const { model, origin } = status;
+  switch (status.ollama) {
+    case 'ready': return result('ok', `ollama · ${model} at ${origin}`);
+    case 'model-missing': return result('fail', `ollama · model ${model} missing — run \`ollama pull ${model}\` or \`memsmith doctor --fix\``);
+    case 'not-running': return result('fail', status.local === false
+      ? `ollama · not reachable at ${origin} — start Ollama on that machine`
+      : `ollama · not running at ${origin} — run \`memsmith doctor --fix\` to start it`);
+    case 'not-installed': return result('fail', `ollama · not installed — download it from https://ollama.com/download, then run \`ollama pull ${model}\``);
+    case 'unknown': return { ...result('warn', `ollama · ${origin} answered, but not like Ollama — check MEMSMITH_OLLAMA_URL`), required: false };
+  }
+}
+
 export function planRepairs(s: DoctorState): Repair[] {
   const repairs: Repair[] = [];
   if (!s.remote && s.pidFileStale && !s.portInUse) repairs.push('remove-stale-state');
   if (s.depsMissing) repairs.push('install-deps');
   if (s.remote) return repairs;
+  const gen = s.generation;
+  if (gen?.provider === 'ollama' && gen.local !== false) {
+    // `ollama pull` on a model that is already present only verifies it.
+    if (gen.ollama === 'not-running') repairs.push('start-ollama', 'pull-ollama-model');
+    else if (gen.ollama === 'model-missing') repairs.push('pull-ollama-model');
+  }
   if (!s.serverReachable) repairs.push('start');
   else if (s.serverVersion && s.serverVersion !== s.pluginVersion) repairs.push('restart');
   return repairs;
@@ -98,6 +159,11 @@ export async function applyRepairs(
     try {
       if (repair === 'remove-stale-state') deps.removeState();
       else if (repair === 'install-deps') await deps.installDeps();
+      else if (repair === 'start-ollama' || repair === 'pull-ollama-model') {
+        if (!(await deps.ollama(repair === 'start-ollama' ? 'start' : 'pull'))) {
+          return { ok: false, failed: repair, error: repair === 'start-ollama' ? 'Ollama did not start' : 'ollama pull failed' };
+        }
+      }
       else if ((await deps.lifecycle(repair)) !== 0) {
         return { ok: false, failed: repair, error: `memsmith ${repair} failed` };
       }
@@ -137,6 +203,61 @@ export interface DoctorProbes {
   verifyPidFileOwnership(info: NonNullable<ReturnType<typeof readServerPidFile>>): boolean;
   isPortInUse(host: string, port: number): Promise<boolean>;
   dataDir(): string;
+  generation(serverReachable: boolean): Promise<GenerationStatus>;
+}
+
+/**
+ * `resolved` is what the running server reports (dashboard > env > settings
+ * file > default); null means the server is down, so env and settings.json
+ * stand in for it.
+ */
+export async function probeGenerationStatus(
+  resolved: ResolvedGenerationSettings | null,
+  sources: GenerationConfigSources,
+  probeState: (target: OllamaTarget) => Promise<OllamaState>,
+): Promise<GenerationStatus> {
+  const configured = resolved?.provider ?? resolveGenerationProviderName(sources.env, sources.settings);
+  if (!configured || !(GENERATION_PROVIDERS as readonly string[]).includes(configured)) {
+    return { provider: null, configured: String(configured ?? sources.env.MEMSMITH_SERVER_PROVIDER ?? sources.settings.MEMSMITH_SERVER_PROVIDER) };
+  }
+  const provider = configured as GenerationProviderName;
+  if (provider !== 'ollama') return { provider, missingCredential: missingGenerationCredential(provider, sources) };
+  const target = resolveOllamaTarget(sources.settings, sources.env, resolved);
+  if (!target) return { provider: 'ollama', ollama: 'unknown', model: '', origin: 'MEMSMITH_OLLAMA_URL' };
+  return { provider: 'ollama', ollama: await probeState(target), model: target.model, origin: target.origin, local: target.local };
+}
+
+async function fetchResolvedGeneration(): Promise<ResolvedGenerationSettings | null> {
+  try {
+    const { resolveRuntimeContext } = await import('../../services/hooks/runtime-selector.js');
+    const runtime = resolveRuntimeContext(process.cwd());
+    if (runtime.runtime !== 'server') return null;
+    const { settings } = await runtime.client.getResolvedSettings();
+    return {
+      provider: typeof settings.provider?.value === 'string' ? settings.provider.value : undefined,
+      model: typeof settings.model?.value === 'string' ? settings.model.value : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function probeGeneration(serverReachable: boolean): Promise<GenerationStatus> {
+  const resolved = serverReachable ? await fetchResolvedGeneration() : null;
+  const runner = defaultCommandRunner();
+  return probeGenerationStatus(resolved, loadGenerationConfigSources(), (target) => probeOllamaState(target, runner));
+}
+
+async function repairOllama(action: 'start' | 'pull', status: GenerationStatus | undefined): Promise<boolean> {
+  const sources = loadGenerationConfigSources();
+  const model = status?.provider === 'ollama' ? status.model : undefined;
+  const target = resolveOllamaTarget(sources.settings, sources.env, model ? { model } : null);
+  if (!target) return false;
+  const runner = defaultCommandRunner();
+  const ollamaHost = ollamaHostFor(target.origin);
+  if (action === 'pull') return executeOllamaAction({ kind: 'pull', model: target.model }, runner, ollamaHost);
+  const host = detectOllamaHost(runner, target, process.stdin.isTTY === true);
+  return (await executeOllamaAction(startAction(host, target.origin), runner, ollamaHost)) && waitForOllama(target);
 }
 
 const defaultProbes: DoctorProbes = {
@@ -149,6 +270,7 @@ const defaultProbes: DoctorProbes = {
   verifyPidFileOwnership,
   isPortInUse,
   dataDir: resolveDataDir,
+  generation: probeGeneration,
 };
 
 export async function collectChecks(
@@ -218,6 +340,9 @@ export async function collectChecks(
   }
   checks.push({ name: 'Server', status: serverStatus, detail: serverDetail, required: fix });
 
+  const generation = await probes.generation(health.reachable && !address.remote);
+  checks.push(generationCheck(generation, address.remote));
+
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');
   if (existsSync(lastErrorPath)) {
@@ -247,6 +372,7 @@ export async function collectChecks(
     serverVersion: health.version,
     pluginVersion,
     remote: address.remote,
+    generation,
   };
   return { checks, state };
 }
@@ -309,6 +435,7 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
       const { runLifecycle, defaultLifecycleDeps } = await import('./lifecycle.js');
       return runLifecycle(cmd, [], defaultLifecycleDeps(urlSource));
     },
+    ollama: (action) => repairOllama(action, state.generation),
     out: (line) => console.log(styleText('cyan', `  → ${line}`)),
   });
   if (!result.ok) {

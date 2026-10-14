@@ -59,7 +59,7 @@ mkdir -p ~/.memsmith
 # Create settings file
 cat > ~/.memsmith/settings.json << 'EOF'
 {
-  "MEMSMITH_PROVIDER": "gemini",
+  "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
   "MEMSMITH_GEMINI_MODEL": "gemini-2.5-flash-lite",
   "MEMSMITH_GEMINI_RATE_LIMITING_ENABLED": true
@@ -77,7 +77,7 @@ OpenRouter provides access to many models, including free options.
 mkdir -p ~/.memsmith
 cat > ~/.memsmith/settings.json << 'EOF'
 {
-  "MEMSMITH_PROVIDER": "openrouter",
+  "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
 }
 EOF
@@ -97,7 +97,7 @@ If you have Anthropic API credits but not a Claude Code subscription:
 mkdir -p ~/.memsmith
 cat > ~/.memsmith/settings.json << 'EOF'
 {
-  "MEMSMITH_PROVIDER": "claude",
+  "MEMSMITH_SERVER_PROVIDER": "claude",
   "ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY"
 }
 EOF
@@ -228,7 +228,7 @@ New-Item -ItemType Directory -Force -Path $settingsDir
 
 @"
 {
-  "MEMSMITH_PROVIDER": "gemini",
+  "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
 }
 "@ | Out-File -FilePath "$settingsDir\settings.json" -Encoding UTF8
