@@ -21,4 +21,9 @@ describe('retrieval-first hooks wired', () => {
       /Task|Agent/.test(g.matcher ?? '') && (g.hooks ?? []).some((h: any) => h.command.includes('hook claude-code agent-directive')));
     expect(hasAgentMatcher).toBe(true);
   });
+  it('Stop runs the answer gate, which also runs summarize, as the only MemSmith Stop hook', () => {
+    const stop = commandsFor('Stop');
+    expect(stop.filter(c => c.includes('hook claude-code answer-gate'))).toHaveLength(1);
+    expect(stop.some(c => c.includes('hook claude-code summarize'))).toBe(false);
+  });
 });
