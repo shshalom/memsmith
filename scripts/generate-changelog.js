@@ -131,6 +131,7 @@ function main() {
 
   const newEntriesBlock = newReleases.map(renderEntry).join('\n');
 
+  // New release entries go above `## [Unreleased]`; rename Unreleased to the version before running this.
   const finalBody = existingBody
     ? `${newEntriesBlock}\n${existingBody}`.trimEnd() + '\n'
     : `${newEntriesBlock}`.trimEnd() + '\n';

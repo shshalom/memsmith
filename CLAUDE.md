@@ -46,7 +46,7 @@ running the same server engine (Postgres + pgvector + semantic search):
 
 ## Important
 
-Add user-facing changes to the `Unreleased` section of `CHANGELOG.md`. `npm run changelog:generate` only adds entries for GitHub releases from 13.10.2 on.
+Add user-facing changes to the `Unreleased` section of `CHANGELOG.md`. `npm run changelog:generate` only adds entries for GitHub releases from 13.10.2 on, and it inserts them above `## [Unreleased]`, so rename Unreleased to the release version before you run it.
 
 ## Daily Maintenance
 
