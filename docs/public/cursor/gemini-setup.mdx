@@ -27,7 +27,7 @@ Add the provider and key to `~/.memsmith/settings.json`:
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "gemini",
+  "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "your-api-key"
 }
 ```
@@ -50,7 +50,7 @@ The default model is `gemini-2.5-flash-lite`. To use a different Gemini model, s
 
 ```json
 {
-  "MEMSMITH_PROVIDER": "gemini",
+  "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "your-api-key",
   "MEMSMITH_GEMINI_MODEL": "gemini-2.5-flash"
 }
@@ -64,7 +64,7 @@ By default, MemSmith spaces Gemini requests to stay within free-tier limits. Pro
 
 ### "Gemini API key not configured"
 
-Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_PROVIDER` set to `gemini` and a non-empty `MEMSMITH_GEMINI_API_KEY`, then run `memsmith restart`.
+Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_SERVER_PROVIDER` set to `gemini` and a non-empty `MEMSMITH_GEMINI_API_KEY`, then run `memsmith restart`.
 
 ### Rate limit errors (HTTP 429)
 
@@ -76,7 +76,7 @@ Check the server logs in `~/.memsmith/logs/` for Gemini API errors, and run `mem
 
 ## Switch providers
 
-To switch providers, change `MEMSMITH_PROVIDER` to `claude`, `openrouter`, or `ollama`, set that provider's key if it needs one, and run `memsmith restart`.
+To switch providers, change `MEMSMITH_SERVER_PROVIDER` to `claude`, `openrouter`, or `ollama`, set that provider's key if it needs one, and run `memsmith restart`.
 
 ## Next steps
 

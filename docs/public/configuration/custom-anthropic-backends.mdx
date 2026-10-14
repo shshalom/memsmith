@@ -5,6 +5,10 @@ description: "Point memsmith at bridged or self-hosted Anthropic-compatible API 
 
 # Custom Anthropic-Compatible Backends
 
+<Warning>
+Claude gateway generation isn't supported. The MemSmith server calls the Anthropic Messages API directly with `ANTHROPIC_API_KEY` and ignores `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. To route generation through an OpenAI-compatible gateway such as LiteLLM, set `MEMSMITH_SERVER_PROVIDER` to `openrouter`, set `MEMSMITH_OPENROUTER_BASE_URL` to the gateway URL, and set `MEMSMITH_OPENROUTER_API_KEY` to the gateway key. For details, see [Configuration](../configuration).
+</Warning>
+
 When you use the `claude` provider, memsmith talks to the Anthropic API through the Claude Agent SDK. By default, the SDK targets the official Anthropic endpoint, but it honors the standard `ANTHROPIC_BASE_URL` environment variable. That means you can route memsmith at any Anthropic-protocol-compatible backend — for example a corporate gateway, a regional bridge, or a third-party provider that exposes an Anthropic-shaped API — without changing any memsmith source code.
 
 <Note>

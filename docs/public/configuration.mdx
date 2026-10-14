@@ -23,7 +23,9 @@ The generation provider turns captured session activity into memories. The defau
 | `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
 | `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
 
-The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `ANTHROPIC_API_KEY`, not in `settings.json`. The server calls the Anthropic Messages API directly, so the `claude` provider needs an API key; a Claude subscription doesn't work for generation.
+The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `ANTHROPIC_API_KEY`, not in `settings.json`. The server calls the Anthropic Messages API directly, so the `claude` provider needs an API key; a Claude subscription or a Claude gateway doesn't work for generation. To use an OpenAI-compatible gateway such as LiteLLM, choose `openrouter` and set `MEMSMITH_OPENROUTER_BASE_URL`.
+
+For each API key, a MemSmith variable in the environment (`MEMSMITH_ANTHROPIC_API_KEY`, `MEMSMITH_GEMINI_API_KEY`, `MEMSMITH_OPENROUTER_API_KEY`) wins over the saved key, and the saved key wins over a generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`).
 
 Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_MODEL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
 
@@ -31,7 +33,7 @@ For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usag
 
 ### Check generation
 
-To confirm that the configured provider can generate, run `memsmith doctor`. The **Generation** check reports whether Ollama is reachable and has the model, or whether a hosted provider's API key is present. `memsmith doctor --fix` starts an installed Ollama and downloads a missing model; it doesn't install Ollama.
+To confirm that the configured provider can generate, run `memsmith doctor`. When the server is running, the check uses the provider it resolves, including a dashboard override. The **Generation** check reports whether Ollama is reachable and has the model, or whether a hosted provider's API key is present. `memsmith doctor --fix` starts an installed Ollama and downloads a missing model; it doesn't install Ollama.
 
 ## Runtime and server
 

@@ -36,11 +36,11 @@ If you don't have Claude Code, configure a provider for AI summarization:
 
 ```bash
 # Option A: Gemini (free tier available - recommended)
-memsmith settings set MEMSMITH_PROVIDER gemini
+memsmith settings set MEMSMITH_SERVER_PROVIDER gemini
 memsmith settings set MEMSMITH_GEMINI_API_KEY your-api-key
 
 # Option B: OpenRouter (free models available)
-memsmith settings set MEMSMITH_PROVIDER openrouter
+memsmith settings set MEMSMITH_SERVER_PROVIDER openrouter
 memsmith settings set MEMSMITH_OPENROUTER_API_KEY your-api-key
 ```
 

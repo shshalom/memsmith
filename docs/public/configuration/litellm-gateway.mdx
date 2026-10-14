@@ -5,6 +5,10 @@ description: "Route memsmith's Claude Agent SDK worker through LiteLLM while kee
 
 # LiteLLM Gateway
 
+<Warning>
+Claude gateway generation isn't supported. The MemSmith server calls the Anthropic Messages API directly with `ANTHROPIC_API_KEY` and ignores `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. To route generation through an OpenAI-compatible gateway such as LiteLLM, set `MEMSMITH_SERVER_PROVIDER` to `openrouter`, set `MEMSMITH_OPENROUTER_BASE_URL` to the gateway URL, and set `MEMSMITH_OPENROUTER_API_KEY` to the gateway key. For details, see [Configuration](../configuration).
+</Warning>
+
 memsmith can route its background memory agent through a LiteLLM proxy. This lets teams keep memsmith's Claude Agent SDK workflow while using LiteLLM for model routing, centralized credentials, usage tracking, budgets, audit logs, and provider failover.
 
 The important detail: memsmith does **not** call LiteLLM with the OpenAI client directly. memsmith still uses the Claude Agent SDK, and the SDK sends Anthropic-format requests to LiteLLM. LiteLLM then translates those requests to the upstream model provider you configured.
