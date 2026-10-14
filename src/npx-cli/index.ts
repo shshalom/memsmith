@@ -44,8 +44,6 @@ ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed pl
   ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys
   ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (off unless MEMSMITH_TELEMETRY_KEY is set)
   ${styleText('cyan', 'npx memsmith search <query>')}       Search observations
-  ${styleText('cyan', 'npx memsmith adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
-  ${styleText('cyan', 'npx memsmith cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
   ${styleText('cyan', 'npx memsmith transcript watch')}     Start transcript watcher
   ${styleText('cyan', 'npx memsmith antigravity-cli install|status|uninstall')}   Manage Antigravity CLI hooks + MCP config
 
@@ -192,16 +190,10 @@ async function main(): Promise<void> {
       break;
     }
 
-    case 'adopt': {
-      const { runAdoptCommand } = await import('./commands/runtime.js');
-      runAdoptCommand(args.slice(1));
-      break;
-    }
-
+    case 'adopt':
     case 'cleanup': {
-      const { runCleanupCommand } = await import('./commands/runtime.js');
-      runCleanupCommand(args.slice(1));
-      break;
+      const { runUnavailableCommand } = await import('./commands/runtime.js');
+      runUnavailableCommand(command);
     }
 
     case 'transcript': {

@@ -26,10 +26,6 @@ function resolveBunOrExit(): string {
   return bunPath;
 }
 
-function workerServiceScriptPath(): string {
-  return join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
-}
-
 function serverServiceScriptPath(): string {
   // Plan §1c line 149: prefer the renamed `server-service.cjs`, but fall
   // back to the legacy `server-beta-service.cjs` for installed plugin
@@ -65,20 +61,6 @@ function spawnPlugin(bunPath: string, args: string[], startFailureLabel = 'Bun')
   });
 }
 
-function spawnBunWorkerCommand(command: string, extraArgs: string[] = []): void {
-  ensureInstalledOrExit();
-  const bunPath = resolveBunOrExit();
-  const workerScript = workerServiceScriptPath();
-
-  if (!existsSync(workerScript)) {
-    console.error(styleText('red', `Worker script not found at: ${workerScript}`));
-    console.error('The installation may be corrupted. Try: npx memsmith install');
-    process.exit(1);
-  }
-
-  spawnPlugin(bunPath, [workerScript, command, ...extraArgs]);
-}
-
 function spawnBunServerCommand(command: string, extraArgs: string[] = []): void {
   ensureInstalledOrExit();
   const bunPath = resolveBunOrExit();
@@ -109,23 +91,10 @@ export function runServerApiKeyCommand(extraArgs: string[] = []): void {
   spawnBunServerCommand(command, rest);
 }
 
-export function runAdoptCommand(extraArgs: string[] = []): void {
-  ensureInstalledOrExit();
-  const bunPath = resolveBunOrExit();
-  const workerScript = workerServiceScriptPath();
-
-  if (!existsSync(workerScript)) {
-    console.error(styleText('red', `Worker script not found at: ${workerScript}`));
-    console.error('The installation may be corrupted. Try: npx memsmith install');
-    process.exit(1);
-  }
-
-  const userCwd = process.cwd();
-  spawnPlugin(bunPath, [workerScript, 'adopt', '--cwd', userCwd, ...extraArgs]);
-}
-
-export function runCleanupCommand(extraArgs: string[] = []): void {
-  spawnBunWorkerCommand('cleanup', extraArgs);
+// adopt and cleanup were subcommands of the retired worker script.
+export function runUnavailableCommand(command: string): never {
+  console.error(`memsmith ${command} is not available in this version.`);
+  process.exit(1);
 }
 
 export async function runSearchCommand(queryParts: string[]): Promise<void> {
@@ -218,8 +187,9 @@ export function runTranscriptWatchCommand(): void {
   );
 
   if (!existsSync(transcriptWatcherPath)) {
-    spawnBunWorkerCommand('transcript', ['watch']);
-    return;
+    console.error(styleText('red', `Transcript watcher not found at: ${transcriptWatcherPath}`));
+    console.error('The installation may be corrupted. Try: npx memsmith install');
+    process.exit(1);
   }
 
   spawnPlugin(bunPath, [transcriptWatcherPath, 'watch'], 'transcript watcher');

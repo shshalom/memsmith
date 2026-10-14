@@ -655,7 +655,7 @@ export async function runServerServiceCli(argv: string[] = process.argv.slice(2)
     const event = argv[2];
     if (!platform || !event) {
       console.error('Usage: memsmith hook <platform> <event>');
-      console.error('Platforms: claude-code, codex, cursor, antigravity-cli, raw');
+      console.error('Platforms: claude-code, codex, cursor, windsurf, antigravity-cli, raw');
       console.error('Events: context, session-init, observation, summarize');
       process.exit(1);
     }
