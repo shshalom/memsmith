@@ -46,19 +46,19 @@ memsmith restart
 
 ## Choose a model
 
-The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEMSMITH_OPENROUTER_MODEL` to its OpenRouter ID. Free models have a `:free` suffix; see the [model list](https://openrouter.ai/models).
+The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEMSMITH_SERVER_MODEL` to its OpenRouter ID. Free models have a `:free` suffix; see the [model list](https://openrouter.ai/models).
 
 ```json
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "your-api-key",
-  "MEMSMITH_OPENROUTER_MODEL": "google/gemini-2.5-flash"
+  "MEMSMITH_SERVER_MODEL": "google/gemini-2.5-flash"
 }
 ```
 
 ## Custom OpenAI-compatible endpoints
 
-The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `MEMSMITH_OPENROUTER_MODEL` is sent verbatim.
+The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `MEMSMITH_SERVER_MODEL` is sent verbatim.
 
 <Info>
 **Base URL resolution:** When `MEMSMITH_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, memsmith POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
@@ -70,7 +70,7 @@ The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPE
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "https://api.deepseek.com",
-  "MEMSMITH_OPENROUTER_MODEL": "deepseek-chat",
+  "MEMSMITH_SERVER_MODEL": "deepseek-chat",
   "MEMSMITH_OPENROUTER_API_KEY": "YOUR_DEEPSEEK_API_KEY"
 }
 ```
@@ -83,7 +83,7 @@ LM Studio exposes an OpenAI-compatible server. No API key is required for local 
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
-  "MEMSMITH_OPENROUTER_MODEL": "your-local-model-id"
+  "MEMSMITH_SERVER_MODEL": "your-local-model-id"
 }
 ```
 
@@ -95,7 +95,7 @@ Any OpenAI-compatible gateway works the same way:
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "https://my-gateway.example.com/v1",
-  "MEMSMITH_OPENROUTER_MODEL": "model-id",
+  "MEMSMITH_SERVER_MODEL": "model-id",
   "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
 }
 ```

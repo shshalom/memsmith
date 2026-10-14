@@ -37,7 +37,7 @@ OpenRouter actively supports democratizing AI access by offering free models. Th
 | **Mistral Nemo** | `mistralai/mistral-nemo:free` | 12B | 128K | Efficient performance |
 
 <Note>
-**Default model**: MemSmith uses `xiaomi/mimo-v2-flash:free` by default. To use a different model, set `MEMSMITH_OPENROUTER_MODEL`.
+**Default model**: MemSmith uses `xiaomi/mimo-v2-flash:free` by default. To use a different model, set `MEMSMITH_SERVER_MODEL`.
 </Note>
 
 ### Free Model Considerations
@@ -73,7 +73,7 @@ All free models support:
 |---------|--------|---------|-------------|
 | `MEMSMITH_SERVER_PROVIDER` | `ollama`, `claude`, `gemini`, `openrouter` | `ollama` | Generation provider |
 | `MEMSMITH_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
-| `MEMSMITH_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
+| `MEMSMITH_SERVER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
 | `MEMSMITH_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
 | `MEMSMITH_OPENROUTER_APP_NAME` | string | `memsmith` | Optional: App name for analytics |
 
@@ -95,7 +95,7 @@ Edit `~/.memsmith/settings.json`:
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
-  "MEMSMITH_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
+  "MEMSMITH_SERVER_MODEL": "xiaomi/mimo-v2-flash:free"
 }
 ```
 

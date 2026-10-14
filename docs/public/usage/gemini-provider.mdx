@@ -39,7 +39,7 @@ MemSmith supports Google's Gemini API as an alternative to the Claude Agent SDK 
 |---------|--------|---------|-------------|
 | `MEMSMITH_SERVER_PROVIDER` | `ollama`, `claude`, `gemini`, `openrouter` | `ollama` | Generation provider |
 | `MEMSMITH_GEMINI_API_KEY` | string | — | Your Gemini API key |
-| `MEMSMITH_GEMINI_MODEL` | `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3-flash-preview` | `gemini-2.5-flash-lite` | Gemini model to use |
+| `MEMSMITH_SERVER_MODEL` | `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3-flash-preview` | `gemini-2.5-flash-lite` | Gemini model to use |
 | `MEMSMITH_GEMINI_BILLING_ENABLED` | `true`, `false` | `false` | Skip rate limiting if billing is enabled on Google Cloud |
 
 ### Using the Settings UI
@@ -60,7 +60,7 @@ Edit `~/.memsmith/settings.json`:
 {
   "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "your-api-key-here",
-  "MEMSMITH_GEMINI_MODEL": "gemini-2.5-flash-lite",
+  "MEMSMITH_SERVER_MODEL": "gemini-2.5-flash-lite",
   "MEMSMITH_GEMINI_BILLING_ENABLED": "true"
 }
 ```
