@@ -14,7 +14,7 @@ export type PromptKind = 'info-request' | 'conversation' | 'task';
 const CONVERSATION: RegExp[] = [
   /\byou (just )?(said|mentioned|wrote|suggested|proposed|listed|described|explained)\b/,
   /\bwhat (did )?you (just )?(mean|meant|say|said)\b/,
-  /\babove\b/,
+  /\b(see above|as above|(the|that|this|those|these)( \w+){1,3} above|(said|mentioned|wrote|listed|shown|described) above)\b/,
   /\b(earlier|before|previously) in (this|the|our) (chat|conversation|session|thread)\b/,
   /\bin (this|our) (chat|conversation|thread)\b/,
   /\bthe (plan|answer|summary|list|code|draft|proposal|explanation|diff|table|options?) you (just )?(wrote|gave|made|proposed|posted|sent|suggested|drafted|described|listed)\b/,
@@ -70,6 +70,36 @@ const INTERROGATIVE_START = /^(what|why|how|when|where|who|whom|whose|which|did|
 
 const PAST_WORK_TERMS = /\b(rationale|reasoning|decision|decisions|decided|agreed|agreement|history|historically|previously|last time|in the past|post-?mortem)\b/;
 
+const PAST_WORK_PHRASES: RegExp[] = [
+  /\brecap\b/,
+  /\bcatch me up\b/,
+  /\bwhat (we|you|they|\w+) (did|decided|changed|tried|agreed|built|shipped|fixed)\b/,
+  /\bhow (we|you|they) (fixed|did|solved|handled|chose|implemented|configured|built)\b/,
+  /\bhistory of\b/,
+  /\byesterday\b/,
+  /\blast (week|session|time|sprint|month|night)\b/,
+];
+
+const PAST_QUESTION: RegExp[] = [
+  /\b(what|how|why|when|where|who|which) (did|was|were|had|have) (we|you|they|i)\b/,
+  /\bwhy (did|was|were|had)\b/,
+  /\b(did|have|had) (we|you|they) (ever )?\w+/,
+];
+
+/** Past this, a prompt is a brief or a bug report, and a question mark alone
+ *  says nothing about past work. */
+const LONG_PROMPT_CHARS = 300;
+
+function sentenceCount(t: string): number {
+  return t.split(/[.!?]+(?:\s|$)/).filter(part => part.trim().length > 0).length;
+}
+
+function hasPastWorkSignal(t: string): boolean {
+  return PAST_WORK_TERMS.test(t)
+    || PAST_WORK_PHRASES.some(re => re.test(t))
+    || PAST_QUESTION.some(re => re.test(t));
+}
+
 function normalize(prompt: string): string {
   return stripMemoryTags(prompt)
     .toLowerCase()
@@ -84,6 +114,8 @@ export function classifyPrompt(prompt: string): PromptKind {
   if (!t || t.startsWith('/')) return 'task';
 
   if (CONVERSATION.some(re => re.test(t))) return 'conversation';
+  if (hasPastWorkSignal(t)) return 'info-request';
+  if (t.length > LONG_PROMPT_CHARS || sentenceCount(t) > 1) return 'task';
   if (ASKS_TO_BE_TOLD.some(re => re.test(t))) return 'info-request';
   if (POLITE_TASK.test(t)) return 'task';
 
@@ -94,7 +126,6 @@ export function classifyPrompt(prompt: string): PromptKind {
   if (QUESTION_PHRASES.some(re => re.test(t))) return 'info-request';
   if (taskStart) return 'task';
   if (asks || INTERROGATIVE_START.test(body)) return 'info-request';
-  if (PAST_WORK_TERMS.test(t)) return 'info-request';
   return 'task';
 }
 

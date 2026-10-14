@@ -32,10 +32,35 @@ const CASES: Array<[string, PromptKind]> = [
   // Unsure: a plain question with no task verb is strict-classified.
   ['is the build passing on main?', 'info-request'],
   ['how do I run the server tests', 'info-request'],
+  ['what does this function do?', 'info-request'],
+
+  // Imperative past-work requests: the past-work signal beats the task verb.
+  ['summarize what we did last week on the gate', 'info-request'],
+  ['list the decisions we made on auth', 'info-request'],
+  ['show the history of the discovery gate', 'info-request'],
+  ['describe how we fixed the WAL bug', 'info-request'],
+  ['give me a recap of last week', 'info-request'],
+  ['catch me up on the installer work', 'info-request'],
+  ['check what Sam did on the migration', 'info-request'],
+  ['recap', 'info-request'],
+  ['fix the bug we hit yesterday', 'info-request'],
+  // "above" as a value, not a reference to the conversation.
+  ['Why did we choose a port above 30000?', 'info-request'],
+  // Longer prompts need a past-work signal; a question mark alone is not one.
+  ['The login page crashes when I click submit. Can you figure out why?', 'task'],
+  ['The importer drops rows with a null project id. Write a failing test first, then fix it. Does that sound right?', 'task'],
+  ['Here is the plan for the release. Bump the version, rebuild the bundles, and update the changelog. ' +
+    'Then open a PR against main with a summary of the changes and the test results, and tag the reviewers ' +
+    'who own the hooks and the installer so they can look at it before the end of the day. Any questions?', 'task'],
+  ['The gate blocked a grep again. What did we decide about the consult window?', 'info-request'],
+  ['I am picking the installer back up after a break. It has been a while. Where did we leave the Ollama setup last week?', 'info-request'],
+  ['The queue engine is inline now. Why was BullMQ dropped? I want to write it up.', 'info-request'],
 
   // Current-conversation exemptions.
   ['you just said the port is 55433 — why?', 'conversation'],
   ['can you expand on the second point above?', 'conversation'],
+  ['as above, but for the codex hooks', 'conversation'],
+  ['what about the options you listed above', 'conversation'],
   ['what did you mean earlier in this chat about rule A?', 'conversation'],
   ['why does the plan you wrote skip phase 3?', 'conversation'],
   ['summarize your last answer', 'conversation'],
