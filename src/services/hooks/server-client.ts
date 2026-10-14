@@ -184,6 +184,11 @@ export interface ServerSearchObservationsResponse {
   }>;
 }
 
+export interface ServerGetObservationsRequest {
+  projectId: string;
+  ids: string[];
+}
+
 // Phase 8 — context pack for prompt injection. Server returns both the
 // matched observations AND a pre-joined `context` string.
 export interface ServerContextObservationsRequest {
@@ -296,6 +301,16 @@ export class ServerClient {
       'POST',
       '/v1/context',
       this.buildSearchPayload(input),
+    );
+  }
+
+  async getObservations(
+    input: ServerGetObservationsRequest,
+  ): Promise<ServerSearchObservationsResponse> {
+    return this.request<ServerSearchObservationsResponse>(
+      'POST',
+      '/v1/observations/get',
+      { projectId: input.projectId, ids: input.ids },
     );
   }
 

@@ -289,6 +289,19 @@ export class PostgresObservationRepository {
     return row ? mapObservationRow(row) : null;
   }
 
+  async listByIdsForScope(input: {
+    ids: string[];
+    projectId: string;
+    teamId: string;
+  }): Promise<PostgresObservation[]> {
+    if (input.ids.length === 0) return [];
+    const result = await this.client.query<ObservationRow>(
+      'SELECT * FROM observations WHERE id = ANY($1::text[]) AND project_id = $2 AND team_id = $3',
+      [input.ids, input.projectId, input.teamId]
+    );
+    return result.rows.map(mapObservationRow);
+  }
+
   async listByProject(input: {
     projectId: string;
     teamId: string;

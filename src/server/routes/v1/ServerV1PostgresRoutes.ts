@@ -1357,6 +1357,48 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       },
     ));
 
+    // Full records for ids the agent picked from a search index. Reads with the
+    // same team-wide fan-out as /v1/search, so every id search can return is
+    // fetchable here.
+    app.post('/v1/observations/get', readAuth, this.handleCreate(
+      z.object({
+        projectId: z.string().min(1).optional(),
+        ids: z.array(z.string().min(1)).min(1).max(25),
+      }),
+      async (req, res, body) => {
+        const teamId = this.requireTeamId(req, res);
+        if (!teamId) return;
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
+        const ids = [...new Set(body.ids)];
+        let results;
+        try {
+          results = await this.readTeamWide(
+            { projectId, teamId },
+            req.databasePool ?? this.options.pool,
+            ids.length,
+            (pool, pid) => new PostgresObservationRepository(pool).listByIdsForScope({ ids, projectId: pid, teamId }),
+          );
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          logger.warn('SYSTEM', 'observation.get failed', { requestId: req.requestId ?? null }, err);
+          this.handleDbError(err, res, 'observation.get');
+          return;
+        }
+        await this.auditWrite(req, 'observation.read', null, projectId, {
+          mode: 'get',
+          requestedIds: ids,
+          resultCount: results.length,
+          observationIds: results.map(o => o.id),
+        });
+        res.status(200).json({ observations: results.map(serializeObservation) });
+      },
+    ));
+
     // Phase 8 — context pack: same read/ranking path as `/v1/search` (hybrid by
     // default via resolveSearchResults), but also returns a concatenated context
     // string for direct prompt injection. The MCP `observation_context` tool
