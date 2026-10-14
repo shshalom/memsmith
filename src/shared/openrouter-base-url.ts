@@ -16,7 +16,7 @@
  * MEMSMITH_OPENROUTER_MODEL setting (passed verbatim), a user points the base
  * URL at any OpenAI-compatible endpoint and selects an arbitrary model id.
  *
- * Usage examples (set MEMSMITH_PROVIDER=openrouter, then):
+ * Usage examples (set MEMSMITH_SERVER_PROVIDER=openrouter, then):
  *
  *   DeepSeek:
  *     MEMSMITH_OPENROUTER_BASE_URL = https://api.deepseek.com

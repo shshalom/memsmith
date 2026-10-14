@@ -76,7 +76,6 @@ export interface Settings {
   MEMSMITH_WORKER_PORT: string;
   MEMSMITH_WORKER_HOST: string;
 
-  MEMSMITH_PROVIDER?: string;  
   MEMSMITH_GEMINI_API_KEY?: string;
   MEMSMITH_GEMINI_MODEL?: string;  
   MEMSMITH_GEMINI_RATE_LIMITING_ENABLED?: string;  
