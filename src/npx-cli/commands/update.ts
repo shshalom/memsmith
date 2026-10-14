@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { paths } from '../../shared/paths.js';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { styleText } from 'node:util';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { pickProxyVars } from '../install/ollama-setup.js';
@@ -23,6 +23,7 @@ const PLUGIN_KEY = 'memsmith@shshalom';
 const REEXEC_ENV = 'MEMSMITH_UPDATE_REEXEC';
 const USAGE = 'Usage: memsmith update [--force] [--no-self-update]';
 const KNOWN_FLAGS = new Set(['--force', '--no-self-update']);
+export const NPX_UNAVAILABLE = 127;
 const STOPPED_MARKER = () => join(paths.dataDir(), '.update-stopped-server');
 
 export type ServerState =
@@ -39,7 +40,7 @@ export interface UpdateDeps {
   installedVersion(): string | null;
   cacheReady(version: string): boolean;
   installPluginFiles(version: string): Promise<void>;
-  syncRegistry(version: string): number;
+  syncRegistry(version: string): { changed: number; skipped: string[] };
   serverStoppedByUpdate(): boolean;
   setServerStoppedByUpdate(stopped: boolean): void;
   serverState(): Promise<ServerState>;
@@ -81,8 +82,9 @@ export function syncInstalledPluginEntries(
   version: string,
   cachePath: string,
   now: string,
-): { registry: Record<string, unknown>; changed: number } {
-  const cacheRoot = dirname(cachePath);
+): { registry: Record<string, unknown>; changed: number; skipped: string[] } {
+  const cacheRoot = comparablePath(dirname(cachePath));
+  const skipped: string[] = [];
   const plugins = { ...((registry.plugins as Record<string, unknown> | undefined) ?? {}) };
   const current = Array.isArray(plugins[PLUGIN_KEY]) ? (plugins[PLUGIN_KEY] as PluginEntry[]) : [];
   let changed = 0;
@@ -90,14 +92,23 @@ export function syncInstalledPluginEntries(
     ? [{ scope: 'user', installPath: cachePath, version, installedAt: now, lastUpdated: now }]
     : current.map((entry) => {
       if (entry.version === version && entry.installPath === cachePath) return entry;
-      if (typeof entry.installPath === 'string' && dirname(entry.installPath) !== cacheRoot) return entry;
+      if (typeof entry.installPath === 'string' && comparablePath(dirname(entry.installPath)) !== cacheRoot) {
+        skipped.push(entry.installPath);
+        return entry;
+      }
       changed++;
       const { gitCommitSha: _sha, ...rest } = entry;
       return { ...rest, installPath: cachePath, version, lastUpdated: now };
     });
   if (current.length === 0) changed = 1;
   plugins[PLUGIN_KEY] = next;
-  return { registry: { ...registry, version: registry.version ?? 2, plugins }, changed };
+  return { registry: { ...registry, version: registry.version ?? 2, plugins }, changed, skipped };
+}
+
+function comparablePath(path: string): string {
+  let resolved = resolve(path);
+  try { resolved = realpathSync(resolved); } catch { /* not on disk: compare as written */ }
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function checkArgs(argv: string[], d: UpdateDeps): number | null {
@@ -133,9 +144,10 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     } else if (isNewerVersion(latest, target)) {
       d.out(`MemSmith ${latest} is available (this CLI is ${target}). Running memsmith@${latest} update…`);
       const code = await d.reexecLatest(latest, argv);
-      if (code !== 0) {
-        d.err(`memsmith@${latest} update did not finish (exit ${code}).`);
-        d.err(`If npx is unavailable, install the CLI with \`npm install -g memsmith@${latest}\` and run \`memsmith update\`, or run \`memsmith update --no-self-update\` to update to ${target}.`);
+      if (code === NPX_UNAVAILABLE) {
+        d.err(`Couldn't run npx. Install the CLI with \`npm install -g memsmith@${latest}\` and run \`memsmith update\`, or run \`memsmith update --no-self-update\` to update to ${target}.`);
+      } else if (code !== 0) {
+        d.err(`memsmith@${latest} update did not finish; see the error above.`);
       }
       return code;
     }
@@ -154,7 +166,7 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
   const server: ServerState = observed.kind === 'stopped' && d.serverStoppedByUpdate()
     ? { kind: 'running', version: undefined }
     : observed;
-  const replaceFiles = force || installed !== target || !d.cacheReady(target);
+  const replaceFiles = force || d.serverStoppedByUpdate() || installed !== target || !d.cacheReady(target);
   const staleServer = server.kind === 'running' && server.version !== target;
 
   let registryChanged: number;
@@ -171,7 +183,9 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
       d.out(`Installing MemSmith ${target}…`);
       await d.installPluginFiles(target);
     }
-    registryChanged = d.syncRegistry(target);
+    const registrySync = d.syncRegistry(target);
+    registryChanged = registrySync.changed;
+    for (const path of registrySync.skipped) d.out(`Left a Claude Code plugin entry alone because it points outside the MemSmith cache: ${path}`);
   } catch (error) {
     d.err(`The update failed: ${error instanceof Error ? error.message : String(error)}`);
     const remediation = (error as { remediation?: unknown } | null)?.remediation;
@@ -199,7 +213,7 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     if (replaceFiles || staleServer) {
       d.out('Starting the server…');
       if ((await d.startServer()) !== 0) {
-        d.err('The server did not start. Run: memsmith start, or memsmith doctor');
+        d.err('The server did not start. To retry, run: memsmith update. To diagnose it, run: memsmith doctor');
         return 1;
       }
     }
@@ -270,8 +284,8 @@ export function defaultUpdateDeps(): UpdateDeps {
         env: { ...sanitizeEnv(process.env), ...pickProxyVars(process.env), ...pickNpmNetworkConfig(process.env), [REEXEC_ENV]: '1' },
         shell: IS_WINDOWS,
       });
-      child.on('error', () => resolve(1));
-      child.on('close', (code) => resolve(code ?? 1));
+      child.on('error', () => resolve(NPX_UNAVAILABLE));
+      child.on('close', (code) => resolve(code === NPX_UNAVAILABLE ? 1 : code ?? 1));
     }),
     isInstalled: () => isPluginInstalled(),
     installedVersion: () => (isPluginInstalled() ? installedPluginVersion(undefined, () => '') || null : null),
@@ -291,14 +305,14 @@ export function defaultUpdateDeps(): UpdateDeps {
     },
     syncRegistry: (version) => {
       const path = installedPluginsPath();
-      const { registry, changed } = syncInstalledPluginEntries(
+      const { registry, changed, skipped } = syncInstalledPluginEntries(
         readJsonSafe<Record<string, unknown>>(path, {}),
         version,
         pluginCacheDirectory(version),
         new Date().toISOString(),
       );
       if (changed > 0) writeJsonFileAtomic(path, registry);
-      return changed;
+      return { changed, skipped };
     },
     serverStoppedByUpdate: () => existsSync(STOPPED_MARKER()),
     setServerStoppedByUpdate: (stopped) => {

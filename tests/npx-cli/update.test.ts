@@ -38,7 +38,7 @@ function fake(opts: FakeOpts = {}) {
     installedVersion: () => (opts.installed === undefined ? '1.0.0' : opts.installed),
     cacheReady: () => opts.cacheReady ?? true,
     installPluginFiles: async (version) => { calls.push(`install:${version}`); if (opts.installThrows) throw opts.installThrows; },
-    syncRegistry: (version) => { calls.push(`registry:${version}`); return opts.registryChanged ?? 1; },
+    syncRegistry: (version) => { calls.push(`registry:${version}`); return { changed: opts.registryChanged ?? 1, skipped: [] }; },
     serverStoppedByUpdate: () => marker,
     setServerStoppedByUpdate: (stopped) => { marker = stopped; calls.push(`marker:${stopped}`); },
     serverState: async () => server,
@@ -156,19 +156,27 @@ describe('memsmith update', () => {
     expect(f.text()).toContain('memsmith update --force');
   });
 
-  it('starts the server it stopped on an earlier failed run', async () => {
+  it('finishes the install and starts the server after an earlier failed run', async () => {
     const f = fake({ cli: '1.1.0', installed: '1.1.0', stoppedMarker: true, server: { kind: 'stopped' } });
     expect(await runUpdate([], f.deps)).toBe(0);
+    expect(f.calls).toContain('install:1.1.0');
     expect(f.calls).toContain('start');
     expect(f.marker()).toBe(false);
     expect(f.text()).toContain('Server: 1.1.0');
   });
 
-  it('explains how to finish when the re-run with the newer CLI fails', async () => {
-    const f = fake({ cli: '1.1.0', latest: '1.2.0', reexecCode: 1 });
-    expect(await runUpdate([], f.deps)).toBe(1);
+  it('explains how to finish when npx cannot run the newer CLI', async () => {
+    const f = fake({ cli: '1.1.0', latest: '1.2.0', reexecCode: 127 });
+    expect(await runUpdate([], f.deps)).toBe(127);
     expect(f.text()).toContain('npm install -g memsmith@1.2.0');
     expect(f.text()).toContain('--no-self-update');
+  });
+
+  it('points at the newer CLI\'s own error when it ran and failed', async () => {
+    const f = fake({ cli: '1.1.0', latest: '1.2.0', reexecCode: 1 });
+    expect(await runUpdate([], f.deps)).toBe(1);
+    expect(f.text()).toContain('see the error above');
+    expect(f.text()).not.toContain('npm install -g');
   });
 
   it('asks for an install when MemSmith is not installed', async () => {
@@ -229,6 +237,20 @@ describe('syncInstalledPluginEntries', () => {
     expect((next.plugins as any)['other@x']).toEqual([{ scope: 'user', version: '1.0.0' }]);
   });
 
+  it('recognizes a cache entry written through a symlinked home folder', () => {
+    const { mkdtempSync, mkdirSync, symlinkSync, realpathSync } = require('fs');
+    const { join } = require('path');
+    const { tmpdir } = require('os');
+    const real = realpathSync(mkdtempSync(join(tmpdir(), 'ms-reg-')));
+    mkdirSync(join(real, 'cache', '1.0.0'), { recursive: true });
+    const linked = `${real}-link`;
+    symlinkSync(real, linked);
+    const registry = { plugins: { 'memsmith@shshalom': [{ scope: 'local', installPath: join(linked, 'cache', '1.0.0'), version: '1.0.0', installedAt: 'a', lastUpdated: 'a' }] } };
+    const result = syncInstalledPluginEntries(registry, '1.1.0', join(real, 'cache', '1.1.0'), now);
+    expect(result.skipped).toEqual([]);
+    expect(result.changed).toBe(1);
+  });
+
   it('reports no change when every entry is already current', () => {
     const registry = { version: 2, plugins: { 'memsmith@shshalom': [{ scope: 'user', installPath: '/c/1', version: '1', installedAt: 'a', lastUpdated: 'a' }] } };
     expect(syncInstalledPluginEntries(registry, '1', '/c/1', now).changed).toBe(0);
@@ -239,9 +261,10 @@ describe('syncInstalledPluginEntries', () => {
       { scope: 'local', projectPath: '/dev', installPath: '/src/memsmith/plugin', version: '0.0.0', installedAt: 'a', lastUpdated: 'a' },
       { scope: 'user', installPath: '/c/1.0.0', version: '1.0.0', gitCommitSha: 'abc', installedAt: 'a', lastUpdated: 'a' },
     ] } };
-    const { registry: next, changed } = syncInstalledPluginEntries(registry, '1.1.0', '/c/1.1.0', now);
+    const { registry: next, changed, skipped } = syncInstalledPluginEntries(registry, '1.1.0', '/c/1.1.0', now);
     const entries = (next.plugins as any)['memsmith@shshalom'];
     expect(changed).toBe(1);
+    expect(skipped).toEqual(['/src/memsmith/plugin']);
     expect(entries[0].installPath).toBe('/src/memsmith/plugin');
     expect(entries[1]).toEqual({ scope: 'user', installPath: '/c/1.1.0', version: '1.1.0', installedAt: 'a', lastUpdated: now });
   });
