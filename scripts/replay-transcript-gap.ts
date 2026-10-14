@@ -14,7 +14,7 @@
 //
 // Usage:
 //   bun scripts/replay-transcript-gap.ts --cwd ~/Workspace/App --from <iso> --to <iso>            # dry-run
-//   bun scripts/replay-transcript-gap.ts --cwd ... --from ... --to ... --execute [--limit N]
+//   bun scripts/replay-transcript-gap.ts --cwd ... --from ... --to ... --execute [--limit N] [--batch N] [--stall-minutes N]
 //   bun scripts/replay-transcript-gap.ts --cwd ... --from ... --to ... --backdate
 //
 // --backdate runs after generation finishes: it sets each generated
@@ -161,6 +161,7 @@ export interface Args {
   backdate: boolean;
   limit: number | null;
   batch: number;
+  stallMinutes: number;
 }
 
 // A time with no zone would be read as local time and shift the window.
@@ -180,7 +181,7 @@ function positiveInt(value: string | undefined, flag: string): number {
 
 // Any mistyped flag is an error, so a typo never turns a test run into the full replay.
 export function parseArgs(argv: string[]): Args {
-  const out: Args = { cwd: null, from: null, to: null, execute: false, backdate: false, limit: null, batch: 4 };
+  const out: Args = { cwd: null, from: null, to: null, execute: false, backdate: false, limit: null, batch: 4, stallMinutes: 180 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--cwd') out.cwd = requireDirectory(argv[++i]);
@@ -190,6 +191,7 @@ export function parseArgs(argv: string[]): Args {
     else if (a === '--backdate') out.backdate = true;
     else if (a === '--limit') out.limit = positiveInt(argv[++i], '--limit');
     else if (a === '--batch') out.batch = positiveInt(argv[++i], '--batch');
+    else if (a === '--stall-minutes') out.stallMinutes = positiveInt(argv[++i], '--stall-minutes');
     else throw new Error(`unknown argument ${a}`);
   }
   if (!out.cwd || out.from === null || out.to === null) throw new Error('--cwd, --from, and --to are required');
@@ -199,15 +201,15 @@ export function parseArgs(argv: string[]): Args {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const STALL_MS = 20 * 60_000;
-
 /**
  * Wait until fewer than `below` of the project's jobs can still run. A job the
  * server can never pick up again does not count: one stuck in processing past
  * the stale-lock age, or one put back in the queue with no attempts left. Exits
- * if nothing completes for STALL_MS rather than waiting forever.
+ * if none of this project's jobs finishes for `stallMs` rather than waiting
+ * forever. The model is shared with live capture in every project, so the
+ * window must cover a backlog elsewhere draining first.
  */
-async function waitForQueue(pool: Pool, projectId: string, below: number): Promise<void> {
+async function waitForQueue(pool: Pool, projectId: string, below: number, stallMs: number): Promise<void> {
   let lastDone = -1;
   let lastProgressAt = Date.now();
   for (;;) {
@@ -223,8 +225,8 @@ async function waitForQueue(pool: Pool, projectId: string, below: number): Promi
     if (done !== lastDone) {
       lastDone = done;
       lastProgressAt = Date.now();
-    } else if (Date.now() - lastProgressAt > STALL_MS) {
-      throw new Error(`no generation job finished for ${STALL_MS / 60_000} minutes with ${active} still active; check the MemSmith server, then re-run (sent events are deduplicated)`);
+    } else if (Date.now() - lastProgressAt > stallMs) {
+      throw new Error(`no generation job finished for ${stallMs / 60_000} minutes with ${active} still active; check the MemSmith server, then re-run (sent events are deduplicated)`);
     }
     await sleep(15_000);
   }
@@ -302,14 +304,14 @@ async function main() {
 
     let sent = 0;
     for (let i = 0; i < calls.length; i += args.batch) {
-      await waitForQueue(pool, target.projectId, args.batch);
+      await waitForQueue(pool, target.projectId, args.batch, args.stallMinutes * 60_000);
       for (const c of calls.slice(i, i + args.batch)) {
         await runtime.client.recordEvent(buildEvent(c, target.projectId));
         sent++;
       }
       console.log(`[replay] sent ${sent}/${calls.length}`);
     }
-    await waitForQueue(pool, target.projectId, 1);
+    await waitForQueue(pool, target.projectId, 1, args.stallMinutes * 60_000);
     await reportJobs(pool, target.projectId, args.from!, args.to!);
     console.log(`[replay] done. Sent ${sent} events. Run --backdate next.`);
   } finally {

@@ -132,7 +132,7 @@ describe('parseArgs', () => {
   });
 
   it('accepts a full set of arguments', () => {
-    expect(parseArgs([...base, '--execute', '--limit', '5'])).toMatchObject({ execute: true, limit: 5, batch: 4 });
+    expect(parseArgs([...base, '--execute', '--limit', '5'])).toMatchObject({ execute: true, limit: 5, batch: 4, stallMinutes: 180 });
   });
 });
 
