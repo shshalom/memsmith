@@ -159,7 +159,7 @@ import {
   writeJsonFileAtomic,
 } from '../utils/paths.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
-import { readFlatSettings } from '../utils/settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';
 import { detectInstalledIDEs } from './ide-detection.js';
 

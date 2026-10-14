@@ -13,7 +13,7 @@ import {
   writeJsonFileAtomic,
 } from '../utils/paths.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
-import { readFlatSettings } from '../utils/settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';

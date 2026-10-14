@@ -72,3 +72,38 @@ describe('SettingsResolver precedence', () => {
     expect(reads).toBe(2);
   });
 });
+
+// The installer records the generation provider in ~/.memsmith/settings.json.
+// The per-job provider comes from this resolver, which read only team overrides
+// and the process environment, so the installer's choice never reached
+// generation: a user who picked Claude kept generating with the Ollama default.
+describe('SettingsResolver settings-file tier', () => {
+  it('uses the provider the installer saved when nothing overrides it', async () => {
+    delete process.env.MEMSMITH_SERVER_PROVIDER;
+    const r = new SettingsResolver(fakeStore({}), { fileSettings: () => ({ MEMSMITH_SERVER_PROVIDER: 'claude' }) });
+    expect(await r.resolve('t', 'provider')).toEqual({ value: 'claude', source: 'file' });
+  });
+
+  it('uses the model the installer saved', async () => {
+    delete process.env.MEMSMITH_SERVER_MODEL;
+    const r = new SettingsResolver(fakeStore({}), { fileSettings: () => ({ MEMSMITH_SERVER_MODEL: 'claude-haiku-4-5-20251001' }) });
+    expect(await r.model('t')).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('a dashboard override and the environment both beat the settings file', async () => {
+    const file = () => ({ MEMSMITH_SERVER_PROVIDER: 'claude' });
+    expect(await new SettingsResolver(fakeStore({ provider: 'gemini' }), { fileSettings: file }).provider('t')).toBe('gemini');
+    process.env.MEMSMITH_SERVER_PROVIDER = 'openrouter';
+    try {
+      expect(await new SettingsResolver(fakeStore({}), { fileSettings: file }).provider('t')).toBe('openrouter');
+    } finally {
+      delete process.env.MEMSMITH_SERVER_PROVIDER;
+    }
+  });
+
+  it('ignores an invalid value in the settings file', async () => {
+    delete process.env.MEMSMITH_SERVER_PROVIDER;
+    const r = new SettingsResolver(fakeStore({}), { fileSettings: () => ({ MEMSMITH_SERVER_PROVIDER: 'gpt' }) });
+    expect(await r.resolve('t', 'provider')).toEqual({ value: 'ollama', source: 'default' });
+  });
+});

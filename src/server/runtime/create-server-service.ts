@@ -46,6 +46,11 @@ import { GenerationProviderHolder } from '../generation/GenerationProviderHolder
 import { readLocalScopeFromMarkerOrEnv } from './resolve-local-scope.js';
 import { resolveGenerationProviderName } from './resolve-generation-provider.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import {
+  loadGenerationConfigSources,
+  resolveGenerationCredentials,
+  type GenerationConfigSources,
+} from './generation-credentials.js';
 
 export interface CreateServerServiceOptions {
   pool?: PostgresPool;
@@ -633,46 +638,39 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
 export function instantiateServerGenerationProvider(
   provider: string,
   model?: string,
+  sources: GenerationConfigSources = loadGenerationConfigSources(),
 ): ServerGenerationProvider | null {
   const chosenModel = model ?? process.env.MEMSMITH_SERVER_MODEL;
+  const { apiKey, baseUrl } = resolveGenerationCredentials(provider, sources);
   if (provider === 'claude' || provider === 'anthropic') {
-    const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.MEMSMITH_ANTHROPIC_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string } = { apiKey };
     if (chosenModel) opts.model = chosenModel;
     return new ClaudeObservationProvider(opts);
   }
   if (provider === 'gemini') {
-    const apiKey = process.env.GEMINI_API_KEY ?? process.env.MEMSMITH_GEMINI_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string } = { apiKey };
     if (chosenModel) opts.model = chosenModel;
     return new GeminiObservationProvider(opts);
   }
   if (provider === 'openrouter') {
-    const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.MEMSMITH_OPENROUTER_API_KEY ?? '';
     if (!apiKey) return null;
     const opts: { apiKey: string; model?: string; baseUrl?: string } = { apiKey };
     if (chosenModel) opts.model = chosenModel;
     // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL.
-    const baseUrl = process.env.MEMSMITH_OPENROUTER_BASE_URL ?? process.env.OPENROUTER_BASE_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
     return new OpenRouterObservationProvider(opts);
   }
   if (provider === 'ollama') {
     // Keyless by default — do NOT gate on an API key. A key is only used when
     // Ollama is fronted by an auth proxy.
-    const apiKey = process.env.MEMSMITH_OLLAMA_API_KEY ?? '';
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      // qwen2.5:14b, matching the registry default. This was 'llama3.1:8b',
-      // which produces materially worse observations (vague restatements,
-      // invented rationale — measured 2.86 vs 3.90). Callers now pass the
-      // configured model, so this last-resort fallback should rarely fire; when
-      // it does it must not silently downgrade the quality of stored memory.
+      // qwen2.5:14b, matching the registry default: llama3.1:8b produced
+      // materially worse observations (measured 2.86 vs 3.90).
       model: chosenModel ?? 'qwen2.5:14b',
     };
     if (apiKey) opts.apiKey = apiKey;
-    const baseUrl = process.env.MEMSMITH_OLLAMA_URL;
     if (baseUrl) opts.baseUrl = baseUrl;
     return new OllamaObservationProvider(opts);
   }

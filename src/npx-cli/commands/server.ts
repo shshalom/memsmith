@@ -1,5 +1,5 @@
 import { styleText } from 'node:util';
-import { readFlatSettings } from '../utils/settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
 import { runServerApiKeyCommand, runServerWorkerStartCommand } from './runtime.js';
 import { runLifecycle, type LifecycleCommand, type LifecycleDeps } from './lifecycle.js';
 

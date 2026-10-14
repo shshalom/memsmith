@@ -1,6 +1,6 @@
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
-import { readFlatSettings } from './settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
 
 export interface ServerUrlSource {
   settingsPath?: string;
