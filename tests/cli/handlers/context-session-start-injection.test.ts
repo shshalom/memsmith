@@ -61,6 +61,28 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
     expect(ctx).toContain(`${SESSION_START_ORIENTATION_LABEL}\nSEEDED: recent work`);
   });
 
+  it('warns the user first when the server runs an older version than the plugin', async () => {
+    serverWith([{ id: 'obs-1', content: 'SEEDED: recent work' }]);
+    setContextDependenciesForTesting({
+      mintProjectIdentity: async () => null,
+      loadFromFileOnce: () => ({}),
+      getProjectContext: () => ({ primary: 'memsmith', parent: null, isWorktree: false, allProjects: ['memsmith'] }),
+      resolveRuntimeContext: () => ({
+        runtime: 'server',
+        projectId: 'p1',
+        serverBaseUrl: 'http://server.test',
+        client: { searchObservations: async () => ({ observations: [{ id: 'obs-1', content: 'SEEDED: recent work' }] }) },
+      }) as never,
+      checkGenerationReadiness: async () => null,
+      checkServerVersion: async () => 'SKEW: server 13.10.2, plugin 13.11.0',
+    });
+    const result = await contextHandler.execute({ sessionId: 's-skew', cwd: '/tmp/memsmith', platform: 'claude-code' });
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx.startsWith('⚠ SKEW: server 13.10.2, plugin 13.11.0')).toBe(true);
+    expect(ctx).toContain('SEEDED: recent work');
+    expect(result.systemMessage).toContain('SKEW: server 13.10.2, plugin 13.11.0');
+  });
+
   it('omits the orientation label when there is nothing recent to show', async () => {
     serverWith([]);
     const result = await contextHandler.execute({ sessionId: 's-nolabel', cwd: '/tmp/memsmith', platform: 'claude-code' });

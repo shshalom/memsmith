@@ -1,3 +1,5 @@
+declare const __DEFAULT_PACKAGE_VERSION__: string;
+
 // IO discipline (see src/shared/hook-io.ts):
 // - hookSpecificOutput.additionalContext → MODEL_CONTEXT (model consumes; via stdout JSON)
 // - systemMessage                        → USER_HINT (user-visible; via stdout JSON systemMessage)
@@ -97,12 +99,25 @@ async function defaultCheckGenerationReadiness(
   return checkGenerationReadiness(settings as Record<string, unknown>, process.env, {}, resolved);
 }
 
+async function defaultCheckServerVersion(cwd: string, runtime: RuntimeContext): Promise<string | null> {
+  const [{ selectRuntime }, { checkServerVersion }] = await Promise.all([
+    import('../../services/hooks/runtime-selector.js'),
+    import('./server-version-skew.js'),
+  ]);
+  return checkServerVersion({
+    projectRuntime: selectRuntime(cwd),
+    serverBaseUrl: runtime.runtime === 'server' ? runtime.serverBaseUrl : null,
+    pluginVersion: typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined' ? __DEFAULT_PACKAGE_VERSION__ : '',
+  });
+}
+
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
   getProjectContext: defaultGetProjectContext,
   loadFromFileOnce: defaultLoadFromFileOnce,
   mintProjectIdentity: defaultMintProjectIdentity,
   checkGenerationReadiness: defaultCheckGenerationReadiness,
+  checkServerVersion: defaultCheckServerVersion,
 };
 
 let dependencies = defaultDependencies;
@@ -388,13 +403,14 @@ export const contextHandler: EventHandler = {
       }
     }
 
-    const readinessProblem = await dependencies.checkGenerationReadiness(
-      settings,
-      cwd,
-      dependencies.resolveRuntimeContext(),
-    );
-    if (readinessProblem) {
-      additionalContext = `⚠ ${readinessProblem}\nTell the user this before anything else.\n\n${additionalContext}`;
+    const runtimeForChecks = dependencies.resolveRuntimeContext();
+    const [readinessProblem, versionSkew] = await Promise.all([
+      dependencies.checkGenerationReadiness(settings, cwd, runtimeForChecks),
+      dependencies.checkServerVersion(cwd, runtimeForChecks),
+    ]);
+    const notices = [readinessProblem, versionSkew].filter((n): n is string => Boolean(n));
+    if (notices.length > 0) {
+      additionalContext = `${notices.map(n => `⚠ ${n}`).join('\n')}\nTell the user this before anything else.\n\n${additionalContext}`;
     }
 
     return {
@@ -402,8 +418,8 @@ export const contextHandler: EventHandler = {
         hookEventName: 'SessionStart',
         additionalContext
       },
-      systemMessage: readinessProblem
-        ? [readinessProblem, systemMessage].filter(Boolean).join('\n\n')
+      systemMessage: notices.length > 0
+        ? [...notices, systemMessage].filter(Boolean).join('\n\n')
         : systemMessage,
     };
   }
