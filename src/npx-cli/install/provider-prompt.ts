@@ -12,6 +12,8 @@ import {
   providerSettingsUpdates,
 } from './generation-provider.js';
 import type { OllamaSetupMode } from './ollama-setup.js';
+import { normalizeRuntimeFlag } from '../commands/server-runtime-setup.js';
+import { resolveServerAddress } from '../commands/lifecycle.js';
 
 /** The shape of `GET /v1/settings` entries that matter here. */
 export type ResolvedSettingsSnapshot = Partial<Record<'provider' | 'model', { value: unknown; source?: string }>>;
@@ -119,6 +121,26 @@ export async function chooseGenerationProvider(
   if (apiKey === null) return cancelled();
   save(provider, { apiKey });
   return { provider, confirmed: true };
+}
+
+/**
+ * Whether the dashboard lookup may ask the running server. Not a remote team
+ * server (doctor leaves those alone too), and not when this run switches
+ * runtime, because that server's settings no longer apply. Pass the settings
+ * as they were before this run changed them.
+ */
+export function shouldQueryRunningServer(o: {
+  chosenRuntime: 'local' | 'server';
+  existingRuntime: unknown;
+  existingServerUrl: string;
+}): boolean {
+  const existing = normalizeRuntimeFlag(typeof o.existingRuntime === 'string' ? o.existingRuntime : undefined);
+  if (existing !== o.chosenRuntime) return false;
+  try {
+    return !resolveServerAddress(o.existingServerUrl).remote;
+  } catch {
+    return false;
+  }
 }
 
 export function ollamaSetupMode(o: { interactive: boolean; provider?: string; setupOllama?: boolean }): OllamaSetupMode {

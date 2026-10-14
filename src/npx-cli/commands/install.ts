@@ -30,6 +30,7 @@ import {
   currentGenerationSelection,
   ollamaSetupMode,
   ollamaSetupPlan,
+  shouldQueryRunningServer,
   type ProviderOutcome,
   type ResolvedSettingsSnapshot,
 } from '../install/provider-prompt.js';
@@ -997,7 +998,16 @@ async function setupOllamaForInstall(options: InstallOptions, summary: InstallSu
 
 // Best effort: a dashboard override outranks settings.json, so start from what
 // the running server resolves when it answers.
-async function fetchResolvedGenerationSettings(): Promise<ResolvedSettingsSnapshot | null> {
+async function fetchResolvedGenerationSettings(
+  chosenRuntime: RuntimeId,
+  settingsBeforeInstall: Record<string, unknown>,
+): Promise<ResolvedSettingsSnapshot | null> {
+  const savedUrl = settingsBeforeInstall.MEMSMITH_SERVER_URL;
+  const existingServerUrl = process.env.MEMSMITH_SERVER_URL
+    || (typeof savedUrl === 'string' && savedUrl ? savedUrl : SettingsDefaultsManager.getAllDefaults().MEMSMITH_SERVER_URL);
+  if (!shouldQueryRunningServer({ chosenRuntime, existingRuntime: settingsBeforeInstall.MEMSMITH_RUNTIME, existingServerUrl })) {
+    return null;
+  }
   try {
     const { resolveRuntimeContext } = await import('../../services/hooks/runtime-selector.js');
     const runtime = resolveRuntimeContext(process.cwd());
@@ -1009,9 +1019,14 @@ async function fetchResolvedGenerationSettings(): Promise<ResolvedSettingsSnapsh
   }
 }
 
-async function promptProvider(options: InstallOptions): Promise<ProviderOutcome> {
+async function promptProvider(
+  options: InstallOptions,
+  chosenRuntime: RuntimeId,
+  settingsBeforeInstall: Record<string, unknown>,
+): Promise<ProviderOutcome> {
   const settings = readUserSettings();
-  const current = currentGenerationSelection(settings, process.env, await fetchResolvedGenerationSettings());
+  const resolved = await fetchResolvedGenerationSettings(chosenRuntime, settingsBeforeInstall);
+  const current = currentGenerationSelection(settings, process.env, resolved);
   return chooseGenerationProvider(options, current, {
     interactive: isInteractive,
     selectProvider: async (initial) => {
@@ -1196,8 +1211,9 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     selectedIDEs = ['claude-code'];
   }
 
+  const settingsBeforeInstall = readUserSettings();
   const selectedRuntime = await promptRuntime(options);
-  const providerOutcome = await promptProvider(options);
+  const providerOutcome = await promptProvider(options, selectedRuntime, settingsBeforeInstall);
   const selectedProvider = providerOutcome.provider;
 
   let workerStartResult: 'ready' | 'warming' | 'dead' = 'dead';

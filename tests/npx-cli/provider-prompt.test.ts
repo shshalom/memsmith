@@ -8,6 +8,7 @@ import {
   currentGenerationSelection,
   ollamaSetupMode,
   ollamaSetupPlan,
+  shouldQueryRunningServer,
   type ProviderPromptIO,
 } from '../../src/npx-cli/install/provider-prompt.js';
 import { providerSettingsUpdates } from '../../src/npx-cli/install/generation-provider.js';
@@ -133,5 +134,30 @@ describe('ollamaSetupPlan', () => {
     expect(ollamaSetupPlan({ provider: 'claude', confirmed: true }, 'local', true).ignored).toContain('--setup-ollama');
     expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'server', true).ignored).toContain('server runtime');
     expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'local', true).ignored).toBeUndefined();
+  });
+});
+
+// The dashboard lookup sends GET /v1/settings. It must not reach a remote team
+// server the user is leaving, or ask a server this run is replacing.
+describe('shouldQueryRunningServer', () => {
+  const local = 'http://127.0.0.1:38877';
+
+  it('asks the local server when the runtime stays the same', () => {
+    expect(shouldQueryRunningServer({ chosenRuntime: 'local', existingRuntime: 'local', existingServerUrl: local })).toBe(true);
+    expect(shouldQueryRunningServer({ chosenRuntime: 'local', existingRuntime: undefined, existingServerUrl: local })).toBe(true);
+    expect(shouldQueryRunningServer({ chosenRuntime: 'local', existingRuntime: 'worker', existingServerUrl: 'http://localhost:38877' })).toBe(true);
+  });
+
+  it('never asks a remote team server', () => {
+    expect(shouldQueryRunningServer({ chosenRuntime: 'server', existingRuntime: 'server', existingServerUrl: 'https://memsmith.team.example.com' })).toBe(false);
+  });
+
+  it('does not ask when this run switches runtime', () => {
+    expect(shouldQueryRunningServer({ chosenRuntime: 'local', existingRuntime: 'server', existingServerUrl: local })).toBe(false);
+    expect(shouldQueryRunningServer({ chosenRuntime: 'server', existingRuntime: 'local', existingServerUrl: local })).toBe(false);
+  });
+
+  it('does not ask when the saved URL is unusable', () => {
+    expect(shouldQueryRunningServer({ chosenRuntime: 'local', existingRuntime: 'local', existingServerUrl: 'not a url' })).toBe(false);
   });
 });
