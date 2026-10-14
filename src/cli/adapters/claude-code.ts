@@ -20,22 +20,19 @@ export const claudeCodeAdapter: PlatformAdapter = {
       toolInput: r.tool_input,
       toolResponse: r.tool_response,
       transcriptPath: r.transcript_path,
+      stopHookActive: r.stop_hook_active === true ? true : undefined,
       agentId: pickAgentField(r.agent_id),
       agentType: pickAgentField(r.agent_type),
     };
   },
   formatOutput(result) {
     const r = result ?? ({} as HookResult);
-    if (r.hookSpecificOutput) {
-      const output: Record<string, unknown> = { hookSpecificOutput: result.hookSpecificOutput };
-      if (r.systemMessage) {
-        output.systemMessage = r.systemMessage;
-      }
-      return output;
-    }
     const output: Record<string, unknown> = {};
-    if (r.systemMessage) {
-      output.systemMessage = r.systemMessage;
+    if (r.hookSpecificOutput) output.hookSpecificOutput = r.hookSpecificOutput;
+    if (r.systemMessage) output.systemMessage = r.systemMessage;
+    if (r.decision === 'block') {
+      output.decision = 'block';
+      if (r.reason) output.reason = r.reason;
     }
     return output;
   }

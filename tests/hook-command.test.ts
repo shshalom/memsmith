@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { buildNoOpResult, isNonBlockingHookInputError, isWorkerUnavailableError } from '../src/cli/hook-command.js';
+import { buildNoOpResult, isNonBlockingHookInputError, isWorkerUnavailableError, telemetryHookEvent } from '../src/cli/hook-command.js';
+import { setActiveHookType, getActiveHookType } from '../src/shared/worker-utils.js';
 
 describe('buildNoOpResult', () => {
   it('attaches a valid SessionStart hookSpecificOutput for the context event (#2972)', () => {
@@ -16,6 +17,17 @@ describe('buildNoOpResult', () => {
     for (const event of ['session-init', 'observation', 'summarize', 'file-edit', 'file-context']) {
       expect(buildNoOpResult(event)).toEqual({ continue: true, suppressOutput: true });
     }
+  });
+});
+
+describe('telemetryHookEvent', () => {
+  it('reports the Stop hook (answer-gate) as summarize, as before it existed', () => {
+    setActiveHookType(telemetryHookEvent('answer-gate'));
+    expect(getActiveHookType()).toBe('summarize');
+  });
+
+  it('passes other events through', () => {
+    expect(telemetryHookEvent('context')).toBe('context');
   });
 });
 

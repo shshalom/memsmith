@@ -19,7 +19,7 @@ import {
   type RuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
-import { INJECTED_DIRECTIVES } from '../../services/retrieval/directive.js';
+import { INJECTED_DIRECTIVES, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -226,6 +226,10 @@ export const contextHandler: EventHandler = {
         limit: resolveSessionStartLimit(settings.MEMSMITH_CONTEXT_SESSION_COUNT),
         ...(normalizedPlatformSource ? { platformSource: normalizedPlatformSource } : {}),
       })).trim();
+    }
+
+    if (additionalContext) {
+      additionalContext = `${SESSION_START_ORIENTATION_LABEL}\n${additionalContext}`;
     }
 
     // Issue #2215: surface stale OAuth token marker as a session-start hint.

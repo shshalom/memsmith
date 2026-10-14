@@ -17,25 +17,67 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
 import { styleText } from 'node:util';
+import { resolveDataDir } from '../../shared/paths.js';
+import {
+  ENFORCEMENT_KEY as KEY,
+  defaultEnforcementMode,
+  toEnforcementMode,
+} from '../../services/retrieval/enforcement-mode.js';
+import type { EnforcementMode } from '../../services/retrieval/types.js';
 
-const KEY = 'MEMSMITH_RETRIEVAL_ENFORCEMENT';
-
+/** The file the hooks read (USER_SETTINGS_PATH), resolved at call time. */
 export function defaultSettingsPath(): string {
-  return join(homedir(), '.memsmith', 'settings.json');
+  return join(resolveDataDir(), 'settings.json');
 }
 
-/** Current mode. Any unreadable/corrupt/absent state reports 'soft' — the
- *  conservative answer, since soft never blocks. */
-export function readEnforcement(settingsPath: string = defaultSettingsPath()): string {
+export interface EnforcementStatus {
+  mode: EnforcementMode;
+  source: 'default' | 'settings' | 'env';
+}
+
+function readSettingsValue(settingsPath: string): unknown {
   try {
-    if (!existsSync(settingsPath)) return 'soft';
-    const j = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
-    return j[KEY] === 'hard' ? 'hard' : 'soft';
+    if (!existsSync(settingsPath)) return undefined;
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf-8').replace(/^\uFEFF/, ''));
+    const flat = parsed?.env && typeof parsed.env === 'object' ? parsed.env : parsed;
+    return flat?.[KEY];
   } catch {
-    return 'soft';
+    return undefined;
   }
+}
+
+/**
+ * The mode the hooks actually run with, resolved the way
+ * SettingsDefaultsManager.loadFromFile does: environment variable, then
+ * settings.json, then the shipped default. An unreadable file falls back to the
+ * default because that is what the runtime does with it.
+ */
+export function readEnforcementStatus(
+  settingsPath: string = defaultSettingsPath(),
+  env: Record<string, string | undefined> = process.env,
+): EnforcementStatus {
+  if (env[KEY] !== undefined) return { mode: toEnforcementMode(env[KEY]), source: 'env' };
+  const fromFile = readSettingsValue(settingsPath);
+  if (fromFile !== undefined) return { mode: toEnforcementMode(fromFile), source: 'settings' };
+  return { mode: defaultEnforcementMode(), source: 'default' };
+}
+
+export function readEnforcement(
+  settingsPath: string = defaultSettingsPath(),
+  env: Record<string, string | undefined> = process.env,
+): EnforcementMode {
+  return readEnforcementStatus(settingsPath, env).mode;
+}
+
+const SOURCE_LABEL: Record<EnforcementStatus['source'], string> = {
+  default: 'default',
+  settings: 'set in settings.json',
+  env: `set by the ${KEY} environment variable`,
+};
+
+export function formatEnforcementStatus(status: EnforcementStatus): string {
+  return `memory-first enforcement: ${status.mode} (${SOURCE_LABEL[status.source]})`;
 }
 
 /** Read-modify-write so unrelated settings survive. A corrupt file is replaced
@@ -61,22 +103,30 @@ export function setEnforcement(
   writeFileSync(settingsPath, `${JSON.stringify(j, null, 2)}\n`, 'utf-8');
 }
 
+function warnIfEnvOverrides(): void {
+  if (process.env[KEY] === undefined) return;
+  console.log(styleText('yellow', `${KEY}=${process.env[KEY]} is set in this environment and overrides settings.json.`));
+}
+
 export function runEnforcementCommand(argv: string[]): void {
   const sub = (argv[0] ?? 'status').toLowerCase();
   if (sub === 'status') {
-    console.log(`memory-first enforcement: ${readEnforcement()}`);
+    console.log(formatEnforcementStatus(readEnforcementStatus()));
     return;
   }
   if (sub === 'on' || sub === 'hard') {
     setEnforcement('hard');
     console.log(styleText('green', 'memory-first enforcement: hard'));
-    console.log('Memory is consulted before discovery searches; code is the verification pass.');
+    console.log('Memory is consulted before discovery searches and before answering questions about past work;');
+    console.log('code is the verification pass.');
     console.log('Disable at any time with: npx memsmith enforcement off');
+    warnIfEnvOverrides();
     return;
   }
   if (sub === 'off' || sub === 'soft') {
     setEnforcement('soft');
     console.log(styleText('yellow', 'memory-first enforcement: soft (inject-only, never blocks)'));
+    warnIfEnvOverrides();
     return;
   }
   console.error(styleText('red', `Unknown enforcement subcommand: ${sub}`));

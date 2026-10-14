@@ -79,7 +79,7 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 | `MEMSMITH_CONTEXT_SESSION_COUNT` | `10` | Number of recent sessions that session-start context draws from. |
 | `MEMSMITH_SEMANTIC_INJECT` | `true` | Injects the most relevant memory on every prompt. |
 | `MEMSMITH_SEMANTIC_INJECT_LIMIT` | `5` | Observations injected per prompt. |
-| `MEMSMITH_RETRIEVAL_ENFORCEMENT` | `hard` | `hard` blocks some discovery tools until Claude consults memory on the topic. `soft` only injects. |
+| `MEMSMITH_RETRIEVAL_ENFORCEMENT` | `hard` | `hard` blocks some discovery tools until Claude consults memory on the topic, and sends Claude back once when it answers a question about past work without searching memory. `soft` only injects. To change it, run `npx memsmith enforcement on` or `npx memsmith enforcement off`. |
 | `MEMSMITH_USER_NOTE_BOOST` | `true` | Ranks user notes ahead of other observations in search results. |
 | `MEMSMITH_WELCOME_HINT_ENABLED` | `true` | Shows a hint during your first session in a project. |
 

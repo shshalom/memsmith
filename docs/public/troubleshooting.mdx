@@ -73,6 +73,14 @@ This is expected: `memsmith stop` leaves embedded Postgres running so the next s
 
 With `MEMSMITH_RETRIEVAL_ENFORCEMENT` set to `hard` (the default), MemSmith blocks some discovery tools until Claude consults memory on the topic. Claude can unblock itself by calling `observation_search` or `observation_context`. To inject memory without blocking, set `MEMSMITH_RETRIEVAL_ENFORCEMENT` to `soft`.
 
+### Claude is sent back to search memory before it finishes an answer
+
+In `hard` mode, when your prompt asks about past work and Claude answers without searching memory, the `Stop` hook sends Claude back once with the message "This was a request for information about past work. Search memory (observation_search) before answering". Claude searches and then answers. This happens at most once per prompt. To refer to something said earlier in the same conversation without a search, say so, for example "you just said" or "earlier in this chat". To turn the check off, run `npx memsmith enforcement off`.
+
+### `memsmith enforcement status` shows a different mode than you expect
+
+The status line shows the mode that the hooks use and where it comes from: `default`, `set in settings.json`, or `set by the MEMSMITH_RETRIEVAL_ENFORCEMENT environment variable`. The environment variable overrides `settings.json`. The command reads the environment of the shell you run it in, which can differ from the environment Claude Code started its hooks with.
+
 ## MCP tool issues
 
 ### Memory tools aren't available

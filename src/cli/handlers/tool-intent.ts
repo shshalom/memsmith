@@ -3,6 +3,7 @@ import type { EventHandler, HookResult, NormalizedHookInput } from '../types.js'
 import { RetrievalBroker } from '../../services/retrieval/broker.js';
 import { SessionTopicStore } from '../../services/retrieval/topic-store.js';
 import { WarmPathStore } from '../../services/retrieval/warm-path-store.js';
+import { AnswerGateStore } from '../../services/retrieval/answer-gate-store.js';
 import { topicKey } from '../../services/retrieval/topic-key.js';
 import { resolveRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
@@ -30,6 +31,16 @@ const ALLOW: HookResult = Object.freeze({
  */
 export const MEMORY_TOOL_PATTERN = /^mcp__plugin_memsmith_mem__/;
 
+/**
+ * The memory searches that answer a pending information request.
+ * session_start_context returns orientation context, which does not answer a
+ * question; smart_* are code structure tools; the *_add / record tools are writes.
+ */
+export const MEMORY_READ_TOOLS: ReadonlySet<string> = new Set([
+  'mcp__plugin_memsmith_mem__observation_search',
+  'mcp__plugin_memsmith_mem__observation_context',
+]);
+
 /** Test seam: lets tests point the session stores at a temp dir. */
 export interface ToolIntentOpts {
   sessionBaseDir?: string;
@@ -45,12 +56,18 @@ export const toolIntentHandler: EventHandler = {
       // BEFORE the settings gate so the gate can be satisfied even if injection
       // is disabled mid-session.
       if (MEMORY_TOOL_PATTERN.test(toolName)) {
+        const topics = baseDir
+          ? new SessionTopicStore(input.sessionId, baseDir)
+          : new SessionTopicStore(input.sessionId);
         const q = (input.toolInput as Record<string, unknown> | null)?.query;
-        if (typeof q === 'string' && q.trim()) {
-          const store = baseDir
-            ? new SessionTopicStore(input.sessionId, baseDir)
-            : new SessionTopicStore(input.sessionId);
-          store.markConsulted(topicKey(q));
+        if (typeof q === 'string' && q.trim()) topics.markConsulted(topicKey(q));
+        if (MEMORY_READ_TOOLS.has(toolName)) {
+          const gate = baseDir
+            ? new AnswerGateStore(input.sessionId, baseDir)
+            : new AnswerGateStore(input.sessionId);
+          const pending = gate.read();
+          if (pending?.pending && pending.topic) topics.markConsulted(pending.topic);
+          gate.markSatisfied();
         }
         return ALLOW;
       }

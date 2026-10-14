@@ -286,7 +286,7 @@ const RULE_A_EXPECTATIONS: Record<string, Record<string, string>> = {
     'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
     'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
     'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
-    'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
+    'Stop.0.0': claudeHook(['hook', 'claude-code', 'answer-gate']),
   },
   'plugin/hooks/codex-hooks.json': {
     'SessionStart.0.0': codexStartupHook(),
