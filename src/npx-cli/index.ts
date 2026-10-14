@@ -1,6 +1,7 @@
 import { parseArgs, styleText } from 'node:util';
 import { readPluginVersion } from './utils/paths.js';
 import type { InstallOptions } from './commands/install.js';
+import { normalizeRuntimeFlag } from './commands/server-runtime-setup.js';
 
 const args = process.argv.slice(2);
 const firstArg = args[0]?.toLowerCase() ?? '';
@@ -23,11 +24,11 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith')}                     Interactive install
   ${styleText('cyan', 'npx memsmith install')}              Interactive install
   ${styleText('cyan', 'npx memsmith install --ide <id>')}   Install for specific IDE
-  ${styleText('cyan', 'npx memsmith install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
+  ${styleText('cyan', 'npx memsmith install --provider claude|gemini|openrouter|ollama')}   Set the generation provider non-interactively
   ${styleText('cyan', 'npx memsmith install --model <id>')}   Set Claude model (when provider=claude)
   ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
-  ${styleText('cyan', 'npx memsmith install --runtime worker|server')}   Select runtime non-interactively (server brings up Docker pg+redis, generates an API key, injects the IDE MCP config)
+  ${styleText('cyan', 'npx memsmith install --runtime local|server')}   Select runtime non-interactively (local: embedded Postgres, the default; server: a team MemSmith server)
   ${styleText('cyan', 'npx memsmith install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
   ${styleText('cyan', 'npx memsmith repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
   ${styleText('cyan', 'npx memsmith update')}               Update to latest version
@@ -41,16 +42,14 @@ ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed pl
   ${styleText('cyan', 'memsmith status')}                   Show server status (exit 1 when not running)
   ${styleText('cyan', 'memsmith doctor [--fix]')}           Diagnose, and optionally repair, the install
   ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys
-  ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
+  ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (off unless MEMSMITH_TELEMETRY_KEY is set)
   ${styleText('cyan', 'npx memsmith search <query>')}       Search observations
-  ${styleText('cyan', 'npx memsmith adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
-  ${styleText('cyan', 'npx memsmith cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
   ${styleText('cyan', 'npx memsmith transcript watch')}     Start transcript watcher
   ${styleText('cyan', 'npx memsmith antigravity-cli install|status|uninstall')}   Manage Antigravity CLI hooks + MCP config
 
 ${styleText('bold', 'IDE Identifiers')}:
-  claude-code, cursor, opencode, openclaw,
-  windsurf, codex-cli, copilot-cli, antigravity, goose,
+  claude-code, cursor, opencode, windsurf,
+  codex-cli, copilot-cli, antigravity, goose,
   roo-code, warp
 `);
 }
@@ -78,8 +77,8 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     process.exit(1);
   }
   const runtime = flag('runtime');
-  if (runtime !== undefined && runtime !== 'worker' && runtime !== 'server' && runtime !== 'server-beta') {
-    console.error(`Unknown --runtime: ${runtime}. Allowed: worker, server`);
+  if (runtime !== undefined && normalizeRuntimeFlag(runtime) === null) {
+    console.error(`Unknown --runtime: ${runtime}. Allowed: local, server`);
     process.exit(1);
   }
   return {
@@ -88,7 +87,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     model: flag('model'),
     noAutoStart: values['no-auto-start'] === true,
     disableAutoMemory: values['disable-auto-memory'] === true,
-    runtime: runtime as InstallOptions['runtime'],
+    runtime,
     serverUrl: flag('server-url'),
   };
 }
@@ -191,16 +190,10 @@ async function main(): Promise<void> {
       break;
     }
 
-    case 'adopt': {
-      const { runAdoptCommand } = await import('./commands/runtime.js');
-      runAdoptCommand(args.slice(1));
-      break;
-    }
-
+    case 'adopt':
     case 'cleanup': {
-      const { runCleanupCommand } = await import('./commands/runtime.js');
-      runCleanupCommand(args.slice(1));
-      break;
+      const { runUnavailableCommand } = await import('./commands/runtime.js');
+      runUnavailableCommand(command);
     }
 
     case 'transcript': {

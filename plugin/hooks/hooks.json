@@ -102,7 +102,7 @@
         ]
       },
       {
-        "matcher": "mcp__plugin_memsmith_mem__.*|mcp__plugin_claude-mem_mcp-search__.*",
+        "matcher": "mcp__plugin_memsmith_mem__.*",
         "hooks": [
           {
             "type": "command",

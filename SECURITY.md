@@ -9,17 +9,17 @@ Only the latest released version of `memsmith` receives security updates. Please
 | latest  | :white_check_mark: |
 | older   | :x:                |
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability in memsmith, please report it by:
+If you discover a security vulnerability in MemSmith, report it privately:
 
-1. **DO NOT** create a public GitHub issue, pull request, or discussion
-2. Email **alex@cmem.ai** with details, OR use GitHub's "Report a vulnerability" button under the Security tab to open a private security advisory
-3. Include steps to reproduce, impact assessment, affected version(s), and suggested fixes if possible
+1. Don't open a public GitHub issue, pull request, or discussion.
+2. Open a private advisory with GitHub private vulnerability reporting: https://github.com/shshalom/memsmith/security/advisories/new
+3. Include steps to reproduce, the impact, the affected versions, and a suggested fix if you have one.
 
-**Scope:** This policy covers the `memsmith` plugin and its bundled components (hooks, worker service, SQLite/Chroma sync, viewer UI, search/planning skills). Issues in upstream dependencies should be reported to those projects directly, but feel free to flag them to us as well.
+**Scope:** This policy covers the `memsmith` npm package and Claude Code plugin: the hooks, the MemSmith server (local and team runtimes), the embedded Postgres manager, the MCP server, the viewer UI, and the bundled skills. Report issues in upstream dependencies to those projects directly; you can also flag them to us.
 
-We take security seriously, will acknowledge valid reports within 48 hours, and aim to ship a fix in the next release.
+We acknowledge valid reports within 48 hours and aim to ship a fix in the next release.
 
 ## Security Measures
 
@@ -52,11 +52,11 @@ All user-controlled inputs are validated using whitelists and strict patterns:
 - **Port Numbers:** Must be numeric and within range 1024-65535
 - **File Paths:** All paths are joined using `path.join()` to prevent traversal
 
-### Process Management
+### Process management
 
-- **PID File Protection:** Process IDs are stored in user's data directory (`~/.memsmith/`)
-- **Port Validation:** Worker port is validated before binding
-- **Health Checks:** Worker health is verified before processing requests
+- **PID file protection:** The server stores process IDs in your data directory (`~/.memsmith/`).
+- **Port validation:** The server validates its port before binding.
+- **Health checks:** Hooks and the CLI check server health before they send requests.
 
 ### Privacy Controls
 
@@ -65,7 +65,7 @@ MemSmith includes dual-tag system for content privacy:
 - `<private>content</private>` - User-level privacy (prevents storage)
 - `<memsmith-context>content</memsmith-context>` - System-level tag (prevents recursive storage)
 
-Tags are stripped at the hook layer before data reaches worker/database.
+Hooks strip these tags before data reaches the server or the database.
 
 ## Security Audit History
 
@@ -145,43 +145,45 @@ We regularly audit dependencies for vulnerabilities:
 - **Dependabot:** Enabled for automatic security updates
 - **Manual Review:** Critical dependencies reviewed quarterly
 
-## Data Storage
+## Data storage
 
-MemSmith stores data locally in `~/.memsmith/`:
+Where MemSmith stores observations depends on the runtime:
 
-- **Database:** SQLite3 at `~/.memsmith/memsmith.db`
-- **Vector Store:** Chroma at `~/.memsmith/chroma/`
+- **Local runtime (default):** An embedded Postgres with pgvector, with its data directory at `~/.memsmith/pgdata` and downloaded binaries at `~/.memsmith/pg-binaries`. Nothing leaves your machine except calls to the generation provider you configure.
+- **Team runtime:** Observations are stored in the team's remote Postgres, reached through the team's MemSmith server. Anyone with access to that server or database can read the team's memory.
+
+In both runtimes, MemSmith keeps its own state in `~/.memsmith/`:
+
 - **Logs:** `~/.memsmith/logs/`
-- **Settings:** `~/.memsmith/settings.json`
+- **Settings:** `~/.memsmith/settings.json`, written with owner-only permissions because it can hold API keys
 
-All memsmith state files (database, vector store, logs, settings, supervisor and PID files) are written to the local user directory and are not uploaded by memsmith itself. MemSmith does not collect telemetry.
+MemSmith sends no usage telemetry unless you configure your own telemetry key. For details, see `docs/public/telemetry.mdx`.
 
-However, by design memsmith invokes upstream model providers and optional integrations to do its work, so observation/transcript/prompt content can leave the machine through those channels:
+By design, MemSmith calls model providers and optional integrations, so observation, transcript, and prompt content can leave your machine through these channels:
 
-- **Claude Agent SDK** (default summarization/observation path): sends prompts and transcript context to Anthropic's API.
-- **Alternate providers** (`gemini`, `openrouter`): when configured, send the same context to those providers instead.
-- **Chroma MCP / `chroma-mcp`**: when enabled, computes embeddings via the configured embedding backend, which may be a remote API depending on the user's chroma-mcp configuration.
-- **OAuth / keychain reads**: memsmith reads the Claude Code OAuth token from the platform-native credential store at spawn time. The token is injected into worker subprocesses but is not transmitted by memsmith.
-- **GitHub releases / npm registry**: version-check and self-update flows fetch metadata from public registries.
+- **Claude Agent SDK** (default generation provider): sends prompts and transcript context to Anthropic's API.
+- **Alternate providers** (`gemini`, `openrouter`, `ollama`): when configured, receive the same context instead. Ollama runs locally.
+- **OAuth and keychain reads:** MemSmith reads the Claude Code OAuth token from the platform credential store when it starts a generation process. It passes the token to that process and doesn't transmit it anywhere else.
+- **npm registry:** version checks and self-update fetch metadata from the public registry.
 
-Review your provider/Chroma configuration in `~/.memsmith/settings.json` and `~/.memsmith/.env` before sending sensitive content. Use `<private>...</private>` tags to keep specific content out of the local store.
+Review your provider configuration in `~/.memsmith/settings.json` before you send sensitive content. To keep specific content out of memory, wrap it in `<private>...</private>` tags.
 
 ## Permissions
 
-MemSmith requires:
+MemSmith requires the following:
 
-- **File System:** Read/write to `~/.memsmith/` and `~/.claude/plugins/`
-- **Network:** HTTP server on localhost (default port 37777)
-- **Process Management:** Spawn worker processes, manage PIDs
+- **File system:** Read and write access to `~/.memsmith/` and `~/.claude/plugins/`.
+- **Network:** An HTTP server on `127.0.0.1`. The default port is derived from your user ID (`38877 + uid % 100`) so that accounts on a shared machine don't collide. The local runtime's embedded Postgres listens on `127.0.0.1:55433`.
+- **Process management:** Starts and stops the server and embedded Postgres processes and manages their PID files.
 
-No elevated privileges (root/administrator) are required.
+MemSmith doesn't need elevated (root or administrator) privileges.
 
-## Secure Defaults
+## Secure defaults
 
-- **Worker Host:** Binds to `127.0.0.1` by default (localhost only)
-- **Worker Port:** User-configurable, validates range 1024-65535
-- **Log Level:** INFO by default (no sensitive data in logs)
-- **Privacy Tags:** Auto-strips private content before storage
+- **Server host:** Binds to `127.0.0.1` (localhost only).
+- **Server port:** UID-derived by default; configurable, and validated to the range 1024-65535.
+- **Log level:** INFO by default, with no sensitive data in logs.
+- **Privacy tags:** Hooks strip private content before storage.
 
 ## Updates
 
@@ -191,13 +193,13 @@ Security patches are released as soon as possible after discovery. Users should:
 2. Monitor GitHub releases for security announcements
 3. Review [CHANGELOG.md](./CHANGELOG.md) for security-related changes
 
-## Questions?
+## Questions
 
-For security-related questions (non-vulnerabilities), please:
+For security questions that aren't vulnerabilities:
 
-1. Review code comments in security-critical files
-2. Open a GitHub Discussion (not an Issue) for general security questions
-3. For sensitive questions, email **alex@cmem.ai**
+1. Review the code comments in security-critical files.
+2. Open a GitHub Discussion (not an issue) for general security questions.
+3. For sensitive questions, open a private advisory at https://github.com/shshalom/memsmith/security/advisories/new.
 
 ---
 

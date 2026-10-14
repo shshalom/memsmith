@@ -7,11 +7,27 @@ const CHANGELOG_PATH = 'CHANGELOG.md';
 const HEADER_LINES = [
   '# Changelog',
   '',
-  'All notable changes to this project will be documented in this file.',
+  'All notable changes to MemSmith are documented in this file.',
   '',
   'The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).',
   '',
+  'History before the fork lives in the upstream project credited in [NOTICE](NOTICE).',
+  '',
 ];
+
+// Releases older than the fork belong to the upstream project; never render them.
+const FIRST_MEMSMITH_VERSION = [13, 10, 2];
+
+function isMemSmithRelease(version) {
+  const parts = version.split('.').map((n) => Number.parseInt(n, 10));
+  for (let i = 0; i < FIRST_MEMSMITH_VERSION.length; i++) {
+    const a = parts[i] ?? 0;
+    const b = FIRST_MEMSMITH_VERSION[i];
+    if (Number.isNaN(a)) return false;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
 
 function exec(command) {
   try {
@@ -86,7 +102,7 @@ function main() {
     : readExistingChangelog();
 
   console.log('📋 Fetching release list from GitHub...');
-  const allReleases = listReleases();
+  const allReleases = listReleases().filter((release) => isMemSmithRelease(extractVersion(release.tagName)));
 
   if (allReleases.length === 0) {
     console.log('⚠️  No releases found');
@@ -115,6 +131,7 @@ function main() {
 
   const newEntriesBlock = newReleases.map(renderEntry).join('\n');
 
+  // New release entries go above `## [Unreleased]`; rename Unreleased to the version before running this.
   const finalBody = existingBody
     ? `${newEntriesBlock}\n${existingBody}`.trimEnd() + '\n'
     : `${newEntriesBlock}`.trimEnd() + '\n';

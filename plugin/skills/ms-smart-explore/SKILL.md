@@ -35,11 +35,11 @@ smart_search(query="shutdown", path="./src", max_results=15)
 -- Matching Symbols --
   function performGracefulShutdown (services/infrastructure/GracefulShutdown.ts:56)
   function httpShutdown (services/infrastructure/HealthMonitor.ts:92)
-  method WorkerService.shutdown (services/worker-service.ts:846)
+  function handleStdioClosed (servers/mcp-server.ts:669)
 
 -- Folded File Views --
   services/infrastructure/GracefulShutdown.ts (7 symbols)
-  services/worker-service.ts (12 symbols)
+  servers/mcp-server.ts (14 symbols)
 ```
 
 This is your discovery tool. It finds relevant files AND shows their structure. No Glob/find pre-scan needed.
@@ -54,7 +54,7 @@ This is your discovery tool. It finds relevant files AND shows their structure. 
 ### Step 2: Outline -- Get File Structure
 
 ```
-smart_outline(file_path="services/worker-service.ts")
+smart_outline(file_path="src/servers/mcp-server.ts")
 ```
 
 **Returns:** Complete structural skeleton -- all functions, classes, methods, properties, imports (~1-2k tokens per file)
@@ -70,7 +70,7 @@ smart_outline(file_path="services/worker-service.ts")
 Review symbols from Steps 1-2. Pick the ones you need. Unfold only those:
 
 ```
-smart_unfold(file_path="services/worker-service.ts", symbol_name="shutdown")
+smart_unfold(file_path="src/servers/mcp-server.ts", symbol_name="wrapHandler")
 ```
 
 **Returns:** Full source code of the specified symbol including JSDoc, decorators, and complete implementation (~400-2,100 tokens depending on symbol size). AST node boundaries guarantee completeness regardless of symbol size — unlike Read + agent summarization, which may truncate long methods.
@@ -84,7 +84,7 @@ smart_unfold(file_path="services/worker-service.ts", symbol_name="shutdown")
 
 Use these only when smart_* tools are the wrong fit:
 
-- **Grep:** Exact string/regex search ("find all TODO comments", "where is `ensureWorkerStarted` defined?")
+- **Grep:** Exact string/regex search ("find all TODO comments", "where is `resolveServerToolContext` defined?")
 - **Read:** Small files under ~100 lines, non-code files (JSON, markdown, config)
 - **Glob:** File path patterns ("find all test files")
 - **Explore agent:** When you need synthesized understanding across 6+ files, architecture narratives, or answers to open-ended questions like "how does this entire system work end-to-end?" Smart-explore is a scalpel — it answers "where is this?" and "show me that." It doesn't synthesize cross-file data flows, design decisions, or edge cases across an entire feature.
@@ -105,11 +105,11 @@ For code files over ~100 lines, prefer smart_outline + smart_unfold over Read.
 **Navigate a large file:**
 
 ```
-1. smart_outline(file_path="services/worker-service.ts")
-   -> 1,466 tokens: 12 functions, WorkerService class with 24 members
-2. smart_unfold(file_path="services/worker-service.ts", symbol_name="startSessionProcessor")
-   -> 1,610 tokens: the specific method you need
-Total: ~3,076 tokens vs ~12,000 to Read the full file
+1. smart_outline(file_path="src/servers/mcp-server.ts")
+   -> the file's functions and the tool table, without bodies
+2. smart_unfold(file_path="src/servers/mcp-server.ts", symbol_name="resolveServerToolContext")
+   -> the one function you need
+Total: a fraction of the tokens needed to Read the full file
 ```
 
 **Write documentation about code (hybrid workflow):**

@@ -18,7 +18,8 @@ import {
 import type { CursorInstallTarget, CursorHooksJson } from './types.js';
 import {
   getMcpServerAbsolutePath,
-  getWorkerServiceAbsolutePath,
+  getServerServiceAbsolutePath,
+  isMemSmithHookCommand,
   getBunAbsolutePath,
 } from './install-paths.js';
 
@@ -122,10 +123,10 @@ export async function installCursorHooks(target: CursorInstallTarget): Promise<n
     return 1;
   }
 
-  const workerServicePath = getWorkerServiceAbsolutePath();
-  if (!workerServicePath) {
-    console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/worker-service.cjs');
+  const serverScriptPath = getServerServiceAbsolutePath();
+  if (!serverScriptPath) {
+    console.error('Could not find server-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/server-service.cjs');
     return 1;
   }
 
@@ -136,10 +137,10 @@ export async function installCursorHooks(target: CursorInstallTarget): Promise<n
   const bunPath = getBunAbsolutePath();
   const escapedBunPath = bunPath.replace(/\\/g, '\\\\');
 
-  const escapedWorkerPath = workerServicePath.replace(/\\/g, '\\\\');
+  const escapedScriptPath = serverScriptPath.replace(/\\/g, '\\\\');
 
   const makeHookCommand = (command: string) => {
-    return `"${escapedBunPath}" "${escapedWorkerPath}" hook cursor ${command}`;
+    return `"${escapedBunPath}" "${escapedScriptPath}" hook cursor ${command}`;
   };
 
   console.log(`  Using Bun runtime: ${bunPath}`);
@@ -168,7 +169,7 @@ export async function installCursorHooks(target: CursorInstallTarget): Promise<n
 
   try {
     mkdirSync(targetDir, { recursive: true });
-    await writeHooksJsonAndSetupProject(hooksJsonPath, hooksJson, workerServicePath, target, targetDir, workspaceRoot);
+    await writeHooksJsonAndSetupProject(hooksJsonPath, hooksJson, serverScriptPath, target, targetDir, workspaceRoot);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -183,14 +184,14 @@ export async function installCursorHooks(target: CursorInstallTarget): Promise<n
 async function writeHooksJsonAndSetupProject(
   hooksJsonPath: string,
   hooksJson: CursorHooksJson,
-  workerServicePath: string,
+  serverScriptPath: string,
   target: CursorInstallTarget,
   targetDir: string,
   workspaceRoot: string,
 ): Promise<void> {
   writeFileSync(hooksJsonPath, JSON.stringify(hooksJson, null, 2));
   console.log(`  Created hooks.json (unified CLI mode)`);
-  console.log(`  Worker service: ${workerServicePath}`);
+  console.log(`  Server script: ${serverScriptPath}`);
 
   if (target === 'project') {
     await setupProjectContext(targetDir, workspaceRoot);
@@ -200,10 +201,10 @@ async function writeHooksJsonAndSetupProject(
 Installation complete!
 
 Hooks installed to: ${targetDir}/hooks.json
-Using unified CLI: bun worker-service.cjs hook cursor <command>
+Using unified CLI: bun server-service.cjs hook cursor <command>
 
 Next steps:
-  1. Start memsmith worker: memsmith start
+  1. Start the MemSmith server: memsmith start
   2. Restart Cursor to load the hooks
   3. Check Cursor Settings → Hooks tab to verify
 
@@ -383,8 +384,8 @@ export function checkCursorHooksStatus(): number {
       if (hooksContent) {
         const firstCommand = hooksContent?.hooks?.beforeSubmitPrompt?.[0]?.command || '';
 
-        if (firstCommand.includes('worker-service.cjs') && firstCommand.includes('hook cursor')) {
-          console.log(`   Mode: Unified CLI (bun worker-service.cjs)`);
+        if (isMemSmithHookCommand(firstCommand, 'cursor')) {
+          console.log(`   Mode: Unified CLI (bun server-service.cjs)`);
         } else {
           const bashScripts = ['session-init.sh', 'context-inject.sh', 'save-observation.sh'];
           const psScripts = ['session-init.ps1', 'context-inject.ps1', 'save-observation.ps1'];
@@ -473,7 +474,7 @@ Examples:
   memsmith cursor uninstall            # Remove from current project
   memsmith cursor status               # Check if hooks are installed
 
-For more info: https://docs.memsmith.ai/cursor
+For more info: https://github.com/shshalom/memsmith/blob/main/docs/public/cursor/index.mdx
       `);
       return 0;
     }

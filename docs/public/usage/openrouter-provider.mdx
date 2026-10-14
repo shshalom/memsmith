@@ -5,7 +5,7 @@ description: "Access 100+ AI models through OpenRouter's unified API, including 
 
 # OpenRouter Provider
 
-Claude-mem supports [OpenRouter](https://openrouter.ai) as an alternative provider for observation extraction. OpenRouter provides a unified API to access 100+ models from different providers including Google, Meta, Mistral, DeepSeek, and many others—often with generous free tiers.
+MemSmith supports [OpenRouter](https://openrouter.ai) as an alternative provider for observation extraction. OpenRouter provides a unified API to access 100+ models from different providers including Google, Meta, Mistral, DeepSeek, and many others—often with generous free tiers.
 
 <Tip>
 **Free Models Available**: OpenRouter offers several completely free models, making it an excellent choice for reducing observation extraction costs to zero while maintaining quality.
@@ -37,7 +37,7 @@ OpenRouter actively supports democratizing AI access by offering free models. Th
 | **Mistral Nemo** | `mistralai/mistral-nemo:free` | 12B | 128K | Efficient performance |
 
 <Note>
-**Default Model**: Claude-mem uses `xiaomi/mimo-v2-flash:free` by default—a 309B parameter mixture-of-experts model that ranks #1 on SWE-bench Verified and excels at coding and reasoning tasks.
+**Default model**: MemSmith uses `xiaomi/mimo-v2-flash:free` by default. To use a different model, set `MEMSMITH_OPENROUTER_MODEL`.
 </Note>
 
 ### Free Model Considerations

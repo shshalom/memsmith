@@ -371,21 +371,14 @@ npm test
 
 ## Testing
 
-### Testing Philosophy
+### Testing approach
 
-Claude-mem relies on **real-world usage and manual testing** rather than traditional unit tests. The project philosophy prioritizes:
+MemSmith has an automated test suite under `tests/`. To run it, use `bun test`. Some behavior, such as hook execution inside Claude Code, also needs manual verification:
 
-1. **Manual verification** - Testing features in actual Claude Code sessions
-2. **Integration testing** - Running the full system end-to-end
-3. **Database inspection** - Verifying data correctness via SQLite queries
-4. **CLI tools** - Interactive tools for checking system state
-5. **Observability** - Comprehensive logging and worker health checks
-
-This approach was chosen because:
-- Hook behavior depends heavily on Claude Code's runtime environment
-- SDK interactions require real API calls and responses
-- SQLite and Bun runtime provide stability guarantees
-- Manual testing catches integration issues that unit tests miss
+1. **Automated tests**: Run `bun test` before you open a pull request.
+2. **Manual verification**: Test the feature in a real Claude Code session.
+3. **Database inspection**: Query Postgres to confirm the stored data is correct.
+4. **Observability**: Check the server logs and health endpoints.
 
 ### Manual Testing Workflow
 

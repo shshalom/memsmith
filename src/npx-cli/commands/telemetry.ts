@@ -1,14 +1,13 @@
 /**
  * `npx memsmith telemetry [status|enable|disable]` — manage anonymous usage
- * analytics. Telemetry is ON by default (opt-out): anonymous events only,
- * identified by a random install UUID. Turn it off anytime with
+ * analytics. Nothing is sent unless a PostHog key is configured with
+ * MEMSMITH_TELEMETRY_KEY. With a key, telemetry is opt-out: turn it off with
  * `telemetry disable`, MEMSMITH_TELEMETRY=0, or DO_NOT_TRACK=1.
- *
- * Full privacy documentation: https://docs.memsmith.ai/telemetry
  */
 
 import * as p from '@clack/prompts';
 import { styleText } from 'node:util';
+import { getTelemetryApiKey } from '../../services/telemetry/common.js';
 import {
   explainTelemetryConsent,
   loadTelemetryConfig,
@@ -18,10 +17,10 @@ import {
   type TelemetryConsentSource,
 } from '../../services/telemetry/consent.js';
 
-const DOCS_URL = 'https://docs.memsmith.ai/telemetry';
+const DOCS_URL = 'https://github.com/shshalom/memsmith/blob/main/docs/public/telemetry.mdx';
 
 const COLLECTED_FIELDS = [
-  'version          memsmith version (e.g. 13.4.2)',
+  'version          memsmith version (e.g. 13.10.2)',
   'os               platform (darwin / linux / win32)',
   'os_version       OS kernel release (e.g. 10.0.22631)',
   'is_wsl           whether running under WSL',
@@ -29,69 +28,30 @@ const COLLECTED_FIELDS = [
   'runtime          bun or node',
   'runtime_version  runtime version string',
   'node_version     Node.js version string',
-  'duration_ms      how long an operation took',
-  'outcome          ok / error / partial / invalid_output / aborted',
-  'error_category   coarse error bucket (never a message)',
-  'locale           language tag (e.g. en-US)',
   'is_ci            whether running in CI',
-  'endpoint         which memsmith search route (our route names)',
+  'locale           language tag (e.g. en-US)',
   'ide              installer IDE choice (claude-code / cursor / ...)',
-  'provider         LLM provider choice (claude / gemini / openrouter)',
-  'runtime_mode     worker or server',
-  'trigger          start or heartbeat',
-  'count            integer volume (e.g. observations stored)',
-  'has_summary      whether a compression produced a summary',
+  'provider         generation provider (claude / gemini / openrouter / ollama)',
+  'runtime_mode     local or server',
   'is_update        whether an install was an update',
+  'outcome          ok / partial',
+  'duration_ms      how long the install took',
   'interactive      whether the installer ran in a TTY',
-  'install_method   npm / bun / pnpm / yarn (launcher of the CLI)',
+  'install_method   npm / bun / pnpm / yarn / unknown',
   'bun_version / uv_version / claude_code_version',
   '                 toolchain versions detected during install',
-  'mode             active memsmith mode id',
-  'model            model id used for compression',
-  'hook             compression trigger (init / ingest / summarize)',
-  'observation_type / obs_type_*   observation type buckets (counts only)',
-  'compression_ms / tokens_input / tokens_output / compression_ratio',
-  '                 latency + real token usage of one compression call',
-  'cost_usd         provider-reported cost of one compression call (USD)',
-  'endpoint_class   openrouter.ai vs custom gateway (enum)',
-  'observation_count / session_count / timeline_depth_days / has_session_summary',
-  '                 depth of one context injection',
-  'tokens_injected / tokens_saved_vs_naive / search_strategy',
-  '                 token economics of one context injection',
-  'db_observation_count / db_session_count / db_summary_count / db_project_count',
-  '                 total rows in your local memory DB (counts only)',
-  'db_size_mb       memory database file size in MB',
-  'install_age_days / days_since_last_obs / obs_count_7d / obs_count_30d',
-  '                 install age and recent activity, in days/counts',
-  'result_count     how many results a search returned (never the query)',
-  'chroma_available whether vector search was reachable for a search',
-  'fallback_reason  none / chroma_connection / chroma_error / chroma_not_initialized',
-  'invalid_output_class   xml / idle / prose (never the output)',
-  'consecutive_invalid_outputs   legacy unusable-output counter',
-  'respawn_triggered      legacy recovery flag for old invalid-output restarts',
-  'abort_reason     idle / shutdown / overflow / restart_guard / quota / none',
-  'previous_shutdown      crash / clean / unknown (detected at worker start)',
-  'previous_uptime_seconds / uptime_seconds',
-  '                 worker uptime in whole seconds (previous run / at stop)',
-  'shutdown_reason  stop / restart / signal',
-  'process_rss_mb / heap_used_mb   worker memory, integer megabytes',
+  'error_category   install error category id (never a message)',
   'hook_type        context / session-init / observation / summarize / file-context',
   'error_mode       worker_unavailable / blocking_error (never a message)',
-  'consecutive_failures   hook failures in a row (the fail-loud counter)',
-  'threshold_tripped      whether the fail-loud threshold was reached',
+  'consecutive_failures   hook failures in a row',
+  'threshold_tripped      whether the failure threshold was reached',
 ];
 
 const EVENT_NAMES = [
   'install_completed',
   'install_failed',
   'uninstall_completed',
-  'worker_started',
-  'worker_stopped',
-  'session_compressed',
-  'context_injected',
-  'search_performed',
   'hook_failed',
-  'error_occurred',
 ];
 
 const SOURCE_LABELS: Record<TelemetryConsentSource, string> = {
@@ -112,6 +72,11 @@ function printTelemetryUsage(): void {
 function runTelemetryStatus(): void {
   // Status is read-only: it must never create telemetry.json as a side effect.
   const config = loadTelemetryConfig();
+  if (getTelemetryApiKey() === null) {
+    console.log(`${styleText('bold', 'Telemetry:')} disabled (no telemetry key configured)`);
+    console.log(`${styleText('bold', 'Docs:')} ${DOCS_URL}`);
+    return;
+  }
   const { enabled, source } = explainTelemetryConsent(process.env, config);
 
   const state = enabled ? styleText('green', 'ENABLED') : styleText('yellow', 'DISABLED');
@@ -145,8 +110,8 @@ async function runTelemetryEnable(): Promise<void> {
       'Each event carries ONLY these fields:',
       ...COLLECTED_FIELDS.map((line) => `  ${line}`),
       '',
-      'Plus coarse location (country / region / city), derived server-side',
-      'at ingest from the request IP — the raw IP is discarded, never stored.',
+      'PostHog can derive coarse location (country / region / city) from the',
+      'request IP at ingest. MemSmith never attaches the IP to an event.',
       '',
       'NEVER collected — not now, not ever:',
       '  prompts or conversation content, file paths, source code,',

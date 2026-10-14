@@ -1,35 +1,32 @@
 {
   "name": "memsmith",
   "version": "13.10.2",
-  "description": "Memory compression system for Claude Code - persist context across sessions",
+  "description": "Persistent, local-first memory for Claude Code, with optional shared team memory.",
   "author": {
-    "name": "Alex Newman",
+    "name": "shshalom",
     "url": "https://github.com/shshalom"
   },
   "homepage": "https://github.com/shshalom/memsmith#readme",
   "repository": "https://github.com/shshalom/memsmith",
   "license": "Apache-2.0",
   "keywords": [
-    "claude",
     "claude-code",
-    "claude-agent-sdk",
-    "mcp",
     "plugin",
     "memory",
-    "compression",
-    "knowledge-graph",
-    "transcript",
-    "typescript",
-    "nodejs"
+    "persistent-memory",
+    "team-memory",
+    "mcp",
+    "postgres",
+    "semantic-search"
   ],
   "skills": "./plugin/skills/",
   "mcpServers": "./plugin/.mcp.json",
   "hooks": "./plugin/hooks/codex-hooks.json",
   "interface": {
-    "displayName": "memsmith",
-    "shortDescription": "Persistent memory and context compression across coding sessions.",
-    "longDescription": "memsmith captures coding-session activity, compresses it into reusable observations, and injects relevant context back into future Claude Code and Codex-compatible sessions.",
-    "developerName": "Alex Newman",
+    "displayName": "MemSmith",
+    "shortDescription": "Persistent, local-first memory across coding sessions.",
+    "longDescription": "MemSmith records coding-session activity as searchable observations in Postgres and injects relevant context into future Claude Code and Codex-compatible sessions. Run it locally, or connect to a shared team server.",
+    "developerName": "shshalom",
     "category": "Productivity",
     "capabilities": [
       "Interactive",

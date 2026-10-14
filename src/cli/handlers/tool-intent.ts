@@ -28,7 +28,7 @@ const ALLOW: HookResult = Object.freeze({
  *     every discovery tool would block forever. This is the single most
  *     important line in the enforcement path.
  */
-export const MEMORY_TOOL_PATTERN = /^mcp__plugin_(memsmith_mem|claude-mem_mcp-search)__/;
+export const MEMORY_TOOL_PATTERN = /^mcp__plugin_memsmith_mem__/;
 
 /** Test seam: lets tests point the session stores at a temp dir. */
 export interface ToolIntentOpts {

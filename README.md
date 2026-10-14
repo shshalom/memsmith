@@ -7,10 +7,7 @@
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
   </a>
   <a href="package.json">
-    <img src="https://img.shields.io/badge/version-13.10.1-green.svg" alt="Version">
-  </a>
-  <a href="package.json">
-    <img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node">
+    <img src="https://img.shields.io/badge/node-%3E%3D20.12.0-brightgreen.svg" alt="Node">
   </a>
 </p>
 
@@ -45,7 +42,7 @@ Or install from the plugin marketplace inside Claude Code:
 ```bash
 /plugin marketplace add shshalom/memsmith
 
-/plugin install memsmith
+/plugin install memsmith@shshalom
 ```
 
 Restart Claude Code. Context from previous sessions automatically appears in
@@ -152,7 +149,7 @@ as `code--zh` or `code--ja`. Restart Claude Code after changing the mode.
 
 ## System requirements
 
-- **Node.js**: 20.0.0 or higher
+- **Node.js**: 20.12.0 or higher
 - **Claude Code**: Latest version with plugin support
 - **Bun**: JavaScript runtime and process manager (auto-installed if missing)
 - **uv**: Python package manager (auto-installed if missing)
@@ -161,8 +158,7 @@ as `code--zh` or `code--ja`. Restart Claude Code after changing the mode.
 ## Documentation and development
 
 Documentation source lives in [`docs/`](docs/), including the
-[AWS deploy runbook](docs/deploy/) and the design specs in
-[`docs/superpowers/specs/`](docs/superpowers/specs/).
+[AWS deploy runbook](docs/deploy/).
 
 To build from source: clone the repo, run `npm install`, then `npm run build`.
 Run tests with `bun test tests/server/` for a fast signal. After any source
@@ -193,11 +189,7 @@ See the [LICENSE](LICENSE) file for full details. See [docs/license.md](docs/lic
 and [docs/ip-boundary.md](docs/ip-boundary.md) for licensing scope and the
 open/commercial boundary.
 
-**Note on Ragtime**: The `ragtime/` directory is licensed under the Apache
-License 2.0. See [ragtime/LICENSE](ragtime/LICENSE) for details.
-
 ## Credits
 
-MemSmith is based on the open source
-[claude-mem](https://github.com/thedotmack/claude-mem) plugin by Alex Newman
-and draws on ideas from the wider open source agent memory ecosystem.
+MemSmith includes software derived from an Apache-2.0 licensed open source
+project. See the [NOTICE](NOTICE) file for attribution.

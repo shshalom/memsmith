@@ -12,7 +12,7 @@ Use memsmith's persistent memory in Cursor without a Claude Code subscription. C
 - **Context injection** via `.cursor/rules/` - relevant history included in every chat
 - **Web viewer** at http://localhost:37777 - browse and search your project history
 
-**Why This Matters**: Every Cursor session starts fresh. Claude-mem bridges that gap - your AI agent builds cumulative knowledge about your codebase, decisions, and patterns over time.
+**Why this matters**: Every Cursor session starts without context. With MemSmith, your agent builds knowledge about your codebase, decisions, and patterns over time.
 
 ## Prerequisites
 
@@ -187,7 +187,7 @@ If you hit the 1500 requests/day limit:
 
 - Read [README.md](README.md) for detailed hook documentation
 - Check [CONTEXT-INJECTION.md](CONTEXT-INJECTION.md) for context behavior details
-- Visit https://docs.memsmith.ai for full documentation
+- Visit https://github.com/shshalom/memsmith for full documentation
 
 ## Quick Reference
 

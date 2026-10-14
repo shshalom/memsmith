@@ -3,198 +3,102 @@ title: "Architecture Overview"
 description: "System components and data flow in MemSmith"
 ---
 
-# Architecture Overview
+# Architecture overview
 
-## System Components
+## System components
 
-MemSmith operates as a Claude Code plugin with the following core components:
+MemSmith runs as a Claude Code plugin with these components:
 
-1. **Plugin Hooks** - Lifecycle events (Setup version-check + 5 lifecycle hooks: SessionStart, UserPromptSubmit, PreToolUse for `Read`, PostToolUse, Stop)
-2. **Worker Service** - Express HTTP API on a per-user port; processes observations via the Claude Agent SDK (or Gemini / OpenRouter)
-3. **Database Layer** - SQLite + FTS5 (and optional Chroma for semantic search)
-4. **Search Tools** - HTTP API + the `mem-search` skill / MCP server for progressive disclosure search
-5. **Viewer UI** - React-based real-time memory stream served by the worker
+1. **Plugin hooks**: A Setup version check plus lifecycle hooks that capture prompts and tool use, inject context, and enforce memory-first lookups.
+2. **MemSmith server**: One server engine that stores observations, generates them with the configured provider, and serves search, context, and the viewer.
+3. **Storage**: Postgres with pgvector for full-text and semantic search. The local runtime runs an embedded Postgres; the team runtime connects to a remote one.
+4. **MCP server**: Exposes memory tools (`observation_search`, `observation_context`, `note_add`, and others) and the `smart_*` code exploration tools.
+5. **Viewer UI**: A React dashboard served by the MemSmith server.
 
-## Technology Stack
+## Runtimes
 
-| Layer                  | Technology                                |
-|------------------------|-------------------------------------------|
-| **Language**           | TypeScript (ES2022, ESNext modules)       |
-| **Runtime**            | Node.js 20+ and Bun ≥ 1.0                 |
-| **Database**           | SQLite 3 with bun:sqlite driver           |
-| **Vector Store**       | Chroma (optional, for semantic search)    |
-| **HTTP Server**        | Express.js 5                              |
-| **Real-time**          | Server-Sent Events (SSE)                  |
-| **UI Framework**       | React + TypeScript                        |
-| **AI SDK**             | @anthropic-ai/claude-agent-sdk (or Gemini / OpenRouter) |
-| **Build Tool**         | esbuild (bundles TypeScript)              |
-| **Process Manager**    | Bun                                       |
-| **Testing**            | `bun test`                                 |
+| Runtime | Storage | Use |
+|---------|---------|-----|
+| `local` (default) | Embedded Postgres in `~/.memsmith/pgdata`, port `55433` | A single user on one machine. No Docker. |
+| `server` | A remote Postgres reached through the team's MemSmith server | Shared team memory. |
 
-## Data Flow
+The server listens on `127.0.0.1`. Its default port is derived from your user ID (`38877 + uid % 100`) so that accounts on a shared machine don't collide.
 
-### Memory Pipeline
-```
-Hook (stdin) → Database → Worker Service → SDK Processor → Database → Next Session Hook
-```
+## Technology stack
 
-1. **Input**: Claude Code sends tool execution data via stdin to hooks
-2. **Storage**: Hooks write observations to SQLite database
-3. **Processing**: Worker service reads observations, processes via SDK
-4. **Output**: Processed summaries written back to database
-5. **Retrieval**: Next session's context hook reads summaries from database
+| Layer | Technology |
+|-------|------------|
+| **Language** | TypeScript |
+| **Runtime** | Node.js 20+ and Bun 1.0+ |
+| **Database** | Postgres with pgvector |
+| **HTTP server** | Express 5 |
+| **UI** | React and TypeScript |
+| **Generation** | Claude Agent SDK, Gemini, OpenRouter, or Ollama |
+| **Build** | esbuild |
+| **Testing** | `bun test` |
 
-### Search Pipeline
-```
-User Query → MCP Tools Invoked → HTTP API → SessionSearch Service → FTS5 Database → Search Results → Claude
-```
+## Data flow
 
-1. **User Query**: User asks naturally: "What bugs did we fix?"
-2. **MCP Tools Invoked**: Claude recognizes intent and invokes MCP search tools
-3. **HTTP API**: MCP tools call HTTP endpoint (e.g., `/api/search/observations`)
-4. **SessionSearch**: Worker service queries FTS5 virtual tables
-5. **Format**: Results formatted and returned via MCP
-6. **Return**: Claude presents formatted results to user
-
-Uses 3-layer progressive disclosure: search → timeline → get_observations
-
-## Session Lifecycle
+### Capture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ 0. Setup Hook Fires (version-check.js)                          │
-│    Sub-100ms read of .install-version; on mismatch prints       │
-│    "run: npx memsmith repair" to stderr. Always exits 0.      │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 1. Session Starts → Worker-start, then Context Hook             │
-│    Starts Bun worker if needed, injects context from previous   │
-│    sessions (configurable observation count)                    │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 2. User Types Prompt → UserPromptSubmit Hook Fires              │
-│    Creates session in database, saves raw user prompt for FTS5  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 3. Claude Uses Tools → PostToolUse Hook Fires (100+ times)      │
-│    Captures tool executions, sends to worker for AI compression │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 4. Worker Processes → Claude Agent SDK Analyzes                 │
-│    Extracts structured learnings via iterative AI processing    │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 5. Claude Stops → Summary Hook Fires                            │
-│    Generates final summary with request, completions, learnings │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 6. Session Ends → Cleanup Hook Fires                            │
-│    Marks session complete (graceful, not DELETE), ready for     │
-│    next session context. Skips on /clear to preserve ongoing    │
-└─────────────────────────────────────────────────────────────────┘
+Hook (stdin) → MemSmith server (/v1/events) → generation job → Postgres
 ```
 
-## Directory Structure
+1. Claude Code sends prompt and tool data to a hook on stdin.
+2. The hook posts the event to the MemSmith server.
+3. The server queues a generation job, and the configured provider turns the event into an observation.
+4. The server stores the observation and its embedding in Postgres.
+
+### Recall
+
+```
+SessionStart hook or MCP tool → MemSmith server (/v1/search, /v1/context) → Postgres → Claude
+```
+
+At session start, the context hook injects recent and relevant observations. During a session, Claude calls `observation_search` and `observation_context` through the MCP server.
+
+## Plugin hooks
+
+`plugin/hooks/hooks.json` registers these hooks. Each lifecycle hook runs `bun-runner.js`, which starts `server-service.cjs` with a `hook claude-code <event>` argument:
+
+| Event | Matcher | Handler |
+|-------|---------|---------|
+| Setup | `*` | `version-check.js` (marker check; never installs anything) |
+| SessionStart | `startup\|clear\|compact` | Starts the server, then `context` (context injection) |
+| UserPromptSubmit | | `session-init`, `prompt-injection`, `record-intent` |
+| PreToolUse | `Read` | `file-context` |
+| PreToolUse | `Grep\|Glob\|WebSearch` | `discovery-gate` |
+| PreToolUse | `mcp__plugin_memsmith_mem__.*` and `Grep\|Glob\|Read\|Bash` | `tool-intent` |
+| PreToolUse | `Task\|Agent` | `agent-directive` |
+| PreToolUse | `mcp__plugin_memsmith_mem__observation_add` | `record-intent-intercept` |
+| PostToolUse | `*` | `observation` |
+| Stop | | `summarize` |
+
+`npx memsmith install` and `npx memsmith repair` install the runtime dependencies. The Setup hook only reads the `.install-version` marker.
+
+For details, see [Plugin Hooks](/architecture/hooks).
+
+## Directory structure
 
 ```
 memsmith/
 ├── src/
-│   ├── hooks/                  # TypeScript hook implementations (built via esbuild)
-│   ├── sdk/                    # Claude Agent SDK integration
-│   ├── services/
-│   │   ├── worker-service.ts   # Express HTTP + SSE service (worker entry point)
-│   │   ├── sync/ChromaSync.ts  # Optional Chroma vector index
-│   │   └── sqlite/             # SQLite + FTS5 storage layer
-│   ├── ui/viewer/              # React + TypeScript web viewer
-│   ├── shared/                 # Shared utilities (paths, settings defaults)
-│   └── utils/                  # Logging, platform, tag-stripping helpers
-│
-├── scripts/                    # Build + utility scripts
-│
-├── plugin/                     # Plugin distribution (synced to marketplace)
+│   ├── cli/handlers/           # Hook event handlers
+│   ├── server/                 # MemSmith server: routes, runtime, generation, retrieval
+│   ├── servers/mcp-server.ts   # MCP server
+│   ├── storage/postgres/       # Postgres schema and queries
+│   ├── npx-cli/                # `npx memsmith` commands
+│   ├── services/               # Integrations, telemetry, transcripts, shared services
+│   ├── ui/viewer/              # React viewer
+│   └── shared/                 # Paths, settings defaults, shared utilities
+├── scripts/                    # Build and maintenance scripts
+├── plugin/                     # Plugin distribution
 │   ├── .claude-plugin/plugin.json
-│   ├── hooks/hooks.json        # Hook registration (Setup + 5 lifecycle hooks)
-│   ├── scripts/                # Built executables
-│   │   ├── version-check.js    # Setup-phase marker check (sub-100ms)
-│   │   ├── bun-runner.js       # Resolves Bun and runs worker-service.cjs
-│   │   ├── worker-service.cjs  # Worker daemon + lifecycle hook dispatcher
-│   │   ├── worker-cli.js       # CLI shim
-│   │   ├── worker-wrapper.cjs  # Process wrapper
-│   │   ├── mcp-server.cjs      # MCP search server
-│   │   ├── statusline-counts.js
-│   │   └── context-generator.cjs
-│   ├── skills/                 # Agent skills (mem-search, make-plan, do, etc.)
-│   └── ui/viewer.html          # Self-contained React bundle
-│
+│   ├── hooks/hooks.json
+│   ├── scripts/                # Built bundles: server-service.cjs, mcp-server.cjs, bun-runner.js, version-check.js
+│   ├── skills/                 # ms-mem-search, ms-smart-explore, ms-how-it-works, ms-dashboard
+│   └── ui/                     # Viewer bundle
 ├── tests/                      # Test suite (`bun test`)
-├── docs/                       # Mintlify documentation
-└── openclaw/                   # OpenClaw integration plugin
+└── docs/public/                # Documentation source
 ```
-
-## Component Details
-
-### 1. Plugin Hooks
-
-The plugin registers a Setup-phase `version-check.js` plus five lifecycle hooks. Each lifecycle event invokes `bun-runner.js` to spawn `worker-service.cjs` with a `hook claude-code <event>` argument; the worker process is the single dispatcher for all hook logic. Events:
-
-- **Setup** → `version-check.js` (sub-100ms marker check; never installs anything)
-- **SessionStart** → start worker, then `hook claude-code context` (context injection)
-- **UserPromptSubmit** → `hook claude-code session-init`
-- **PreToolUse** (matcher `Read`) → `hook claude-code file-context`
-- **PostToolUse** (matcher `*`) → `hook claude-code observation`
-- **Stop** → `hook claude-code summarize` (summary generation)
-
-The actual runtime install (Bun, uv, `bun install`) is performed by `npx memsmith install` / `npx memsmith repair` with a visible installer spinner; the Setup hook itself only reads the `.install-version` marker.
-
-See [Plugin Hooks](/architecture/hooks) for detailed hook documentation.
-
-### 2. Worker Service
-Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `MEMSMITH_WORKER_PORT`) with:
-- Search HTTP API endpoints
-- Viewer UI HTTP/SSE endpoints
-- Async observation processing via the Claude Agent SDK (or Gemini / OpenRouter)
-- Real-time updates via Server-Sent Events
-- Auto-managed by Bun
-
-See [Worker Service](/architecture/worker-service) for HTTP API and endpoints.
-
-### 3. Database Layer
-SQLite3 with bun:sqlite driver featuring:
-- FTS5 virtual tables for full-text search
-- SessionStore for CRUD operations
-- SessionSearch for FTS5 queries
-- Location: `~/.memsmith/memsmith.db`
-
-See [Database Architecture](/architecture/database) for schema and FTS5 search.
-
-### 4. mem-search Skill (v5.4.0+)
-Skill-based search with progressive disclosure providing 10 search operations:
-- Search observations, sessions, prompts (full-text FTS5)
-- Filter by type, concept, file
-- Get recent context, timeline, timeline by query
-- API help documentation
-
-**Token Savings**: ~2,250 tokens per session vs MCP approach
-- Skill frontmatter: ~250 tokens (loaded at session start)
-- Full instructions: ~2,500 tokens (loaded on-demand when invoked)
-- HTTP API endpoints instead of MCP tools
-
-**Skill Enhancement (v5.5.0)**: Renamed from "search" to "mem-search" for better scope differentiation. Effectiveness increased from 67% to 100% with enhanced triggers and comprehensive documentation.
-
-See [Search Architecture](/architecture/search-architecture) for technical details and examples.
-
-### 5. Viewer UI
-React + TypeScript web interface served by the worker on its configured port (default `http://127.0.0.1:<worker-port>`) featuring:
-- Real-time memory stream via Server-Sent Events
-- Infinite scroll pagination with automatic deduplication
-- Project filtering and settings persistence
-- GPU-accelerated animations
-- Self-contained HTML bundle (viewer.html)
-
-Built with esbuild into a single file deployment.

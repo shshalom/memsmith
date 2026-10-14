@@ -435,7 +435,7 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
 
   const bunCmd = IS_WINDOWS && bunPath.includes(' ') ? `"${bunPath}"` : bunPath;
 
-  // Per CHANGELOG v12.6.1 -> v12.6.2: tree-sitter-swift's nested
+  // The v12.6.1 -> v12.6.2 install hang: tree-sitter-swift's nested
   // tree-sitter-cli postinstall downloads a Rust binary and can hang the
   // install. Bun honors trustedDependencies; npm does not. We additionally
   // pass --ignore-scripts as belt-and-suspenders and bound it with a timeout.

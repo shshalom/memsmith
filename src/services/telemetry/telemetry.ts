@@ -35,7 +35,7 @@ function hasConsent(): boolean {
   if (consentCache && now < consentCache.expiresAt) {
     return consentCache.value;
   }
-  const value = resolveTelemetryConsent(process.env, loadTelemetryConfig());
+  const value = getTelemetryApiKey() !== null && resolveTelemetryConsent(process.env, loadTelemetryConfig());
   consentCache = { value, expiresAt: now + CONSENT_CACHE_TTL_MS };
   return value;
 }
@@ -72,7 +72,7 @@ function getClient(): PostHog {
       isErrorTelemetryEnabled(process.env) &&
       hasConsent();
 
-    client = new PostHog(getTelemetryApiKey(), {
+    client = new PostHog(getTelemetryApiKey() ?? '', {
       host: getTelemetryHost(),
       flushAt: 20,
       flushInterval: 10000,

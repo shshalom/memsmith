@@ -69,7 +69,7 @@ describe('Codex CLI installer config repair', () => {
       '',
       '[mcp_servers.mcp-search]',
       'command = "node"',
-      'args = ["/Users/alexnewman/.codex/plugins/cache/memsmith-local/memsmith/12.7.5/scripts/mcp-server.cjs"]',
+      'args = ["/Users/dev/.codex/plugins/cache/memsmith-local/memsmith/12.7.5/scripts/mcp-server.cjs"]',
       '',
       '[plugins."memsmith@memsmith-local"]',
       'enabled = true',

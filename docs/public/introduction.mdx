@@ -1,17 +1,17 @@
 ---
 title: "Introduction"
-description: "Persistent memory compression system for Claude Code"
+description: "Persistent, local-first memory for Claude Code, with optional shared team memory"
 ---
 
 # MemSmith
 
-**Persistent memory compression system for Claude Code**
+**Persistent, local-first memory for Claude Code, with optional shared team memory.**
 
-MemSmith seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
+MemSmith captures what your agent does in each session, turns it into searchable observations, and brings the relevant ones back in later sessions. Claude keeps its knowledge of a project after a session ends.
 
-## Quick Start
+## Quick start
 
-Install with a single command:
+To install, run:
 
 ```bash
 npx memsmith install
@@ -21,67 +21,50 @@ Or install from the plugin marketplace inside Claude Code:
 
 ```bash
 /plugin marketplace add shshalom/memsmith
-/plugin install memsmith
+/plugin install memsmith@shshalom
 ```
 
-Restart Claude Code. Context from previous sessions will automatically appear in new sessions.
+Restart Claude Code. Memory injection starts on your second session in a project.
 
-## Key Features
+## Key features
 
-- 🧠 **Persistent Memory** - Context survives across sessions
-- 📁 **Folder Context Files** - Auto-generated `CLAUDE.md` in project folders with activity timelines
-- 🌐 **Multilingual Modes** - Supports 28 languages (Spanish, Chinese, French, Japanese, etc.)
-- 🎭 **Mode System** - Switch between workflows (Code, Email Investigation, Chill)
-- 🔍 **MCP Search Tools** - Query your project history with natural language
-- 🧠 **Knowledge Agents** - Build queryable "brains" from your observation history
-- 🌐 **Web Viewer UI** - Real-time memory stream visualization served by the local worker
-- 🔒 **Privacy Control** - Use `<private>` tags to exclude sensitive content from storage
-- ⚙️ **Context Configuration** - Fine-grained control over what context gets injected
-- 🤖 **Automatic Operation** - No manual intervention required
-- 📊 **FTS5 Search** - Fast full-text search across observations
-- 🔗 **Citations** - Reference past observations with IDs
+- **Persistent memory**: Context survives across sessions.
+- **Semantic search**: Postgres full-text search plus pgvector embeddings.
+- **Memory tools**: `observation_search`, `observation_context`, and `note_add` through MCP.
+- **User notes**: Ask Claude to remember something, and it saves a note that ranks first in search.
+- **Local or team runtime**: Run everything on your machine, or share memory through a team server.
+- **Modes**: Code mode, a lighter chill variant, and 29 language variants.
+- **Dashboard**: Browse observations, notes, and generation status.
+- **Privacy control**: Wrap content in `<private>` tags to keep it out of memory.
 
-## How It Works
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Session Start → Inject context from last 10 sessions       │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│ User Prompts → Create session, save user prompts           │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│ Tool Executions → Capture observations (Read, Write, etc.)  │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│ Worker Processes → Extract learnings via Claude Agent SDK   │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│ Session Ends → Generate summary, ready for next session     │
-└─────────────────────────────────────────────────────────────┘
+Session start  → Inject recent and relevant observations
+Your prompt    → Inject the most relevant memory for that prompt
+Tool use       → Hooks send activity to the MemSmith server
+Generation     → Your provider turns activity into observations, stored in Postgres
+Claude stops   → The server summarizes the session
 ```
 
-**Core Components:**
-1. **5 Lifecycle Hooks** - SessionStart, UserPromptSubmit, PostToolUse, Summary (Stop), SessionEnd
-2. **Worker Service** - Express HTTP API managed by Bun on a per-user port (default `37700 + (uid % 100)`)
-3. **SQLite Database** - Stores sessions, observations, summaries with FTS5 search
-4. **Chroma Vector Index** - Optional embedding-based semantic search
-5. **MCP / Skill Search Tools** - Query historical context with natural language
-6. **Web Viewer UI** - Real-time visualization with SSE and infinite scroll
+**Core components:**
 
-See [Architecture Overview](architecture/overview) for details.
+1. **Plugin hooks**: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, and Stop.
+2. **MemSmith server**: Listens on `127.0.0.1` at `38877 + (your user ID % 100)`. It stores observations, runs generation, and serves search, context, and the dashboard.
+3. **Postgres with pgvector**: The local runtime runs an embedded Postgres in `~/.memsmith/pgdata`. The team runtime connects to a remote Postgres.
+4. **Local embedder**: Computes embeddings on your machine (all-MiniLM-L6-v2), so semantic search needs no extra API key.
+5. **MCP server**: Exposes the memory tools and the `smart_*` code exploration tools.
 
-## System Requirements
+For details, see [Architecture overview](/architecture/overview).
 
-- **Node.js**: 20.0.0 or higher
-- **Bun** ≥ 1.0 (auto-installed by `npx memsmith install` if missing)
-- **uv** (auto-installed if missing — provides Python for Chroma)
-- **Claude Code** (or another supported IDE: Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, OpenClaw)
-- **SQLite 3** — bundled via `bun:sqlite`
+## System requirements
+
+- **Node.js** 20.12 or later
+- **Bun** 1.0 or later (installed automatically if missing)
+- **uv** (installed automatically if missing)
+- **Claude Code** or another supported IDE (Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, and others)
+
+You don't need Docker or a separate database.
 
 ## Next Steps
 
@@ -94,11 +77,5 @@ See [Architecture Overview](architecture/overview) for details.
   </Card>
   <Card title="Folder Context" icon="folder-open" href="/usage/folder-context">
     Auto-generated folder CLAUDE.md files
-  </Card>
-  <Card title="Search Tools" icon="magnifying-glass" href="/usage/search-tools">
-    Query your project history
-  </Card>
-  <Card title="Knowledge Agents" icon="brain" href="/usage/knowledge-agents">
-    Build queryable corpora from your history
   </Card>
 </CardGroup>

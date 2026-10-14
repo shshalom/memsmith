@@ -923,7 +923,7 @@ The worker automatically strips privacy tags before storage:
 ```typescript
 class WorkerUnavailableError extends Error {
   constructor() {
-    super('Claude-mem worker is not running or unreachable');
+    super('MemSmith worker is not running or unreachable');
     this.name = 'WorkerUnavailableError';
   }
 }
@@ -1451,16 +1451,10 @@ const userMessage = '<private>API key: sk-1234567890</private>';
 ## Additional Resources
 
 <CardGroup cols={2}>
-  <Card title="Documentation" icon="book" href="https://memsmith.ai">
+  <Card title="Documentation" icon="book" href="https://github.com/shshalom/memsmith">
     Complete memsmith documentation
   </Card>
   <Card title="GitHub" icon="github" href="https://github.com/shshalom/memsmith">
     Source code and issue tracker
-  </Card>
-  <Card title="Worker Service" icon="server" href="/architecture/worker-service">
-    Worker architecture details
-  </Card>
-  <Card title="Database Schema" icon="database" href="/architecture/database">
-    Database structure and queries
   </Card>
 </CardGroup>

@@ -13,10 +13,10 @@ Every Read, Edit, and Bash that Claude makes turns into a compressed observation
 
 Memory injection starts on your second session in a project.
 
-The first session in a fresh project seeds memory; subsequent sessions receive auto-injected context for relevant past work. Run `/ms-learn-codebase` if you want to front-load the entire repo into memory in a single pass (~5 minutes, optional).
+The first session in a fresh project seeds memory; subsequent sessions receive auto-injected context for relevant past work.
 
 ## Where data lives
 
-Everything stays in ~/.memsmith on this machine.
+In local mode (the default), everything stays in ~/.memsmith on this machine. The database, embeddings, logs, and settings all live under that directory, and `npx memsmith uninstall` removes them. Nothing leaves your machine except calls to the generation provider you configured (Claude, Gemini, OpenRouter, or Ollama).
 
-Nothing leaves your machine except calls to whichever AI provider you configured for compression (Claude / OpenRouter / Gemini). The SQLite database, vector index, logs, and settings all live under that directory and are removed cleanly on `npx memsmith uninstall`.
+In team mode, observations are stored on your team's MemSmith server, where teammates with access can search them. Your settings and logs still live in ~/.memsmith.

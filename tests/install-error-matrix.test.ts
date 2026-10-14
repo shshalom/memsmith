@@ -22,7 +22,6 @@ import {
 const CANONICAL_IDES = [
   'claude-code',
   'opencode',
-  'openclaw',
   'windsurf',
   'codex-cli',
   'cursor',
@@ -249,7 +248,7 @@ function simulateInstall(_ide: string, scenario: Scenario): Outcome {
   return { status, aborted: false };
 }
 
-describe('cross-IDE failure matrix (11 IDEs x 4 scenarios)', () => {
+describe('cross-IDE failure matrix (10 IDEs x 4 scenarios)', () => {
   const scenarios: Scenario[] = ['happy', 'eresolve', 'missing-uv', 'missing-bun'];
 
   let prevMatrixDataDir: string | undefined;
@@ -268,8 +267,8 @@ describe('cross-IDE failure matrix (11 IDEs x 4 scenarios)', () => {
     else process.env.MEMSMITH_DATA_DIR = prevMatrixDataDir;
   });
 
-  it('produces 44 cells (11 IDEs x 4 scenarios)', () => {
-    expect(CANONICAL_IDES.length * scenarios.length).toBe(44);
+  it('produces 40 cells (10 IDEs x 4 scenarios)', () => {
+    expect(CANONICAL_IDES.length * scenarios.length).toBe(40);
   });
 
   for (const ide of CANONICAL_IDES) {

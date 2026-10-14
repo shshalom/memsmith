@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { spawnSync } from 'child_process';
 import { loadTelemetryConfig, saveTelemetryConfig } from '../../services/telemetry/consent.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
+import { getTelemetryApiKey } from '../../services/telemetry/common.js';
 import { spawnHidden } from '../../shared/spawn.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { buildAutoStartCommand } from '../install/autostart.js';
@@ -317,7 +318,7 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
           if (mcpResult === 0) {
             return `Cursor: hooks + MCP installed ${styleText('green', 'OK')}`;
           }
-          return `Cursor: hooks installed; MCP setup failed — run \`npx memsmith cursor mcp\` ${styleText('yellow', '!')}`;
+          return `Cursor: hooks installed; MCP setup failed — rerun \`npx memsmith install --ide cursor\` ${styleText('yellow', '!')}`;
         },
       };
     }
@@ -352,23 +353,6 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
             return `Windsurf: hook installation failed ${styleText('red', 'FAIL')}`;
           }
           return `Windsurf: hooks installed ${styleText('green', 'OK')}`;
-        },
-      };
-    }
-
-    case 'openclaw': {
-      return {
-        title: 'OpenClaw: installing plugin',
-        task: async (message) => {
-          message('Loading OpenClaw installer…');
-          const { installOpenClawIntegration } = await import('../../services/integrations/OpenClawInstaller.js');
-          message('Copying plugin files…');
-          const { result, output } = await bufferConsole(() => installOpenClawIntegration());
-          if (result !== 0) {
-            recordFailure('OpenClaw: plugin installation failed', output);
-            return `OpenClaw: plugin installation failed ${styleText('red', 'FAIL')}`;
-          }
-          return `OpenClaw: plugin installed ${styleText('green', 'OK')}`;
         },
       };
     }
@@ -651,7 +635,6 @@ function copyPluginToMarketplace(): void {
     'plugin',
     'package.json',
     'package-lock.json',
-    'openclaw',
     'dist',
     'LICENSE',
     'README.md',
@@ -813,14 +796,13 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   if (options.runtime !== undefined) {
     const requested = normalizeRuntimeFlag(options.runtime);
     if (requested === null) {
-      log.error(`Unknown --runtime: ${options.runtime}. Allowed: local, worker, server`);
+      log.error(`Unknown --runtime: ${options.runtime}. Allowed: local, server`);
       process.exit(1);
     }
     if (requested === 'server') {
       await setupServerRuntimeNonInteractive(options);
       return 'server';
     }
-    // Both 'worker' (legacy alias) and 'local' resolve to the embedded local runtime.
     mergeSettings({ MEMSMITH_RUNTIME: 'local' });
     return 'local';
   }
@@ -1238,78 +1220,9 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
   }
 }
 
-// --- CMEM Online email opt-in ----------------------------------------------
-// Interactive, optional. The CLI POSTs the email + optional note to the live
-// waitlist endpoint (cmem.ai/api/waitlist), which handles persistence, dedup,
-// and the confirmation email server-side. MEMSMITH_SIGNUP_URL overrides the
-// default for testing/staging. No API keys ever ship in the npx package — the
-// endpoint is unauthenticated and the secret (Resend) stays server-side.
-// Anything that goes wrong here is swallowed — a marketing opt-in must never
-// block or fail the install.
-
-const DEFAULT_SIGNUP_ENDPOINT = 'https://cmem.ai/api/waitlist';
-const SIGNUP_ENDPOINT = process.env.MEMSMITH_SIGNUP_URL?.trim() || DEFAULT_SIGNUP_ENDPOINT;
-const SIGNUP_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-interface StoredSignup {
-  email: string;
-  note: string;
-  sent: boolean;
-}
-
-function parseStoredSignup(): StoredSignup | null {
-  const flat = readFlatSettings(USER_SETTINGS_PATH);
-  if (!flat) return null;
-  const email = typeof flat.MEMSMITH_ONLINE_SIGNUP_EMAIL === 'string' ? flat.MEMSMITH_ONLINE_SIGNUP_EMAIL : '';
-  if (!email) return null;
-  return {
-    email,
-    note: typeof flat.MEMSMITH_ONLINE_SIGNUP_NOTE === 'string' ? flat.MEMSMITH_ONLINE_SIGNUP_NOTE : '',
-    sent: flat.MEMSMITH_ONLINE_SIGNUP_SENT === 'true',
-  };
-}
-
-function readStoredSignup(): StoredSignup | null {
-  try {
-    return parseStoredSignup();
-  } catch {
-    // [ANTI-PATTERN IGNORED]: settings.json is optional and may be missing or hand-edited into invalid JSON; treating that as "no stored signup" simply re-asks the opt-in, the designed recovery for this never-blocking marketing flow.
-    return null;
-  }
-}
-
-async function postSignup(payload: { email: string; note: string; version: string }, signal: AbortSignal): Promise<boolean> {
-  const res = await fetch(SIGNUP_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: payload.email,
-      note: payload.note,
-      version: payload.version,
-      platform: process.platform,
-      source: 'npx-installer',
-    }),
-    signal,
-  });
-  return res.ok;
-}
-
-async function submitOnlineSignup(payload: { email: string; note: string; version: string }): Promise<boolean> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    return await postSignup(payload, controller.signal);
-  } catch {
-    // [ANTI-PATTERN IGNORED]: network/timeout failures of this optional waitlist POST are expected offline; the caller persists the email locally and retries silently on the next install run.
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /**
- * Final step of the install flow: tell the user telemetry is on by default
- * (opt-out) and let them decide. Asked ONCE — a telemetry.json with a recorded
+ * Final step of the install flow: when a telemetry key is configured, tell the
+ * user telemetry is on by default (opt-out) and let them decide. Asked ONCE — a telemetry.json with a recorded
  * enabled decision means the user already chose, and we never re-nag. An
  * installId-only config (written by the worker's ID bootstrap) does NOT count
  * as a decision. Respects DO_NOT_TRACK (skip entirely: they already answered),
@@ -1320,15 +1233,16 @@ async function promptTelemetryOptIn(): Promise<void> {
   if (process.env.CI) return;
   const dnt = process.env.DO_NOT_TRACK;
   if (dnt !== undefined && dnt !== '' && dnt !== '0' && dnt !== 'false') return;
+  if (getTelemetryApiKey() === null) return;
   const existing = loadTelemetryConfig();
   if (existing?.enabled !== undefined) return;
 
   p.log.message(styleText('dim', 
     'Anonymous install ID only — no prompts, file paths, code, or project names, ever.\n'
-    + 'Details: https://docs.memsmith.ai/telemetry · Change anytime: memsmith telemetry disable',
+    + 'Details: https://github.com/shshalom/memsmith/blob/main/docs/public/telemetry.mdx · Change anytime: memsmith telemetry disable',
   ));
   const consent = await p.confirm({
-    message: 'Share anonymized usage data with CMEM? It is on by default and helps us make the product better.',
+    message: 'Share anonymized usage data? It is on by default and helps improve MemSmith.',
     initialValue: true,
   });
   if (p.isCancel(consent)) return;
@@ -1341,74 +1255,6 @@ async function promptTelemetryOptIn(): Promise<void> {
   log.success(consent ? 'Thanks! Anonymized usage sharing is on.' : 'No problem — telemetry is off.');
 }
 
-async function promptCmemOnlineOptIn(version: string): Promise<void> {
-  // Interactive-only, and easy to turn off for CI / scripted installs.
-  if (!isInteractive) return;
-  if (process.env.CI) return;
-  if (String(process.env.MEMSMITH_ONLINE_OPTIN ?? '').trim().toLowerCase() === 'false') return;
-
-  const prior = readStoredSignup();
-  if (prior) {
-    // We already captured this email — don't re-nag. If a previous send never
-    // reached the service, quietly retry once now and record the result.
-    if (!prior.sent) {
-      const ok = await submitOnlineSignup({ email: prior.email, note: prior.note, version });
-      if (ok) mergeSettings({ MEMSMITH_ONLINE_SIGNUP_SENT: 'true' });
-    }
-    return;
-  }
-
-  p.note(
-    [
-      styleText(['bold', 'cyan'], 'New! CMEM Online: every mem everywhere all at once.'),
-      '',
-      "Share your email and we'll send you a link. We're rolling this out to our",
-      'top users first, then everyone ASAP.',
-    ].join('\n'),
-    'CMEM Online',
-  );
-
-  const emailResult = await p.text({
-    message: 'Your work email (press Enter to skip):',
-    placeholder: 'you@company.com',
-    defaultValue: '',
-    validate: (v?: string) => {
-      const value = (v ?? '').trim();
-      if (value.length === 0) return undefined; // empty = skip, not an error
-      if (!SIGNUP_EMAIL_RE.test(value)) return "That doesn't look like an email — fix it, or clear the field to skip.";
-      return undefined;
-    },
-  });
-
-  if (p.isCancel(emailResult)) return;
-  const email = String(emailResult).trim();
-  if (email.length === 0) return;
-
-  const noteResult = await p.text({
-    message: 'Optionally: what are you working on, or how can we help you and your team? (Enter to skip)',
-    placeholder: 'e.g. migrating a monorepo, onboarding a 5-dev team…',
-    defaultValue: '',
-  });
-  const note = p.isCancel(noteResult) ? '' : String(noteResult).trim();
-
-  const spin = p.spinner();
-  spin.start('Signing you up for CMEM Online…');
-  const ok = await submitOnlineSignup({ email, note, version });
-  // Persist locally regardless of the network result so we never re-prompt;
-  // a failed send is retried silently on the next install (see above).
-  mergeSettings({
-    MEMSMITH_ONLINE_SIGNUP_EMAIL: email,
-    MEMSMITH_ONLINE_SIGNUP_NOTE: note,
-    MEMSMITH_ONLINE_SIGNUP_AT: new Date().toISOString(),
-    MEMSMITH_ONLINE_SIGNUP_SENT: ok ? 'true' : 'false',
-  });
-  if (ok) {
-    spin.stop(`You're on the list — we'll email ${styleText('cyan', email)} your CMEM Online link.`);
-  } else {
-    spin.stop(styleText('yellow', `Saved ${email} — we'll finish signing you up next time you run the installer.`));
-  }
-}
-
 export interface InstallOptions {
   ide?: string;
   provider?: 'claude' | 'gemini' | 'openrouter' | 'ollama';
@@ -1417,7 +1263,7 @@ export interface InstallOptions {
   disableAutoMemory?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
   // alias for the canonical `server-beta` runtime id.
-  runtime?: 'worker' | 'server' | 'server-beta';
+  runtime?: string;
   // Base URL the server runtime (and the injected IDE MCP config) targets.
   serverUrl?: string;
 }
@@ -1493,8 +1339,6 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     segments.push(styleText('dim', 'reinstall'));
   }
   log.info(segments.join(` ${dot} `));
-
-  await promptCmemOnlineOptIn(version);
 
   if (alreadyInstalled) {
     if (process.stdin.isTTY) {
@@ -1823,14 +1667,12 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     ``,
     `${styleText('bold', 'First success:')} ${firstSuccessOpener}, then open Claude Code in any project. Observations stream in as Claude reads, edits, and runs commands.`,
     ``,
-    `${styleText('bold', 'Two paths from here:')}`,
-    `  ${styleText('cyan', 'A.')} Just start working. Memory builds passively from your first prompt. (Recommended.)`,
-    `  ${styleText('cyan', 'B.')} Front-load it: open Claude Code and run ${styleText('bold', '/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
+    `${styleText('bold', 'Next:')} start working. Memory builds passively from your first prompt.`,
     ``,
     `Memory injection starts on your second session in a project.`,
     `Everything stays in ${styleText('cyan', '~/.memsmith')} on this machine.`,
     ``,
-    `${styleText('dim', 'How it works: /how-it-works   ·   Disable first-session hint: MEMSMITH_WELCOME_HINT_ENABLED=false')}`,
+    `${styleText('dim', 'How it works: /ms-how-it-works   ·   Disable first-session hint: MEMSMITH_WELCOME_HINT_ENABLED=false')}`,
     `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.memsmith will be recreated by active hooks.')}`,
   ];
 

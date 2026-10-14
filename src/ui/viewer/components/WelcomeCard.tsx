@@ -6,7 +6,7 @@ interface WelcomeCardProps {
 
 const STORAGE_KEY = 'memsmith-welcome-dismissed-v3';
 const EXPLAINER_URL = '/api/onboarding/explainer';
-const DOCS_URL = 'https://docs.memsmith.ai';
+const DOCS_URL = 'https://github.com/shshalom/memsmith#readme';
 
 export function getStoredWelcomeDismissed(): boolean {
   try {

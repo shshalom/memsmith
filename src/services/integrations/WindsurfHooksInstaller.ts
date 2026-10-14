@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, renameS
 import { logger } from '../../utils/logger.js';
 import { getWorkerPort } from '../../shared/worker-utils.js';
 import { DATA_DIR } from '../../shared/paths.js';
-import { getBunAbsolutePath as findBunPath, getWorkerServiceAbsolutePath as findWorkerServicePath } from './install-paths.js';
+import { getBunAbsolutePath as findBunPath, getServerServiceAbsolutePath, isMemSmithHookCommand } from './install-paths.js';
 
 interface WindsurfHookEntry {
   command: string;
@@ -104,7 +104,7 @@ ${context}
   renameSync(tempFile, rulesFile);
 }
 
-function buildHookCommand(bunPath: string, workerServicePath: string, eventName: string): string {
+function buildHookCommand(bunPath: string, serverScriptPath: string, eventName: string): string {
   const eventToCommand: Record<string, string> = {
     'pre_user_prompt': 'session-init',
     'post_write_code': 'file-edit',
@@ -115,12 +115,12 @@ function buildHookCommand(bunPath: string, workerServicePath: string, eventName:
 
   const hookCommand = eventToCommand[eventName] ?? 'observation';
 
-  return `"${bunPath}" "${workerServicePath}" hook windsurf ${hookCommand}`;
+  return `"${bunPath}" "${serverScriptPath}" hook windsurf ${hookCommand}`;
 }
 
 function mergeAndWriteHooksJson(
   bunPath: string,
-  workerServicePath: string,
+  serverScriptPath: string,
   workingDirectory: string,
 ): void {
   mkdirSync(WINDSURF_HOOKS_DIR, { recursive: true });
@@ -143,7 +143,7 @@ function mergeAndWriteHooksJson(
   }
 
   for (const eventName of WINDSURF_HOOK_EVENTS) {
-    const command = buildHookCommand(bunPath, workerServicePath, eventName);
+    const command = buildHookCommand(bunPath, serverScriptPath, eventName);
 
     const hookEntry: WindsurfHookEntry = {
       command,
@@ -152,7 +152,7 @@ function mergeAndWriteHooksJson(
     };
 
     const existingHooks = (existingConfig.hooks[eventName] ?? []).filter(
-      (hook) => !hook.command.includes('worker-service') || !hook.command.includes('windsurf')
+      (hook) => !isMemSmithHookCommand(hook.command, 'windsurf')
     );
 
     existingConfig.hooks[eventName] = [...existingHooks, hookEntry];
@@ -164,10 +164,10 @@ function mergeAndWriteHooksJson(
 export async function installWindsurfHooks(): Promise<number> {
   console.log('\nInstalling MemSmith Windsurf hooks (user level)...\n');
 
-  const workerServicePath = findWorkerServicePath();
-  if (!workerServicePath) {
-    console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/worker-service.cjs');
+  const serverScriptPath = getServerServiceAbsolutePath();
+  if (!serverScriptPath) {
+    console.error('Could not find server-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/shshalom/plugin/scripts/server-service.cjs');
     return 1;
   }
 
@@ -178,15 +178,15 @@ export async function installWindsurfHooks(): Promise<number> {
     return 1;
   }
 
-  const workingDirectory = path.dirname(workerServicePath);
+  const workingDirectory = path.dirname(serverScriptPath);
 
   console.log(`  Using Bun runtime: ${bunPath}`);
-  console.log(`  Worker service: ${workerServicePath}`);
+  console.log(`  Server script: ${serverScriptPath}`);
 
   const workspaceRoot = process.cwd();
 
   try {
-    await writeWindsurfHooksAndSetupContext(bunPath, workerServicePath, workingDirectory, workspaceRoot);
+    await writeWindsurfHooksAndSetupContext(bunPath, serverScriptPath, workingDirectory, workspaceRoot);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -197,11 +197,11 @@ export async function installWindsurfHooks(): Promise<number> {
 
 async function writeWindsurfHooksAndSetupContext(
   bunPath: string,
-  workerServicePath: string,
+  serverScriptPath: string,
   workingDirectory: string,
   workspaceRoot: string,
 ): Promise<void> {
-  mergeAndWriteHooksJson(bunPath, workerServicePath, workingDirectory);
+  mergeAndWriteHooksJson(bunPath, serverScriptPath, workingDirectory);
   console.log(`  Created/merged hooks.json`);
 
   await setupWindsurfProjectContext(workspaceRoot);
@@ -210,7 +210,7 @@ async function writeWindsurfHooksAndSetupContext(
 Installation complete!
 
 Hooks installed to: ${WINDSURF_HOOKS_JSON_PATH}
-Using unified CLI: bun worker-service.cjs hook windsurf <command>
+Using unified CLI: bun server-service.cjs hook windsurf <command>
 
 Events registered:
   - pre_user_prompt      (session init + context injection)
@@ -220,7 +220,7 @@ Events registered:
   - post_cascade_response (full AI response)
 
 Next steps:
-  1. Start memsmith worker: memsmith start
+  1. Start the MemSmith server: memsmith start
   2. Restart Windsurf to load the hooks
   3. Context is injected via .windsurf/rules/memsmith-context.md (workspace-level)
 `);
@@ -321,7 +321,7 @@ function removeMemSmithHookEntries(): void {
     const eventHooks = config.hooks[eventName] ?? [];
     if (eventHooks.length > 0) {
       config.hooks[eventName] = eventHooks.filter(
-        (hook) => !hook.command.includes('worker-service') || !hook.command.includes('windsurf'),
+        (hook) => !isMemSmithHookCommand(hook.command, 'windsurf'),
       );
       if (config.hooks[eventName].length === 0) {
         delete config.hooks[eventName];
@@ -371,7 +371,7 @@ export function checkWindsurfHooksStatus(): number {
     if (parsedConfig) {
       const registeredEvents = WINDSURF_HOOK_EVENTS.filter(
         (event) => (parsedConfig?.hooks?.[event] ?? []).some(
-          (hook) => hook.command.includes('worker-service') && hook.command.includes('windsurf')
+          (hook) => isMemSmithHookCommand(hook.command, 'windsurf')
         )
       );
       console.log(`   Events: ${registeredEvents.length}/${WINDSURF_HOOK_EVENTS.length} registered`);

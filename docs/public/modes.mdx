@@ -5,19 +5,20 @@ description: "Configure MemSmith behavior and language with the Mode System"
 
 # Modes & Languages
 
-MemSmith uses a flexible **Mode System** to adapt its behavior, observation types, and output language. This allows you to switch between different workflows (like coding vs. email investigation) or languages without reinstalling the plugin.
+MemSmith uses a **mode system** to control what it records and which language it writes in. You can switch modes without reinstalling the plugin.
 
-## What is a Mode?
+## What is a mode?
 
-A "mode" is a configuration profile that defines:
-1.  **Observer Role**: How Claude should analyze your work (e.g., "Software Engineer" vs. "Forensic Analyst").
-2.  **Observation Types**: Valid categories for memory (e.g., "Bug Fix", "Feature" vs. "Person", "Organization").
-3.  **Concepts**: Semantic tags for indexing (e.g., "Pattern", "Trade-off").
-4.  **Language**: The language used for generating observations and summaries.
+A mode is a configuration profile that defines the following:
+
+1.  **Observer role**: How the model analyzes your work.
+2.  **Observation types**: The categories an observation can have, such as bug fix or feature.
+3.  **Concepts**: Semantic tags used for indexing, such as pattern or trade-off.
+4.  **Language**: The language of generated observations and summaries.
 
 ## Configuration
 
-Set the active mode using the `MEMSMITH_MODE` setting in `~/.memsmith/settings.json`:
+To set the active mode, set `MEMSMITH_MODE` in `~/.memsmith/settings.json`:
 
 ```json
 {
@@ -25,7 +26,7 @@ Set the active mode using the `MEMSMITH_MODE` setting in `~/.memsmith/settings.j
 }
 ```
 
-Or via environment variable:
+You can also set it as an environment variable:
 
 ```bash
 export MEMSMITH_MODE="code--fr"
@@ -33,21 +34,21 @@ export MEMSMITH_MODE="code--fr"
 
 ## Available Modes
 
-### Code Mode (Default)
-The standard mode for software development. Captures bug fixes, features, refactors, and architectural decisions.
+### Code mode (default)
+The standard mode for software development. It records bug fixes, features, refactors, and architectural decisions.
 
 **ID:** `code`
 
-### Code Mode Variants
+### Code mode variants
 
-Behavioral variants that change how the code mode operates:
+Variants change how code mode behaves:
 
 | Variant | Mode ID | Description |
 |---------|---------|-------------|
-| **Chill** | `code--chill` | Produces fewer observations. Only records things "painful to rediscover" - shipped features, architectural decisions, and non-obvious gotchas. Skips routine work and obvious changes. |
+| **Chill** | `code--chill` | Produces fewer observations. Records only work that is costly to rediscover, such as shipped features, architectural decisions, and non-obvious gotchas. Skips routine work and obvious changes. |
 
-### Multilingual Code Modes
-Inherits all behavior from Code Mode but instructs Claude to generate **all** memory artifacts (titles, narratives, facts, summaries) in the target language.
+### Multilingual code modes
+Each language mode inherits all behavior from code mode and writes **all** memory artifacts (titles, narratives, facts, and summaries) in the target language.
 
 | Language | Mode ID | Native Name |
 |----------|---------|-------------|
@@ -81,24 +82,11 @@ Inherits all behavior from Code Mode but instructs Claude to generate **all** me
 | **Ukrainian** | `code--uk` | Українська |
 | **Vietnamese** | `code--vi` | Tiếng Việt |
 
-### Email Investigation Mode
-A specialized mode for analyzing email dumps (e.g., FOIA releases, corporate archives). Focuses on identifying entities, relationships, timeline events, and key topics.
+## Mode inheritance
 
-**ID:** `email-investigation`
+A mode ID with the `--` separator inherits from its parent. For example, MemSmith resolves `code--es` as follows:
+1.  Loads the `code` (parent) configuration.
+2.  Loads the `code--es` (child) configuration.
+3.  Merges the child into the parent. Child values take precedence.
 
-**Observation Types:**
-- `entity`: Person, organization, or email address
-- `relationship`: Connection between entities
-- `timeline-event`: Time-stamped event in communication sequence
-- `evidence`: Supporting documentation or proof
-- `anomaly`: Suspicious pattern or irregularity
-- `conclusion`: Investigative finding or determination
-
-## Mode Inheritance
-
-The system supports inheritance using the `--` separator. For example, `code--es` means:
-1.  Load `code` (Parent) configuration.
-2.  Load `code--es` (Child) configuration.
-3.  Merge Child into Parent (Child overrides).
-
-This allows for lightweight "remix" modes that only change specific aspects (like the language prompt) while keeping the core definitions intact.
+A child mode changes only what it overrides, such as the language prompt, and keeps the parent's definitions.

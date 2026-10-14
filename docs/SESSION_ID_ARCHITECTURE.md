@@ -2,7 +2,7 @@
 
 ## Overview
 
-Claude-mem uses **two distinct session IDs** to track conversations and memory:
+MemSmith uses **two distinct session IDs** to track conversations and memory:
 
 1. **`contentSessionId`** - The user's Claude Code conversation session ID
 2. **`memorySessionId`** - The SDK agent's internal session ID for resume functionality

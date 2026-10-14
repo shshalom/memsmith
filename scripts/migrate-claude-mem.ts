@@ -7,40 +7,39 @@
 // Dry-run by default. Idempotent (stable `cmem-<id>` primary keys +
 // ON CONFLICT DO NOTHING). Source DB is opened READ-ONLY and never mutated.
 //
-// Usage:
-//   bun scripts/migrate-claude-mem.ts                 # dry-run, this project
-//   bun scripts/migrate-claude-mem.ts --execute       # actually load
-//   bun scripts/migrate-claude-mem.ts --limit 5       # cap rows (testing)
-//   bun scripts/migrate-claude-mem.ts --project X     # override source project name
+// The target is the local database of the MemSmith project at --cwd, read from
+// its .memsmith/project.json. The source project name defaults to that
+// project's folder name.
 //
-// Env / defaults:
-//   SOURCE_DB   = ~/.claude-mem/claude-mem.db
-//   PG DSN      = MEMSMITH_SERVER_DATABASE_URL
-//                 ?? postgres://postgres:postgres@localhost:55432/memsmith
-//   TEAM_ID     = MEMSMITH_LOCAL_DEV_TEAM_ID ?? the dogfood team
-//   PROJECT_ID  = MIGRATE_PROJECT_ID ?? the dogfood project
+// Usage:
+//   bun scripts/migrate-claude-mem.ts --cwd ~/Workspace/App              # dry-run
+//   bun scripts/migrate-claude-mem.ts --cwd ~/Workspace/App --execute    # load
+//   bun scripts/migrate-claude-mem.ts --cwd ... --limit 5                # cap rows
+//   bun scripts/migrate-claude-mem.ts --cwd ... --project X              # source name
+//
+// Env: SOURCE_DB (default ~/.claude-mem/claude-mem.db), MEMSMITH_LOCAL_PG_PORT.
 
 import { Database } from 'bun:sqlite';
 import { Pool } from 'pg';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-const DEFAULT_TEAM_ID = 'd09ef94a-72cd-4a62-8eed-caa1eb52d32b';
-const DEFAULT_PROJECT_ID = '4af1b61f-6299-4234-ae74-9228fdc09a73';
+import { basename, join } from 'node:path';
+import { requireDirectory, resolveLocalTarget } from './lib/local-target.js';
 
 interface Args {
   execute: boolean;
   limit: number | null;
-  project: string;
+  project: string | null;
+  cwd: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { execute: false, limit: null, project: 'team-agent-memory' };
+  const out: Args = { execute: false, limit: null, project: null, cwd: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--execute') out.execute = true;
     else if (a === '--limit') out.limit = Number(argv[++i]);
     else if (a === '--project') out.project = String(argv[++i]);
+    else if (a === '--cwd') out.cwd = requireDirectory(argv[++i]);
   }
   return out;
 }
@@ -148,16 +147,14 @@ export function transform(row: SourceRow, teamId: string, projectId: string): Ta
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (!args.cwd) throw new Error('--cwd <project directory> is required');
   const sourcePath = process.env.SOURCE_DB ?? join(homedir(), '.claude-mem', 'claude-mem.db');
-  const dsn =
-    process.env.MEMSMITH_SERVER_DATABASE_URL ??
-    'postgres://postgres:postgres@localhost:55432/memsmith';
-  const teamId = process.env.MEMSMITH_LOCAL_DEV_TEAM_ID ?? DEFAULT_TEAM_ID;
-  const projectId = process.env.MIGRATE_PROJECT_ID ?? DEFAULT_PROJECT_ID;
+  const { root, dsn, teamId, projectId, databaseName } = resolveLocalTarget(args.cwd);
+  const sourceProject = args.project ?? basename(root);
 
-  console.log(`[migrate] mode=${args.execute ? 'EXECUTE' : 'DRY-RUN'} project="${args.project}" limit=${args.limit ?? 'none'}`);
+  console.log(`[migrate] mode=${args.execute ? 'EXECUTE' : 'DRY-RUN'} source project="${sourceProject}" limit=${args.limit ?? 'none'}`);
   console.log(`[migrate] source=${sourcePath}`);
-  console.log(`[migrate] target=${dsn.replace(/:[^:@/]+@/, ':****@')} team=${teamId} project=${projectId}`);
+  console.log(`[migrate] target=${databaseName} (${root}) team=${teamId} project=${projectId}`);
 
   const sqlite = new Database(sourcePath, { readonly: true });
   const limitClause = args.limit ? ` LIMIT ${args.limit}` : '';
@@ -168,7 +165,7 @@ async function main() {
               memory_session_id, agent_type, agent_id, metadata, created_at
          FROM observations WHERE project = ?${limitClause}`,
     )
-    .all(args.project) as SourceRow[];
+    .all(sourceProject) as SourceRow[];
   console.log(`[migrate] extracted ${rows.length} source rows`);
 
   let transformed = 0;
@@ -190,27 +187,32 @@ async function main() {
   for (const t of targets) dist.set(t.obs_type, (dist.get(t.obs_type) ?? 0) + 1);
   console.log('[migrate] obs_type distribution:', Object.fromEntries([...dist.entries()].sort((a, b) => b[1] - a[1])));
 
-  if (!args.execute) {
-    console.log('[migrate] DRY-RUN — inserting nothing. Sample transformed rows:');
-    for (const t of targets.slice(0, 3)) {
-      console.log(JSON.stringify({ id: t.id, obs_type: t.obs_type, lifecycle_state: t.lifecycle_state, content: t.content.slice(0, 80), factsCount: Array.isArray((t.metadata as any).facts) ? (t.metadata as any).facts.length : 0 }, null, 2));
-    }
-    sqlite.close();
-    console.log('[migrate] done (dry-run). Re-run with --execute to load.');
-    return;
-  }
-
-  // EXECUTE
   const pool = new Pool({ connectionString: dsn });
   try {
-    // Verify team + project exist (fail loud rather than FK-violate mid-batch).
+    // Fail loud before any insert rather than FK-violate mid-batch.
     const chk = await pool.query('SELECT (SELECT count(*) FROM teams WHERE id=$1) AS t, (SELECT count(*) FROM projects WHERE id=$2) AS p', [teamId, projectId]);
     if (Number(chk.rows[0].t) === 0 || Number(chk.rows[0].p) === 0) {
-      throw new Error(`team (${chk.rows[0].t}) or project (${chk.rows[0].p}) row missing — create them before --execute`);
+      throw new Error(`team (${chk.rows[0].t}) or project (${chk.rows[0].p}) row missing in ${databaseName}`);
     }
+    const present = await pool.query(
+      'SELECT count(*) AS n, count(*) FILTER (WHERE project_id <> $2) AS foreign FROM observations WHERE id = ANY($1::text[])',
+      [targets.map(t => t.id), projectId],
+    );
+    // ON CONFLICT DO NOTHING would silently leave these under the other project.
+    if (Number(present.rows[0].foreign) > 0) {
+      throw new Error(`${present.rows[0].foreign} source rows are already in ${databaseName} under a different project`);
+    }
+    const total = await pool.query('SELECT count(*) FROM observations');
+    console.log(`[migrate] target has ${total.rows[0].count} observations; ${present.rows[0].n} of the ${targets.length} source rows are already loaded`);
 
-    const before = await pool.query('SELECT count(*) FROM observations');
-    console.log(`[migrate] target observations before: ${before.rows[0].count}`);
+    if (!args.execute) {
+      console.log('[migrate] DRY-RUN — inserting nothing. Sample transformed rows:');
+      for (const t of targets.slice(0, 3)) {
+        console.log(JSON.stringify({ id: t.id, obs_type: t.obs_type, lifecycle_state: t.lifecycle_state, content: t.content.slice(0, 80), factsCount: Array.isArray((t.metadata as any).facts) ? (t.metadata as any).facts.length : 0 }, null, 2));
+      }
+      console.log('[migrate] done (dry-run). Re-run with --execute to load.');
+      return;
+    }
 
     let inserted = 0;
     const batchSize = 200;
@@ -236,11 +238,8 @@ async function main() {
     const after = await pool.query('SELECT count(*) FROM observations');
     console.log(`[migrate] target observations after: ${after.rows[0].count} (inserted ${inserted})`);
 
-    // Verify: distribution + a sample FTS query.
-    const vdist = await pool.query(`SELECT obs_type, count(*) FROM observations WHERE id LIKE 'cmem-%' GROUP BY obs_type ORDER BY 2 DESC`);
+    const vdist = await pool.query(`SELECT obs_type, count(*) FROM observations WHERE id LIKE 'cmem-%' AND project_id = $1 GROUP BY obs_type ORDER BY 2 DESC`, [projectId]);
     console.log('[migrate] loaded obs_type distribution:', vdist.rows);
-    const fts = await pool.query(`SELECT count(*) FROM observations WHERE id LIKE 'cmem-%' AND content_search @@ plainto_tsquery('english', 'rebrand')`);
-    console.log(`[migrate] FTS sanity ("rebrand"): ${fts.rows[0].count} matches`);
   } finally {
     await pool.end();
     sqlite.close();

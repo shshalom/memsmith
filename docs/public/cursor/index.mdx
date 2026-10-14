@@ -1,180 +1,91 @@
 ---
 title: "Cursor Integration"
-description: "Persistent AI memory for Cursor IDE - free tier options available"
+description: "Give Cursor persistent memory with MemSmith"
 ---
 
-# Cursor Integration
+# Cursor integration
 
-> **Your AI stops forgetting. Give Cursor persistent memory.**
-
-Every Cursor session starts fresh - your AI doesn't remember what it worked on yesterday. Claude-mem changes that. Your agent builds cumulative knowledge about your codebase, decisions, and patterns over time.
-
-<CardGroup cols={2}>
-  <Card title="Free to Start" icon="dollar-sign">
-    Works with Gemini's free tier (1500 req/day) - no subscription required
-  </Card>
-  <Card title="Automatic Capture" icon="bolt">
-    MCP tools, shell commands, and file edits logged without effort
-  </Card>
-  <Card title="Smart Context" icon="brain">
-    Relevant history injected into every chat session
-  </Card>
-  <Card title="Works Everywhere" icon="check">
-    With or without Claude Code subscription
-  </Card>
-</CardGroup>
+Every Cursor session starts without context: your agent doesn't remember what it worked on yesterday. With MemSmith, your agent builds knowledge about your codebase, decisions, and patterns over time.
 
 <Info>
-**No Claude Code subscription required.** Use Gemini (free tier) or OpenRouter as your AI provider.
+You don't need a Claude Code subscription. You can generate observations with Gemini, OpenRouter, or a local Ollama model instead of Claude.
 </Info>
 
-## How It Works
+## How it works
 
-Claude-mem integrates with Cursor through native hooks:
+MemSmith integrates with Cursor through Cursor hooks and an MCP server:
 
-1. **Session hooks** capture tool usage, file edits, and shell commands
-2. **AI extraction** compresses observations into semantic summaries
-3. **Context injection** loads relevant history into each new session
-4. **Memory viewer** at http://localhost:37777 shows your knowledge base
-
-## Installation Paths
-
-Choose the installation method that fits your setup:
-
-### Path A: Cursor-Only Users (No Claude Code)
-
-If you're using Cursor without a Claude Code subscription:
-
-```bash
-# Clone and build
-git clone https://github.com/shshalom/memsmith.git
-cd memsmith && bun install && bun run build
-
-# Run interactive setup wizard
-bun run cursor:setup
-```
-
-The setup wizard will:
-- Detect you don't have Claude Code
-- Help you choose and configure a free AI provider (Gemini recommended)
-- Install hooks automatically
-- Start the worker service
-
-**Detailed guides:**
-- [Gemini Setup](/cursor/gemini-setup) - Recommended free option (1500 req/day)
-- [OpenRouter Setup](/cursor/openrouter-setup) - 100+ models including free options
-
-### Path B: Claude Code Users
-
-If you have Claude Code installed:
-
-```bash
-# Install the plugin (if not already)
-/plugin marketplace add shshalom/memsmith
-/plugin install memsmith
-
-# Install Cursor hooks
-memsmith cursor install
-```
-
-The plugin uses Claude's SDK by default but you can switch to Gemini or OpenRouter anytime.
+1. Hooks send prompts, shell commands, MCP tool calls, and file edits to the MemSmith server.
+2. The server turns them into observations with your configured generation provider and stores them in Postgres.
+3. MemSmith writes relevant history into a Cursor rules file so new chats start with context.
+4. The MCP server lets the agent search memory with `observation_search` and `observation_context`.
 
 ## Prerequisites
 
-<AccordionGroup>
-  <Accordion title="macOS">
-    - [Bun](https://bun.sh): `curl -fsSL https://bun.sh/install | bash`
-    - Cursor IDE
-    - jq and curl: `brew install jq curl`
-  </Accordion>
-  <Accordion title="Linux">
-    - [Bun](https://bun.sh): `curl -fsSL https://bun.sh/install | bash`
-    - Cursor IDE
-    - jq and curl: `apt install jq curl` or `dnf install jq curl`
-  </Accordion>
-  <Accordion title="Windows">
-    - [Bun](https://bun.sh): `powershell -c "irm bun.sh/install.ps1 | iex"`
-    - Cursor IDE
-    - PowerShell 5.1+ (included in Windows 10/11)
-    - Git for Windows
-  </Accordion>
-</AccordionGroup>
+- Cursor
+- Node.js 20 or later. The installer installs Bun and uv if they're missing.
 
-## Quick Commands Reference
+## Install
 
-After installation, these commands are available from the memsmith directory:
+Run the installer with the Cursor IDE identifier:
+
+```bash
+npx memsmith install --ide cursor
+```
+
+The installer does the following:
+
+- Installs the MemSmith plugin files and runtime dependencies.
+- Writes user-level Cursor hooks to `~/.cursor/hooks.json`.
+- Registers the MemSmith MCP server in `~/.cursor/mcp.json`.
+- Starts the local MemSmith server, unless you pass `--no-auto-start`.
+
+To choose a generation provider without the interactive prompt, add `--provider`:
+
+```bash
+npx memsmith install --ide cursor --provider gemini
+```
+
+For provider setup, see [Gemini](/cursor/gemini-setup) or [OpenRouter](/cursor/openrouter-setup).
+
+## Manage the server
 
 | Command | Description |
 |---------|-------------|
-| `bun run cursor:setup` | Interactive setup wizard |
-| `bun run cursor:install` | Install Cursor hooks |
-| `bun run cursor:uninstall` | Remove Cursor hooks |
-| `bun run cursor:status` | Check hook installation status |
-| `bun run worker:start` | Start the worker service |
-| `bun run worker:stop` | Stop the worker service |
-| `bun run worker:status` | Check worker status |
+| `memsmith start` | Starts the local server and waits until it's ready. |
+| `memsmith stop` | Stops the server. Add `--all` to also stop embedded Postgres. |
+| `memsmith restart` | Restarts the server, for example after you change settings. |
+| `memsmith status` | Shows whether the server is running, its address, and the dashboard URL. |
+| `memsmith doctor` | Checks the install. Add `--fix` to repair what it can. |
 
-## Verifying Installation
+Without a global install, prefix each command with `npx`, for example `npx memsmith status`.
 
-After setup, verify everything is working:
+## Verify the installation
 
-1. **Check worker status:**
-   ```bash
-   bun run worker:status
-   ```
-
-2. **Check hook installation:**
-   ```bash
-   bun run cursor:status
-   ```
-
-3. **Open the memory viewer:**
-   Open http://localhost:37777 in your browser
-
-4. **Restart Cursor** and start a coding session - you should see context being captured
-
-## Provider Comparison
-
-| Provider | Cost | Rate Limit | Best For |
-|----------|------|------------|----------|
-| Gemini | Free tier | 1500 req/day | Individual use, getting started |
-| OpenRouter | Pay-per-use + free models | Varies by model | Model variety, high volume |
-| Claude SDK | Included with Claude Code | Unlimited | Claude Code subscribers |
-
-<Tip>
-**Recommendation:** Start with Gemini's free tier. It handles typical individual usage well. Switch to OpenRouter or Claude SDK if you need higher limits.
-</Tip>
+1. Run `memsmith status` and confirm that the server is running.
+2. Open the **Dashboard** address that `memsmith status` prints.
+3. Restart Cursor and start a chat. New observations appear in the dashboard as the agent works.
 
 ## Troubleshooting
 
-### Worker not starting
+### The server isn't running
 
-```bash
-# Check if port is in use
-lsof -i :37777
+Run `memsmith doctor --fix`. It restarts the server and clears stale state when needed. Server logs are in `~/.memsmith/logs/`.
 
-# Force restart
-bun run worker:stop && bun run worker:start
+### Hooks don't fire
 
-# Check logs
-bun run worker:logs
-```
+1. Restart Cursor after installation.
+2. Confirm that `~/.cursor/hooks.json` contains MemSmith hook entries.
 
-### Hooks not firing
+### No context appears
 
-1. Restart Cursor IDE after installation
-2. Check hooks are installed: `bun run cursor:status`
-3. Verify hooks.json exists in `.cursor/` directory
+1. Run `memsmith status` and confirm that the server is running.
+2. Open the dashboard and confirm that observations exist for the project.
+3. Confirm that your provider API key is set in `~/.memsmith/settings.json`.
 
-### No context appearing
+## Next steps
 
-1. Ensure worker is running: `bun run worker:status`
-2. Check that you have observations: visit http://localhost:37777
-3. Verify your API key is configured correctly
-
-## Next Steps
-
-- [Gemini Setup Guide](/cursor/gemini-setup) - Detailed free tier setup
-- [OpenRouter Setup Guide](/cursor/openrouter-setup) - Configure OpenRouter
-- [Configuration Reference](../configuration) - All settings options
-- [Troubleshooting](../troubleshooting) - Common issues and solutions
+- [Gemini setup](/cursor/gemini-setup)
+- [OpenRouter setup](/cursor/openrouter-setup)
+- [Configuration](/configuration)
+- [Troubleshooting](/troubleshooting)

@@ -13,7 +13,7 @@ describe('buildNoOpResult', () => {
   });
 
   it('omits hookSpecificOutput for every other event', () => {
-    for (const event of ['session-init', 'observation', 'summarize', 'user-message', 'file-edit', 'file-context']) {
+    for (const event of ['session-init', 'observation', 'summarize', 'file-edit', 'file-context']) {
       expect(buildNoOpResult(event)).toEqual({ continue: true, suppressOutput: true });
     }
   });

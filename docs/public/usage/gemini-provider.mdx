@@ -5,7 +5,7 @@ description: "Use Google's Gemini API as an alternative to Claude for observatio
 
 # Gemini Provider
 
-Claude-mem supports Google's Gemini API as an alternative to the Claude Agent SDK for extracting observations from your sessions. This can significantly reduce costs since Gemini offers a generous free tier.
+MemSmith supports Google's Gemini API as an alternative to the Claude Agent SDK for extracting observations from your sessions. Gemini offers a free tier, which can reduce your costs.
 
 <Warning>
 **Free Tier Rate Limits**: Without billing enabled, Gemini has strict rate limits (5-10 RPM). Enable billing on your Google Cloud project to unlock 1000-4000 RPM while still using the free quota.
@@ -134,7 +134,7 @@ Google has two rate limit tiers for free usage:
 | gemini-2.5-flash | 5 | 250K |
 | gemini-3-flash-preview | 5 | 250K |
 
-Claude-mem enforces these limits automatically with built-in delays between requests. Processing may be slower but stays within limits.
+MemSmith enforces these limits automatically with built-in delays between requests. Processing may be slower but stays within limits.
 
 **With billing enabled (still free tier):**
 
@@ -149,7 +149,7 @@ Claude-mem enforces these limits automatically with built-in delays between requ
 </Tip>
 
 If you hit rate limits:
-- Claude-mem automatically falls back to Claude SDK
+- MemSmith automatically falls back to Claude SDK
 - Or switch back to Claude as your primary provider
 
 ### Observation Quality

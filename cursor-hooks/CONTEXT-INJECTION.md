@@ -80,7 +80,7 @@ Located at: `.cursor/rules/memsmith-context.mdc`
 ```markdown
 ---
 alwaysApply: true
-description: "Claude-mem context from past sessions (auto-updated)"
+description: "MemSmith context from past sessions (auto-updated)"
 ---
 
 # Memory Context from Past Sessions

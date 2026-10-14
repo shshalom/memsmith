@@ -579,7 +579,8 @@ export async function runHistoricalBackfill(db: Database): Promise<void> {
 async function executeHistoricalBackfill(db: Database): Promise<void> {
   if (isBackfillComplete()) return;
 
-  if (!resolveTelemetryConsent(process.env, loadTelemetryConfig())) return;
+  const apiKey = getTelemetryApiKey();
+  if (apiKey === null || !resolveTelemetryConsent(process.env, loadTelemetryConfig())) return;
 
   const nowMs = Date.now();
   const lastFullDay = utcDayString(nowMs - BACKFILL_LAG_MS);
@@ -630,7 +631,7 @@ async function executeHistoricalBackfill(db: Database): Promise<void> {
   // 5000s make flushAt unreachable (no swallowed background flushes) and
   // keep the whole backfill in ONE request at shutdown, with no silent
   // queue-cap drops for multi-year installs.
-  const client = new PostHog(getTelemetryApiKey(), {
+  const client = new PostHog(apiKey, {
     host: getTelemetryHost(),
     historicalMigration: true,
     flushAt: 5000,

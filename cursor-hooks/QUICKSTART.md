@@ -108,5 +108,5 @@ Restart Cursor to load the hooks.
 
 - Read [README.md](README.md) for detailed documentation
 - Read [INTEGRATION.md](INTEGRATION.md) for architecture details
-- Visit [memsmith docs](https://docs.memsmith.ai) for full feature set
+- Visit [MemSmith on GitHub](https://github.com/shshalom/memsmith) for full feature set
 

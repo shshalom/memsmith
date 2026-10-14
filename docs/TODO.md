@@ -1,7 +1,7 @@
 # MemSmith — Outstanding Work
 
 > Durable project memory of what's left. Lives in the repo (git-tracked), independent of
-> any memory plugin, so switching claude-mem ↔ MemSmith never loses this. Last updated: 2026-07-18.
+> any memory plugin, so switching memory plugins never loses this. Last updated: 2026-07-18.
 
 ## State of the project
 - **Local `main` @ b5c8a9b3.** **Nothing pushed** — local clone only (356 commits ahead of origin/main).
@@ -27,7 +27,7 @@ The full "consult memory first, and when the user says record/remember keep it i
 **Known NON-GOAL (deliberate):** subagent-session arming for record-intent. A subagent never hears "remember X" from the user directly; its own writes are agent observations that should NOT be user-notes (would pollute the Notes panel). Revisit only if a concrete case surfaces.
 
 ### Data migration + embeddings — ✅ (2026-07-10)
-- claude-mem `team-agent-memory` history migrated into the store (`scripts/migrate-claude-mem.ts`, idempotent). Embeddings backfilled (`scripts/backfill-embeddings.ts`, local ONNX all-MiniLM-L6-v2, 384-dim). Semantic search live (hybrid FTS+vector RRF).
+- Legacy SQLite `team-agent-memory` history imported into the store (the idempotent import script under `scripts/`). Embeddings backfilled (`scripts/backfill-embeddings.ts`, local ONNX all-MiniLM-L6-v2, 384-dim). Semantic search live (hybrid FTS+vector RRF).
 - Embed-on-write closed for generation (`713c8330`) AND for manual/record-intent inserts (embed-for-persist shared helper). New memory gets `embedding_vec` automatically.
 
 ## Open items (prioritized)

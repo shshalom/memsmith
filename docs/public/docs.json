@@ -38,15 +38,10 @@
           "usage/getting-started",
           "usage/openrouter-provider",
           "usage/gemini-provider",
-          "usage/search-tools",
-          "usage/knowledge-agents",
           "usage/claude-desktop",
           "usage/private-tags",
           "usage/export-import",
-          "usage/manual-recovery",
-          "usage/folder-context",
-          "beta-features",
-          "endless-mode"
+          "usage/folder-context"
         ]
       },
       {
@@ -86,8 +81,7 @@
           "telemetry",
           "development",
           "troubleshooting",
-          "platform-integration",
-          "openclaw-integration"
+          "platform-integration"
         ]
       },
       {
@@ -102,13 +96,8 @@
         "icon": "diagram-project",
         "pages": [
           "architecture/overview",
-          "architecture-evolution",
           "hooks-architecture",
-          "architecture/hooks",
-          "architecture/worker-service",
-          "architecture/database",
-          "architecture/search-architecture",
-          "architecture/pm2-to-bun-migration"
+          "architecture/hooks"
         ]
       }
     ]

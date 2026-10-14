@@ -241,6 +241,6 @@ Install on Ubuntu: `apt-get install jq curl`
 
 ## See Also
 
-- [MemSmith Documentation](https://docs.memsmith.ai)
+- [MemSmith Documentation](https://github.com/shshalom/memsmith)
 - [Cursor Hooks Reference](../docs/context/cursor-hooks-reference.md)
-- [MemSmith Architecture](https://docs.memsmith.ai/architecture/overview)
+- [MemSmith Architecture](https://github.com/shshalom/memsmith/blob/main/docs/public/architecture/overview.mdx)

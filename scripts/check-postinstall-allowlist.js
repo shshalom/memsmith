@@ -5,7 +5,7 @@
 // an install / preinstall / postinstall script must be explicitly allowlisted.
 // A new dep with a network postinstall that is NOT allowlisted fails CI.
 //
-// Why: see CHANGELOG.md (v12.6.1 -> v12.6.2 incident). PR #2300 moved 21
+// Why: the v12.6.1 -> v12.6.2 install hang. PR #2300 moved 21
 // tree-sitter grammars into dependencies; tree-sitter-swift's postinstall pulled
 // a nested tree-sitter-cli that downloaded a Rust binary and SIGINT'd, hanging
 // `npx memsmith install`. npm does NOT honor trustedDependencies (Bun-only),
@@ -102,7 +102,7 @@ if (offenders.length > 0) {
   for (const o of offenders) {
     console.error(`  - ${o.name} (${o.keys.join(', ')})`);
   }
-  console.error('\nA network postinstall can hang `npx memsmith install` (see CHANGELOG v12.6.1 -> v12.6.2).');
+  console.error('\nA network postinstall can hang `npx memsmith install`.');
   console.error('If the script is genuinely required, add the package to ALLOWLIST in');
   console.error('scripts/check-postinstall-allowlist.js AFTER review. Do NOT auto-add.');
   process.exit(1);

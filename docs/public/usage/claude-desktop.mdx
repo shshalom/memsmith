@@ -1,36 +1,31 @@
 ---
 title: Claude Desktop MCP
-description: Use memsmith memory search in Claude Desktop with MCP tools
+description: Search MemSmith memory from Claude Desktop with MCP tools
 icon: desktop
 ---
 
 <Note>
-**Availability:** Claude-mem MCP tools work with Claude Desktop on macOS and Windows.
+**Availability:** The MemSmith MCP server works with Claude Desktop on macOS and Windows.
 </Note>
 
 ## Overview
 
-Claude Desktop can access your memsmith memory database through **MCP tools**. This allows you to search past sessions, decisions, and observations directly from Claude Desktop conversations.
+Claude Desktop can search your MemSmith memory through the MemSmith MCP server. You can look up past sessions, decisions, and notes directly from Claude Desktop conversations.
 
 ## Prerequisites
 
-Before configuring MCP tools, ensure:
+1. MemSmith is installed. If it isn't, run `npx memsmith install`.
+2. The MemSmith server is running. To check, run:
 
-1. **memsmith is installed** and the worker service is running
-2. **MCP server is configured** in Claude Desktop (uses the `mcp-search` MCP server)
+   ```bash
+   npx memsmith status
+   ```
 
-### Verify Worker is Running
+   It prints the server address, by default `http://127.0.0.1:<38877 + your user ID % 100>`. If the server isn't running, run `npx memsmith start`.
 
-```bash
-curl http://localhost:37777/api/health
-# Should return: {"status":"ok"}
-```
+## Configure the MCP server
 
-## Installation
-
-### Step 1: Configure MCP Server
-
-The skill requires the `mcp-search` MCP server. Add this to your Claude Desktop configuration:
+Add the MemSmith MCP server to your Claude Desktop configuration:
 
 <Tabs>
   <Tab title="macOS">
@@ -39,7 +34,7 @@ The skill requires the `mcp-search` MCP server. Add this to your Claude Desktop 
     ```json
     {
       "mcpServers": {
-        "mcp-search": {
+        "memsmith": {
           "command": "node",
           "args": [
             "/Users/YOUR_USERNAME/.claude/plugins/marketplaces/shshalom/plugin/scripts/mcp-server.cjs"
@@ -55,7 +50,7 @@ The skill requires the `mcp-search` MCP server. Add this to your Claude Desktop 
     ```json
     {
       "mcpServers": {
-        "mcp-search": {
+        "memsmith": {
           "command": "node",
           "args": [
             "C:\\Users\\YOUR_USERNAME\\.claude\\plugins\\marketplaces\\shshalom\\plugin\\scripts\\mcp-server.cjs"
@@ -68,81 +63,57 @@ The skill requires the `mcp-search` MCP server. Add this to your Claude Desktop 
 </Tabs>
 
 <Warning>
-Replace `YOUR_USERNAME` with your actual username. Restart Claude Desktop after editing the configuration.
+Replace `YOUR_USERNAME` with your username. Then close and reopen Claude Desktop.
 </Warning>
-
-### Step 2: Restart Claude Desktop
-
-Close and reopen Claude Desktop for the MCP server configuration to take effect.
 
 ## Usage
 
-Once installed, the skill auto-activates when you ask about past work:
+Ask about past work in plain language:
 
 ```
 "What did we do last session?"
 "Did we fix this bug before?"
 "How did we implement authentication?"
 "What decisions did we make about the API?"
-"Show me changes to worker-service.ts"
 ```
 
-## Available MCP Tools
-
-The skill provides three core MCP tools following a 3-layer workflow pattern:
+## Available MCP tools
 
 | Tool | Description |
 |------|-------------|
-| `search` | Search memory index. Returns compact results with IDs for filtering |
-| `timeline` | Get chronological context around a query or observation ID |
-| `get_observations` | Fetch full observation details by ID (use after filtering with search/timeline) |
+| `observation_search` | Searches your observations and returns ranked matches. |
+| `observation_context` | Returns the most relevant observations for a query, plus a packed context string. |
+| `note_add` | Saves a note when you ask Claude to remember something. |
 
-### Token-Efficient Workflow
-
-1. **Search** → Get index with IDs (~50-100 tokens/result)
-2. **Timeline** → Get context around interesting results
-3. **Get Observations** → Fetch full details ONLY for filtered IDs
-
-This 3-layer approach provides ~10x token savings compared to fetching full details upfront.
+Search first, then request context for only the few results that matter. This keeps token use low.
 
 ## Troubleshooting
 
-### Skill Not Appearing
+### The MCP server doesn't connect
 
-1. Verify the zip file was properly installed
-2. Check Claude Desktop's skill installation logs
-3. Restart Claude Desktop
-
-### MCP Server Connection Failed
-
-1. Verify the worker is running: `curl http://localhost:37777/api/health`
-2. Check the MCP server path in configuration
-3. Look for errors in Claude Desktop logs
+1. Run `npx memsmith status` and confirm that the server is running.
+2. Confirm that the path to `mcp-server.cjs` in your configuration exists.
+3. Check the Claude Desktop logs:
 
 <Tabs>
   <Tab title="macOS">
     ```bash
-    # View Claude Desktop logs
     tail -f ~/Library/Logs/Claude/claude.log
     ```
   </Tab>
   <Tab title="Windows">
-    Check `%APPDATA%\Claude\logs\`
+    Check `%APPDATA%\Claude\logs\`.
   </Tab>
 </Tabs>
 
-### Search Returns No Results
+### Searches return no results
 
-1. Ensure memsmith has recorded sessions (check http://localhost:37777)
-2. Verify the database exists: `ls ~/.memsmith/memsmith.db`
-3. Test the API directly: `curl "http://localhost:37777/api/search?query=test"`
+1. Open the **Dashboard** address that `npx memsmith status` prints, and confirm that observations exist.
+2. Run `npx memsmith doctor` to check the install.
 
 ## Related
 
 <CardGroup cols={2}>
-  <Card title="Search Tools" icon="magnifying-glass" href="/usage/search-tools">
-    Complete search API reference
-  </Card>
   <Card title="Platform Integration" icon="plug" href="/platform-integration">
     Build custom integrations
   </Card>

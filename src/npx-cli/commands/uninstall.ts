@@ -24,17 +24,14 @@ import {
 } from './server-runtime-setup.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 
-// #2568 — read the runtime the operator installed so uninstall can dispatch to
-// the matching teardown. The worker path is the default and is unchanged: only
-// when the recorded runtime is the server runtime do we run the extra teardown.
 function readSelectedRuntime(): InstallRuntimeId {
   try {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    return normalizeRuntimeFlag(settings.MEMSMITH_RUNTIME) ?? 'worker';
+    return normalizeRuntimeFlag(settings.MEMSMITH_RUNTIME) ?? 'local';
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
-    console.warn('[uninstall] Could not read selected runtime from settings, defaulting to worker:', err);
-    return 'worker';
+    console.warn('[uninstall] Could not read selected runtime from settings, defaulting to local:', err);
+    return 'local';
   }
 }
 
@@ -362,10 +359,6 @@ export async function runUninstallCommand(): Promise<void> {
     { label: 'OpenCode plugin', fn: async () => {
       const { uninstallOpenCodePlugin } = await import('../../services/integrations/OpenCodeInstaller.js');
       return uninstallOpenCodePlugin();
-    }},
-    { label: 'OpenClaw plugin', fn: async () => {
-      const { uninstallOpenClawPlugin } = await import('../../services/integrations/OpenClawInstaller.js');
-      return uninstallOpenClawPlugin();
     }},
     { label: 'Codex CLI', fn: async () => {
       const { uninstallCodexCli } = await import('../../services/integrations/CodexCliInstaller.js');
