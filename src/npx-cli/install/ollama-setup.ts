@@ -52,7 +52,7 @@ function installCommands(host: OllamaHost): string[] {
   return [`Download Ollama from ${DOWNLOAD_URL}`];
 }
 
-function startAction(host: OllamaHost): OllamaAction {
+export function startAction(host: OllamaHost): OllamaAction {
   return host.platform === 'darwin' && host.installedViaBrew ? { kind: 'brew-start' } : { kind: 'serve' };
 }
 
