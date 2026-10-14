@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
-## [Unreleased]
+## [13.10.3] - 2026-10-14
 
 ### Changed
 
