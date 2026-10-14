@@ -1,4 +1,4 @@
-import type { ProvenancedMemory } from './types.js';
+import type { EnforcementMode, ProvenancedMemory } from './types.js';
 
 /** The standing retrieval-first directive. Injected at SessionStart (main agent),
  *  propagated into Task framing (sub-agents), and mirrored in CLAUDE.md. */
@@ -13,6 +13,9 @@ export const MEMORY_FIRST_DIRECTIVE = [
   'Only fall through to file search when memory genuinely lacks the answer.',
   'Treat recalled memory as authoritative-but-verifiable: it was true when captured; verify',
   'any load-bearing claim against current code before relying on it.',
+  'Session-start context is the latest context for orientation, not the answer source:',
+  'answer questions about past work from a memory search. What was said earlier in this same',
+  'conversation needs no search.',
 ].join('\n');
 
 /** The record-intent directive (Layer 1 — agent detection). Injected at SessionStart
@@ -43,6 +46,35 @@ export const RECORD_INTENT_DIRECTIVE = [
 /** Combined injected directives: memory-first + record-intent.
  *  Used by SessionStart context handler and PreToolUse:Agent handler. */
 export const INJECTED_DIRECTIVES = [MEMORY_FIRST_DIRECTIVE, RECORD_INTENT_DIRECTIVE].join('\n\n');
+
+/** Heads the recent observations injected at SessionStart. */
+export const SESSION_START_ORIENTATION_LABEL =
+  'Latest context for orientation — search memory to answer questions about past work:';
+
+/**
+ * Injected on UserPromptSubmit in place of pre-fetched memory when the prompt
+ * asks about past work. Pre-fetched top-N results read as a finished answer, so
+ * the agent answered from them and never searched; this routes it to the search.
+ */
+export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
+  const lines = [
+    'ANSWER FROM MEMORY: this prompt asks for information about past work. Answer it from a',
+    'MemSmith memory search, not from the session-start context or from recall:',
+    '1. Call observation_search with the question\'s key terms; use observation_context to narrow.',
+    '2. Answer from the results. If memory has no record, say so plainly.',
+    '3. Verify load-bearing claims against the current code before relying on them',
+    '   (memory, then CLAUDE.md, then specs, then code).',
+  ];
+  if (mode === 'hard') {
+    lines.push('Hard mode: the turn cannot end until memory has been searched for this question.');
+  }
+  return lines.join('\n');
+}
+
+/** Stop-hook reason when an information request was answered without a memory search. */
+export const ANSWER_GATE_BLOCK_REASON =
+  'This was a request for information about past work. Search memory (observation_search) '
+  + 'before answering, then verify load-bearing claims against the code.';
 
 /** Pack provenance-tagged memory into an injection block. Empty when no memory. */
 export function frameMemory(memories: ProvenancedMemory[]): string {

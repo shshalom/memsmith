@@ -4,6 +4,7 @@ import { SessionTopicStore } from './topic-store.js';
 import { topicKey } from './topic-key.js';
 import { deriveQueryFromTool } from './query-derivation.js';
 import { frameMemory, frameGapNote, frameUnavailableNotice } from './directive.js';
+import { enforcementModeFromSettings } from './enforcement-mode.js';
 import type { BrokerDeps, EnforcementMode, ProvenancedMemory, RetrievalResult } from './types.js';
 import { logger } from '../../utils/logger.js';
 
@@ -42,7 +43,7 @@ export class RetrievalBroker {
   private minHits(): number { return Math.max(1, parseInt(this.deps.settings.MEMSMITH_RETRIEVAL_MIN_HITS ?? '1', 10) || 1); }
   private limit(): number { return Math.max(1, parseInt(this.deps.settings.MEMSMITH_SEMANTIC_INJECT_LIMIT ?? '5', 10) || 5); }
   private timeoutMs(): number { return Math.max(1, parseInt(this.deps.settings.MEMSMITH_RETRIEVAL_TIMEOUT_MS ?? '2000', 10) || 2000); }
-  private mode(): EnforcementMode { return this.deps.settings.MEMSMITH_RETRIEVAL_ENFORCEMENT === 'hard' ? 'hard' : 'soft'; }
+  private mode(): EnforcementMode { return enforcementModeFromSettings(this.deps.settings); }
 
   /** Query /v1/context with a hard timeout. Returns FAILED sentinel on any error/unavailability (fail-open). */
   private async query(q: string): Promise<ProvenancedMemory[] | typeof FAILED> {
@@ -124,6 +125,19 @@ export class RetrievalBroker {
     if (hits === FAILED) return UNAVAILABLE; // fail-open, but visible (Amendment 2)
     // Prompt injection never blocks (blocking is a PreToolUse-only mechanism).
     return this.decide(hits, /* allowBlock */ false, topicKey(promptText));
+  }
+
+  /**
+   * Can memory answer right now, and does it hold anything for this prompt?
+   * Unlike forPrompt this injects nothing and marks nothing shown, so an
+   * information request can be routed to a real memory search instead of
+   * being answered from pre-fetched results.
+   */
+  async probe(promptText: string): Promise<{ unavailable: boolean; isGap: boolean }> {
+    if (!promptText || promptText.trim().length === 0) return { unavailable: false, isGap: false };
+    const hits = await this.query(promptText);
+    if (hits === FAILED) return { unavailable: true, isGap: false };
+    return { unavailable: false, isGap: hits.length < this.minHits() };
   }
 
   async forToolIntent(toolName: string, toolArgs: unknown): Promise<RetrievalResult> {
