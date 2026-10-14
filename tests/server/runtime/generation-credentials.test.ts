@@ -40,17 +40,37 @@ describe('resolveGenerationCredentials', () => {
     expect(creds.apiKey).toBe('from-dotenv');
   });
 
-  it('lets the environment override the settings file', () => {
-    const creds = resolveGenerationCredentials('gemini', sources({
-      env: { MEMSMITH_GEMINI_API_KEY: 'from-env' },
-      settings: { MEMSMITH_GEMINI_API_KEY: 'from-file' },
+  it('lets MEMSMITH_ANTHROPIC_API_KEY override the saved key', () => {
+    const creds = resolveGenerationCredentials('claude', sources({
+      env: { MEMSMITH_ANTHROPIC_API_KEY: 'memsmith-env', ANTHROPIC_API_KEY: 'from-shell' },
+      dotEnv: { ANTHROPIC_API_KEY: 'from-dotenv' },
     }));
-    expect(creds.apiKey).toBe('from-env');
+    expect(creds.apiKey).toBe('memsmith-env');
   });
+
+  it('falls back to a shell ANTHROPIC_API_KEY when nothing is saved', () => {
+    expect(resolveGenerationCredentials('claude', sources({ env: { ANTHROPIC_API_KEY: 'from-shell' } })).apiKey).toBe('from-shell');
+  });
+
+  for (const [provider, memsmithVar, genericVar] of [
+    ['gemini', 'MEMSMITH_GEMINI_API_KEY', 'GEMINI_API_KEY'],
+    ['openrouter', 'MEMSMITH_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  ] as const) {
+    it(`${provider}: MemSmith env var > saved settings > generic shell var`, () => {
+      const all = sources({
+        env: { [memsmithVar]: 'memsmith-env', [genericVar]: 'generic-shell' },
+        settings: { [memsmithVar]: 'saved' },
+      });
+      expect(resolveGenerationCredentials(provider, all).apiKey).toBe('memsmith-env');
+      const noMemsmithEnv = sources({ env: { [genericVar]: 'generic-shell' }, settings: { [memsmithVar]: 'saved' } });
+      expect(resolveGenerationCredentials(provider, noMemsmithEnv).apiKey).toBe('saved');
+      expect(resolveGenerationCredentials(provider, sources({ env: { [genericVar]: 'generic-shell' } })).apiKey).toBe('generic-shell');
+    });
+  }
 
   it('treats a blank environment value as unset', () => {
     const creds = resolveGenerationCredentials('gemini', sources({
-      env: { GEMINI_API_KEY: '' },
+      env: { MEMSMITH_GEMINI_API_KEY: '' },
       settings: { MEMSMITH_GEMINI_API_KEY: 'from-file' },
     }));
     expect(creds.apiKey).toBe('from-file');

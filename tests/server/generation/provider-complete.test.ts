@@ -77,4 +77,39 @@ describe('providerComplete', () => {
   it('unknown provider returns null', async () => {
     expect(await providerComplete({ provider: fakeProvider('mystery'), system: 's', user: 'u' })).toBeNull();
   });
+
+  // The record-intent backstop read keys from the process environment only, so
+  // a key the installer saved never reached it even after generation could use it.
+  it('gemini: uses the key saved in settings.json', async () => {
+    let calledUrl = '';
+    const fetchImpl = (async (url: any) => {
+      calledUrl = String(url);
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }) };
+    }) as any;
+    const sources = { env: {}, settings: { MEMSMITH_GEMINI_API_KEY: 'saved-gemini' }, dotEnv: {} };
+    expect(await providerComplete({ provider: fakeProvider('gemini'), system: 's', user: 'u' }, { fetchImpl, sources })).toBe('OK');
+    expect(calledUrl).toContain('key=saved-gemini');
+  });
+
+  it('claude: uses the key saved in ~/.memsmith/.env over a shell key', async () => {
+    let sentKey = '';
+    const fetchImpl = (async (_url: any, init: any) => {
+      sentKey = init.headers['x-api-key'];
+      return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'OK' }] }) };
+    }) as any;
+    const sources = { env: { ANTHROPIC_API_KEY: 'shell' }, settings: {}, dotEnv: { ANTHROPIC_API_KEY: 'saved-anthropic' } };
+    await providerComplete({ provider: fakeProvider('claude'), system: 's', user: 'u' }, { fetchImpl, sources });
+    expect(sentKey).toBe('saved-anthropic');
+  });
+
+  it('ollama: posts to the URL saved in settings.json', async () => {
+    let calledUrl = '';
+    const fetchImpl = (async (url: any) => {
+      calledUrl = String(url);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) };
+    }) as any;
+    const sources = { env: {}, settings: { MEMSMITH_OLLAMA_URL: 'http://gpu-box:11434/v1' }, dotEnv: {} };
+    await providerComplete({ provider: ollamaProvider, system: 's', user: 'u' }, { fetchImpl, sources });
+    expect(calledUrl).toBe('http://gpu-box:11434/v1/chat/completions');
+  });
 });

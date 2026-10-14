@@ -2,8 +2,10 @@
 //
 // The installer saves Gemini and OpenRouter keys to ~/.memsmith/settings.json and
 // the Anthropic key to ~/.memsmith/.env. The server process is not launched with
-// either file exported into its environment, so credentials resolve here from
-// env > settings file, except the Anthropic key, which prefers ~/.memsmith/.env.
+// either file exported into its environment, so credentials resolve here. Each
+// key follows MemSmith env var > saved file > generic shell var: a generic var
+// such as ANTHROPIC_API_KEY can arrive from an unrelated project's .env (#733),
+// so it never outranks what the user saved for MemSmith.
 
 import { loadMemSmithEnv } from '../../shared/EnvManager.js';
 import { readFlatSettings } from '../../shared/flat-settings.js';
@@ -44,15 +46,13 @@ export function resolveGenerationCredentials(provider: string, s: GenerationConf
   switch (provider) {
     case 'claude':
     case 'anthropic':
-      // .env first: EnvManager treats a shell ANTHROPIC_API_KEY as untrusted
-      // (#733, a project .env can inject one), so it is only a fallback.
-      return { apiKey: firstNonBlank(dotEnv.ANTHROPIC_API_KEY, env.MEMSMITH_ANTHROPIC_API_KEY, env.ANTHROPIC_API_KEY) };
+      return { apiKey: firstNonBlank(env.MEMSMITH_ANTHROPIC_API_KEY, dotEnv.ANTHROPIC_API_KEY, env.ANTHROPIC_API_KEY) };
     case 'gemini':
-      return { apiKey: firstNonBlank(env.GEMINI_API_KEY, env.MEMSMITH_GEMINI_API_KEY, settings.MEMSMITH_GEMINI_API_KEY) };
+      return { apiKey: firstNonBlank(env.MEMSMITH_GEMINI_API_KEY, settings.MEMSMITH_GEMINI_API_KEY, env.GEMINI_API_KEY) };
     case 'openrouter':
       return {
-        apiKey: firstNonBlank(env.OPENROUTER_API_KEY, env.MEMSMITH_OPENROUTER_API_KEY, settings.MEMSMITH_OPENROUTER_API_KEY),
-        baseUrl: firstNonBlank(env.MEMSMITH_OPENROUTER_BASE_URL, env.OPENROUTER_BASE_URL, settings.MEMSMITH_OPENROUTER_BASE_URL),
+        apiKey: firstNonBlank(env.MEMSMITH_OPENROUTER_API_KEY, settings.MEMSMITH_OPENROUTER_API_KEY, env.OPENROUTER_API_KEY),
+        baseUrl: firstNonBlank(env.MEMSMITH_OPENROUTER_BASE_URL, settings.MEMSMITH_OPENROUTER_BASE_URL, env.OPENROUTER_BASE_URL),
       };
     case 'ollama':
       return {
