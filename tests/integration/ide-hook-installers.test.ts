@@ -14,17 +14,17 @@ const SERVER_SCRIPT = join(PLUGIN_ROOT, 'scripts', 'server-service.cjs');
 
 let home: string;
 
-function runInstaller(modulePath: string, call: string): { status: number | null; output: string } {
+function runInstaller(modulePath: string, call: string, homeDir = home): { status: number | null; output: string } {
   const script = `const m = await import(${JSON.stringify(modulePath)}); process.exit(await m.${call});`;
   const result = spawnSync(process.execPath, ['-e', script], {
-    cwd: home,
+    cwd: homeDir,
     encoding: 'utf-8',
     env: {
       PATH: process.env.PATH ?? '',
-      HOME: home,
-      USERPROFILE: home,
-      CLAUDE_CONFIG_DIR: join(home, '.claude'),
-      MEMSMITH_DATA_DIR: join(home, '.memsmith'),
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      CLAUDE_CONFIG_DIR: join(homeDir, '.claude'),
+      MEMSMITH_DATA_DIR: join(homeDir, '.memsmith'),
       MEMSMITH_SERVER_URL: 'http://127.0.0.1:1',
       CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
     },
@@ -96,5 +96,31 @@ describe('IDE hook installers', () => {
     expect(status, output).toBe(0);
     const config = JSON.parse(readFileSync(join(home, '.codeium', 'windsurf', 'hooks.json'), 'utf-8'));
     expectServerScriptCommands(hookCommands(config), 'windsurf');
+  });
+
+  it('Windsurf replaces hooks that older releases wrote for the worker script', () => {
+    const upgradeHome = mkdtempSync(join(tmpdir(), 'memsmith-windsurf-upgrade-'));
+    try {
+      const hooksPath = join(upgradeHome, '.codeium', 'windsurf', 'hooks.json');
+      mkdirSync(join(upgradeHome, '.codeium', 'windsurf'), { recursive: true });
+      const legacy = '"bun" "/old/plugin/scripts/worker-service.cjs" hook windsurf session-init';
+      const foreign = 'my-own-tool --on-prompt';
+      writeFileSync(hooksPath, JSON.stringify({
+        hooks: { pre_user_prompt: [{ command: legacy, show_output: false }, { command: foreign, show_output: false }] },
+      }));
+
+      const { status, output } = runInstaller(
+        join(REPO, 'src/services/integrations/WindsurfHooksInstaller.ts'),
+        'installWindsurfHooks()',
+        upgradeHome,
+      );
+      expect(status, output).toBe(0);
+      const commands = hookCommands(JSON.parse(readFileSync(hooksPath, 'utf-8')).hooks.pre_user_prompt);
+      expect(commands).not.toContain(legacy);
+      expect(commands).toContain(foreign);
+      expect(commands.filter(c => c.includes(`"${SERVER_SCRIPT}" hook windsurf `)).length).toBe(1);
+    } finally {
+      rmSync(upgradeHome, { recursive: true, force: true });
+    }
   });
 });
