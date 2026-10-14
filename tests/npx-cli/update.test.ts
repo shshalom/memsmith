@@ -98,7 +98,7 @@ describe('memsmith update', () => {
     expect(await runUpdate([], f.deps)).toBe(0);
     expect(f.calls).toEqual(['latest', 'registry:1.1.0', 'marker:false']);
     expect(f.text()).toContain('already up to date');
-    expect(f.text()).not.toContain('/reload-plugins');
+    expect(f.text()).not.toContain('Restart Claude Code');
   });
 
   it('reinstalls the files when the cache folder is incomplete', async () => {

@@ -231,7 +231,7 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
   d.out(nothingChanged ? `MemSmith ${target} is already up to date.` : `MemSmith updated to ${target}.`);
   d.out(`  Plugin: ${target}`);
   d.out(`  ${serverLine}`);
-  if (!nothingChanged) d.out('Run /reload-plugins in Claude Code, or restart it, to load the new plugin.');
+  if (!nothingChanged) d.out('Restart Claude Code to load the new plugin and its memory tools.');
   return 0;
 }
 
