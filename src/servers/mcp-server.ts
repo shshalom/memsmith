@@ -44,7 +44,7 @@ import {
   CONTEXT_LIMIT,
   GET_MAX_IDS,
   SEARCH_LIMIT,
-} from './observation-format.js';
+} from '../shared/observation-format.js';
 
 // C3 (worker retirement) — the old callWorker helper and its worker-utils HTTP
 // import were removed. Every legit caller now routes through the `/v1` server via

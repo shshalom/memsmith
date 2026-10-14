@@ -20,13 +20,17 @@ export interface LimitSpec { default: number; max: number }
 
 export const SEARCH_LIMIT: LimitSpec = { default: 10, max: 25 };
 export const CONTEXT_LIMIT: LimitSpec = { default: 5, max: 10 };
-export const GET_MAX_IDS = 10;
+export const GET_MAX_IDS = 10; // Matches the /v1/observations/get schema.
 export const OUTPUT_MAX_CHARS = 20_000;
 export const DETAIL_MAX_CHARS = 40_000;
 
 const TITLE_MAX_CHARS = 160;
 const SNIPPET_MAX_CHARS = 200;
 const DETAIL_BODY_MAX_CHARS = 6_000;
+const DETAIL_LINE_MAX_CHARS = 1_000;
+const DETAIL_LIST_MAX_ITEMS = 20;
+const QUERY_ECHO_MAX_CHARS = 200;
+const TRUNCATED_MARKER = ' [truncated]';
 
 export function clampLimit(raw: unknown, spec: LimitSpec): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return spec.default;
@@ -42,7 +46,25 @@ function oneLine(text: string): string {
 }
 
 function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+  if (text.length <= max) return text;
+  if (max <= 1) return '';
+  return `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+function truncateMarked(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= TRUNCATED_MARKER.length) return '';
+  return `${text.slice(0, max - TRUNCATED_MARKER.length).trimEnd()}${TRUNCATED_MARKER}`;
+}
+
+function listLine(label: string, items: string[], joiner: string): string {
+  const shown = items.slice(0, DETAIL_LIST_MAX_ITEMS).join(joiner);
+  const extra = items.length > DETAIL_LIST_MAX_ITEMS ? ` (+${items.length - DETAIL_LIST_MAX_ITEMS} more)` : '';
+  return truncateMarked(`${label}: ${shown}`, DETAIL_LINE_MAX_CHARS) + extra;
+}
+
+function echoQuery(query: string): string {
+  return truncate(oneLine(query), QUERY_ECHO_MAX_CHARS);
 }
 
 function metaString(row: ObservationRow, key: string): string | null {
@@ -75,50 +97,61 @@ function headerLine(row: ObservationRow, title?: string): string {
   const type = row.obsType ?? row.kind ?? 'observation';
   const parts = [`[${row.id}] ${date}`, type];
   if (title) parts.push(title);
+  if (typeof row.supersededBy === 'string' && row.supersededBy) parts.push(`superseded by ${row.supersededBy}`);
   return parts.join(' · ');
 }
 
-const SEARCH_OMITTED = (count: number) =>
-  `[${count} more result${count === 1 ? '' : 's'} omitted to stay under the output limit; narrow the query or fetch ids with observation_get]`;
+const searchOmitted = (getTool: string) => (count: number) =>
+  `[${count} more result${count === 1 ? '' : 's'} omitted to stay under the output limit; narrow the query or fetch ids with ${getTool}]`;
 const DETAIL_OMITTED = (count: number) =>
   `[${count} more record${count === 1 ? '' : 's'} omitted to stay under the output limit; request fewer ids at a time]`;
 
 // Adds entries until the next one would cross the cap. A first entry that is
-// too big on its own is cut rather than dropped, so the caller always gets data.
+// too big on its own is cut, unless there is no room even for the cut marker.
 function pack(
   header: string,
   entries: string[],
   footer: string,
-  opts: { maxChars: number; omittedNote: (count: number) => string } = { maxChars: OUTPUT_MAX_CHARS, omittedNote: SEARCH_OMITTED },
+  opts: { maxChars: number; omittedNote: (count: number) => string },
 ): string {
   const { maxChars, omittedNote } = opts;
   const separator = '\n\n';
-  let text = header;
+  const parts = header ? [header] : [];
+  const length = () => parts.reduce((sum, part) => sum + part.length, 0) + Math.max(parts.length - 1, 0) * separator.length;
   let included = 0;
   for (const entry of entries) {
     const remainingAfter = entries.length - included - 1;
-    const reserve = (remainingAfter > 0 ? omittedNote(remainingAfter).length : 0) + footer.length + 2 * separator.length;
-    const room = maxChars - text.length - separator.length - reserve;
+    const tail = [remainingAfter > 0 ? omittedNote(remainingAfter) : '', footer].filter(Boolean);
+    const reserve = tail.reduce((sum, part) => sum + part.length + separator.length, 0);
+    const room = maxChars - length() - (parts.length > 0 ? separator.length : 0) - reserve;
     if (entry.length <= room) {
-      text += separator + entry;
+      parts.push(entry);
       included++;
       continue;
     }
     if (included === 0) {
-      text += separator + truncate(entry, Math.max(room, 0));
-      included++;
+      const cut = truncateMarked(entry, room);
+      if (cut) {
+        parts.push(cut);
+        included++;
+      }
     }
     break;
   }
   const omitted = entries.length - included;
-  if (omitted > 0) text += separator + omittedNote(omitted);
-  if (footer) text += separator + footer;
-  return text;
+  if (omitted > 0) parts.push(omittedNote(omitted));
+  if (footer) parts.push(footer);
+  return parts.join(separator);
 }
 
-export function formatObservationIndex(rows: ObservationRow[], opts: { query: string }): string {
+// getTool names the full-record tool on the server rendering this output:
+// observation_get on the stdio MCP server, get on the hosted /v1/mcp link.
+export function formatObservationIndex(rows: ObservationRow[], opts: { query: string; getTool?: string }): string {
+  const getTool = opts.getTool ?? 'observation_get';
+  const listing = opts.query.trim().length === 0;
+  if (rows.length === 0 && listing) return 'No observations recorded yet.';
   if (rows.length === 0) {
-    return `No observations matched "${opts.query}". Memory has no record of this; say so before falling back to the code.`;
+    return `No observations matched "${echoQuery(opts.query)}". Memory has no record of this; say so before falling back to the code.`;
   }
   const entries = rows.map((row) => {
     const { title, rest } = titleAndRest(row);
@@ -127,18 +160,21 @@ export function formatObservationIndex(rows: ObservationRow[], opts: { query: st
     return snippet ? `${head}\n    ${snippet}` : head;
   });
   return pack(
-    `${rows.length} observation${rows.length === 1 ? '' : 's'} for "${opts.query}" (most relevant first):`,
+    listing
+      ? `${rows.length} most recent observation${rows.length === 1 ? '' : 's'}:`
+      : `${rows.length} observation${rows.length === 1 ? '' : 's'} for "${echoQuery(opts.query)}" (most relevant first):`,
     entries,
-    `Fetch the full record for the relevant ids with observation_get(ids=[...]), up to ${GET_MAX_IDS} at a time.`,
+    `Fetch the full record for the relevant ids with ${getTool}(ids=[...]), up to ${GET_MAX_IDS} at a time.`,
+    { maxChars: OUTPUT_MAX_CHARS, omittedNote: searchOmitted(getTool) },
   );
 }
 
-export function formatObservationContext(rows: ObservationRow[], opts: { query: string }): string {
+export function formatObservationContext(rows: ObservationRow[], opts: { query: string; getTool?: string }): string {
   if (rows.length === 0) {
-    return `No observations matched "${opts.query}". Memory has no record of this; say so before falling back to the code.`;
+    return `No observations matched "${echoQuery(opts.query)}". Memory has no record of this; say so before falling back to the code.`;
   }
   const entries = rows.map((row) => `${headerLine(row)}\n${typeof row.content === 'string' ? row.content.trim() : ''}`);
-  return pack(`Memory context for "${opts.query}":`, entries, '');
+  return pack(`Memory context for "${echoQuery(opts.query)}":`, entries, '', { maxChars: OUTPUT_MAX_CHARS, omittedNote: searchOmitted(opts.getTool ?? 'observation_get') });
 }
 
 export function formatObservationDetails(rows: ObservationRow[], requestedIds: string[]): string {
@@ -149,20 +185,18 @@ export function formatObservationDetails(rows: ObservationRow[], requestedIds: s
     const row = byId.get(id);
     if (!row) { missing.push(id); continue; }
     const lines = [`## ${headerLine(row)}${row.lifecycleState ? ` · ${row.lifecycleState}` : ''}`];
-    if (row.supersededBy) lines.push(`Superseded by: ${row.supersededBy}`);
-    lines.push(truncate(typeof row.content === 'string' ? row.content.trim() : '', DETAIL_BODY_MAX_CHARS));
+    lines.push(truncateMarked(typeof row.content === 'string' ? row.content.trim() : '', DETAIL_BODY_MAX_CHARS));
     const why = metaString(row, 'why');
-    if (why) lines.push(`Why: ${why}`);
+    if (why) lines.push(truncateMarked(`Why: ${why}`, DETAIL_LINE_MAX_CHARS));
     const modified = metaList(row, 'files_modified');
-    if (modified.length) lines.push(`Files modified: ${modified.join(', ')}`);
+    if (modified.length) lines.push(listLine('Files modified', modified, ', '));
     const read = metaList(row, 'files_read');
-    if (read.length) lines.push(`Files read: ${read.join(', ')}`);
+    if (read.length) lines.push(listLine('Files read', read, ', '));
     const rejected = metaList(row, 'rejected_alternatives');
-    if (rejected.length) lines.push(`Rejected alternatives: ${rejected.join('; ')}`);
+    if (rejected.length) lines.push(listLine('Rejected alternatives', rejected, '; '));
     entries.push(lines.join('\n'));
   }
   const notFound = missing.length > 0 ? `Not found: ${missing.join(', ')}` : '';
   if (entries.length === 0) return ['No observations found for those ids.', notFound].filter(Boolean).join('\n\n');
-  const [first, ...rest] = entries;
-  return pack(first, rest, notFound, { maxChars: DETAIL_MAX_CHARS, omittedNote: DETAIL_OMITTED });
+  return pack('', entries, notFound, { maxChars: DETAIL_MAX_CHARS, omittedNote: DETAIL_OMITTED });
 }

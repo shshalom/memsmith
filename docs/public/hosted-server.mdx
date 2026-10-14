@@ -87,13 +87,14 @@ claude mcp add --transport http memsmith <server-base>/v1/mcp \
   --header "Authorization: Bearer cm_..."
 ```
 
-Three tools are exposed, each mirroring an existing REST path:
+Four read-only tools are exposed, each mirroring an existing REST path:
 
 | Tool      | Arguments                          | Returns |
 |-----------|------------------------------------|---------|
-| `search`  | `{ projectId, query, limit? }`     | Matching observations (full-text search). |
-| `context` | `{ projectId, query, limit? }`     | Observations **plus** a concatenated `context` string ready for prompt injection. |
-| `recent`  | `{ projectId, limit? }`            | The newest observations for a project. |
+| `search`  | `{ projectId, query, limit? }`     | A ranked index of matching observations: id, date, type, title, and a short snippet. 10 results by default, up to 25. |
+| `get`     | `{ projectId, ids }`               | The full records for up to 10 ids from `search` or `recent`. |
+| `context` | `{ projectId, query, limit? }`     | The full bodies of the top matches, 5 by default and up to 10, capped at about 20,000 characters. |
+| `recent`  | `{ projectId, limit? }`            | An index of the newest observations for a project. |
 
 <Note>
 The transport is **stateless** — one MCP server + transport per request — so it

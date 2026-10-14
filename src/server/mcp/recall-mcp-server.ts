@@ -21,26 +21,35 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
+import {
+  clampLimit,
+  formatObservationContext,
+  formatObservationDetails,
+  formatObservationIndex,
+  CONTEXT_LIMIT,
+  GET_MAX_IDS,
+  SEARCH_LIMIT,
+  type ObservationRow,
+} from '../../shared/observation-format.js';
 
 export interface RecallBackend {
   // Returns serialized observations (already shaped by serializeObservation),
   // scoped to the caller's team. Throws if `projectId` is outside the key's scope.
   // `search` and `context` query identically; they are separate methods so the
   // route can audit each tool under its own mode (search vs context).
-  search(args: { projectId: string; query: string; limit: number }): Promise<unknown[]>;
-  context(args: { projectId: string; query: string; limit: number }): Promise<unknown[]>;
-  recent(args: { projectId: string; limit: number }): Promise<unknown[]>;
+  search(args: { projectId: string; query: string; limit: number }): Promise<ObservationRow[]>;
+  context(args: { projectId: string; query: string; limit: number }): Promise<ObservationRow[]>;
+  recent(args: { projectId: string; limit: number }): Promise<ObservationRow[]>;
+  get(args: { projectId: string; ids: string[] }): Promise<ObservationRow[]>;
 }
 
-const SEARCH_LIMIT = { default: 20, max: 100 };
-const CONTEXT_LIMIT = { default: 10, max: 50 };
-const RECENT_LIMIT = { default: 20, max: 100 };
+const RECENT_LIMIT = SEARCH_LIMIT;
 
 const TOOLS: Tool[] = [
   {
     name: 'search',
     description:
-      'Full-text search your memsmith memory for a project. Returns matching observations (most relevant first).',
+      'Search your memsmith memory for a project. Returns a ranked index (id, date, type, title, snippet); fetch full records with get.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -54,7 +63,7 @@ const TOOLS: Tool[] = [
   {
     name: 'context',
     description:
-      'Like search, but also returns a concatenated context string ready to inject into a prompt.',
+      'Returns the full bodies of the top few observations for a query, capped in size.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -67,7 +76,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'recent',
-    description: 'List the most recent observations for a project (newest first).',
+    description: 'List the most recent observations for a project as an index (newest first).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -77,12 +86,19 @@ const TOOLS: Tool[] = [
       required: ['projectId'],
     },
   },
+  {
+    name: 'get',
+    description: 'Fetch full observation records by id, using ids from search or recent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project the ids belong to.' },
+        ids: { type: 'array', items: { type: 'string' }, maxItems: GET_MAX_IDS },
+      },
+      required: ['projectId', 'ids'],
+    },
+  },
 ];
-
-function clampLimit(raw: unknown, spec: { default: number; max: number }): number {
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) return spec.default;
-  return Math.min(Math.max(1, Math.trunc(raw)), spec.max);
-}
 
 function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
@@ -92,8 +108,18 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function jsonResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
+function textResult(text: string): CallToolResult {
+  return { content: [{ type: 'text', text }] };
+}
+
+function requireIds(args: Record<string, unknown>): string[] {
+  const raw = args.ids;
+  const ids = Array.isArray(raw)
+    ? [...new Set(raw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map(id => id.trim()))]
+    : [];
+  if (ids.length === 0) throw new Error('"ids" is required');
+  if (ids.length > GET_MAX_IDS) throw new Error(`at most ${GET_MAX_IDS} ids per call (got ${ids.length})`);
+  return ids;
 }
 
 // Dispatches a single tool call to the backend. Throws on unknown tools or
@@ -104,31 +130,34 @@ async function dispatchToolCall(
   args: Record<string, unknown>,
 ): Promise<CallToolResult> {
   if (name === 'search') {
+    const query = requireString(args, 'query');
     const observations = await backend.search({
       projectId: requireString(args, 'projectId'),
-      query: requireString(args, 'query'),
+      query,
       limit: clampLimit(args.limit, SEARCH_LIMIT),
     });
-    return jsonResult({ observations });
+    return textResult(formatObservationIndex(observations, { query, getTool: 'get' }));
   }
   if (name === 'context') {
+    const query = requireString(args, 'query');
     const observations = await backend.context({
       projectId: requireString(args, 'projectId'),
-      query: requireString(args, 'query'),
+      query,
       limit: clampLimit(args.limit, CONTEXT_LIMIT),
     });
-    const context = observations
-      .map((o) => (o as { content?: unknown }).content)
-      .filter((t): t is string => typeof t === 'string' && t.length > 0)
-      .join('\n\n');
-    return jsonResult({ observations, context });
+    return textResult(formatObservationContext(observations, { query, getTool: 'get' }));
   }
   if (name === 'recent') {
     const observations = await backend.recent({
       projectId: requireString(args, 'projectId'),
       limit: clampLimit(args.limit, RECENT_LIMIT),
     });
-    return jsonResult({ observations });
+    return textResult(formatObservationIndex(observations, { query: '', getTool: 'get' }));
+  }
+  if (name === 'get') {
+    const ids = requireIds(args);
+    const observations = await backend.get({ projectId: requireString(args, 'projectId'), ids });
+    return textResult(formatObservationDetails(observations, ids));
   }
   throw new Error(`Unknown tool: ${name}`);
 }

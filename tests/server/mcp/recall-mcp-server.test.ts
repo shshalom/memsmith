@@ -16,10 +16,11 @@ interface Recorded {
   search: Array<{ projectId: string; query: string; limit: number }>;
   context: Array<{ projectId: string; query: string; limit: number }>;
   recent: Array<{ projectId: string; limit: number }>;
+  get: Array<{ projectId: string; ids: string[] }>;
 }
 
 function makeBackend(overrides: Partial<RecallBackend> = {}): { backend: RecallBackend; calls: Recorded } {
-  const calls: Recorded = { search: [], context: [], recent: [] };
+  const calls: Recorded = { search: [], context: [], recent: [], get: [] };
   const observations = [
     { id: 'o1', content: 'alpha' },
     { id: 'o2', content: 'beta' },
@@ -36,6 +37,10 @@ function makeBackend(overrides: Partial<RecallBackend> = {}): { backend: RecallB
     recent: async (args) => {
       calls.recent.push(args);
       return [{ id: 'r1', content: 'recent-one' }];
+    },
+    get: async (args) => {
+      calls.get.push(args);
+      return observations.filter(o => args.ids.includes(o.id));
     },
     ...overrides,
   };
@@ -59,29 +64,33 @@ describe('createRecallMcpServer', () => {
   it('lists exactly the read-only recall tools', async () => {
     const client = await connectClient(makeBackend().backend);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['context', 'recent', 'search']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['context', 'get', 'recent', 'search']);
     await client.close();
   });
 
-  it('search forwards args, clamps the limit, and returns observations', async () => {
+  it('search forwards args, clamps the limit, and returns an index', async () => {
     const { backend, calls } = makeBackend();
     const client = await connectClient(backend);
     const res = await client.callTool({
       name: 'search',
       arguments: { projectId: 'p1', query: 'hello', limit: 9999 },
     });
-    expect(calls.search[0]).toEqual({ projectId: 'p1', query: 'hello', limit: 100 });
-    expect(JSON.parse(textOf(res)).observations).toHaveLength(2);
+    expect(calls.search[0]).toEqual({ projectId: 'p1', query: 'hello', limit: 25 });
+    expect(textOf(res)).toContain('2 observations for "hello"');
+    expect(textOf(res)).toContain('[o1]');
+    expect(textOf(res)).toContain('with get(ids=[...])');
+    expect(textOf(res)).not.toContain('observation_get');
     await client.close();
   });
 
-  it('context routes through backend.context and packs a joined string', async () => {
+  it('context routes through backend.context and returns the bodies', async () => {
     const { backend, calls } = makeBackend();
     const client = await connectClient(backend);
-    const res = await client.callTool({ name: 'context', arguments: { projectId: 'p1', query: 'hi' } });
-    expect(calls.context).toHaveLength(1);
+    const res = await client.callTool({ name: 'context', arguments: { projectId: 'p1', query: 'hi', limit: 50 } });
+    expect(calls.context[0]?.limit).toBe(10);
     expect(calls.search).toHaveLength(0);
-    expect(JSON.parse(textOf(res)).context).toBe('alpha\n\nbeta');
+    expect(textOf(res)).toContain('alpha');
+    expect(textOf(res)).toContain('beta');
     await client.close();
   });
 
@@ -89,7 +98,25 @@ describe('createRecallMcpServer', () => {
     const { backend, calls } = makeBackend();
     const client = await connectClient(backend);
     await client.callTool({ name: 'recent', arguments: { projectId: 'p2' } });
-    expect(calls.recent[0]).toEqual({ projectId: 'p2', limit: 20 });
+    expect(calls.recent[0]).toEqual({ projectId: 'p2', limit: 10 });
+    await client.close();
+  });
+
+  it('get forwards de-duplicated ids and reports the ones not found', async () => {
+    const { backend, calls } = makeBackend();
+    const client = await connectClient(backend);
+    const res = await client.callTool({ name: 'get', arguments: { projectId: 'p1', ids: ['o2', 'o2', 'zz'] } });
+    expect(calls.get[0]).toEqual({ projectId: 'p1', ids: ['o2', 'zz'] });
+    expect(textOf(res)).toContain('beta');
+    expect(textOf(res)).toContain('Not found: zz');
+    await client.close();
+  });
+
+  it('get refuses more than 10 ids', async () => {
+    const client = await connectClient(makeBackend().backend);
+    const ids = Array.from({ length: 11 }, (_, i) => `o${i}`);
+    const res = await client.callTool({ name: 'get', arguments: { projectId: 'p1', ids } });
+    expect(res.isError).toBe(true);
     await client.close();
   });
 

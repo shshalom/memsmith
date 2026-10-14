@@ -7,7 +7,7 @@ import {
   SEARCH_LIMIT,
   OUTPUT_MAX_CHARS,
   DETAIL_MAX_CHARS,
-} from '../../src/servers/observation-format.js';
+} from '../../src/shared/observation-format.js';
 
 const DAY = Date.UTC(2026, 9, 14, 12);
 
@@ -79,6 +79,17 @@ describe('formatObservationIndex', () => {
     expect(text).not.toContain('</parameter>');
   });
 
+  it('marks a result that a newer observation superseded', () => {
+    const text = formatObservationIndex([generated('old', { supersededBy: 'new' })], { query: 'q' });
+    expect(text).toContain('[old] 2026-10-14 · discovery · Title for old · superseded by new');
+  });
+
+  it('does not let a huge query echo push the output past the cap', () => {
+    const text = formatObservationIndex([generated('obs-1')], { query: 'q'.repeat(25_000) });
+    expect(text.length).toBeLessThan(OUTPUT_MAX_CHARS);
+    expect(text).toContain('[obs-1]');
+  });
+
   it('says so plainly when nothing matched', () => {
     expect(formatObservationIndex([], { query: 'zzz' })).toContain('No observations matched "zzz"');
   });
@@ -98,6 +109,21 @@ describe('formatObservationDetails', () => {
     const text = formatObservationDetails([generated('b'), generated('a')], ['a', 'missing', 'b']);
     expect(text.indexOf('[a]')).toBeLessThan(text.indexOf('[b]'));
     expect(text).toContain('Not found: missing');
+  });
+
+  it('stays under the detail cap when a record carries thousands of file paths', () => {
+    const a = generated('a', { metadata: { files_read: Array.from({ length: 2000 }, (_, i) => `src/dir/file-${i}.ts`) } });
+    const b = generated('b', { content: 'B'.repeat(5_000) });
+    const text = formatObservationDetails([a, b], ['a', 'b']);
+    expect(text.length).toBeLessThanOrEqual(DETAIL_MAX_CHARS);
+    expect(text).toContain('(+1980 more)');
+    expect(text).toContain('B'.repeat(5_000));
+  });
+
+  it('says when a long body was cut', () => {
+    const text = formatObservationDetails([generated('long', { content: 'L'.repeat(10_000) })], ['long']);
+    expect(text).toContain('[truncated]');
+    expect(text).not.toContain('L'.repeat(7_000));
   });
 
   it('stays under the detail cap when every requested record is huge', () => {

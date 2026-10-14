@@ -288,6 +288,17 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
     expect(result.observations.find(o => o.id === a.memory.id)?.content).toBe('Alpha observation about the router');
   });
 
+  it('observation_get rejects an over-long id instead of echoing it back', async () => {
+    const c = buildClient();
+    let caught: unknown;
+    try {
+      await c.getObservations({ projectId, ids: ['x'.repeat(5000)] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).toContain('400');
+  });
+
   it('observation_get rejects ids from another team', async () => {
     const otherTeam = await storage.teams.create({ name: 'foreign' });
     const otherProject = await storage.projects.create({ teamId: otherTeam.id, name: 'foreign-p' });
