@@ -12,7 +12,7 @@ MemSmith runs as a Claude Code plugin with these components:
 1. **Plugin hooks**: A Setup version check plus lifecycle hooks that capture prompts and tool use, inject context, and enforce memory-first lookups.
 2. **MemSmith server**: One server engine that stores observations, generates them with the configured provider, and serves search, context, and the viewer.
 3. **Storage**: Postgres with pgvector for full-text and semantic search. The local runtime runs an embedded Postgres; the team runtime connects to a remote one.
-4. **MCP server**: Exposes memory tools (`observation_search`, `observation_context`, `note_add`, and others) and the `smart_*` code exploration tools.
+4. **MCP server**: Exposes memory tools (`observation_search`, `observation_get`, `observation_context`, `note_add`, and others) and the `smart_*` code exploration tools.
 5. **Viewer UI**: A React dashboard served by the MemSmith server.
 
 ## Runtimes
@@ -56,7 +56,7 @@ Hook (stdin) → MemSmith server (/v1/events) → generation job → Postgres
 SessionStart hook or MCP tool → MemSmith server (/v1/search, /v1/context) → Postgres → Claude
 ```
 
-At session start, the context hook injects recent and relevant observations. During a session, Claude calls `observation_search` and `observation_context` through the MCP server.
+At session start, the context hook injects recent and relevant observations. During a session, Claude calls `observation_search` for a ranked index and `observation_get` for full records through the MCP server.
 
 ## Plugin hooks
 
@@ -88,8 +88,8 @@ Session-start context and the memory that MemSmith injects into the context have
 
 The hooks enforce this in three steps:
 
-1. **`UserPromptSubmit`.** The `prompt-injection` hook classifies the prompt with deterministic rules. For an information request, it injects a directive instead of pre-fetched memory: search memory with `observation_search` (and `observation_context` to narrow), answer from the results, say so plainly when memory has no record, then verify load-bearing claims in this order: memory, `CLAUDE.md`, specs, code. It records the turn as a pending information request. For a task prompt, it injects the top relevant memories as background, as before. When the classifier can't tell a question from a task, it treats the prompt as a question.
-2. **`PreToolUse`.** A call to `observation_search` or `observation_context` satisfies the pending request. The `tool-intent` hook also marks the question's topic as consulted, so the discovery gate doesn't block the follow-up code search on the same subject. `session_start_context` doesn't count, because it returns orientation context. The `smart_*` code tools and the memory write tools don't count either.
+1. **`UserPromptSubmit`.** The `prompt-injection` hook classifies the prompt with deterministic rules. For an information request, it injects a directive instead of pre-fetched memory: search memory with `observation_search`, then `observation_get` for the relevant ids, answer from the results, say so plainly when memory has no record, then verify load-bearing claims in this order: memory, `CLAUDE.md`, specs, code. It records the turn as a pending information request. For a task prompt, it injects the top relevant memories as background, as before. When the classifier can't tell a question from a task, it treats the prompt as a question.
+2. **`PreToolUse`.** A call to `observation_search`, `observation_get`, or `observation_context` satisfies the pending request. The `tool-intent` hook also marks the question's topic as consulted, so the discovery gate doesn't block the follow-up code search on the same subject. `session_start_context` doesn't count, because it returns orientation context. The `smart_*` code tools and the memory write tools don't count either.
 3. **`Stop`.** In `hard` mode, if the turn's information request is still unsatisfied, the `answer-gate` hook returns a block decision with the reason "Search memory (observation_search) before answering". Claude Code then continues the turn so Claude can search. The gate blocks at most once per turn, and never when `stop_hook_active` is set, in `soft` mode, for a subagent, or when memory is unavailable. `summarize` runs after the gate, on the `Stop` that ends the turn.
 
 Prompts that refer to the current conversation, such as "you just said", "above", "earlier in this chat", or "the plan you wrote", are exempt: what was already said needs no search. Pure task instructions, such as "fix X", "add a test", or "run Y", are also exempt.

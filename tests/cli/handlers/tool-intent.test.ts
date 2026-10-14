@@ -104,6 +104,7 @@ describe('toolIntentHandler — a memory read answers the pending information re
 
   for (const tool of [
     'mcp__plugin_memsmith_mem__observation_search',
+    'mcp__plugin_memsmith_mem__observation_get',
     'mcp__plugin_memsmith_mem__observation_context',
   ]) {
     it(`${tool} satisfies the pending request`, async () => {

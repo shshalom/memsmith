@@ -8,7 +8,7 @@ export const MEMORY_FIRST_DIRECTIVE = [
   'behind existing code — whether the user asks it or you ask it of yourself — consult',
   'MemSmith memory FIRST, before grepping or reading files. These answers usually already',
   'exist in memory and are not fully recoverable from code. Use the ms-mem-search tools',
-  '(memory_search / observation_search / observation_context).',
+  '(observation_search for a ranked index, then observation_get for full records).',
   'Reference order: (1) MemSmith memory, (2) CLAUDE.md, (3) project specs, (4) raw file/code search.',
   'Only fall through to file search when memory genuinely lacks the answer.',
   'Treat recalled memory as authoritative-but-verifiable: it was true when captured; verify',
@@ -60,7 +60,7 @@ export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
   const lines = [
     'ANSWER FROM MEMORY: this prompt asks for information about past work. Answer it from a',
     'MemSmith memory search, not from the session-start context or from recall:',
-    '1. Call observation_search with the question\'s key terms; use observation_context to narrow.',
+    '1. Call observation_search with the question\'s key terms, then observation_get for the ids that matter.',
     '2. Answer from the results. If memory has no record, say so plainly.',
     '3. Verify load-bearing claims against the current code before relying on them',
     '   (memory, then CLAUDE.md, then specs, then code).',

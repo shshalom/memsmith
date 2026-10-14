@@ -276,6 +276,49 @@ describe('Phase 8 MCP-backing REST endpoints (/v1/memories, /v1/search, /v1/cont
     expect(found.observations.some(observation => observation.id === inserted.memory.id)).toBe(true);
   });
 
+  it('observation_get path: POST /v1/observations/get returns full rows for the requested ids only', async () => {
+    const c = buildClient();
+    const meta = (n: string) => ({ facts: [`Fact ${n}`], narrative: `Narrative ${n} long enough to clear the ingest quality floor.` });
+    const a = await c.addObservation({ projectId, content: 'Alpha observation about the router', kind: 'manual', metadata: meta('a') });
+    const b = await c.addObservation({ projectId, content: 'Beta observation about the cache', kind: 'manual', metadata: meta('b') });
+    await c.addObservation({ projectId, content: 'Gamma observation nobody asked for', kind: 'manual', metadata: meta('g') });
+
+    const result = await c.getObservations({ projectId, ids: [b.memory.id, 'no-such-id', a.memory.id] });
+    expect(result.observations.map(o => o.id).sort()).toEqual([a.memory.id, b.memory.id].sort());
+    expect(result.observations.find(o => o.id === a.memory.id)?.content).toBe('Alpha observation about the router');
+  });
+
+  it('observation_get rejects an over-long id instead of echoing it back', async () => {
+    const c = buildClient();
+    let caught: unknown;
+    try {
+      await c.getObservations({ projectId, ids: ['x'.repeat(5000)] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).toContain('400');
+  });
+
+  it('observation_get rejects ids from another team', async () => {
+    const otherTeam = await storage.teams.create({ name: 'foreign' });
+    const otherProject = await storage.projects.create({ teamId: otherTeam.id, name: 'foreign-p' });
+    const foreign = await storage.observations.create({
+      projectId: otherProject.id, teamId: otherTeam.id, content: 'Foreign secret', kind: 'manual', metadata: {},
+    });
+
+    const c = buildClient();
+    const own = await c.getObservations({ projectId, ids: [foreign.id] });
+    expect(own.observations).toHaveLength(0);
+
+    let caught: unknown;
+    try {
+      await c.getObservations({ projectId: otherProject.id, ids: [foreign.id] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).toContain('403');
+  });
+
   it('cross-tenant request to /v1/search is rejected', async () => {
     // Create a foreign project under a different team.
     const otherTeam = await storage.teams.create({ name: 'foreign' });

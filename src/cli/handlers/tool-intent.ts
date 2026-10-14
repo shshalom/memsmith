@@ -38,6 +38,7 @@ export const MEMORY_TOOL_PATTERN = /^mcp__plugin_memsmith_mem__/;
  */
 export const MEMORY_READ_TOOLS: ReadonlySet<string> = new Set([
   'mcp__plugin_memsmith_mem__observation_search',
+  'mcp__plugin_memsmith_mem__observation_get',
   'mcp__plugin_memsmith_mem__observation_context',
 ]);
 

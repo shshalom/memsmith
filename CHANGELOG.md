@@ -13,16 +13,21 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 - Questions about past work are answered from a memory search. When a prompt asks about past work, decisions, history, or anything outside the current conversation, MemSmith tells the agent to search memory with `observation_search`, answer from the results, and verify load-bearing claims against the code, instead of injecting the top memories as a ready answer. Questions about the current conversation and pure task instructions are exempt.
 - In `hard` enforcement mode, the `Stop` hook sends the agent back once when it answers a question about past work without searching memory. It never blocks in `soft` mode, twice in one turn, or when memory is unavailable. To turn it off, run `npx memsmith enforcement off`.
 - When you choose Ollama, the installer checks that Ollama is installed, running, and has the model, and offers to install it, start it, and download the model. Non-interactive installs print the fix commands instead. `--setup-ollama` performs the steps without asking.
+- `observation_get` returns the full records for ids that `observation_search` returned, up to 10 per call.
 - `memsmith doctor` has a **Generation** check that uses the provider the running server resolves, including a dashboard override. `memsmith doctor --fix` starts a stopped Ollama and downloads a missing model.
 
 ### Changed
 
+- `observation_search` returns a short ranked index (id, date, type, title, and a snippet of about 200 characters) instead of full records. It returns 10 results by default and at most 25. Fetch full records with `observation_get`.
+- `observation_context` returns the full bodies of the top matches as text, 5 by default and at most 10, capped at about 20,000 characters.
+- The hosted recall link (`/v1/mcp`) follows the same rules: `search` and `recent` return an index, `context` returns capped text, and a new `get` tool returns full records by id.
 - Session-start memory is labeled as the latest context for orientation, not as the source for answers.
 - The installer's provider prompt now drives generation. It lists Ollama first as the recommended default and writes `MEMSMITH_SERVER_PROVIDER` and `MEMSMITH_SERVER_MODEL`, which the server reads. It previously recommended Claude and saved `MEMSMITH_PROVIDER`, which generation never read, so every install generated with Ollama.
 - Choosing Claude in the installer asks for an Anthropic API key only. The server calls the Anthropic Messages API directly and can't use a Claude subscription or a gateway.
 
 ### Fixed
 
+- Memory searches no longer overflow Claude Code's tool output limit. `observation_search` returned every matching record in full, about 2,700 characters each, so a 40-result search produced over 100,000 characters, and Claude Code saved it to a file instead of showing it to the agent.
 - `npx memsmith enforcement status` reports the mode that the hooks use. It reported `soft` when `settings.json` had no `MEMSMITH_RETRIEVAL_ENFORCEMENT` key, while the hooks ran with the default, `hard`. It now also says whether the mode is the default, set in `settings.json`, or set by the environment variable, and it uses the settings file under `MEMSMITH_DATA_DIR`.
 - The server reads the API keys the installer saves: Gemini and OpenRouter keys in `~/.memsmith/settings.json` and the Anthropic key in `~/.memsmith/.env`. It previously read them from its process environment only.
 - The provider and model in `~/.memsmith/settings.json` apply to generation. A provider chosen on the dashboard still takes precedence.

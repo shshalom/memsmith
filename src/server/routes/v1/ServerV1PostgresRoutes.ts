@@ -1357,6 +1357,48 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       },
     ));
 
+    // Full records for ids the agent picked from a search index. Reads with the
+    // same team-wide fan-out as /v1/search, so every id search can return is
+    // fetchable here.
+    app.post('/v1/observations/get', readAuth, this.handleCreate(
+      z.object({
+        projectId: z.string().min(1).optional(),
+        ids: z.array(z.string().min(1).max(128)).min(1).max(10),
+      }),
+      async (req, res, body) => {
+        const teamId = this.requireTeamId(req, res);
+        if (!teamId) return;
+        const projectId = body.projectId ?? req.authContext?.projectId ?? null;
+        if (!projectId) {
+          res.status(400).json({ error: 'ValidationError', message: 'projectId required (no project scope on key)' });
+          return;
+        }
+        if (!this.ensureProjectAllowed(req, res, projectId)) return;
+        const ids = [...new Set(body.ids)];
+        let results;
+        try {
+          results = await this.readTeamWide(
+            { projectId, teamId },
+            req.databasePool ?? this.options.pool,
+            ids.length,
+            (pool, pid) => this.readByIdsAnnotated(ids, { teamId, projectId: pid }, pool),
+          );
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          logger.warn('SYSTEM', 'observation.get failed', { requestId: req.requestId ?? null }, err);
+          this.handleDbError(err, res, 'observation.get');
+          return;
+        }
+        await this.auditWrite(req, 'observation.read', null, projectId, {
+          mode: 'get',
+          requestedIds: ids,
+          resultCount: results.length,
+          observationIds: results.map(o => o.id),
+        });
+        res.status(200).json({ observations: results.map(serializeObservation) });
+      },
+    ));
+
     // Phase 8 — context pack: same read/ranking path as `/v1/search` (hybrid by
     // default via resolveSearchResults), but also returns a concatenated context
     // string for direct prompt injection. The MCP `observation_context` tool
@@ -1499,6 +1541,15 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           const rows = await repo.listByProject({ projectId, teamId, limit });
           await this.auditWrite(req, 'observation.read', null, projectId, {
             mode: 'recent', via: 'mcp', limit,
+            resultCount: rows.length, observationIds: rows.map(o => o.id),
+          });
+          return rows.map(serializeObservation);
+        },
+        get: async ({ projectId, ids }) => {
+          assertProjectAllowed(projectId);
+          const rows = await this.readByIdsAnnotated(ids, { teamId, projectId }, dataPool);
+          await this.auditWrite(req, 'observation.read', null, projectId, {
+            mode: 'get', via: 'mcp', requestedIds: ids,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
           });
           return rows.map(serializeObservation);
@@ -2820,6 +2871,32 @@ export class ServerV1PostgresRoutes implements RouteHandler {
     }
   }
 
+  // Marks each row a newer observation superseded, without replacing it: the
+  // caller asked for these ids. Supersession failures degrade to plain rows,
+  // matching the search path.
+  private async readByIdsAnnotated(
+    ids: string[],
+    scope: { teamId: string; projectId: string },
+    pool: PostgresPool,
+  ): Promise<PostgresObservation[]> {
+    const rows = await new PostgresObservationRepository(pool).listByIdsForScope({ ids, ...scope });
+    if (rows.length === 0) return rows;
+    try {
+      const maxDepth = this.options.settingsResolver
+        ? await this.options.settingsResolver.supersedeMaxDepth(scope.teamId)
+        : undefined;
+      const heads = await resolveHeads(pool, rows.map(r => r.id), scope, maxDepth);
+      return rows.map(r => {
+        const head = heads.get(r.id);
+        return head && head !== r.id ? { ...r, supersededBy: head } : r;
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.warn('SYSTEM', 'observation.get supersession lookup failed; returning rows unannotated', { projectId: scope.projectId }, err);
+      return rows;
+    }
+  }
+
   private async applySupersession(
     ranked: PostgresObservation[],
     mode: 'search' | 'context',
@@ -3634,7 +3711,7 @@ function serializeObservation(observation: {
   lifecycleState?: string | null;
   supersededBy?: string | null;
   quality?: number | null;
-}): Record<string, unknown> {
+}): Record<string, unknown> & { id: string } {
   return {
     id: observation.id,
     projectId: observation.projectId,

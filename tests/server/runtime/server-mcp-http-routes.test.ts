@@ -141,26 +141,40 @@ describe('POST /v1/mcp — remote authenticated MCP recall (streamable HTTP)', (
   it('lists the recall tools over HTTP with a valid key', async () => {
     const mcp = await connectMcp(apiKeyRaw);
     const { tools } = await mcp.listTools();
-    expect(tools.map(t => t.name).sort()).toEqual(['context', 'recent', 'search']);
+    expect(tools.map(t => t.name).sort()).toEqual(['context', 'get', 'recent', 'search']);
     await mcp.close();
   });
 
   it('recent returns the team-scoped observations', async () => {
     const mcp = await connectMcp(apiKeyRaw);
     const res = await mcp.callTool({ name: 'recent', arguments: { projectId, limit: 10 } });
-    const { observations } = JSON.parse(textOf(res));
-    expect(observations.length).toBe(2);
-    const contents = observations.map((o: { content: string }) => o.content).join(' ');
-    expect(contents).toContain('CSRF cookie');
+    const text = textOf(res);
+    expect(text).toContain('2 most recent observations:');
+    expect(text).toContain('CSRF cookie');
     await mcp.close();
   });
 
   it('search finds an observation by content', async () => {
     const mcp = await connectMcp(apiKeyRaw);
     const res = await mcp.callTool({ name: 'search', arguments: { projectId, query: 'login bug' } });
-    const { observations } = JSON.parse(textOf(res));
-    expect(observations.some((o: { content: string }) => o.content.includes('login bug'))).toBe(true);
+    expect(textOf(res)).toContain('The login bug was a stale CSRF cookie on the callback.');
     await mcp.close();
+  });
+
+  it('get returns the full record for an id from search, and audits the read', async () => {
+    const mcp = await connectMcp(apiKeyRaw);
+    const search = textOf(await mcp.callTool({ name: 'search', arguments: { projectId, query: 'login bug' } }));
+    const id = /^\[([^\]]+)\]/m.exec(search)?.[1];
+    expect(id).toBeTruthy();
+    const detail = textOf(await mcp.callTool({ name: 'get', arguments: { projectId, ids: [id, 'missing-id'] } }));
+    await mcp.close();
+    expect(detail).toContain(`[${id}]`);
+    expect(detail).toContain('Not found: missing-id');
+    const audit = await pool.query(
+      `SELECT details FROM audit_log WHERE team_id = $1 AND action = 'observation.read' AND details->>'mode' = 'get'`,
+      [teamId],
+    );
+    expect(audit.rows.length).toBe(1);
   });
 
   it('search and context recall route through hybrid ranking by default (matches /v1/search)', async () => {
