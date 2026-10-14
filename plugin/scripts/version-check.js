@@ -4,6 +4,7 @@ import { existsSync, readFileSync, rmSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { ensureBun } from './bun-bootstrap.js';
 
 const IS_WINDOWS = process.platform === 'win32';
 const VERSION_CHECK_LOG_PREFIX = '[version-check]';
@@ -55,14 +56,13 @@ function findBun() {
 // has a 300s timeout (vs 60s for SessionStart), runs once per Claude
 // Code launch, and is the only standalone hook script — the natural
 // place to materialise plugin runtime state.
-function ensurePluginDependencies(pluginRoot) {
+function ensurePluginDependencies(pluginRoot, bunPath) {
   if (!existsSync(join(pluginRoot, 'package.json'))) return;
 
   // Guard on node_modules (package-manager marker) rather than a specific
   // package, so the check stays correct if dependencies are later renamed.
   if (existsSync(join(pluginRoot, NODE_MODULES_DIRNAME))) return;
 
-  const bunPath = findBun();
   if (!bunPath) {
     console.error(`${VERSION_CHECK_LOG_PREFIX} bun not found on PATH; cannot auto-install plugin dependencies`);
     return;
@@ -141,7 +141,12 @@ function resolveRoot() {
 const ROOT = resolveRoot();
 if (!ROOT) process.exit(0);
 
-ensurePluginDependencies(ROOT);
+const bunPath = ensureBun({
+  findBun,
+  log: (line) => console.error(`${VERSION_CHECK_LOG_PREFIX} ${line}`),
+  disabled: process.env.MEMSMITH_SKIP_BUN_INSTALL === '1',
+});
+ensurePluginDependencies(ROOT, bunPath);
 
 function emitUpgradeHint(message) {
   if (process.env.MEMSMITH_CODEX_HOOK === '1') {
