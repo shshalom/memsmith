@@ -36,6 +36,15 @@ import {
 } from '../services/hooks/runtime-selector.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
 import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
+import {
+  clampLimit,
+  formatObservationContext,
+  formatObservationDetails,
+  formatObservationIndex,
+  CONTEXT_LIMIT,
+  GET_MAX_IDS,
+  SEARCH_LIMIT,
+} from './observation-format.js';
 
 // C3 (worker retirement) — the old callWorker helper and its worker-utils HTTP
 // import were removed. Every legit caller now routes through the `/v1` server via
@@ -111,6 +120,10 @@ function formatJsonResult(payload: unknown): { content: Array<{ type: 'text'; te
       text: JSON.stringify(payload, null, 2),
     }],
   };
+}
+
+function formatTextResult(text: string): { content: Array<{ type: 'text'; text: string }> } {
+  return { content: [{ type: 'text' as const, text }] };
 }
 
 function requireServerForObservationTool(toolName: string): ServerAvailable {
@@ -238,11 +251,38 @@ const handleObservationSearch = wrapHandler('observation_search', async (args: O
   const request: ServerSearchObservationsRequest = {
     projectId,
     query: args.query,
-    ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    limit: clampLimit(args.limit, SEARCH_LIMIT),
     ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
   };
   const response = await ctx.client.searchObservations(request);
-  return formatJsonResult(response);
+  return formatTextResult(formatObservationIndex(response.observations ?? [], { query: args.query }));
+});
+
+interface ObservationGetArgs {
+  projectId?: string;
+  ids: string[] | string;
+}
+
+function normalizeIdsArg(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+  const ids = list
+    .map(id => (typeof id === 'string' || typeof id === 'number' ? String(id).trim() : ''))
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+const handleObservationGet = wrapHandler('observation_get', async (args: ObservationGetArgs) => {
+  const ctx = requireServerForObservationTool('observation_get');
+  const ids = normalizeIdsArg(args?.ids);
+  if (ids.length === 0) {
+    throw new Error('observation_get: "ids" is required (ids from observation_search)');
+  }
+  if (ids.length > GET_MAX_IDS) {
+    throw new Error(`observation_get: at most ${GET_MAX_IDS} ids per call (got ${ids.length})`);
+  }
+  const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+  const response = await ctx.client.getObservations({ projectId, ids });
+  return formatTextResult(formatObservationDetails(response.observations ?? [], ids));
 });
 
 interface ObservationContextArgs {
@@ -261,11 +301,11 @@ const handleObservationContext = wrapHandler('observation_context', async (args:
   const request: ServerContextObservationsRequest = {
     projectId,
     query: args.query,
-    ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    limit: clampLimit(args.limit, CONTEXT_LIMIT),
     ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
   };
   const response = await ctx.client.contextObservations(request);
-  return formatJsonResult(response);
+  return formatTextResult(formatObservationContext(response.observations ?? [], { query: args.query }));
 });
 
 interface ObservationGenerationStatusArgs {
@@ -348,9 +388,9 @@ const tools = [
   {
     name: '__IMPORTANT',
     description: `MEMORY RECALL WORKFLOW (ALWAYS FOLLOW):
-1. observation_search(query) → Full-text index of matching observations
-2. observation_context(query) → Top-N relevant observations + a packed context string ready for injection
-Both are backed by the live server (/v1). Prefer observation_context when you want ready-to-use context.`,
+1. observation_search(query) → short index: id, date, type, title, snippet (default 10, max 25)
+2. observation_get(ids=[...]) → full records for the ids that matter (max 10 per call)
+observation_context(query) returns full bodies of the top matches in one call (default 5, max 10).`,
     inputSchema: {
       type: 'object',
       properties: {}
@@ -360,17 +400,18 @@ Both are backed by the live server (/v1). Prefer observation_context when you wa
         type: 'text' as const,
         text: `# Memory Recall Workflow
 
-**Backed by the live server (/v1). Two tools:**
+Search first, then fetch full records only for the results that matter.
 
-1. **observation_search** - Full-text search across generated observations
-   \`observation_search(query="...", limit=20, projectId="...")\`
-   Returns: matching observations (FTS/hybrid ranked)
+1. **observation_search** - Ranked index of matching observations
+   \`observation_search(query="...", limit=10)\`
+   Returns: one entry per match with id, date, type, title, and a short snippet
 
-2. **observation_context** - Top-N relevant observations for injection
-   \`observation_context(query="...", limit=10, projectId="...")\`
-   Returns: matched observations AND a pre-joined context string ready to inject
+2. **observation_get** - Full records for chosen ids
+   \`observation_get(ids=["<id>", "<id>"])\`
+   Returns: full body, why, files, and rejected alternatives for each id
 
-Use observation_context when you want ready-to-use context; observation_search when you want to browse matches.`
+**observation_context** returns the full bodies of the top few matches in one call
+when you need context without browsing: \`observation_context(query="...", limit=5)\`.`
       }]
     })
   },
@@ -458,14 +499,14 @@ Use observation_context when you want ready-to-use context; observation_search w
   },
   {
     name: 'observation_search',
-    description: 'Full-text search across generated observations using the server\'s GIN tsvector index (Phase 1). Calls /v1/search. Server runtime only. Params: query (required), projectId (optional), platformSource, limit (default 20, max 100).',
+    description: 'Search memory for past work, decisions, and rationale. Returns a ranked index (id, date, type, title, snippet), not full records; fetch the relevant ids with observation_get. Params: query (required), limit (default 10, max 25), projectId, platformSource.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         query: { type: 'string', description: 'Search query (required)' },
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
-        limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+        limit: { type: 'number', description: 'Max results (default 10, max 25)' },
       },
       required: ['query'],
       additionalProperties: false,
@@ -473,15 +514,29 @@ Use observation_context when you want ready-to-use context; observation_search w
     handler: async (args: any) => handleObservationSearch(args ?? {}),
   },
   {
+    name: 'observation_get',
+    description: 'Fetch full observation records by id, using ids from observation_search. Returns the full body plus why, files, and rejected alternatives. Params: ids (required, max 10), projectId.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string' },
+        ids: { type: 'array', items: { type: 'string' }, description: 'Observation ids from observation_search (max 10)' },
+      },
+      required: ['ids'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => handleObservationGet(args ?? {}),
+  },
+  {
     name: 'observation_context',
-    description: 'Get top-N relevant observations for context injection. Returns matched observations AND a pre-joined context string suitable for prompt injection. Calls /v1/context. Server runtime only.',
+    description: 'Get the full bodies of the top few observations for a query in one call, capped in size. Prefer observation_search plus observation_get when you need to choose what to read. Params: query (required), limit (default 5, max 10), projectId, platformSource.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         query: { type: 'string', description: 'Search query (required)' },
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
-        limit: { type: 'number', description: 'Max observations (default 10, max 50)' },
+        limit: { type: 'number', description: 'Max observations (default 5, max 10)' },
       },
       required: ['query'],
       additionalProperties: false,

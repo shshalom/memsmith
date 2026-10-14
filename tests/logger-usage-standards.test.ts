@@ -37,6 +37,7 @@ const EXCLUDED_PATTERNS = [
   /worker\/agents\/FallbackErrorHandler\.ts$/,  // Pure isAbortError predicate after dead-code removal; no side effects (mirrors output-classifier)
   /worker\/search\/ResultFormatter\.ts$/,  // Pure static Chroma-failure message builder; no side effects (mirrors CorpusRenderer)
   /worker\/knowledge\/CorpusRenderer\.ts$/,  // Pure string/markdown rendering, no side effects
+  /servers\/observation-format\.ts$/,  // Pure text rendering for the memory MCP tools; failures are logged by the calling handler
   /worker\/http\/middleware\/validateBody\.ts$/,  // Trivial zod validation middleware factory
   /worker\/RateLimitStore\.ts$/,  // Side-effect-free in-memory rate-limit store
   /worker\/events\/SessionEventBroadcaster\.ts$/,  // Thin SSE broadcast wrapper, no error paths
