@@ -32,7 +32,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith install --runtime local|server')}   Select runtime non-interactively (local: embedded Postgres, the default; server: a team MemSmith server)
   ${styleText('cyan', 'npx memsmith install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
   ${styleText('cyan', 'npx memsmith repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
-  ${styleText('cyan', 'npx memsmith update')}               Update to latest version
+  ${styleText('cyan', 'npx memsmith@latest update')}        Update the CLI, plugin, and server to the latest version (keeps your settings)
   ${styleText('cyan', 'npx memsmith uninstall')}            Remove plugin and configs
   ${styleText('cyan', 'npx memsmith version')}              Print version
 
@@ -112,9 +112,8 @@ async function main(): Promise<void> {
 
     case 'update':
     case 'upgrade': {
-      const { runInstallCommand } = await import('./commands/install.js');
-      await runInstallCommand();
-      break;
+      const { runUpdate } = await import('./commands/update.js');
+      process.exit(await runUpdate(args.slice(1)));
     }
 
     case 'uninstall':

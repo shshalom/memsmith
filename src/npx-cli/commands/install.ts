@@ -644,7 +644,7 @@ async function promptForIDESelection(): Promise<string[]> {
   return result as string[];
 }
 
-function copyPluginToMarketplace(): void {
+export function copyPluginToMarketplace(): void {
   const marketplaceDir = marketplaceDirectory();
   const packageRoot = npmPackageRootDirectory();
 
@@ -675,9 +675,23 @@ function copyPluginToMarketplace(): void {
       force: true,
     });
   }
+
+  const marketplacePackageJson = join(marketplaceDir, 'package.json');
+  if (existsSync(marketplacePackageJson)) {
+    const manifest = JSON.parse(readFileSync(marketplacePackageJson, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(marketplacePackageJson, `${JSON.stringify(withoutDevDependencies(manifest), null, 2)}\n`);
+  }
 }
 
-function copyPluginToCache(version: string): void {
+// npm resolves devDependencies even with --omit=dev, and a dev-only
+// tree-sitter peer conflict made every marketplace install fail strict and
+// print an ERESOLVE report before the --legacy-peer-deps retry succeeded.
+export function withoutDevDependencies(manifest: Record<string, unknown>): Record<string, unknown> {
+  const { devDependencies: _dev, ...rest } = manifest;
+  return rest;
+}
+
+export function copyPluginToCache(version: string): void {
   const sourcePluginDirectory = npmPackagePluginDirectory();
   const cachePath = pluginCacheDirectory(version);
 
