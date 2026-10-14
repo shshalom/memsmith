@@ -237,8 +237,8 @@ describe('syncInstalledPluginEntries', () => {
     expect((next.plugins as any)['other@x']).toEqual([{ scope: 'user', version: '1.0.0' }]);
   });
 
-  it('recognizes a cache entry written through a symlinked home folder', () => {
-    const { mkdtempSync, mkdirSync, symlinkSync, realpathSync } = require('fs');
+  it.skipIf(process.platform === 'win32')('recognizes a cache entry written through a symlinked home folder', () => {
+    const { mkdtempSync, mkdirSync, symlinkSync, realpathSync, rmSync } = require('fs');
     const { join } = require('path');
     const { tmpdir } = require('os');
     const real = realpathSync(mkdtempSync(join(tmpdir(), 'ms-reg-')));
@@ -246,9 +246,14 @@ describe('syncInstalledPluginEntries', () => {
     const linked = `${real}-link`;
     symlinkSync(real, linked);
     const registry = { plugins: { 'memsmith@shshalom': [{ scope: 'local', installPath: join(linked, 'cache', '1.0.0'), version: '1.0.0', installedAt: 'a', lastUpdated: 'a' }] } };
-    const result = syncInstalledPluginEntries(registry, '1.1.0', join(real, 'cache', '1.1.0'), now);
-    expect(result.skipped).toEqual([]);
-    expect(result.changed).toBe(1);
+    try {
+      const result = syncInstalledPluginEntries(registry, '1.1.0', join(real, 'cache', '1.1.0'), now);
+      expect(result.skipped).toEqual([]);
+      expect(result.changed).toBe(1);
+    } finally {
+      rmSync(linked, { force: true });
+      rmSync(real, { recursive: true, force: true });
+    }
   });
 
   it('reports no change when every entry is already current', () => {
