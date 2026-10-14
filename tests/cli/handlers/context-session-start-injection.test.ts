@@ -20,6 +20,7 @@ import {
   contextHandler,
   setContextDependenciesForTesting,
 } from '../../../src/cli/handlers/context.js';
+import { SESSION_START_ORIENTATION_LABEL } from '../../../src/services/retrieval/directive.js';
 import { logger } from '../../../src/utils/logger.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
@@ -39,6 +40,33 @@ afterEach(() => {
 });
 
 describe('contextHandler SessionStart injection (local/server runtime)', () => {
+  function serverWith(observations: Array<{ id: string; content: string }>) {
+    setContextDependenciesForTesting({
+      mintProjectIdentity: async () => null,
+      loadFromFileOnce: () => ({}),
+      getProjectContext: () => ({ primary: 'memsmith', parent: null, isWorktree: false, allProjects: ['memsmith'] }),
+      resolveRuntimeContext: () => ({
+        runtime: 'server',
+        projectId: 'p1',
+        serverBaseUrl: 'http://server.test',
+        client: { searchObservations: async () => ({ observations }) },
+      }),
+    });
+  }
+
+  it('frames the recent observations as orientation, not as the answer source', async () => {
+    serverWith([{ id: 'obs-1', content: 'SEEDED: recent work' }]);
+    const result = await contextHandler.execute({ sessionId: 's-label', cwd: '/tmp/memsmith', platform: 'claude-code' });
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain(`${SESSION_START_ORIENTATION_LABEL}\nSEEDED: recent work`);
+  });
+
+  it('omits the orientation label when there is nothing recent to show', async () => {
+    serverWith([]);
+    const result = await contextHandler.execute({ sessionId: 's-nolabel', cwd: '/tmp/memsmith', platform: 'claude-code' });
+    expect(result.hookSpecificOutput?.additionalContext ?? '').not.toContain(SESSION_START_ORIENTATION_LABEL);
+  });
+
   it('injects real recent context when observations exist for the project', async () => {
     const searchCalls: unknown[] = [];
     const seededContent = 'SEEDED: fixed the embedded-pg boot race in local-runtime-cli';
