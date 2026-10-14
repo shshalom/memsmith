@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Added
+
+- MemSmith warns you at session start when the local server runs a different version than the plugin, for example after Claude Code updated the plugin, and tells you to run `memsmith restart`.
+
+### Changed
+
+- `memsmith update` updates the CLI, the plugin, and the server in one step and keeps your settings. It reruns itself with the newest version on npm, installs the plugin and moves every Claude Code plugin entry (user-wide and per-project) to it, restarts the local server, and checks the server's version. It previously reran the full installer, which asked every question again, installed whatever version the CLI carried, left the old server running, and dropped per-project plugin entries. Run it as `npx memsmith@latest update`.
+
 ## [13.11.0] - 2026-10-14
 
 ### Added

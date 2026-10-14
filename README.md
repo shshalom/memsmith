@@ -73,9 +73,27 @@ by a port derived from your user ID.
 | `memsmith status` | Shows the server's state and version. Exits 1 when it is not running. |
 | `memsmith doctor` | Checks Bun, uv, the plugin install, the server, and whether the generation provider can create memories. |
 | `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model. |
+| `memsmith update` | Updates the CLI, the plugin, and the server to the latest version and keeps your settings. |
 
 Without a global install, prefix each command with `npx`, for example
 `npx memsmith status`.
+
+### Update
+
+To update MemSmith, run:
+
+```bash
+npx memsmith@latest update
+```
+
+The command installs the latest plugin for Claude Code, including any
+per-project installs, restarts the local server on the new version, and checks
+that the versions match. It doesn't ask the installer questions again. When it
+finishes, run `/reload-plugins` in Claude Code, or restart Claude Code.
+
+If Claude Code updates the plugin on its own, the server keeps running the old
+version until it restarts. MemSmith then warns you at the start of the next
+session; run `memsmith restart` or `memsmith update`.
 
 ## Key features
 

@@ -102,10 +102,23 @@ To run the tests, run `bun test`.
 To upgrade, run:
 
 ```bash
-npx memsmith update
+npx memsmith@latest update
 ```
 
-If you update the plugin another way, for example with `claude plugin update`, the Setup hook detects the version change and asks you to run `npx memsmith repair`.
+The command does the following:
+
+1. If a newer MemSmith is on npm than the CLI you ran, it reruns itself with that version.
+2. It installs the new plugin into the Claude Code marketplace and cache folders, and moves every MemSmith plugin entry, user-wide and per-project, to the new version.
+3. It restarts the local server on the new version and checks that the server reports it. A stopped server stays stopped, and a team server isn't touched.
+
+It keeps your settings and doesn't ask the installer questions again. When it finishes, run `/reload-plugins` in Claude Code, or restart Claude Code.
+
+| Option | What it does |
+| --- | --- |
+| `--force` | Reinstalls the plugin files even when they're current, or installs this CLI's version over a newer installed plugin. |
+| `--no-self-update` | Uses the CLI you ran instead of checking npm for a newer one. |
+
+If you update the plugin another way, for example with `claude plugin update`, the server keeps running the old version. MemSmith warns you about this at the start of the next session. To fix it, run `memsmith restart`.
 
 For the version history, see the [changelog](https://github.com/shshalom/memsmith/blob/main/CHANGELOG.md).
 
