@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Added
+
+- Questions about past work are answered from a memory search. When a prompt asks about past work, decisions, history, or anything outside the current conversation, MemSmith tells the agent to search memory with `observation_search`, answer from the results, and verify load-bearing claims against the code, instead of injecting the top memories as a ready answer. Questions about the current conversation and pure task instructions are exempt.
+- In `hard` enforcement mode, the `Stop` hook sends the agent back once when it answers a question about past work without searching memory. It never blocks in `soft` mode, twice in one turn, or when memory is unavailable. To turn it off, run `npx memsmith enforcement off`.
+
+### Changed
+
+- Session-start memory is labeled as the latest context for orientation, not as the source for answers.
+
+### Fixed
+
+- `npx memsmith enforcement status` reports the mode that the hooks use. It reported `soft` when `settings.json` had no `MEMSMITH_RETRIEVAL_ENFORCEMENT` key, while the hooks ran with the default, `hard`. It now also says whether the mode is the default, set in `settings.json`, or set by the environment variable, and it uses the settings file under `MEMSMITH_DATA_DIR`.
+
 ## [13.10.3] - 2026-10-14
 
 ### Changed

@@ -73,11 +73,30 @@ At session start, the context hook injects recent and relevant observations. Dur
 | PreToolUse | `Task\|Agent` | `agent-directive` |
 | PreToolUse | `mcp__plugin_memsmith_mem__observation_add` | `record-intent-intercept` |
 | PostToolUse | `*` | `observation` |
-| Stop | | `summarize` |
+| Stop | | `answer-gate` (memory-first answer check, then `summarize`) |
 
 `npx memsmith install` and `npx memsmith repair` install the runtime dependencies. The Setup hook only reads the `.install-version` marker.
 
 For details, see [Plugin Hooks](/architecture/hooks).
+
+## Memory-first answering
+
+Session-start context and the memory that MemSmith injects into the context have different jobs:
+
+- **Orientation.** The `context` hook injects the latest observations at session start, under the label "Latest context for orientation". This context tells Claude what happened recently. It isn't the source for answers.
+- **Answering.** When a prompt asks about past work, decisions, rationale, history, configuration, the status of earlier work, or what a teammate did, the answer comes from a memory search.
+
+The hooks enforce this in three steps:
+
+1. **`UserPromptSubmit`.** The `prompt-injection` hook classifies the prompt with deterministic rules. For an information request, it injects a directive instead of pre-fetched memory: search memory with `observation_search` (and `observation_context` to narrow), answer from the results, say so plainly when memory has no record, then verify load-bearing claims in this order: memory, `CLAUDE.md`, specs, code. It records the turn as a pending information request. For a task prompt, it injects the top relevant memories as background, as before. When the classifier can't tell a question from a task, it treats the prompt as a question.
+2. **`PreToolUse`.** A call to `observation_search`, `observation_context`, or `session_start_context` satisfies the pending request. The `tool-intent` hook also marks the question's topic as consulted, so the discovery gate doesn't block the follow-up code search on the same subject. The `smart_*` code tools and the memory write tools don't count.
+3. **`Stop`.** In `hard` mode, if the turn's information request is still unsatisfied, the `answer-gate` hook returns a block decision with the reason "Search memory (observation_search) before answering". Claude Code then continues the turn so Claude can search. The gate blocks at most once per turn, and never when `stop_hook_active` is set, in `soft` mode, for a subagent, or when memory is unavailable. `summarize` runs after the gate, on the `Stop` that ends the turn.
+
+Prompts that refer to the current conversation, such as "you just said", "above", "earlier in this chat", or "the plan you wrote", are exempt: what was already said needs no search. Pure task instructions, such as "fix X", "add a test", or "run Y", are also exempt.
+
+To stop enforcing memory-first behavior, run `npx memsmith enforcement off`. The command writes `settings.json` directly, so it works while hard mode is blocking. To see the mode that the hooks use and whether it comes from the default, `settings.json`, or the environment, run `npx memsmith enforcement status`.
+
+Codex keeps its existing hooks. Its `PreToolUse` hook doesn't run for MemSmith's memory tools, so a Codex turn could never be marked as searched.
 
 ## Directory structure
 

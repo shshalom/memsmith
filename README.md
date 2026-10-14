@@ -91,9 +91,19 @@ Without a global install, prefix each command with `npx`, for example
 4. **Retrieve.** Hybrid search ranks results with weighted reciprocal rank
    fusion. If the embedder is down, search degrades to full-text instead of
    failing.
-5. **Inject.** At session start and on each prompt, relevant observations render
-   into the agent's context. Superseded decisions collapse to their current
-   head, so the agent sees only current truth.
+5. **Inject.** At session start, the latest observations render into the
+   agent's context for orientation. On each task prompt, relevant observations
+   render as background. Superseded decisions collapse to their current head,
+   so the agent sees only current truth.
+6. **Answer from memory.** When a prompt asks about past work, decisions,
+   history, or anything outside the current conversation, MemSmith tells the
+   agent to answer from a memory search (`observation_search`), not from the
+   session-start context, and to verify load-bearing claims against the current
+   code. Questions about what was said earlier in the same conversation are
+   exempt. In `hard` enforcement mode (the default), the `Stop` hook sends the
+   agent back once if it answers without searching memory. To turn enforcement
+   off, run `npx memsmith enforcement off`; `npx memsmith enforcement status`
+   shows the mode the hooks use.
 
 ## Team mode
 
