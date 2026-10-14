@@ -5,6 +5,9 @@ import { join } from 'path';
 // then writes settings.json from its own defaults on first start, and marks
 // setup pending. An npx install writes settings.json before the server ever
 // runs, so existing installs never carry the pending marker and are never asked.
+// Deleting settings.json, pointing MEMSMITH_DATA_DIR at a new folder, or an
+// install that fails before it finishes also leaves setup pending, which is
+// intended: no installer has completed for that data folder.
 export const SETUP_PENDING_MARKER = '.setup-pending';
 export const SETUP_COMPLETE_MARKER = '.setup-complete';
 const PROVIDER_KEYS = ['MEMSMITH_SERVER_PROVIDER', 'MEMSMITH_PROVIDER'];
