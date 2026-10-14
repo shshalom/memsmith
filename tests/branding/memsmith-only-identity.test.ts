@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { join } from 'path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
 import { execFileSync } from 'child_process';
 
 // Every shipped or public surface presents MemSmith only: no upstream name,
@@ -18,7 +19,14 @@ const SCANNED_DIRS = [
   'cursor-hooks/',
   '.github/',
 ];
-const SCANNED_FILES = new Set(['package.json', 'README.md', 'CLAUDE.md', 'SECURITY.md']);
+const SCANNED_FILES = new Set([
+  'package.json',
+  'README.md',
+  'CLAUDE.md',
+  'SECURITY.md',
+  'scripts/build-hooks.js',
+  'scripts/sync-plugin-manifests.js',
+]);
 // Reads a claude-mem SQLite database for the import tool and names it as such.
 const ALLOWLIST = new Set(['src/server/runtime/import/sqliteReader.ts']);
 
@@ -39,6 +47,28 @@ function upstreamReferences(): string[] {
   }
 }
 
+// dist/ is gitignored, so git grep never sees it; read the built files directly.
+function distReferences(): string[] {
+  const distDir = join(ROOT, 'dist');
+  if (!existsSync(distDir)) return [];
+  const pattern = new RegExp(PATTERN, 'i');
+  const hits: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(c?js|mjs|json|d\.ts|map)$/.test(name)) {
+        const lines = readFileSync(full, 'utf-8').split('\n');
+        lines.forEach((line, i) => {
+          if (pattern.test(line)) hits.push(`${relative(ROOT, full)}:${i + 1}:${line.slice(0, 160)}`);
+        });
+      }
+    }
+  };
+  walk(distDir);
+  return hits;
+}
+
 describe('MemSmith-only identity', () => {
   it('shipped and public files never name the upstream project or its author', () => {
     const offending = upstreamReferences()
@@ -48,5 +78,10 @@ describe('MemSmith-only identity', () => {
       })
       .map(line => line.slice(0, 200));
     expect(offending, `upstream references:\n${offending.join('\n')}`).toEqual([]);
+  });
+
+  it('the built CLI in dist/ never names the upstream project or its author', () => {
+    const offending = distReferences();
+    expect(offending, `upstream references in dist/:\n${offending.join('\n')}`).toEqual([]);
   });
 });
