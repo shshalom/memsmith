@@ -84,6 +84,7 @@ describe('memsmith update', () => {
     const f = fake({ cli: '1.1.0', installed: '1.0.0', server: { kind: 'running', version: '1.0.0' } });
     expect(await runUpdate([], f.deps)).toBe(0);
     expect(f.calls).toEqual(['latest', 'stop', 'marker:true', 'install:1.1.0', 'registry:1.1.0', 'start', 'marker:false']);
+    expect(f.text()).toContain('Restart Claude Code');
     expect(f.text()).toContain('Server: 1.1.0');
   });
 
@@ -98,7 +99,7 @@ describe('memsmith update', () => {
     expect(await runUpdate([], f.deps)).toBe(0);
     expect(f.calls).toEqual(['latest', 'registry:1.1.0', 'marker:false']);
     expect(f.text()).toContain('already up to date');
-    expect(f.text()).not.toContain('/reload-plugins');
+    expect(f.text()).not.toContain('Restart Claude Code');
   });
 
   it('reinstalls the files when the cache folder is incomplete', async () => {

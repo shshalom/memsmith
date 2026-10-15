@@ -12,7 +12,8 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
-import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { DATA_DIR, USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { writeSetupComplete } from '../../shared/setup-state.js';
 import { loadMemSmithEnv, saveMemSmithEnv } from '../../shared/EnvManager.js';
 import { resolveWorkerRuntimePath } from '../../services/infrastructure/ProcessManager.js';
 import {
@@ -1563,6 +1564,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   } catch {
     // Recognition is a courtesy on top of a completed install. Staying silent
     // is strictly better than failing the install over it.
+  }
+
+  if (failedIDEs.length === 0) {
+    try { writeSetupComplete(DATA_DIR); } catch { /* best-effort: the provider key in settings.json also ends the in-chat setup */ }
   }
 
   if (isInteractive) {

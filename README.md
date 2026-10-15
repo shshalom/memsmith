@@ -31,7 +31,7 @@ searchable memory.
 
 ## Quick start
 
-Install with a single command:
+Install with a single command (recommended):
 
 ```bash
 npx memsmith install
@@ -44,6 +44,12 @@ Or install from the plugin marketplace inside Claude Code:
 
 /plugin install memsmith@shshalom
 ```
+
+A marketplace install copies the plugin but skips the installer. At the start
+of your first session, MemSmith installs Bun if it's missing. Once Bun is ready,
+usually in that session or the next one, Claude asks you the installer's
+questions and runs `npx memsmith install` for you, so both paths end with the
+same setup. Claude never asks for an API key in chat.
 
 The installer asks which generation provider turns your sessions into
 memories. The default is Ollama, which runs a local model on your machine and
@@ -89,7 +95,9 @@ npx memsmith@latest update
 The command installs the latest plugin for Claude Code, including any
 per-project installs, restarts the local server on the new version, and checks
 that the versions match. It doesn't ask the installer questions again. When it
-finishes, run `/reload-plugins` in Claude Code, or restart Claude Code.
+finishes, restart Claude Code. `/reload-plugins` doesn't restart the running
+memory server that Claude Code started, so new memory tools appear only after
+a restart.
 
 If Claude Code updates the plugin on its own, the server keeps running the old
 version. MemSmith warns you about this at the start of the next session. To fix

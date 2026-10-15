@@ -111,6 +111,43 @@ async function defaultCheckServerVersion(cwd: string, runtime: RuntimeContext): 
   });
 }
 
+// Team projects are configured by the team server's operator, so only local
+// projects on Claude Code get the in-chat setup.
+export async function checkSetupFor(
+  cwd: string,
+  platform: string | undefined,
+  deps: {
+    projectRuntime: (cwd: string) => 'local' | 'server';
+    readSettings: () => Record<string, unknown> | null;
+    markers: () => { pending: boolean; complete: boolean };
+    env: Record<string, string | undefined>;
+  },
+): Promise<{ notice: string; directive: string } | null> {
+  if (platform !== 'claude-code') return null;
+  if (deps.projectRuntime(cwd) === 'server') return null;
+  const setup = await import('../../shared/setup-state.js');
+  const markers = deps.markers();
+  let rawSettings: Record<string, unknown> | null = null;
+  try { rawSettings = deps.readSettings(); } catch { /* unreadable settings: the markers decide */ }
+  if (!setup.isSetupNeeded({ ...markers, rawSettings, env: deps.env })) return null;
+  return { notice: setup.MARKETPLACE_SETUP_USER_NOTICE, directive: setup.MARKETPLACE_SETUP_DIRECTIVE };
+}
+
+async function defaultCheckSetup(cwd: string, platform: string | undefined): Promise<{ notice: string; directive: string } | null> {
+  const [{ selectRuntime }, { readSetupMarkers }, { readFlatSettings }, { USER_SETTINGS_PATH, DATA_DIR }] = await Promise.all([
+    import('../../services/hooks/runtime-selector.js'),
+    import('../../shared/setup-state.js'),
+    import('../../shared/flat-settings.js'),
+    import('../../shared/paths.js'),
+  ]);
+  return checkSetupFor(cwd, platform, {
+    projectRuntime: selectRuntime,
+    readSettings: () => readFlatSettings(USER_SETTINGS_PATH),
+    markers: () => readSetupMarkers(DATA_DIR),
+    env: process.env,
+  });
+}
+
 const defaultDependencies = {
   resolveRuntimeContext: defaultResolveRuntimeContext,
   getProjectContext: defaultGetProjectContext,
@@ -118,6 +155,7 @@ const defaultDependencies = {
   mintProjectIdentity: defaultMintProjectIdentity,
   checkGenerationReadiness: defaultCheckGenerationReadiness,
   checkServerVersion: defaultCheckServerVersion,
+  checkSetup: defaultCheckSetup,
 };
 
 let dependencies = defaultDependencies;
@@ -404,13 +442,18 @@ export const contextHandler: EventHandler = {
     }
 
     const runtimeForChecks = dependencies.resolveRuntimeContext();
-    const [readinessProblem, versionSkew] = await Promise.all([
+    const [readinessProblem, versionSkew, setup] = await Promise.all([
       dependencies.checkGenerationReadiness(settings, cwd, runtimeForChecks),
       dependencies.checkServerVersion(cwd, runtimeForChecks),
+      dependencies.checkSetup(cwd, input.platform),
     ]);
-    const notices = [readinessProblem, versionSkew].filter((n): n is string => Boolean(n));
+    const notices = [setup ? null : readinessProblem, versionSkew].filter((n): n is string => Boolean(n));
     if (notices.length > 0) {
       additionalContext = `${notices.map(n => `⚠ ${n}`).join('\n')}\nTell the user this before anything else.\n\n${additionalContext}`;
+    }
+    if (setup) {
+      additionalContext = `${setup.directive}\n\n${additionalContext}`;
+      notices.unshift(setup.notice);
     }
 
     return {

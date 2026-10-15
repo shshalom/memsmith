@@ -33,7 +33,12 @@ To install from the plugin marketplace inside Claude Code, run:
 /plugin install memsmith@shshalom
 ```
 
-Start a new Claude Code session. MemSmith starts its server on the first session.
+Restart Claude Code. A marketplace install copies the plugin but skips the installer, so MemSmith finishes the setup itself:
+
+1. At the start of the first session, MemSmith installs Bun if it's missing, using Bun's official installer (into `~/.bun`, no `sudo`). If that fails, it tells you how to install Bun and waits a day before trying again. To skip the automatic install, set `MEMSMITH_SKIP_BUN_INSTALL=1`.
+2. Once Bun is ready, usually in that session or the next one, Claude asks which generation provider to use and whether to set up Ollama, then runs `npx memsmith install` with your answers. For Claude, Gemini, or OpenRouter, Claude asks you to add the API key in your own terminal; it never asks for the key in chat.
+
+To do the setup yourself instead, run `npx memsmith install`.
 
 <Note>
 `npm install -g memsmith` installs the `memsmith` CLI only. To register the plugin hooks and set up the server, run `memsmith install`.
@@ -111,7 +116,7 @@ The command does the following:
 2. It installs the new plugin into the Claude Code marketplace and cache folders, and moves every MemSmith plugin entry, user-wide and per-project, to the new version.
 3. It restarts the local server on the new version and checks that the server reports it. A stopped server stays stopped, and a team server isn't touched.
 
-It keeps your settings and doesn't ask the installer questions again. When it finishes, run `/reload-plugins` in Claude Code, or restart Claude Code.
+It keeps your settings and doesn't ask the installer questions again. When it finishes, restart Claude Code. `/reload-plugins` doesn't restart the running MemSmith MCP server, so new memory tools appear only after a restart.
 
 | Option | What it does |
 | --- | --- |

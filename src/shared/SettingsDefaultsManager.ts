@@ -1,4 +1,5 @@
 
+import { writeSetupPending } from './setup-state.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -287,6 +288,7 @@ export class SettingsDefaultsManager {
           // dir, and CLI commands like `start` promise machine-readable JSON
           // on stdout to the hook framework.
           console.warn('[SETTINGS] Created settings file with defaults:', settingsPath);
+          try { writeSetupPending(dir); } catch { /* best-effort: without it the in-chat setup is skipped */ }
         } catch (error: unknown) {
           console.warn('[SETTINGS] Failed to create settings file, using in-memory defaults:', settingsPath, error instanceof Error ? error.message : String(error));
         }

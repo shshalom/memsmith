@@ -17,6 +17,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import {
+  checkSetupFor,
   contextHandler,
   setContextDependenciesForTesting,
 } from '../../../src/cli/handlers/context.js';
@@ -75,12 +76,36 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
       }) as never,
       checkGenerationReadiness: async () => null,
       checkServerVersion: async () => 'SKEW: server 13.10.2, plugin 13.11.0',
+      checkSetup: async () => null,
     });
     const result = await contextHandler.execute({ sessionId: 's-skew', cwd: '/tmp/memsmith', platform: 'claude-code' });
     const ctx = result.hookSpecificOutput?.additionalContext ?? '';
     expect(ctx.startsWith('⚠ SKEW: server 13.10.2, plugin 13.11.0')).toBe(true);
     expect(ctx).toContain('SEEDED: recent work');
     expect(result.systemMessage).toContain('SKEW: server 13.10.2, plugin 13.11.0');
+  });
+
+  it('asks the agent to finish a marketplace install before anything else, and tells the user', async () => {
+    setContextDependenciesForTesting({
+      mintProjectIdentity: async () => null,
+      loadFromFileOnce: () => ({}),
+      getProjectContext: () => ({ primary: 'memsmith', parent: null, isWorktree: false, allProjects: ['memsmith'] }),
+      resolveRuntimeContext: () => ({
+        runtime: 'server',
+        projectId: 'p1',
+        serverBaseUrl: 'http://server.test',
+        client: { searchObservations: async () => ({ observations: [{ id: 'obs-1', content: 'SEEDED: recent work' }] }) },
+      }) as never,
+      checkGenerationReadiness: async () => 'OLLAMA MISSING',
+      checkServerVersion: async () => null,
+      checkSetup: async () => ({ notice: 'SETUP NOTICE', directive: 'SETUP DIRECTIVE' }),
+    });
+    const result = await contextHandler.execute({ sessionId: 's-setup', cwd: '/tmp/memsmith', platform: 'claude-code' });
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx.startsWith('SETUP DIRECTIVE')).toBe(true);
+    expect(ctx).toContain('SEEDED: recent work');
+    expect(ctx).not.toContain('OLLAMA MISSING');
+    expect(result.systemMessage?.startsWith('SETUP NOTICE')).toBe(true);
   });
 
   it('omits the orientation label when there is nothing recent to show', async () => {
@@ -266,5 +291,30 @@ describe('contextHandler SessionStart injection (local/server runtime)', () => {
     } finally {
       rmSync(freshCwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe('checkSetupFor', () => {
+  const pendingDeps = {
+    projectRuntime: () => 'local' as const,
+    readSettings: () => ({ MEMSMITH_RUNTIME: 'local' }),
+    markers: () => ({ pending: true, complete: false }),
+    env: {},
+  };
+
+  it('asks for setup on Claude Code when the server created the settings', async () => {
+    expect(await checkSetupFor('/w', 'claude-code', pendingDeps)).not.toBeNull();
+  });
+
+  it('skips other tools, team projects, and finished installs', async () => {
+    expect(await checkSetupFor('/w', 'codex', pendingDeps)).toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...pendingDeps, projectRuntime: () => 'server' as const })).toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...pendingDeps, markers: () => ({ pending: false, complete: false }) })).toBeNull();
+  });
+
+  it('lets the markers decide when settings.json cannot be parsed', async () => {
+    const broken = { ...pendingDeps, readSettings: () => { throw new SyntaxError('Unexpected token'); } };
+    expect(await checkSetupFor('/w', 'claude-code', broken)).not.toBeNull();
+    expect(await checkSetupFor('/w', 'claude-code', { ...broken, markers: () => ({ pending: false, complete: false }) })).toBeNull();
   });
 });

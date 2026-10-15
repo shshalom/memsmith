@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Added
+
+- A marketplace install now ends with the same setup as `npx memsmith install`. At the start of the first session, MemSmith installs Bun when it's missing (opt out with `MEMSMITH_SKIP_BUN_INSTALL=1`; a failed attempt waits a day before retrying), and Claude asks you the installer's questions (generation provider, Ollama setup) and runs `npx memsmith install` for you. Claude never asks for an API key in chat. Only a fresh marketplace install is asked: the prompt appears when the server created `settings.json` from its defaults, which an `npx memsmith install` never leaves behind.
+
+### Changed
+
+- `memsmith update` tells you to restart Claude Code when it finishes. `/reload-plugins` doesn't restart the running MCP server, so new memory tools didn't appear.
+
 ## [13.11.1] - 2026-10-14
 
 ### Added
