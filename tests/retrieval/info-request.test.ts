@@ -29,10 +29,21 @@ const CASES: Array<[string, PromptKind]> = [
   ['do you remember what broke the codex hooks', 'info-request'],
   // Mixed task + question: the question wins (strict).
   ['fix the flaky test — why did it start failing?', 'info-request'],
-  // Unsure: a plain question with no task verb is strict-classified.
-  ['is the build passing on main?', 'info-request'],
-  ['how do I run the server tests', 'info-request'],
-  ['what does this function do?', 'info-request'],
+  // No retrieval signal: memory-first for these is the agent's own step (the
+  // standing directive) and the tool-intent gate, not a prompt-time directive.
+  ['is the build passing on main?', 'task'],
+  ['how do I run the server tests', 'task'],
+  ['what does this function do?', 'task'],
+  ['status?', 'task'],
+  ['why?', 'task'],
+  ['is it working?', 'task'],
+  ['what now?', 'task'],
+  ['how is it going?', 'task'],
+  // A clear retrieval signal still triggers, however short.
+  ['status of the npm publish?', 'info-request'],
+  ['why did the trusted publisher fail?', 'info-request'],
+  ['where is the retrieval timeout configured?', 'info-request'],
+  ["what's the reason for the fixed Postgres port?", 'info-request'],
 
   // Imperative past-work requests: the past-work signal beats the task verb.
   ['summarize what we did last week on the gate', 'info-request'],

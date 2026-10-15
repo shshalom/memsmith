@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Changed
+
+- Memory first follows one flow, for the agent and every subagent: do I already know this from this conversation? If not, search memory, then validate against the code. The standing instruction says so, and the `tool-intent` gate enforces it when the agent reaches out: before the first Grep, Glob, search-style Bash command, web search, or web fetch on a topic, `hard` mode blocks until memory was consulted, and `soft` mode reminds. Web search and web fetch are now gated too.
+- MemSmith no longer injects memories on every prompt and tool call. Prompts that aren't clear questions about past work, such as tasks, "status?", or "ok", cost no memory search, and the gate runs no search of its own. The agent consults memory itself, by calling the memory tools.
+- Only a prompt with a clear retrieval signal, such as "what did we decide…", "why…", "where is X configured", or "status of X", gets the answer-from-memory directive and the `Stop` check. Any short prompt with a question mark used to count, so "status?" or "why?" required a memory search.
+
 ## [13.11.1] - 2026-10-14
 
 ### Added

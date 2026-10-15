@@ -61,6 +61,16 @@ export function deriveQueryFromTool(
       const quoted = cmd.match(/["']([^"']+)["']/);
       return quoted ? quoted[1] : cmd.replace(BASH_SEARCH_PREFIX, ' ').trim();
     }
+    case 'WebSearch': {
+      const q = args.query;
+      return typeof q === 'string' && q.trim().length > 0 ? q : null;
+    }
+    case 'WebFetch': {
+      const prompt = args.prompt;
+      if (typeof prompt === 'string' && prompt.trim().length > 0) return prompt;
+      const url = args.url;
+      return typeof url === 'string' && url.trim().length > 0 ? url : null;
+    }
     default:
       return null;
   }

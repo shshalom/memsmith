@@ -91,3 +91,23 @@ describe('Bash search detection anchors on the invoked command', () => {
     });
   }
 });
+
+describe('deriveQueryFromTool — reaching outside to the web', () => {
+  it('uses the WebSearch query as the topic', () => {
+    expect(deriveQueryFromTool('WebSearch', { query: 'bun install unzip required' })).toBe('bun install unzip required');
+  });
+
+  it('uses what the agent asks WebFetch to extract, falling back to the URL', () => {
+    expect(deriveQueryFromTool('WebFetch', { url: 'https://code.claude.com/docs/en/hooks', prompt: 'when does the Setup hook fire' }))
+      .toBe('when does the Setup hook fire');
+    expect(deriveQueryFromTool('WebFetch', { url: 'https://code.claude.com/docs/en/hooks' })).toBe('https://code.claude.com/docs/en/hooks');
+  });
+
+  it('is gated by the tool-intent hook in hooks.json', () => {
+    const hooks = JSON.parse(require('fs').readFileSync(new URL('../../plugin/hooks/hooks.json', import.meta.url), 'utf-8'));
+    const matchers = hooks.hooks.PreToolUse
+      .filter((h: any) => h.hooks.some((c: any) => c.command.endsWith('tool-intent')))
+      .map((h: any) => h.matcher.split('|'));
+    expect(matchers.some((m: string[]) => m.includes('WebSearch') && m.includes('WebFetch') && m.includes('Grep'))).toBe(true);
+  });
+});

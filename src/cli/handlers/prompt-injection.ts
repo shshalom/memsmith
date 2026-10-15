@@ -1,6 +1,5 @@
 import type { EventHandler, HookResult, NormalizedHookInput } from '../types.js';
 import { RetrievalBroker } from '../../services/retrieval/broker.js';
-import { SessionShownStore } from '../../services/retrieval/session-store.js';
 import { SessionTopicStore } from '../../services/retrieval/topic-store.js';
 import { AnswerGateStore } from '../../services/retrieval/answer-gate-store.js';
 import { classifyPrompt } from '../../services/retrieval/info-request.js';
@@ -65,24 +64,20 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
       try {
         const settings = deps.loadSettings();
         if (settings.MEMSMITH_SEMANTIC_INJECT !== 'true') return CONTINUE;
+        // Memory is consulted when the agent needs information (the standing
+        // directive plus the tool-intent gate), so only a clear question about
+        // past work gets anything here. Other prompts cost no search at all.
+        if (classifyPrompt(prompt) !== 'info-request') return CONTINUE;
         const runtime = deps.resolveRuntime();
         const broker = new RetrievalBroker(
           { runtime, settings, sessionId: input.sessionId, nowIso: new Date().toISOString() },
-          base ? new SessionShownStore(input.sessionId, base) : undefined,
           base ? new SessionTopicStore(input.sessionId, base) : undefined,
         );
-
-        if (classifyPrompt(prompt) === 'info-request') {
-          const probe = await broker.probe(prompt);
-          if (probe.unavailable) return inject(frameUnavailableNotice());
-          if (probe.isGap) await persistGap(runtime, prompt);
-          gate.beginTurn({ pending: true, topic: topicKey(prompt) });
-          return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
-        }
-
-        const result = await broker.forPrompt(prompt);
-        if (result.isGap) await persistGap(runtime, prompt);
-        return inject(result.additionalContext);
+        const probe = await broker.probe(prompt);
+        if (probe.unavailable) return inject(frameUnavailableNotice());
+        if (probe.isGap) await persistGap(runtime, prompt);
+        gate.beginTurn({ pending: true, topic: topicKey(prompt) });
+        return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
       } catch (err) {
         logger.warn('HOOK', 'prompt-injection failed; continuing without it', { error: err instanceof Error ? err.message : String(err) });
         return CONTINUE;

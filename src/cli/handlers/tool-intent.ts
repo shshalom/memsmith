@@ -91,7 +91,6 @@ export const toolIntentHandler: EventHandler = {
       const runtime = resolveRuntimeContext();
       const broker = new RetrievalBroker(
         { runtime, settings: { ...settings }, sessionId: input.sessionId, nowIso: new Date().toISOString(), warmPaths },
-        undefined,
         baseDir ? new SessionTopicStore(input.sessionId, baseDir) : undefined,
       );
       const result = await broker.forToolIntent(toolName, input.toolInput);

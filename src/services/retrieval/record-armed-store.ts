@@ -11,7 +11,7 @@ interface ArmedRecord { armed: boolean; promptId: string | null; ts: number }
 export class RecordArmedStore {
   private readonly path: string;
   constructor(sessionId: string, baseDir: string = join(homedir(), '.memsmith', 'sessions')) {
-    // Guard against path traversal from an odd sessionId (mirrors SessionShownStore).
+    // Guard against path traversal from an odd sessionId.
     const safeId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_') || 'unknown';
     this.path = join(baseDir, safeId, 'record-armed.json');
   }

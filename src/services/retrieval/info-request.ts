@@ -1,12 +1,12 @@
 // src/services/retrieval/info-request.ts
 // SPDX-License-Identifier: Apache-2.0
 //
-// Is this prompt a request for information about past work? Such prompts must
-// be answered from a memory search, not from the session-start context. Pure and
-// deterministic; never throws. When a short prompt is ambiguous between a
-// question and a task it classifies as 'info-request' — a wrongly gated task
-// costs one memory search, a wrongly ungated question costs an answer nobody
-// checked. A longer prompt needs an explicit past-work signal.
+// Does this prompt clearly ask for information about past work? Such prompts get
+// the answer-from-memory directive and the Stop-gate backstop. Only positive
+// retrieval signals count; a prompt without one gets nothing here, because
+// memory-first for everything else is the agent's own step (the standing
+// directive) and the tool-intent gate when it reaches out. Pure and
+// deterministic; never throws.
 
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
 
@@ -52,22 +52,21 @@ const POLITE_TASK = new RegExp(
 const POLITE_PREFIX = /^(please|pls|kindly|let'?s)\b/;
 
 const QUESTION_PHRASES: RegExp[] = [
-  /\bwhy\b/,
+  /\bwhy (did|do|does|is|are|was|were|has|have|had|would|should|not|we|the|this|our)\b/,
   /\bwhat (did|have|has|had|was|were)\b/,
   /\bwhat changed\b/,
-  /\bwhat happened\b/,
-  /\bhow (did|do|does|was|were|have|has|had|is|are)\b/,
+  /\bwhat happened (to|with|in)\b/,
+  /\bhow (did|was|were|have|has|had)\b/,
   /\bwhen (did|was|were|have|has|had)\b/,
-  /\bwho (did|changed|wrote|added|made|decided|fixed|broke|owns|built|removed|is|was)\b/,
-  /\bwhere (is|are|was|were|do|does|did|have|has)\b/,
-  /\bwhat'?s the (status|state|story|reason|plan)\b/,
-  /\bwhat is the (status|state|story|reason|plan)\b/,
+  /\bwho (did|changed|wrote|added|made|decided|fixed|broke|owns|built|removed)\b/,
+  /\bwhere (is|are|was|were|do|does|did) (the|our|we|you)\b/,
+  /\bwhere are we (with|on)\b/,
+  /\bwhat'?s the (status|state|story|reason|plan) (of|on|for|with|behind)\b/,
+  /\bwhat is the (status|state|story|reason|plan) (of|on|for|with|behind)\b/,
   /\bstatus (of|on)\b/,
   /\b(have|did|were|was|had) (we|you|they|i)\b/,
   /\bis there (a|any) (record|note|decision|history)\b/,
 ];
-
-const INTERROGATIVE_START = /^(what|why|how|when|where|who|whom|whose|which|did|do|does|is|are|was|were|have|has|had|can|could|should|would|will|am)\b/;
 
 const PAST_WORK_TERMS = /\b(rationale|reasoning|decision|decisions|decided|agreed|agreement|history|historically|previously|last time|in the past|post-?mortem)\b/;
 
@@ -121,12 +120,8 @@ export function classifyPrompt(prompt: string): PromptKind {
   if (POLITE_TASK.test(t)) return 'task';
 
   const body = t.replace(POLITE_PREFIX, '').trim();
-  const taskStart = TASK_START.test(body);
-  const asks = t.includes('?');
-  if (taskStart && !asks) return 'task';
+  if (TASK_START.test(body) && !t.includes('?')) return 'task';
   if (QUESTION_PHRASES.some(re => re.test(t))) return 'info-request';
-  if (taskStart) return 'task';
-  if (asks || INTERROGATIVE_START.test(body)) return 'info-request';
   return 'task';
 }
 
