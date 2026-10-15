@@ -57,6 +57,9 @@ const CASES: Array<[string, PromptKind]> = [
   ['are we still using chroma?', 'info-request'],
   ['any notes on the postgres migration?', 'info-request'],
   ['why not?', 'task'],
+  ['why not use redis?', 'info-request'],
+  ['why not just use sqlite?', 'info-request'],
+  ['where is it configured?', 'info-request'],
   ['where is it?', 'task'],
 
   // Imperative past-work requests: the past-work signal beats the task verb.

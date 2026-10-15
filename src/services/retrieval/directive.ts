@@ -74,7 +74,8 @@ export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
 export const MEMORY_FIRST_GATE_REASON =
   'Memory first: before searching the code or the web for this, search MemSmith memory '
   + '(observation_search, then observation_get for the ids that matter). Memory can point to the '
-  + 'right place even if it is stale; then validate against the code. After searching memory, re-run this.';
+  + 'right place even if it is stale; then validate against the code. After searching memory, re-run this. '
+  + 'If the MemSmith memory tools are not available in this session, tell the user, then re-run this unchanged.';
 
 /** Soft-mode reminder on the same moment, without blocking. */
 export const MEMORY_FIRST_NUDGE =

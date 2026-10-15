@@ -91,12 +91,13 @@ export class RetrievalBroker {
     const q = deriveQueryFromTool(toolName, toolArgs, { warmPaths: this.deps.warmPaths });
     if (q === null) return EMPTY;
     const topic = topicKey(q);
-    if (topic.length === 0 || this.topics.hasConsulted(topic)) return EMPTY;
+    if (topic.length === 0 || this.topics.hasConsulted(topic) || this.topics.wasBlocked(topic)) return EMPTY;
     if (this.mode() === 'hard') {
       const rt = this.deps.runtime;
       if (rt.runtime !== 'server') return UNAVAILABLE;
       const reachable = await (this.deps.memoryReachable ?? (() => defaultMemoryReachable(rt.serverBaseUrl)))();
       if (!reachable) return UNAVAILABLE;
+      this.topics.markBlocked(topic);
       return { ...EMPTY, block: true, blockReason: MEMORY_FIRST_GATE_REASON };
     }
     return { ...EMPTY, additionalContext: MEMORY_FIRST_NUDGE };

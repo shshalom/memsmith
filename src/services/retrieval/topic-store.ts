@@ -33,6 +33,7 @@ export const CONSULT_WINDOW_MS = 10 * 60_000;
 interface StoredState {
   topics: string[];
   lastConsultedAt?: number;
+  blocked?: string[];
 }
 
 export class SessionTopicStore {
@@ -56,7 +57,8 @@ export class SessionTopicStore {
       if (Array.isArray(parsed)) return { topics: parsed.map(String) };
       const topics = Array.isArray(parsed?.topics) ? parsed.topics.map(String) : [];
       const at = typeof parsed?.lastConsultedAt === 'number' ? parsed.lastConsultedAt : undefined;
-      return at === undefined ? { topics } : { topics, lastConsultedAt: at };
+      const blocked = Array.isArray(parsed?.blocked) ? parsed.blocked.map(String) : [];
+      return at === undefined ? { topics, blocked } : { topics, lastConsultedAt: at, blocked };
     } catch {
       // Corrupt → empty. Costs one extra consult, never a throw.
       return { topics: [] };
@@ -78,6 +80,29 @@ export class SessionTopicStore {
     return sameTopic(topic, state.topics);
   }
 
+  /**
+   * Was this exact topic already blocked once this session? The agent may have
+   * no memory tools at all (the MemSmith MCP server failed to connect), and then
+   * nothing could ever unlock the topic, so a repeated identical search goes
+   * through after one block.
+   */
+  wasBlocked(topic: string): boolean {
+    return Boolean(topic) && (this.read().blocked ?? []).includes(topic);
+  }
+
+  markBlocked(topic: string): void {
+    if (!topic) return;
+    try {
+      const state = this.read();
+      const blocked = state.blocked ?? [];
+      if (blocked.includes(topic)) return;
+      mkdirSync(this.dir, { recursive: true });
+      writeFileSync(this.file, JSON.stringify({ ...state, blocked: [...blocked, topic] }), 'utf-8');
+    } catch {
+      // Unwritable → the topic may block again. Degraded, never broken.
+    }
+  }
+
   markConsulted(topic: string): void {
     // An empty topic is not a subject — storing it would unlock nothing and
     // could mask a derivation bug.
@@ -86,7 +111,7 @@ export class SessionTopicStore {
       const state = this.read();
       const topics = state.topics.includes(topic) ? state.topics : [...state.topics, topic];
       mkdirSync(this.dir, { recursive: true });
-      writeFileSync(this.file, JSON.stringify({ topics, lastConsultedAt: this.now() }), 'utf-8');
+      writeFileSync(this.file, JSON.stringify({ ...state, topics, lastConsultedAt: this.now() }), 'utf-8');
     } catch {
       // Unwritable → the topic re-blocks next time. Degraded, never broken.
     }

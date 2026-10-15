@@ -53,6 +53,7 @@ const POLITE_PREFIX = /^(please|pls|kindly|let'?s)\b/;
 
 const QUESTION_PHRASES: RegExp[] = [
   /\bwhy('?s)? (?!not\b)\w+/,
+  /\bwhy not \w+/,
   /\bwhat (did|have|has|had|was|were)\b/,
   /\bwhat changed\b/,
   /\bwhat happened (to|with|in)\b/,
@@ -61,8 +62,8 @@ const QUESTION_PHRASES: RegExp[] = [
   /\bwho (did|changed|wrote|added|made|decided|fixed|broke|owns|built|removed)\b/,
   /\bwhere('?s| is| are| was| were| do| does| did) (the |our |we |you )?\w{3,}/,
   /\bwhere are we (with|on)\b/,
-  /\bwhats? the (status|state|story|reason|plan) (of|on|for|with|behind|we|that)\b/,
-  /\bwhat'?s the (status|state|story|reason|plan) (of|on|for|with|behind|we|that)\b/,
+  /\bwhere (is|are) \w+ (configured|defined|set|stored|read|registered)\b/,
+  /\bwhat'?s? the (status|state|story|reason|plan) (of|on|for|with|behind|we|that)\b/,
   /\bwhat is the (status|state|story|reason|plan) (of|on|for|with|behind|we|that)\b/,
   /\bis there a reason\b/,
   /\bhow do (we|you) (deploy|release|run|configure|set up|setup|handle|test|build|publish|install|ship)\b/,

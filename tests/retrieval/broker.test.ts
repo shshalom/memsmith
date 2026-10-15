@@ -88,6 +88,14 @@ describe('RetrievalBroker.forToolIntent — memory first when the agent reaches 
     expect(r).toMatchObject({ block: false, additionalContext: '' });
   });
 
+  it('lets the same search through after one block, so a session without memory tools is never stuck', async () => {
+    const topics = freshTopics();
+    const broker = new RetrievalBroker(deps(fakeRuntime([]).runtime, hard), topics);
+    expect((await broker.forToolIntent('Grep', { pattern: 'ollama restart' })).block).toBe(true);
+    expect((await broker.forToolIntent('Grep', { pattern: 'ollama restart' })).block).toBe(false);
+    expect((await broker.forToolIntent('Grep', { pattern: 'postgres pool' })).block).toBe(true);
+  });
+
   it('does not mark the topic consulted itself; only a memory tool call does', async () => {
     const topics = freshTopics();
     await new RetrievalBroker(deps(fakeRuntime([]).runtime, hard), topics).forToolIntent('Grep', { pattern: 'ollama restart' });
