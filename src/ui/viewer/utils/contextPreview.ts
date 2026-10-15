@@ -17,10 +17,6 @@
 // makes the SAME call SessionStart makes (POST /v1/search, EMPTY query = "list
 // recent") and applies the SAME packing rule (join non-empty contents with a
 // blank line), mirroring fetchPrimaryInjection in src/cli/handlers/context.ts.
-//
-// It deliberately does NOT re-implement frameMemory(): that wraps per-prompt
-// retrieval, which is a different path with a different shape. Previewing the
-// wrong one would be exactly the approximation this is avoiding.
 
 export interface PreviewObservation { content?: unknown }
 

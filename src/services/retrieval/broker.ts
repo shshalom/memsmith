@@ -1,42 +1,36 @@
 // src/services/retrieval/broker.ts
-import { SessionShownStore } from './session-store.js';
 import { SessionTopicStore } from './topic-store.js';
 import { topicKey } from './topic-key.js';
 import { deriveQueryFromTool } from './query-derivation.js';
-import { frameMemory, frameGapNote, frameUnavailableNotice } from './directive.js';
+import { MEMORY_FIRST_GATE_REASON, MEMORY_FIRST_NUDGE, frameUnavailableNotice } from './directive.js';
 import { enforcementModeFromSettings } from './enforcement-mode.js';
 import type { BrokerDeps, EnforcementMode, ProvenancedMemory, RetrievalResult } from './types.js';
 import { logger } from '../../utils/logger.js';
 
-const EMPTY: RetrievalResult = Object.freeze({
-  additionalContext: '', block: false, hitCount: 0, isGap: false, unavailable: false,
+const EMPTY: RetrievalResult = Object.freeze({ additionalContext: '', block: false, unavailable: false });
+
+const UNAVAILABLE: RetrievalResult = Object.freeze({
+  additionalContext: frameUnavailableNotice(), block: false, unavailable: true,
 });
 
-/**
- * Amendment 2 — memory was not consulted. Fail OPEN (never block) but NOT silent:
- * the notice reaches the agent's context so it can tell the user. `isGap` stays
- * false because memory was never asked — see RetrievalResult.unavailable.
- */
-const UNAVAILABLE: RetrievalResult = Object.freeze({
-  additionalContext: frameUnavailableNotice(),
-  block: false,
-  hitCount: 0,
-  isGap: false,
-  unavailable: true,
-});
+async function defaultMemoryReachable(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/health`, { signal: AbortSignal.timeout(1000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 /** Sentinel to distinguish a server error/unavailable (fail-open) from a genuine empty result. */
 const FAILED = Symbol('FAILED');
 
 export class RetrievalBroker {
-  private readonly store: SessionShownStore;
   private readonly topics: SessionTopicStore;
   constructor(
     private readonly deps: BrokerDeps,
-    store?: SessionShownStore,
     topicStore?: SessionTopicStore,
   ) {
-    this.store = store ?? new SessionShownStore(deps.sessionId);
     this.topics = topicStore ?? new SessionTopicStore(deps.sessionId);
   }
 
@@ -73,65 +67,9 @@ export class RetrievalBroker {
   }
 
   /**
-   * Shared decision logic. `allowBlock` gates blocking to PreToolUse only.
-   *
-   * AMENDMENT 1 (2026-08-11) — `block` keys on "has this TOPIC been consulted
-   * this session", NOT on hit count. The reverted design blocked whenever memory
-   * returned >= MIN_HITS results, so a rich corpus blocked nearly every command
-   * and the agent could not work. Inverting the predicate makes blocks RARER as
-   * memory grows: a good recall means the agent never reaches for the search at
-   * all. Friction is bounded to one block per topic per session.
-   *
-   * Note this method does NOT call markConsulted. The broker's own /v1/context
-   * query is not the agent consulting memory — the agent does that by calling an
-   * ms-mem-search tool. Marking here would unlock the topic on the very call
-   * being blocked, so marking belongs to the hook adapter.
-   */
-  private decide(hits: ProvenancedMemory[], allowBlock: boolean, topic: string): RetrievalResult {
-    const hitCount = hits.length;
-    const block = allowBlock
-      && this.mode() === 'hard'
-      && topic.length > 0
-      && !this.topics.hasConsulted(topic);
-    const blockFields = block
-      ? {
-          block: true as const,
-          blockReason:
-            'Consult MemSmith memory first — query the MemSmith memory tools '
-            + '(observation_search / smart_search) for this topic, then re-run. '
-            + 'Memory is the first source for why/decision questions; code is the '
-            + 'verification pass.',
-        }
-      : { block: false as const };
-
-    if (hitCount < this.minHits()) {
-      // A real gap: memory WAS asked and had nothing recorded. Still block when
-      // the topic is unconsulted — the agent must ask before falling to code.
-      return { additionalContext: frameGapNote(), ...blockFields, hitCount, isGap: true, unavailable: false };
-    }
-    // Strong hit → dedup against session-shown, inject the fresh ones.
-    const shown = this.store.readShown();
-    const fresh = hits.filter(h => !shown.has(h.id));
-    if (fresh.length === 0) {
-      return { additionalContext: '', ...blockFields, hitCount, isGap: false, unavailable: false };
-    }
-    this.store.markShown(fresh.map(h => h.id));
-    return { additionalContext: frameMemory(fresh), ...blockFields, hitCount, isGap: false, unavailable: false };
-  }
-
-  async forPrompt(promptText: string): Promise<RetrievalResult> {
-    if (!promptText || promptText.trim().length === 0) return EMPTY;
-    const hits = await this.query(promptText);
-    if (hits === FAILED) return UNAVAILABLE; // fail-open, but visible (Amendment 2)
-    // Prompt injection never blocks (blocking is a PreToolUse-only mechanism).
-    return this.decide(hits, /* allowBlock */ false, topicKey(promptText));
-  }
-
-  /**
    * Can memory answer right now, and does it hold anything for this prompt?
-   * Unlike forPrompt this injects nothing and marks nothing shown, so an
-   * information request can be routed to a real memory search instead of
-   * being answered from pre-fetched results.
+   * It injects nothing, so an information request is routed to a real memory
+   * search instead of being answered from pre-fetched results.
    */
   async probe(promptText: string): Promise<{ unavailable: boolean; isGap: boolean }> {
     if (!promptText || promptText.trim().length === 0) return { unavailable: false, isGap: false };
@@ -140,11 +78,28 @@ export class RetrievalBroker {
     return { unavailable: false, isGap: hits.length < this.minHits() };
   }
 
+  /**
+   * The memory-first gate for an agent reaching out for information (Grep, Glob,
+   * search-style Bash, web search or fetch). It runs no memory query of its own:
+   * the agent consults memory by calling the memory tools, and the hook adapter
+   * marks the topic consulted when it does. Until then, hard mode blocks once per
+   * topic and soft mode reminds; after that, the tool runs without friction.
+   * When memory cannot be reached the agent could never unlock the topic, so
+   * the gate fails open with a visible notice instead of blocking.
+   */
   async forToolIntent(toolName: string, toolArgs: unknown): Promise<RetrievalResult> {
     const q = deriveQueryFromTool(toolName, toolArgs, { warmPaths: this.deps.warmPaths });
-    if (q === null) return EMPTY; // not a search-intent tool — nothing to enforce
-    const hits = await this.query(q);
-    if (hits === FAILED) return UNAVAILABLE; // fail-open, but visible (Amendment 2)
-    return this.decide(hits, /* allowBlock */ true, topicKey(q));
+    if (q === null) return EMPTY;
+    const topic = topicKey(q);
+    if (topic.length === 0 || this.topics.hasConsulted(topic) || this.topics.wasBlocked(topic)) return EMPTY;
+    if (this.mode() === 'hard') {
+      const rt = this.deps.runtime;
+      if (rt.runtime !== 'server') return UNAVAILABLE;
+      const reachable = await (this.deps.memoryReachable ?? (() => defaultMemoryReachable(rt.serverBaseUrl)))();
+      if (!reachable) return UNAVAILABLE;
+      this.topics.markBlocked(topic);
+      return { ...EMPTY, block: true, blockReason: MEMORY_FIRST_GATE_REASON };
+    }
+    return { ...EMPTY, additionalContext: MEMORY_FIRST_NUDGE };
   }
 }

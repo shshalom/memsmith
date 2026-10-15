@@ -126,17 +126,26 @@ it, run `npx memsmith@latest update`.
 4. **Retrieve.** Hybrid search ranks results with weighted reciprocal rank
    fusion. If the embedder is down, search degrades to full-text instead of
    failing.
-5. **Inject.** At session start, the latest observations render into the
-   agent's context for orientation. On each task prompt, relevant observations
-   render as background. Superseded decisions collapse to their current head,
-   so the agent sees only current truth.
-6. **Answer from memory.** When a prompt asks about past work, decisions,
-   history, or anything outside the current conversation, MemSmith tells the
-   agent to answer from a memory search (`observation_search`), not from the
-   session-start context, and to verify load-bearing claims against the current
-   code. Questions about what was said earlier in the same conversation are
-   exempt. In `hard` enforcement mode (the default), the `Stop` hook sends the
-   agent back once if it answers without searching memory. To turn enforcement
+5. **Orient.** At session start, the latest observations render into the
+   agent's context for orientation. Superseded decisions collapse to their
+   current head, so the agent sees only current truth.
+6. **Memory first.** Whenever the agent or a subagent needs information it
+   doesn't have, it follows one flow: do I already know this from this
+   conversation? If not, search memory. Then validate load-bearing claims
+   against the code. Memory points in the right direction even when it's
+   stale, so it comes before grepping, globbing, or searching the web. Three
+   mechanisms enforce this in Claude Code:
+   - The standing instruction, given at session start and to every subagent.
+   - The `tool-intent` gate: before the first code or web search on a topic,
+     the agent must consult memory. In `hard` mode (the default) the search is
+     blocked until it does; in `soft` mode the agent gets a reminder. When
+     memory can't be reached, the search goes through with a notice.
+   - For a prompt that clearly asks about past work, such as "what did we
+     decide…", "why…", or "where is X configured", the agent is told to answer
+     from a memory search, and in `hard` mode the `Stop` hook sends it back once
+     if it doesn't.
+
+   Other prompts, such as tasks, "status?", or "ok", cost no memory search. To turn enforcement
    off, run `npx memsmith enforcement off`; `npx memsmith enforcement status`
    shows the mode the hooks use.
 

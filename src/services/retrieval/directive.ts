@@ -1,21 +1,20 @@
-import type { EnforcementMode, ProvenancedMemory } from './types.js';
+import type { EnforcementMode } from './types.js';
 
-/** The standing retrieval-first directive. Injected at SessionStart (main agent),
- *  propagated into Task framing (sub-agents), and mirrored in CLAUDE.md. */
+/** The standing memory-first directive. Injected at SessionStart (main agent)
+ *  and into Task framing (subagents). Memory is consulted when the agent needs
+ *  information, so the trigger is the agent's own judgment, not the prompt's words. */
 export const MEMORY_FIRST_DIRECTIVE = [
   'MEMORY-FIRST (MemSmith core behavior):',
-  'For any question about WHY something was done, WHAT was decided, or the RATIONALE',
-  'behind existing code — whether the user asks it or you ask it of yourself — consult',
-  'MemSmith memory FIRST, before grepping or reading files. These answers usually already',
-  'exist in memory and are not fully recoverable from code. Use the ms-mem-search tools',
-  '(observation_search for a ranked index, then observation_get for full records).',
-  'Reference order: (1) MemSmith memory, (2) CLAUDE.md, (3) project specs, (4) raw file/code search.',
-  'Only fall through to file search when memory genuinely lacks the answer.',
-  'Treat recalled memory as authoritative-but-verifiable: it was true when captured; verify',
-  'any load-bearing claim against current code before relying on it.',
-  'Session-start context is the latest context for orientation, not the answer source:',
-  'answer questions about past work from a memory search. What was said earlier in this same',
-  'conversation needs no search.',
+  'Whenever you need information you do not already have, whether the user asked or you',
+  'are asking yourself mid-task, follow this order:',
+  '1. Do I already know it from this conversation? If yes, use it; no search needed.',
+  '2. If not, remember: search MemSmith memory (observation_search for a ranked index, then',
+  '   observation_get for the full records) BEFORE grepping, globbing, or searching the web.',
+  '   Memory points you in the right direction even when it is stale, and it holds the why and',
+  '   the decisions that code cannot tell you.',
+  '3. Validate: check load-bearing claims against the current code before relying on them.',
+  'Session-start context is orientation, not the answer source. If memory has no record, say so',
+  'and fall back to CLAUDE.md, specs, then code.',
 ].join('\n');
 
 /** The record-intent directive (Layer 1 — agent detection). Injected at SessionStart
@@ -58,12 +57,12 @@ export const SESSION_START_ORIENTATION_LABEL =
  */
 export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
   const lines = [
-    'ANSWER FROM MEMORY: this prompt asks for information about past work. Answer it from a',
-    'MemSmith memory search, not from the session-start context or from recall:',
+    'ANSWER FROM MEMORY: this prompt asks for information about past work. Unless the answer is',
+    'already in this conversation, answer it from a MemSmith memory search, not from the',
+    'session-start context or from recall:',
     '1. Call observation_search with the question\'s key terms, then observation_get for the ids that matter.',
     '2. Answer from the results. If memory has no record, say so plainly.',
-    '3. Verify load-bearing claims against the current code before relying on them',
-    '   (memory, then CLAUDE.md, then specs, then code).',
+    '3. Validate load-bearing claims against the current code before relying on them.',
   ];
   if (mode === 'hard') {
     lines.push('Hard mode: an answer given without a memory search is sent back to search first.');
@@ -71,29 +70,22 @@ export function frameAnswerFromMemoryDirective(mode: EnforcementMode): string {
   return lines.join('\n');
 }
 
+/** PreToolUse block reason: the agent reached out before remembering. */
+export const MEMORY_FIRST_GATE_REASON =
+  'Memory first: before searching the code or the web for this, search MemSmith memory '
+  + '(observation_search, then observation_get for the ids that matter). Memory can point to the '
+  + 'right place even if it is stale; then validate against the code. After searching memory, re-run this. '
+  + 'If the MemSmith memory tools are not available in this session, tell the user, then re-run this unchanged.';
+
+/** Soft-mode reminder on the same moment, without blocking. */
+export const MEMORY_FIRST_NUDGE =
+  'Memory first: if you have not searched MemSmith memory for this yet, do that before relying on '
+  + 'this search (observation_search, then observation_get), then validate against the code.';
+
 /** Stop-hook reason when an information request was answered without a memory search. */
 export const ANSWER_GATE_BLOCK_REASON =
   'This was a request for information about past work. Search memory (observation_search) '
   + 'before answering, then verify load-bearing claims against the code.';
-
-/** Pack provenance-tagged memory into an injection block. Empty when no memory. */
-export function frameMemory(memories: ProvenancedMemory[]): string {
-  if (memories.length === 0) return '';
-  const lines = memories.map(m => {
-    const date = m.capturedAt ? m.capturedAt.slice(0, 10) : 'unknown-date';
-    const type = m.obsType ?? 'observation';
-    return `- [${type} · captured ${date} · ${m.id}] ${m.content}`;
-  });
-  return [
-    'Relevant MemSmith memory (authoritative-but-verifiable — verify load-bearing claims against current code):',
-    ...lines,
-  ].join('\n');
-}
-
-/** On-miss note: memory had nothing for this query. */
-export function frameGapNote(): string {
-  return '⚠ No MemSmith memory found for this — the rationale may not have been captured. Proceeding to files/specs.';
-}
 
 /**
  * Amendment 2 (2026-08-11) — memory could not be consulted, and the USER must know.

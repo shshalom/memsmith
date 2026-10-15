@@ -32,7 +32,7 @@ When Claude finishes responding, MemSmith records what you asked for, what Claud
 
 ### Context injection
 
-At session start, MemSmith injects up to `MEMSMITH_CONTEXT_OBSERVATIONS` recent observations (default 50) across up to `MEMSMITH_CONTEXT_SESSION_COUNT` sessions (default 10). On each prompt, it also injects the `MEMSMITH_SEMANTIC_INJECT_LIMIT` most relevant observations (default 5). For details, see [Configuration](/configuration).
+At session start, MemSmith injects up to `MEMSMITH_CONTEXT_OBSERVATIONS` recent observations (default 50) across up to `MEMSMITH_CONTEXT_SESSION_COUNT` sessions (default 10), for orientation. After that, Claude searches memory itself whenever it needs information it doesn't have, before searching the code or the web. For details, see [Configuration](/configuration).
 
 ## Search your history
 

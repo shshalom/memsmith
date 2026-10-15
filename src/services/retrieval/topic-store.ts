@@ -5,10 +5,8 @@
 //
 // This is the state the always-memory-first gate reads. Hooks are short-lived
 // separate processes and share no memory, so it persists to a session-scoped
-// file — the same pattern and directory as SessionShownStore, deliberately a
-// SEPARATE file because the two answer different questions:
-//   shown.json     — what memory did I already INJECT (dedup, avoid noise)
-//   consulted.json — what topics was memory ASKED about (unlocks the gate)
+// file in the per-session directory: consulted.json records which topics
+// memory was asked about, which is what unlocks the gate.
 //
 // Every failure path degrades to "not consulted" and never throws. A corrupt or
 // unwritable file therefore costs at most one extra memory consult; it can never
@@ -35,6 +33,7 @@ export const CONSULT_WINDOW_MS = 10 * 60_000;
 interface StoredState {
   topics: string[];
   lastConsultedAt?: number;
+  blocked?: string[];
 }
 
 export class SessionTopicStore {
@@ -58,7 +57,8 @@ export class SessionTopicStore {
       if (Array.isArray(parsed)) return { topics: parsed.map(String) };
       const topics = Array.isArray(parsed?.topics) ? parsed.topics.map(String) : [];
       const at = typeof parsed?.lastConsultedAt === 'number' ? parsed.lastConsultedAt : undefined;
-      return at === undefined ? { topics } : { topics, lastConsultedAt: at };
+      const blocked = Array.isArray(parsed?.blocked) ? parsed.blocked.map(String) : [];
+      return at === undefined ? { topics, blocked } : { topics, lastConsultedAt: at, blocked };
     } catch {
       // Corrupt → empty. Costs one extra consult, never a throw.
       return { topics: [] };
@@ -80,6 +80,29 @@ export class SessionTopicStore {
     return sameTopic(topic, state.topics);
   }
 
+  /**
+   * Was this exact topic already blocked once this session? The agent may have
+   * no memory tools at all (the MemSmith MCP server failed to connect), and then
+   * nothing could ever unlock the topic, so a repeated identical search goes
+   * through after one block.
+   */
+  wasBlocked(topic: string): boolean {
+    return Boolean(topic) && (this.read().blocked ?? []).includes(topic);
+  }
+
+  markBlocked(topic: string): void {
+    if (!topic) return;
+    try {
+      const state = this.read();
+      const blocked = state.blocked ?? [];
+      if (blocked.includes(topic)) return;
+      mkdirSync(this.dir, { recursive: true });
+      writeFileSync(this.file, JSON.stringify({ ...state, blocked: [...blocked, topic] }), 'utf-8');
+    } catch {
+      // Unwritable → the topic may block again. Degraded, never broken.
+    }
+  }
+
   markConsulted(topic: string): void {
     // An empty topic is not a subject — storing it would unlock nothing and
     // could mask a derivation bug.
@@ -88,7 +111,7 @@ export class SessionTopicStore {
       const state = this.read();
       const topics = state.topics.includes(topic) ? state.topics : [...state.topics, topic];
       mkdirSync(this.dir, { recursive: true });
-      writeFileSync(this.file, JSON.stringify({ topics, lastConsultedAt: this.now() }), 'utf-8');
+      writeFileSync(this.file, JSON.stringify({ ...state, topics, lastConsultedAt: this.now() }), 'utf-8');
     } catch {
       // Unwritable → the topic re-blocks next time. Degraded, never broken.
     }

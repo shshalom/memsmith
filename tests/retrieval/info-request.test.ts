@@ -29,10 +29,38 @@ const CASES: Array<[string, PromptKind]> = [
   ['do you remember what broke the codex hooks', 'info-request'],
   // Mixed task + question: the question wins (strict).
   ['fix the flaky test — why did it start failing?', 'info-request'],
-  // Unsure: a plain question with no task verb is strict-classified.
-  ['is the build passing on main?', 'info-request'],
-  ['how do I run the server tests', 'info-request'],
-  ['what does this function do?', 'info-request'],
+  // No retrieval signal: memory-first for these is the agent's own step (the
+  // standing directive) and the tool-intent gate, not a prompt-time directive.
+  ['is the build passing on main?', 'task'],
+  ['how do I run the server tests', 'task'],
+  ['what does this function do?', 'task'],
+  ['status?', 'task'],
+  ['why?', 'task'],
+  ['is it working?', 'task'],
+  ['what now?', 'task'],
+  ['how is it going?', 'task'],
+  // A clear retrieval signal still triggers, however short.
+  ['status of the npm publish?', 'info-request'],
+  ['why did the trusted publisher fail?', 'info-request'],
+  ['where is the retrieval timeout configured?', 'info-request'],
+  ["what's the reason for the fixed Postgres port?", 'info-request'],
+  ['why postgres over sqlite?', 'info-request'],
+  ['why use bun here?', 'info-request'],
+  ["why's the gate blocking grep?", 'info-request'],
+  ["where's the enforcement mode configured?", 'info-request'],
+  ['where is MEMSMITH_RETRIEVAL_ENFORCEMENT read?', 'info-request'],
+  ['where are hooks registered?', 'info-request'],
+  ['is there a reason we skip Read?', 'info-request'],
+  ['whats the reason we use bun', 'info-request'],
+  ['how do we deploy the server?', 'info-request'],
+  ['which embedder do we use?', 'info-request'],
+  ['are we still using chroma?', 'info-request'],
+  ['any notes on the postgres migration?', 'info-request'],
+  ['why not?', 'task'],
+  ['why not use redis?', 'info-request'],
+  ['why not just use sqlite?', 'info-request'],
+  ['where is it configured?', 'info-request'],
+  ['where is it?', 'task'],
 
   // Imperative past-work requests: the past-work signal beats the task verb.
   ['summarize what we did last week on the gate', 'info-request'],

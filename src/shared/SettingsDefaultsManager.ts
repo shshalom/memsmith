@@ -180,10 +180,10 @@ export class SettingsDefaultsManager {
     MEMSMITH_INCLUDED_PROJECTS: '',  // Allowlist: comma-separated glob patterns; empty = capture all (backward compat); non-empty = track only matching cwds (exclusions still win)
     MEMSMITH_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
     MEMSMITH_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
-    MEMSMITH_SEMANTIC_INJECT: 'true',              // Retrieval-first is core: inject relevant memory on every UserPromptSubmit
-    MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
-    MEMSMITH_RETRIEVAL_MIN_HITS: '1',              // Min /v1/context results to count as a "strong hit" (else gap)
-    MEMSMITH_RETRIEVAL_TIMEOUT_MS: '2000',         // Hot-path timeout; on timeout, proceed with no injection
+    MEMSMITH_SEMANTIC_INJECT: 'true',              // Memory-first enforcement on: the answer-from-memory directive and the tool-intent gate
+    MEMSMITH_SEMANTIC_INJECT_LIMIT: '5',           // Observations the gap check reads for a past-work question; nothing is injected
+    MEMSMITH_RETRIEVAL_MIN_HITS: '1',              // Fewer results than this marks the question a memory gap
+    MEMSMITH_RETRIEVAL_TIMEOUT_MS: '2000',         // Gap-check timeout; on timeout, memory counts as unavailable
     // Memory-first is CORE BEHAVIOR, on by default — an instruction the agent can
     // ignore is not a guarantee (three recorded failures: 2026-07-27 allowlist,
     // twice on 2026-08-11 re Ollama auto-recovery, each time with the correct

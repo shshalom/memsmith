@@ -61,6 +61,10 @@ export function deriveQueryFromTool(
       const quoted = cmd.match(/["']([^"']+)["']/);
       return quoted ? quoted[1] : cmd.replace(BASH_SEARCH_PREFIX, ' ').trim();
     }
+    case 'WebSearch': {
+      const q = args.query;
+      return typeof q === 'string' && q.trim().length > 0 ? q : null;
+    }
     default:
       return null;
   }

@@ -77,12 +77,15 @@ describe('promptInjectionHandler — information requests', () => {
   });
 });
 
-describe('promptInjectionHandler — task prompts', () => {
-  it('injects the top-N memories as background, as before', async () => {
-    const { handler } = setup();
-    const res = await run(handler, 'fix the failing queue engine test');
-    expect(res.hookSpecificOutput?.additionalContext ?? '').toContain(MEMORY_BODY);
-  });
+describe('promptInjectionHandler — everything that is not a past-work question', () => {
+  for (const prompt of ['fix the failing queue engine test', 'status?', 'ok merge and push', 'how does the hook work?']) {
+    it(`costs no memory search and injects nothing: ${prompt}`, async () => {
+      const { handler, rt } = setup();
+      const res = await run(handler, prompt);
+      expect(rt.calls).toEqual([]);
+      expect(res.hookSpecificOutput).toBeUndefined();
+    });
+  }
 
   it('clears a pending request left by the previous turn', async () => {
     const { handler, base } = setup();
