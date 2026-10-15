@@ -60,9 +60,9 @@ export const toolIntentHandler: EventHandler = {
         const topics = baseDir
           ? new SessionTopicStore(input.sessionId, baseDir)
           : new SessionTopicStore(input.sessionId);
-        const q = (input.toolInput as Record<string, unknown> | null)?.query;
-        if (typeof q === 'string' && q.trim()) topics.markConsulted(topicKey(q));
         if (MEMORY_READ_TOOLS.has(toolName)) {
+          const q = (input.toolInput as Record<string, unknown> | null)?.query;
+          if (typeof q === 'string' && q.trim()) topics.markConsulted(topicKey(q));
           const gate = baseDir
             ? new AnswerGateStore(input.sessionId, baseDir)
             : new AnswerGateStore(input.sessionId);
@@ -111,8 +111,8 @@ export const toolIntentHandler: EventHandler = {
         suppressOutput: true,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          // Amendment 2: when memory was unavailable this carries the visible
-          // notice, so the user learns the answer is code-only.
+          // The soft-mode reminder, or the memory-unavailable notice when the
+          // gate failed open.
           additionalContext: result.additionalContext,
           permissionDecision: 'allow',
         },

@@ -97,10 +97,8 @@ describe('deriveQueryFromTool — reaching outside to the web', () => {
     expect(deriveQueryFromTool('WebSearch', { query: 'bun install unzip required' })).toBe('bun install unzip required');
   });
 
-  it('uses what the agent asks WebFetch to extract, falling back to the URL', () => {
-    expect(deriveQueryFromTool('WebFetch', { url: 'https://code.claude.com/docs/en/hooks', prompt: 'when does the Setup hook fire' }))
-      .toBe('when does the Setup hook fire');
-    expect(deriveQueryFromTool('WebFetch', { url: 'https://code.claude.com/docs/en/hooks' })).toBe('https://code.claude.com/docs/en/hooks');
+  it('does not gate WebFetch: fetching a known URL acts on a pointer already in hand', () => {
+    expect(deriveQueryFromTool('WebFetch', { url: 'https://code.claude.com/docs/en/hooks', prompt: 'when does setup fire' })).toBeNull();
   });
 
   it('is gated by the tool-intent hook in hooks.json', () => {
@@ -108,6 +106,6 @@ describe('deriveQueryFromTool — reaching outside to the web', () => {
     const matchers = hooks.hooks.PreToolUse
       .filter((h: any) => h.hooks.some((c: any) => c.command.endsWith('tool-intent')))
       .map((h: any) => h.matcher.split('|'));
-    expect(matchers.some((m: string[]) => m.includes('WebSearch') && m.includes('WebFetch') && m.includes('Grep'))).toBe(true);
+    expect(matchers.some((m: string[]) => m.includes('WebSearch') && m.includes('Grep'))).toBe(true);
   });
 });

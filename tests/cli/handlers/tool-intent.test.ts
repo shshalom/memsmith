@@ -73,6 +73,16 @@ describe('toolIntentHandler — memory tool calls unlock the topic', () => {
     expect(res.hookSpecificOutput?.permissionDecision).not.toBe('deny');
   });
 
+  it('does not open the gate for smart_search, a code-structure tool', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'ti-'));
+    await toolIntentHandler.execute({
+      sessionId: 'sv', cwd: '/tmp',
+      toolName: 'mcp__plugin_memsmith_mem__smart_search',
+      toolInput: { query: 'ollama restart' },
+    } as any, { sessionBaseDir: base } as any);
+    expect(new SessionTopicStore('sv', base).hasConsulted(topicKey('ollama restart'))).toBe(false);
+  });
+
   it('does not mark a topic for a memory tool call with no query', async () => {
     const base = mkdtempSync(join(tmpdir(), 'ti-'));
     await toolIntentHandler.execute({

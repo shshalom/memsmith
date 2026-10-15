@@ -18,7 +18,6 @@
 // recent") and applies the SAME packing rule (join non-empty contents with a
 // blank line), mirroring fetchPrimaryInjection in src/cli/handlers/context.ts.
 
-
 export interface PreviewObservation { content?: unknown }
 
 /**

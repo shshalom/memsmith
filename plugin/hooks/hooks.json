@@ -113,7 +113,7 @@
         ]
       },
       {
-        "matcher": "Grep|Glob|Read|Bash|WebSearch|WebFetch",
+        "matcher": "Grep|Glob|Read|Bash|WebSearch",
         "hooks": [
           {
             "type": "command",

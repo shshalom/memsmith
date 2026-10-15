@@ -126,11 +126,12 @@ it, run `npx memsmith@latest update`.
    conversation? If not, search memory. Then validate load-bearing claims
    against the code. Memory points in the right direction even when it's
    stale, so it comes before grepping, globbing, or searching the web. Three
-   things back this up:
+   mechanisms enforce this in Claude Code:
    - The standing instruction, given at session start and to every subagent.
    - The `tool-intent` gate: before the first code or web search on a topic,
      the agent must consult memory. In `hard` mode (the default) the search is
-     blocked until it does; in `soft` mode the agent gets a reminder.
+     blocked until it does; in `soft` mode the agent gets a reminder. When
+     memory can't be reached, the search goes through with a notice.
    - For a prompt that clearly asks about past work, such as "what did we
      decide…", "why…", or "where is X configured", the agent is told to answer
      from a memory search, and in `hard` mode the `Stop` hook sends it back once

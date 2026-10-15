@@ -2,14 +2,25 @@
 import { SessionTopicStore } from './topic-store.js';
 import { topicKey } from './topic-key.js';
 import { deriveQueryFromTool } from './query-derivation.js';
-import { MEMORY_FIRST_GATE_REASON, MEMORY_FIRST_NUDGE } from './directive.js';
+import { MEMORY_FIRST_GATE_REASON, MEMORY_FIRST_NUDGE, frameUnavailableNotice } from './directive.js';
 import { enforcementModeFromSettings } from './enforcement-mode.js';
 import type { BrokerDeps, EnforcementMode, ProvenancedMemory, RetrievalResult } from './types.js';
 import { logger } from '../../utils/logger.js';
 
-const EMPTY: RetrievalResult = Object.freeze({
-  additionalContext: '', block: false, hitCount: 0, isGap: false, unavailable: false,
+const EMPTY: RetrievalResult = Object.freeze({ additionalContext: '', block: false, unavailable: false });
+
+const UNAVAILABLE: RetrievalResult = Object.freeze({
+  additionalContext: frameUnavailableNotice(), block: false, unavailable: true,
 });
+
+async function defaultMemoryReachable(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/health`, { signal: AbortSignal.timeout(1000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 /** Sentinel to distinguish a server error/unavailable (fail-open) from a genuine empty result. */
 const FAILED = Symbol('FAILED');
@@ -57,9 +68,8 @@ export class RetrievalBroker {
 
   /**
    * Can memory answer right now, and does it hold anything for this prompt?
-   * Unlike forPrompt this injects nothing and marks nothing shown, so an
-   * information request can be routed to a real memory search instead of
-   * being answered from pre-fetched results.
+   * It injects nothing, so an information request is routed to a real memory
+   * search instead of being answered from pre-fetched results.
    */
   async probe(promptText: string): Promise<{ unavailable: boolean; isGap: boolean }> {
     if (!promptText || promptText.trim().length === 0) return { unavailable: false, isGap: false };
@@ -74,6 +84,8 @@ export class RetrievalBroker {
    * the agent consults memory by calling the memory tools, and the hook adapter
    * marks the topic consulted when it does. Until then, hard mode blocks once per
    * topic and soft mode reminds; after that, the tool runs without friction.
+   * When memory cannot be reached the agent could never unlock the topic, so
+   * the gate fails open with a visible notice instead of blocking.
    */
   async forToolIntent(toolName: string, toolArgs: unknown): Promise<RetrievalResult> {
     const q = deriveQueryFromTool(toolName, toolArgs, { warmPaths: this.deps.warmPaths });
@@ -81,6 +93,10 @@ export class RetrievalBroker {
     const topic = topicKey(q);
     if (topic.length === 0 || this.topics.hasConsulted(topic)) return EMPTY;
     if (this.mode() === 'hard') {
+      const rt = this.deps.runtime;
+      if (rt.runtime !== 'server') return UNAVAILABLE;
+      const reachable = await (this.deps.memoryReachable ?? (() => defaultMemoryReachable(rt.serverBaseUrl)))();
+      if (!reachable) return UNAVAILABLE;
       return { ...EMPTY, block: true, blockReason: MEMORY_FIRST_GATE_REASON };
     }
     return { ...EMPTY, additionalContext: MEMORY_FIRST_NUDGE };

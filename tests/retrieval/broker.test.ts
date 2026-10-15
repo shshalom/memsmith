@@ -28,7 +28,7 @@ function fakeRuntime(observations: Array<{ id: string; content: string }>, opts:
 }
 const soft = { MEMSMITH_RETRIEVAL_MIN_HITS: '1', MEMSMITH_RETRIEVAL_TIMEOUT_MS: '2000', MEMSMITH_SEMANTIC_INJECT_LIMIT: '5', MEMSMITH_RETRIEVAL_ENFORCEMENT: 'soft' };
 const hard = { ...soft, MEMSMITH_RETRIEVAL_ENFORCEMENT: 'hard' };
-const deps = (runtime: any, settings: Record<string, string>) => ({ runtime, settings, sessionId: 'sess-x', nowIso: '2026-07-15T00:00:00Z' });
+const deps = (runtime: any, settings: Record<string, string>) => ({ runtime, settings, sessionId: 'sess-x', nowIso: '2026-07-15T00:00:00Z', memoryReachable: async () => true });
 function freshTopics() { return new SessionTopicStore('sess-x', mkdtempSync(join(tmpdir(), 'brk-t-'))); }
 
 describe('RetrievalBroker.forToolIntent — memory first when the agent reaches out', () => {
@@ -92,6 +92,27 @@ describe('RetrievalBroker.forToolIntent — memory first when the agent reaches 
     const topics = freshTopics();
     await new RetrievalBroker(deps(fakeRuntime([]).runtime, hard), topics).forToolIntent('Grep', { pattern: 'ollama restart' });
     expect(topics.hasConsulted(topicKey('ollama restart'))).toBe(false);
+  });
+});
+
+describe('RetrievalBroker.forToolIntent — fails open when memory cannot be consulted', () => {
+  it('allows with a visible notice when the runtime has no memory server', async () => {
+    const local = { runtime: 'local', reason: 'server_context_unavailable' };
+    const r = await new RetrievalBroker(deps(local, hard), freshTopics()).forToolIntent('Grep', { pattern: 'ollama restart' });
+    expect(r.block).toBe(false);
+    expect(r.unavailable).toBe(true);
+    expect(r.additionalContext).toContain('UNAVAILABLE');
+  });
+
+  it('allows with a visible notice when the memory server does not answer', async () => {
+    const d = { ...deps(fakeRuntime([]).runtime, hard), memoryReachable: async () => false };
+    const r = await new RetrievalBroker(d, freshTopics()).forToolIntent('Grep', { pattern: 'ollama restart' });
+    expect(r).toMatchObject({ block: false, unavailable: true });
+  });
+
+  it('still blocks when the memory server answers', async () => {
+    const d = { ...deps(fakeRuntime([]).runtime, hard), memoryReachable: async () => true };
+    expect((await new RetrievalBroker(d, freshTopics()).forToolIntent('Grep', { pattern: 'ollama restart' })).block).toBe(true);
   });
 });
 

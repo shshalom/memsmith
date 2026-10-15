@@ -5,10 +5,8 @@
 //
 // This is the state the always-memory-first gate reads. Hooks are short-lived
 // separate processes and share no memory, so it persists to a session-scoped
-// file — the per-session directory pattern, deliberately a
-// SEPARATE file because the two answer different questions:
-//   shown.json     — what memory did I already INJECT (dedup, avoid noise)
-//   consulted.json — what topics was memory ASKED about (unlocks the gate)
+// file in the per-session directory: consulted.json records which topics
+// memory was asked about, which is what unlocks the gate.
 //
 // Every failure path degrades to "not consulted" and never throws. A corrupt or
 // unwritable file therefore costs at most one extra memory consult; it can never
