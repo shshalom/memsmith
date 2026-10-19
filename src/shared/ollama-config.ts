@@ -4,6 +4,7 @@
 // worker retirement.
 import { SettingsDefaultsManager } from './SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from './paths.js';
+import { resolveOllamaChatUrl } from '../server/generation/providers/OllamaObservationProvider.js';
 
 export interface OllamaConfig {
   apiKey: string;
@@ -17,9 +18,6 @@ export function getOllamaConfig(): OllamaConfig {
   const apiKey = 'ollama-local';
   const model = (typeof settings.MEMSMITH_OLLAMA_MODEL === 'string' && settings.MEMSMITH_OLLAMA_MODEL.trim())
     ? settings.MEMSMITH_OLLAMA_MODEL : 'gemma4:12b';
-  const base = settings.MEMSMITH_OLLAMA_URL || process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
-  const apiUrl = base.replace(/\/+$/, '').endsWith('/chat/completions')
-    ? base
-    : base.replace(/\/+$/, '') + '/chat/completions';
-  return { apiKey, model, apiUrl };
+  const base = settings.MEMSMITH_OLLAMA_URL || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  return { apiKey, model, apiUrl: resolveOllamaChatUrl(base) };
 }

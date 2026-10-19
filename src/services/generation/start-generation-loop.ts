@@ -22,6 +22,7 @@
 // pass — the queue is durable and simply retries next tick.
 
 import { logger } from '../../utils/logger.js';
+import type { GenerationProviderCache } from '../../server/generation/GenerationProviderHolder.js';
 
 const DEFAULT_INTERVAL_MS = 30_000;
 
@@ -169,22 +170,15 @@ async function runOneDrainPass(): Promise<void> {
   }
 }
 
-async function resolveLaptopGenerationProvider() {
-  const { buildGenerationProvider, readBootGenerationSettings } = await import('../../server/runtime/create-server-service.js');
+let laptopProviderCache: GenerationProviderCache | null = null;
+
+export async function resolveLaptopGenerationProvider(cache?: GenerationProviderCache) {
+  const { readBootGenerationSettings } = await import('../../server/runtime/create-server-service.js');
   const { resolveBootGenerationSpec } = await import('../../server/runtime/resolve-generation-provider.js');
+  const { GenerationProviderCache: Cache } = await import('../../server/generation/GenerationProviderHolder.js');
 
   const spec = resolveBootGenerationSpec(process.env, readBootGenerationSettings());
   if (!spec) return null;
 
-  try {
-    return buildGenerationProvider(spec);
-  } catch (error) {
-    logger.warn(
-      'SYSTEM',
-      'generation loop: failed to construct generation provider; skipping pass',
-      { provider: spec.provider },
-      error instanceof Error ? error : new Error(String(error)),
-    );
-    return null;
-  }
+  return (cache ?? (laptopProviderCache ??= new Cache())).get(spec);
 }
