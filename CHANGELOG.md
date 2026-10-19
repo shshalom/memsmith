@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 History before the fork lives in the upstream project credited in [NOTICE](NOTICE).
 
+## [Unreleased]
+
+### Fixed
+
+- The Claude generation provider no longer sends `temperature`. Claude Haiku 5.5 and Claude Sonnet 5.5 reject that parameter, so every observation failed when you selected either model.
+
 ## [13.11.2] - 2026-10-15
 
 ### Added

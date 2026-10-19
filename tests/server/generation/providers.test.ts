@@ -208,6 +208,21 @@ describe('ClaudeObservationProvider', () => {
     expect(result.providerLabel).toBe('claude');
   });
 
+  // claude-haiku-5-5 and claude-sonnet-5-5 return 400 for any `temperature`, so
+  // sending one fails every generation on those models.
+  it('omits temperature so models that reject sampling params still generate', async () => {
+    const capture = new CapturingFetch(jsonResponse(200, { content: [{ type: 'text', text: '<skip_summary />' }] }));
+    const provider = new ClaudeObservationProvider({
+      apiKey: 'sk-fake',
+      model: 'claude-haiku-5-5',
+      fetchImpl: capture.fetch,
+    });
+    await provider.generate(makeContext());
+    const body = JSON.parse(String(capture.lastInit?.body));
+    expect(body.model).toBe('claude-haiku-5-5');
+    expect(body).not.toHaveProperty('temperature');
+  });
+
   it('classifies non-OK responses through classifyClaudeServerError', async () => {
     const fakeFetch = new FakeFetch(jsonResponse(401, { error: { message: 'Invalid API key' } }));
     const provider = new ClaudeObservationProvider({ apiKey: 'sk-fake', fetchImpl: fakeFetch.fetch });

@@ -149,7 +149,7 @@ export class ClaudeObservationProvider implements ServerGenerationProvider {
       body: JSON.stringify({
         model: this.model,
         max_tokens: this.maxOutputTokens,
-        temperature: 0.3,
+        // No `temperature`: claude-haiku-5-5 and claude-sonnet-5-5 reject it with a 400.
         messages: [{ role: 'user', content: prompt }],
       }),
       signal,
