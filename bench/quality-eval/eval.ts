@@ -32,43 +32,9 @@ import { OllamaObservationProvider } from '../../src/server/generation/providers
 import { ClaudeObservationProvider } from '../../src/server/generation/providers/ClaudeObservationProvider.js';
 import type { ServerGenerationContext } from '../../src/server/generation/providers/shared/types.js';
 import { EVENT_PAYLOADS, makeContext } from './corpus.js';
+import { DIMENSIONS, isSkip, judgeSkip, scoreObservation, type Dimension, type Judge, type Scores, type SkipVerdict } from './judge.js';
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
 const JUDGE_MODEL = process.env.MEMSMITH_QUALITY_JUDGE_MODEL ?? 'claude-opus-4-8';
-
-const DIMENSIONS = ['faithfulness', 'specificity', 'typeCorrectness', 'usefulness', 'structure'] as const;
-type Dimension = (typeof DIMENSIONS)[number];
-type Scores = Record<Dimension, number> & { rationale: string };
-
-const RUBRIC = `You are grading a single "observation" — a structured memory record an AI coding
-assistant generated to summarize one agent event, so a FUTURE session can recall it.
-You are given the SOURCE EVENT and the OBSERVATION. Score the observation 1-5 on each
-dimension (1 = poor, 5 = excellent). Judge ONLY the observation against the source; you
-are NOT told which model wrote it and there is no other observation to compare against.
-
-Dimensions:
-- faithfulness: accurately reflects the source event; invents no facts not supported by it.
-- specificity: concrete, specific facts rather than vague/generic statements.
-- typeCorrectness: the observation's <type> (discovery/decision/bugfix/progress/blocker/etc.) fits the event.
-- usefulness: would genuinely help a future session recall or act on this.
-- structure: uses the observation schema fields well (title, facts, why, narrative as appropriate).
-
-Return ONLY a JSON object with integer scores 1-5 for each dimension and a one-sentence rationale.`;
-
-const JUDGE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    faithfulness: { type: 'integer' },
-    specificity: { type: 'integer' },
-    typeCorrectness: { type: 'integer' },
-    usefulness: { type: 'integer' },
-    structure: { type: 'integer' },
-    rationale: { type: 'string' },
-  },
-  required: ['faithfulness', 'specificity', 'typeCorrectness', 'usefulness', 'structure', 'rationale'],
-};
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -77,98 +43,6 @@ function requireEnv(name: string): string {
     process.exit(1);
   }
   return v;
-}
-
-/** Blind rubric score for one observation. Raw fetch, mirroring ClaudeObservationProvider. */
-async function scoreObservation(
-  apiKey: string,
-  event: unknown,
-  observationText: string,
-): Promise<Scores | { error: string }> {
-  const prompt = [
-    RUBRIC,
-    '',
-    '<source_event>',
-    JSON.stringify(event, null, 2),
-    '</source_event>',
-    '',
-    '<observation>',
-    observationText || '(empty — the model returned nothing)',
-    '</observation>',
-  ].join('\n');
-
-  const attempt = async (): Promise<Scores> => {
-    const res = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
-      body: JSON.stringify({
-        model: JUDGE_MODEL,
-        max_tokens: 1024,
-        output_config: { format: { type: 'json_schema', schema: JUDGE_SCHEMA } },
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error(`judge HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }>; stop_reason?: string };
-    const text = data.content?.find(b => b.type === 'text')?.text ?? '';
-    return JSON.parse(text) as Scores;
-  };
-
-  try {
-    return await attempt();
-  } catch {
-    try { return await attempt(); } // one retry on transient/JSON hiccup
-    catch (err) { return { error: err instanceof Error ? err.message : String(err) }; }
-  }
-}
-
-// A <skip_summary/> is a distinct outcome, not a bad observation. The model
-// decided the event isn't worth recording. Scoring that on the 5-dim rubric
-// (empty content → 1s) wrongly punishes a CORRECT skip, so we judge skips on a
-// separate axis: was skipping appropriate for THIS event?
-type SkipVerdict = { appropriate: boolean; rationale: string };
-
-const SKIP_RUBRIC = `An AI coding assistant chose NOT to record a memory observation for the agent
-event below — it emitted a "skip" instead of an observation. Decide whether
-skipping was APPROPRIATE. Skipping is appropriate when the event is trivial,
-routine, or contains nothing a future session would benefit from remembering
-(e.g. "ls", "echo hi", a plain file read). Skipping is INAPPROPRIATE when the
-event contains a durable, useful fact worth recording (a decision, a bugfix, a
-non-obvious discovery). You are not told which model made this choice.
-
-Return ONLY a JSON object: {"appropriate": true|false, "rationale": "one sentence"}.`;
-
-const SKIP_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: { appropriate: { type: 'boolean' }, rationale: { type: 'string' } },
-  required: ['appropriate', 'rationale'],
-};
-
-async function judgeSkip(apiKey: string, event: unknown): Promise<SkipVerdict | { error: string }> {
-  const prompt = [SKIP_RUBRIC, '', '<source_event>', JSON.stringify(event, null, 2), '</source_event>'].join('\n');
-  const attempt = async (): Promise<SkipVerdict> => {
-    const res = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
-      body: JSON.stringify({
-        model: JUDGE_MODEL,
-        max_tokens: 512,
-        output_config: { format: { type: 'json_schema', schema: SKIP_SCHEMA } },
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error(`judge HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    return JSON.parse(data.content?.find(b => b.type === 'text')?.text ?? '') as SkipVerdict;
-  };
-  try { return await attempt(); }
-  catch { try { return await attempt(); } catch (err) { return { error: err instanceof Error ? err.message : String(err) }; } }
-}
-
-/** A skip is any parsed output whose only content is a <skip_summary> marker. */
-function isSkip(rawText: string): boolean {
-  return /<skip_summary[\s/>]/.test(rawText) && !/<observation[\s>]/.test(rawText);
 }
 
 interface GenResult { rawText: string; parsed: boolean; error?: string }
@@ -202,6 +76,7 @@ function fmt(n: number): string { return Number.isNaN(n) ? ' n/a ' : n.toFixed(2
 
 async function main(): Promise<void> {
   const apiKey = requireEnv('ANTHROPIC_API_KEY');
+  const judge: Judge = { provider: 'anthropic', model: JUDGE_MODEL, apiKey };
   ModeManager.getInstance().loadMode('code');
 
   const llamaModel = process.env.MEMSMITH_SERVER_MODEL ?? 'llama3.1:8b';
@@ -230,11 +105,11 @@ async function main(): Promise<void> {
         if (!gen.error) {
           if (skipped) {
             // Separate axis — was skipping the right call for this event?
-            const verdict = await judgeSkip(apiKey, e.payload);
+            const verdict = await judgeSkip(judge, JSON.stringify(e.payload, null, 2));
             if ('error' in verdict) row.scoreError = verdict.error;
             else row.skipVerdict = verdict;
           } else {
-            const scored = await scoreObservation(apiKey, e.payload, gen.rawText);
+            const scored = await scoreObservation(judge, JSON.stringify(e.payload, null, 2), gen.rawText);
             if ('error' in scored) row.scoreError = scored.error;
             else row.scores = scored;
           }

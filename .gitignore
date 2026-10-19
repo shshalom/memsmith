@@ -65,3 +65,5 @@ bench/quality-eval/last-run.json
 
 # Server logs copied by a failed clean-room smoke run
 smoke-artifacts/
+bench/model-bench/.corpus.local.json
+bench/model-bench/results/
