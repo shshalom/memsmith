@@ -9,8 +9,11 @@ import { logger } from '../../utils/logger.js';
 import { DEFAULT_SERVER_CLAUDE_MODEL } from './providers/ClaudeObservationProvider.js';
 import { DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from './providers/GeminiObservationProvider.js';
 import { DEFAULT_MODEL as OPENROUTER_DEFAULT_MODEL } from './providers/OpenRouterObservationProvider.js';
-import { DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL } from './providers/OllamaObservationProvider.js';
-import { resolveOpenRouterChatCompletionsUrl } from '../../shared/openrouter-base-url.js';
+import {
+  DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL,
+  OLLAMA_NUM_CTX,
+  resolveOllamaChatUrl,
+} from './providers/OllamaObservationProvider.js';
 import {
   loadGenerationConfigSources,
   resolveGenerationCredentials,
@@ -36,10 +39,10 @@ export async function providerComplete(
     );
     switch (input.provider.providerLabel) {
       case 'ollama': {
-        const url = ollamaChatCompletionsUrl(baseUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434/v1');
+        const url = resolveOllamaChatUrl(baseUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-        return await openaiChat(fetchImpl, url, headers, model ?? OLLAMA_DEFAULT_MODEL, input.system, input.user);
+        return await ollamaChat(fetchImpl, url, headers, model ?? OLLAMA_DEFAULT_MODEL, input.system, input.user);
       }
       case 'openrouter': {
         if (!apiKey) return null;
@@ -90,10 +93,28 @@ export async function providerComplete(
   }
 }
 
-// OLLAMA_URL is often a bare origin; Ollama serves the OpenAI API under /v1.
-function ollamaChatCompletionsUrl(base: string): string {
-  const trimmed = base.replace(/\/$/, '');
-  return resolveOpenRouterChatCompletionsUrl(new URL(trimmed).pathname === '/' ? `${trimmed}/v1` : trimmed);
+async function ollamaChat(
+  fetchImpl: typeof fetch, url: string, headers: Record<string, string>,
+  model: string, system: string, user: string,
+): Promise<string | null> {
+  const post = (sendThink: boolean) => fetchImpl(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      stream: false,
+      ...(sendThink ? { think: false } : {}),
+      options: { num_ctx: OLLAMA_NUM_CTX },
+    }),
+  });
+  let res = await post(true);
+  // Ollama releases without thinking support reject the field outright.
+  if (res.status === 400 && /think/i.test(await res.text())) res = await post(false);
+  if (!res.ok) return null;
+  const data = await res.json() as { message?: { content?: string } };
+  const text = (data.message?.content ?? '').trim();
+  return text || null;
 }
 
 async function openaiChat(

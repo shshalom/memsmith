@@ -7,8 +7,8 @@ const ollamaProvider = { providerLabel: 'ollama' } as any;
 const fakeProvider = (label: string) => ({ providerLabel: label } as any);
 
 describe('providerComplete', () => {
-  it('returns the completion text for a chat-completions response', async () => {
-    const fetchImpl = async () => new Response(JSON.stringify({ choices: [{ message: { content: 'YES: composed note' } }] }), { status: 200 });
+  it('returns the completion text for an Ollama native chat response', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ message: { role: 'assistant', content: 'YES: composed note' } }), { status: 200 });
     const out = await providerComplete({ provider: ollamaProvider, system: 's', user: 'u' }, { fetchImpl } as any);
     expect(out).toBe('YES: composed note');
   });
@@ -106,10 +106,47 @@ describe('providerComplete', () => {
     let calledUrl = '';
     const fetchImpl = (async (url: any) => {
       calledUrl = String(url);
-      return { ok: true, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) };
+      return { ok: true, json: async () => ({ message: { content: 'OK' } }) };
     }) as any;
     const sources = { env: {}, settings: { MEMSMITH_OLLAMA_URL: 'http://gpu-box:11434/v1' }, dotEnv: {} };
     await providerComplete({ provider: ollamaProvider, system: 's', user: 'u' }, { fetchImpl, sources });
-    expect(calledUrl).toBe('http://gpu-box:11434/v1/chat/completions');
+    expect(calledUrl).toBe('http://gpu-box:11434/api/chat');
+  });
+
+  it('ollama: pins num_ctx and turns thinking off so the model never loads at its full context', async () => {
+    const before = process.env.MEMSMITH_SERVER_MODEL;
+    delete process.env.MEMSMITH_SERVER_MODEL;
+    let body: any;
+    const fetchImpl = (async (_url: any, init: any) => {
+      body = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ message: { content: 'OK' } }) };
+    }) as any;
+    try {
+      const out = await providerComplete({ provider: ollamaProvider, system: 's', user: 'u' }, { fetchImpl, sources: { env: {}, settings: {}, dotEnv: {} } });
+      expect(out).toBe('OK');
+    } finally {
+      if (before !== undefined) process.env.MEMSMITH_SERVER_MODEL = before;
+    }
+    expect(body).toMatchObject({
+      model: 'gemma4:12b',
+      stream: false,
+      think: false,
+      options: { num_ctx: 20480 },
+      messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }],
+    });
+  });
+
+  it('ollama: retries without the think flag when an older Ollama rejects it', async () => {
+    const bodies: any[] = [];
+    const fetchImpl = (async (_url: any, init: any) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if ('think' in body) return new Response('unknown field "think"', { status: 400 });
+      return new Response(JSON.stringify({ message: { content: 'OK' } }), { status: 200 });
+    }) as any;
+    const out = await providerComplete({ provider: ollamaProvider, system: 's', user: 'u' }, { fetchImpl, sources: { env: {}, settings: {}, dotEnv: {} } });
+    expect(out).toBe('OK');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].options.num_ctx).toBe(20480);
   });
 });
