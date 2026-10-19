@@ -17,7 +17,10 @@ import {
   type GeminiBadRequestCategory,
 } from '../../../src/server/generation/providers/GeminiObservationProvider.js';
 import { OpenRouterObservationProvider } from '../../../src/server/generation/providers/OpenRouterObservationProvider.js';
-import { OllamaObservationProvider } from '../../../src/server/generation/providers/OllamaObservationProvider.js';
+import {
+  OllamaObservationProvider,
+  resolveOllamaChatUrl,
+} from '../../../src/server/generation/providers/OllamaObservationProvider.js';
 import { buildServerGenerationPrompt } from '../../../src/server/generation/providers/shared/prompt-builder.js';
 import type { ServerGenerationContext } from '../../../src/server/generation/providers/shared/types.js';
 
@@ -444,11 +447,12 @@ describe('buildServerGenerationPrompt reformat addendum', () => {
 });
 
 describe('OllamaObservationProvider', () => {
-  it('parses OpenAI-style response, defaults model llama3.1:8b and localhost URL', async () => {
+  it('parses the native response, defaults model gemma4:12b and localhost URL', async () => {
     const capturing = new CapturingFetch(
       jsonResponse(200, {
-        choices: [{ message: { content: '<observation><type>x</type><title>o</title></observation>' } }],
-        usage: { total_tokens: 42 },
+        message: { content: '<observation><type>x</type><title>o</title></observation>' },
+        prompt_eval_count: 30,
+        eval_count: 12,
       }),
     );
     const provider = new OllamaObservationProvider({ fetchImpl: capturing.fetch });
@@ -456,13 +460,13 @@ describe('OllamaObservationProvider', () => {
     expect(result.rawText).toContain('<observation>');
     expect(result.tokensUsed).toBe(42);
     expect(result.providerLabel).toBe('ollama');
-    expect(capturing.lastUrl).toBe('http://localhost:11434/v1/chat/completions');
+    expect(capturing.lastUrl).toBe('http://localhost:11434/api/chat');
     const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
-    expect(body.model).toBe('llama3.1:8b');
+    expect(body.model).toBe('gemma4:12b');
   });
 
   it('constructs without an API key and sends no Authorization header', async () => {
-    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const capturing = new CapturingFetch(jsonResponse(200, { message: { content: 'ok' } }));
     const provider = new OllamaObservationProvider({ fetchImpl: capturing.fetch });
     await provider.generate(makeContext());
     const headers = (capturing.lastInit?.headers ?? {}) as Record<string, string>;
@@ -470,7 +474,7 @@ describe('OllamaObservationProvider', () => {
   });
 
   it('sends Authorization when an apiKey is supplied (auth-proxied Ollama)', async () => {
-    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const capturing = new CapturingFetch(jsonResponse(200, { message: { content: 'ok' } }));
     const provider = new OllamaObservationProvider({ apiKey: 'k', fetchImpl: capturing.fetch });
     await provider.generate(makeContext());
     const headers = (capturing.lastInit?.headers ?? {}) as Record<string, string>;
@@ -478,14 +482,14 @@ describe('OllamaObservationProvider', () => {
   });
 
   it('honors MEMSMITH_OLLAMA_URL-style baseUrl and MEMSMITH_SERVER_MODEL-style model overrides', async () => {
-    const capturing = new CapturingFetch(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+    const capturing = new CapturingFetch(jsonResponse(200, { message: { content: 'ok' } }));
     const provider = new OllamaObservationProvider({
       baseUrl: 'http://ollama.internal:11434/v1',
       model: 'qwen2.5:14b',
       fetchImpl: capturing.fetch,
     });
     await provider.generate(makeContext());
-    expect(capturing.lastUrl).toBe('http://ollama.internal:11434/v1/chat/completions');
+    expect(capturing.lastUrl).toBe('http://ollama.internal:11434/api/chat');
     const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
     expect(body.model).toBe('qwen2.5:14b');
   });
@@ -500,5 +504,57 @@ describe('OllamaObservationProvider', () => {
       expect(error).toBeInstanceOf(ServerClassifiedProviderError);
       expect((error as ServerClassifiedProviderError).kind).toBe('transient');
     }
+  });
+
+  it('posts to the native chat endpoint with num_ctx pinned and thinking off', async () => {
+    const capturing = new CapturingFetch(
+      jsonResponse(200, { message: { content: '<skip_summary />' }, prompt_eval_count: 30, eval_count: 12 }),
+    );
+    const provider = new OllamaObservationProvider({ fetchImpl: capturing.fetch });
+    const result = await provider.generate(makeContext());
+    expect(capturing.lastUrl).toBe('http://localhost:11434/api/chat');
+    const body = JSON.parse(String(capturing.lastInit?.body)) as Record<string, unknown>;
+    expect(body.model).toBe('gemma4:12b');
+    expect(body.stream).toBe(false);
+    expect(body.think).toBe(false);
+    expect(body.options).toMatchObject({ num_ctx: 20480, temperature: 0.3, num_predict: 4096 });
+    expect(result.tokensUsed).toBe(42);
+  });
+
+  it('resolveOllamaChatUrl maps every configured base URL form to /api/chat', () => {
+    expect(resolveOllamaChatUrl('http://localhost:11434/v1')).toBe('http://localhost:11434/api/chat');
+    expect(resolveOllamaChatUrl('http://localhost:11434/v1/')).toBe('http://localhost:11434/api/chat');
+    expect(resolveOllamaChatUrl('http://ollama.internal:11434')).toBe('http://ollama.internal:11434/api/chat');
+    expect(resolveOllamaChatUrl('https://proxy.example.com/ollama/v1')).toBe('https://proxy.example.com/ollama/api/chat');
+    expect(resolveOllamaChatUrl('http://localhost:11434/v1/chat/completions')).toBe('http://localhost:11434/api/chat');
+  });
+
+  it('retries once without think when the model rejects think control', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (!String(input).endsWith('/api/chat')) return jsonResponse(200, {});
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return bodies.length === 1
+        ? jsonResponse(400, { error: 'model does not support thinking' })
+        : jsonResponse(200, { message: { content: 'ok' }, prompt_eval_count: 1, eval_count: 1 });
+    };
+    const provider = new OllamaObservationProvider({ fetchImpl });
+    const result = await provider.generate(makeContext());
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toHaveProperty('think', false);
+    expect(bodies[1]).not.toHaveProperty('think');
+    expect(result.rawText).toBe('ok');
+  });
+
+  it('classifies a native { error } body on a non-2xx status without retrying', async () => {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (input) => {
+      if (!String(input).endsWith('/api/chat')) return jsonResponse(200, {});
+      calls += 1;
+      return jsonResponse(404, { error: 'model "gemma4:12b" not found' });
+    };
+    const provider = new OllamaObservationProvider({ fetchImpl });
+    await expect(provider.generate(makeContext())).rejects.toBeInstanceOf(ServerClassifiedProviderError);
+    expect(calls).toBe(1);
   });
 });

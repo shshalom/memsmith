@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { resolveOpenRouterChatCompletionsUrl } from '../../../shared/openrouter-base-url.js';
 import { logger } from '../../../utils/logger.js';
 import {
   ServerClassifiedProviderError,
@@ -14,23 +13,36 @@ import type {
   ServerGenerationResult,
 } from './shared/types.js';
 
-export const DEFAULT_MODEL = 'llama3.1:8b';
+export const DEFAULT_MODEL = 'gemma4:12b';
 const DEFAULT_BASE_URL = 'http://localhost:11434/v1';
+
+// Without an explicit num_ctx, Ollama sizes the context from available VRAM, up
+// to 256k tokens for gemma4:12b, which multiplies resident RAM.
+export const OLLAMA_NUM_CTX = 20480;
+
+export function resolveOllamaChatUrl(baseUrl: string): string {
+  const root = baseUrl
+    .replace(/\/+$/, '')
+    .replace(/\/v1\/chat\/completions$/, '')
+    .replace(/\/v1$/, '');
+  return `${root}/api/chat`;
+}
 
 export interface OllamaObservationProviderOptions {
   /** Optional. Ollama is keyless by default; supply only when fronted by an auth proxy. */
   apiKey?: string;
   model?: string;
-  /** OpenAI-compatible base URL. Defaults to http://localhost:11434/v1. */
+  /** Ollama base URL; a trailing /v1 is accepted and mapped to the native /api/chat. */
   baseUrl?: string;
   maxOutputTokens?: number;
   fetchImpl?: typeof fetch;
 }
 
 interface OllamaResponse {
-  choices?: Array<{ message?: { content?: string } }>;
-  usage?: { total_tokens?: number };
-  error?: { code?: string | number; message?: string };
+  message?: { content?: string };
+  prompt_eval_count?: number;
+  eval_count?: number;
+  error?: string;
 }
 
 export class OllamaObservationProvider implements ServerGenerationProvider {
@@ -45,7 +57,7 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
     // Keyless by default — no auth_invalid throw when apiKey is absent.
     this.apiKey = options.apiKey && options.apiKey.length > 0 ? options.apiKey : undefined;
     this.model = options.model ?? DEFAULT_MODEL;
-    this.apiUrl = resolveOpenRouterChatCompletionsUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.apiUrl = resolveOllamaChatUrl(options.baseUrl ?? DEFAULT_BASE_URL);
     this.maxOutputTokens = options.maxOutputTokens ?? 4096;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
@@ -59,8 +71,6 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
    */
   private async ensureRunning(): Promise<void> {
     try {
-      // The OpenAI-compatible apiUrl ends in /v1/chat/completions; the liveness
-      // endpoint is /api/tags on the same origin.
       const origin = new URL(this.apiUrl).origin;
       await ensureOllamaRunning({
         // READINESS, not liveness. This asked `GET /api/tags` and took r.ok as
@@ -135,15 +145,23 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
     await this.ensureRunning();
 
     let response: Response;
+    let bodyText = '';
     try {
-      response = await this.postChatCompletion(built.prompt, signal);
+      response = await this.postChat(built.prompt, true, signal);
+      if (response.status === 400) {
+        bodyText = await safeReadBody(response);
+        if (/think/i.test(bodyText)) {
+          response = await this.postChat(built.prompt, false, signal);
+          bodyText = '';
+        }
+      }
     } catch (networkError) {
       const err = networkError instanceof Error ? networkError : new Error(String(networkError));
       throw classifyHttpProviderError({ cause: err, providerLabel: 'ollama' });
     }
 
     if (!response.ok) {
-      const bodyText = await safeReadBody(response);
+      bodyText ||= await safeReadBody(response);
       throw classifyHttpProviderError({
         status: response.status,
         bodyText,
@@ -167,18 +185,21 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
     if (data.error) {
       throw classifyHttpProviderError({
         status: response.status,
-        bodyText: `${data.error.code ?? ''} ${data.error.message ?? ''}`,
+        bodyText: data.error,
         headers: response.headers,
-        cause: new Error(`ollama API error: ${data.error.code} - ${data.error.message}`),
+        cause: new Error(`ollama API error: ${data.error}`),
         providerLabel: 'ollama',
       });
     }
 
-    const rawText = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const rawText = data.message?.content?.trim() ?? '';
     if (!rawText) {
       logger.warn('SDK', 'ollama returned empty content', { provider: 'ollama', model: this.model });
     }
-    const tokensUsed = typeof data.usage?.total_tokens === 'number' ? data.usage.total_tokens : undefined;
+    const tokensUsed =
+      typeof data.prompt_eval_count === 'number' || typeof data.eval_count === 'number'
+        ? (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0)
+        : undefined;
 
     return {
       rawText,
@@ -188,7 +209,7 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
     };
   }
 
-  private postChatCompletion(prompt: string, signal?: AbortSignal): Promise<Response> {
+  private postChat(prompt: string, sendThink: boolean, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     return this.fetchImpl(this.apiUrl, {
@@ -197,8 +218,9 @@ export class OllamaObservationProvider implements ServerGenerationProvider {
       body: JSON.stringify({
         model: this.model,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: this.maxOutputTokens,
+        stream: false,
+        ...(sendThink ? { think: false } : {}),
+        options: { num_ctx: OLLAMA_NUM_CTX, temperature: 0.3, num_predict: this.maxOutputTokens },
       }),
       signal,
     });
