@@ -340,7 +340,7 @@ describe('SettingsDefaultsManager', () => {
 
   describe('get', () => {
     it('should return default value for key', () => {
-      expect(SettingsDefaultsManager.get('MEMSMITH_MODEL')).toBe('claude-haiku-4-5-20251001');
+      expect(SettingsDefaultsManager.get('MEMSMITH_MODEL')).toBe('claude-haiku-5-5');
       const expectedPort = String(38700 + ((process.getuid?.() ?? 77) % 100));
       expect(SettingsDefaultsManager.get('MEMSMITH_WORKER_PORT')).toBe(expectedPort);
     });

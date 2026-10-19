@@ -104,6 +104,6 @@ describe('SettingsResolver settings-file tier', () => {
   it('ignores an invalid value in the settings file', async () => {
     delete process.env.MEMSMITH_SERVER_PROVIDER;
     const r = new SettingsResolver(fakeStore({}), { fileSettings: () => ({ MEMSMITH_SERVER_PROVIDER: 'gpt' }) });
-    expect(await r.resolve('t', 'provider')).toEqual({ value: 'ollama', source: 'default' });
+    expect(await r.resolve('t', 'provider')).toEqual({ value: 'claude', source: 'default' });
   });
 });

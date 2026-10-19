@@ -25,7 +25,11 @@ import { backfillEmbeddings, loadUnembeddedRows } from './embedding-backfill.js'
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
-import { OllamaObservationProvider } from '../generation/providers/OllamaObservationProvider.js';
+import {
+  OllamaObservationProvider,
+  DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL,
+} from '../generation/providers/OllamaObservationProvider.js';
+import { FailoverGenerationProvider } from '../generation/providers/FailoverGenerationProvider.js';
 import { OpenRouterObservationProvider } from '../generation/providers/OpenRouterObservationProvider.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 export type { ServerGenerationProvider };
@@ -44,8 +48,11 @@ import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 import { readLocalScopeFromMarkerOrEnv } from './resolve-local-scope.js';
-import { resolveGenerationProviderName } from './resolve-generation-provider.js';
+import { resolveBootGenerationSpec, type GenerationProviderSpec } from './resolve-generation-provider.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
+import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { pinLegacyGenerationSettings } from '../settings/pin-legacy-generation-settings.js';
 import {
   loadGenerationConfigSources,
   resolveGenerationCredentials,
@@ -551,16 +558,15 @@ function buildGenerationWorkerManager(
       'queue manager is disabled; set MEMSMITH_QUEUE_ENGINE=bullmq or inline to enable provider generation.',
     );
   }
+  pinLegacyGenerationSettings();
   const provider = injectedProvider ?? buildServerGenerationProviderFromEnv();
   if (!provider) {
     return new DisabledServerGenerationWorkerManager(
       'no server generation provider configured; set MEMSMITH_SERVER_PROVIDER and the matching API key to enable.',
     );
   }
-  // Task 9: build a SettingsResolver + GenerationProviderHolder so each
-  // generation job can resolve its (provider, model) at job-start, enabling
-  // live Ollama<->Claude hot-swap without a worker restart. The env-built
-  // `provider` is kept as the fallback for when the holder returns null.
+  // The holder resolves the provider per job so a settings change applies
+  // without a restart; `provider` covers jobs the holder cannot build for.
   const settingsStore = new SettingsStore(pool);
   const resolver = new SettingsResolver(settingsStore);
   const providerHolder = new GenerationProviderHolder(resolver);
@@ -572,8 +578,6 @@ function buildGenerationWorkerManager(
     queueManager: queueManager as ServerGenerationQueueManager,
     provider,
     providerHolder,
-    // Task 13: pass the same resolver so quality knobs (qualityFloor,
-    // reformatRetries) honor team overrides in the generation pipeline.
     settingsResolver: resolver,
     // Critical 1 fix — thread per-job database routing through so generated
     // observations for a non-base project land in THAT project's database,
@@ -584,53 +588,54 @@ function buildGenerationWorkerManager(
   });
 }
 
-/** settings.json values are `unknown`; treat blank as absent so a `""` never wins. */
-function asNonEmptyString(v: unknown): string | undefined {
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+export type { GenerationProviderSpec };
+
+type InstantiateProvider = (
+  provider: string,
+  model?: string,
+  sources?: GenerationConfigSources,
+) => ServerGenerationProvider | null;
+
+export function buildGenerationProvider(
+  spec: GenerationProviderSpec,
+  sources: GenerationConfigSources = loadGenerationConfigSources(),
+  instantiate: InstantiateProvider = instantiateServerGenerationProvider,
+): ServerGenerationProvider | null {
+  const primary = instantiate(spec.provider, spec.model, sources);
+  if (spec.provider === 'ollama' || spec.fallback === 'none') return primary;
+  const fallback = instantiate('ollama', spec.fallbackModel, sources);
+  if (!fallback) return primary;
+  return new FailoverGenerationProvider({ primary, fallback });
 }
 
-function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
-  // Resolve env > settings.json > registry default ('ollama'). Reading only
-  // process.env meant the declared default never applied on a real install —
-  // MemSmith's settings live in ~/.memsmith/settings.json — so a fresh local
-  // project generated nothing and its jobs queued forever.
-  let fileSettings: Record<string, unknown> = {};
+export function readBootGenerationSettings(): Record<string, unknown> {
+  let defaulted: Record<string, unknown> = {};
   try {
-    fileSettings = loadFromFileOnce() as unknown as Record<string, unknown>;
+    defaulted = loadFromFileOnce() as unknown as Record<string, unknown>;
   } catch { /* defaults still apply if settings are unreadable */ }
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = readFlatSettings(USER_SETTINGS_PATH) ?? {};
+  } catch { /* same */ }
+  // loadFromFileOnce keeps only keys SettingsDefaultsManager declares, which
+  // drops MEMSMITH_SERVER_PROVIDER, MEMSMITH_SERVER_MODEL, and the fallback keys.
+  return { ...raw, ...defaulted };
+}
 
-  const provider = resolveGenerationProviderName(process.env, fileSettings);
-  if (!provider) {
+export function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null {
+  const settings = readBootGenerationSettings();
+  const spec = resolveBootGenerationSpec(process.env, settings);
+  if (!spec) {
     logger.warn('SYSTEM', 'server: MEMSMITH_SERVER_PROVIDER is not a known provider; generation disabled', {
-      configured: (process.env.MEMSMITH_SERVER_PROVIDER ?? fileSettings.MEMSMITH_SERVER_PROVIDER ?? '') as string,
+      configured: (process.env.MEMSMITH_SERVER_PROVIDER ?? settings.MEMSMITH_SERVER_PROVIDER ?? '') as string,
     });
     return null;
   }
-  // Resolve the MODEL from settings too, not just the provider.
-  //
-  // instantiateServerGenerationProvider reads only process.env.MEMSMITH_SERVER_MODEL
-  // and otherwise falls back to a hardcoded per-provider default — for ollama
-  // that is llama3.1:8b, which produces materially worse observations (vague
-  // restatements, invented rationale) than the configured qwen2.5:14b. Ollama's
-  // model lives under its own key (MEMSMITH_OLLAMA_MODEL), which nothing here
-  // ever read, so the right model only arrived when some other path happened to
-  // export it into process.env first.
-  //
-  // Same settings-vs-env shape as the provider bug above: configured in one
-  // place, read from another, hardcoded default silently winning.
-  const modelFromSettings = provider === 'ollama'
-    ? (process.env.MEMSMITH_OLLAMA_MODEL
-        ?? asNonEmptyString(fileSettings.MEMSMITH_OLLAMA_MODEL)
-        ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL))
-    : (process.env.MEMSMITH_SERVER_MODEL ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL));
-
   try {
-    return instantiateServerGenerationProvider(provider, modelFromSettings);
+    return buildGenerationProvider(spec);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    // Surface the construction failure so operators can see why generation is
-    // disabled instead of silently getting a null provider.
-    logger.warn('SYSTEM', 'server: failed to construct generation provider; generation disabled', { provider }, err);
+    logger.warn('SYSTEM', 'server: failed to construct generation provider; generation disabled', { provider: spec.provider }, err);
     return null;
   }
 }
@@ -666,9 +671,7 @@ export function instantiateServerGenerationProvider(
     // Keyless by default — do NOT gate on an API key. A key is only used when
     // Ollama is fronted by an auth proxy.
     const opts: { apiKey?: string; model?: string; baseUrl?: string } = {
-      // qwen2.5:14b, matching the registry default: llama3.1:8b produced
-      // materially worse observations (measured 2.86 vs 3.90).
-      model: chosenModel ?? 'qwen2.5:14b',
+      model: chosenModel ?? OLLAMA_DEFAULT_MODEL,
     };
     if (apiKey) opts.apiKey = apiKey;
     if (baseUrl) opts.baseUrl = baseUrl;

@@ -2,15 +2,15 @@
 //
 // Session-start check that the local generation provider can actually run.
 //
-// A fresh install generates with Ollama by default. Without Ollama running, or
-// without the configured model pulled, every captured event fails generation and
-// nothing is ever remembered while the session looks healthy; the server's
-// health check only surfaces it as a stale backlog in the dashboard.
+// An install that generates with Ollama, but has no Ollama running or no model
+// pulled, fails generation for every captured event and remembers nothing while
+// the session looks healthy; the server's health check only surfaces it as a
+// stale backlog in the dashboard.
 
 import { resolveGenerationProviderName } from '../../server/runtime/resolve-generation-provider.js';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434/v1';
-const DEFAULT_OLLAMA_MODEL = 'qwen2.5:14b';
+const DEFAULT_OLLAMA_MODEL = 'gemma4:12b';
 const PROBE_TIMEOUT_MS = 1500;
 
 /** Provider and model as the server resolves them (dashboard > env > settings file > default). */

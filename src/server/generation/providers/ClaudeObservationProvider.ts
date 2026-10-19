@@ -14,12 +14,7 @@ import type {
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-// #2554 — the previous default `claude-3-5-sonnet-latest` is stale and 404s on
-// the current Anthropic Messages API. Align with the repo's canonical default
-// model (MEMSMITH_MODEL in src/ui/viewer/constants/settings.ts and the
-// installer's model list) so a server with no explicit MEMSMITH_SERVER_MODEL
-// generates against a valid model id instead of failing every job with a 404.
-export const DEFAULT_SERVER_CLAUDE_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_SERVER_CLAUDE_MODEL = 'claude-haiku-5-5';
 const DEFAULT_MODEL = DEFAULT_SERVER_CLAUDE_MODEL;
 
 export interface ClaudeObservationProviderOptions {

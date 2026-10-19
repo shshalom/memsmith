@@ -54,8 +54,9 @@ export const MARKETPLACE_SETUP_DIRECTIVE = [
   'MEMSMITH SETUP NOT FINISHED: MemSmith was installed from the Claude Code plugin marketplace, which copies',
   "the plugin but skips the installer's questions. Before other work, tell the user and finish setup here:",
   '1. Ask which generation provider turns sessions into memories:',
-  '   - Ollama (recommended): local and private, no API key; downloads a model of about 9 GB (qwen2.5:14b).',
-  '   - Claude, Gemini, or OpenRouter: needs an API key.',
+  '   - Claude Haiku 5.5 (recommended): needs an Anthropic API key; about $1 per 1,000 observations.',
+  '   - Ollama: local and private, no API key; downloads a model of about 8 GB (gemma4:12b).',
+  '   - Gemini or OpenRouter: needs an API key.',
   '2. For Ollama, ask whether to install or start Ollama and download the model now. Then run the command below',
   '   in the background; the download can take several minutes, and memory is paused until it finishes:',
   '   npx --yes memsmith@latest install --ide claude-code --provider ollama --setup-ollama',
@@ -66,5 +67,5 @@ export const MARKETPLACE_SETUP_DIRECTIVE = [
   '   in their own terminal, which prompts for the key.',
   '4. When the install command has finished, run `npx --yes memsmith@latest restart`, and tell the user to',
   '   restart Claude Code.',
-  'If the user wants to skip the questions, run the Ollama command without --setup-ollama to keep the defaults.',
+  'If the user wants to skip the questions, run the Ollama command without --setup-ollama.',
 ].join('\n');

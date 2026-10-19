@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import { checkGenerationReadiness, probeOllama, resolveOllamaTarget } from '../../../src/cli/handlers/generation-readiness.js';
 
-// A fresh install generates with Ollama by default; without Ollama or its model,
-// every captured event failed generation and nothing was ever remembered, with
-// no sign of it in the session (fresh-install rehearsal, 2026-10-07).
+// An install that generates with Ollama, but has no Ollama or no model, failed
+// generation for every captured event and remembered nothing, with no sign of
+// it in the session (fresh-install rehearsal, 2026-10-07).
 
 let server: ReturnType<typeof Bun.serve> | null = null;
 
@@ -21,30 +21,30 @@ afterEach(() => { server?.stop(true); server = null; });
 
 describe('checkGenerationReadiness', () => {
   it('reports nothing when Ollama has the configured model', async () => {
-    const url = fakeOllama(['qwen2.5:14b', 'llama3.1:8b']);
-    expect(await checkGenerationReadiness({ MEMSMITH_OLLAMA_URL: url }, {})).toBeNull();
+    const url = fakeOllama(['gemma4:12b', 'llama3.1:8b']);
+    expect(await checkGenerationReadiness({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_URL: url }, {})).toBeNull();
   });
 
   it('tells the user which model to pull when it is missing', async () => {
     const url = fakeOllama(['llama3.1:8b']);
-    const message = await checkGenerationReadiness({ MEMSMITH_OLLAMA_URL: url }, {});
-    expect(message).toContain('ollama pull qwen2.5:14b');
+    const message = await checkGenerationReadiness({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_URL: url }, {});
+    expect(message).toContain('ollama pull gemma4:12b');
   });
 
   it('tells the user to install and start Ollama when nothing is listening', async () => {
     const url = fakeOllama([]);
     server!.stop(true);
     server = null;
-    const message = await checkGenerationReadiness({ MEMSMITH_OLLAMA_URL: url }, {});
+    const message = await checkGenerationReadiness({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_URL: url }, {});
     expect(message).toContain('Ollama is not running');
     expect(message).toContain('https://ollama.com');
   });
 
   it('trusts the provider the server resolved over the settings file', async () => {
     // The dashboard stores a provider override on the server; the settings file
-    // still says nothing, so it alone would wrongly default to Ollama.
+    // says Ollama, so it alone would wrongly probe Ollama.
     let probed = false;
-    const message = await checkGenerationReadiness({}, {}, {
+    const message = await checkGenerationReadiness({ MEMSMITH_SERVER_PROVIDER: 'ollama' }, {}, {
       fetch: async () => { probed = true; return { ok: true, json: async () => ({ models: [] }) }; },
     }, { provider: 'claude' });
     expect(message).toBeNull();
@@ -71,7 +71,7 @@ describe('checkGenerationReadiness', () => {
 // so it must tell "nothing listening" apart from "model missing".
 describe('probeOllama', () => {
   it('distinguishes ready, model missing, and unreachable', async () => {
-    const url = fakeOllama(['qwen2.5:14b']);
+    const url = fakeOllama(['gemma4:12b']);
     const target = resolveOllamaTarget({ MEMSMITH_OLLAMA_URL: url }, {})!;
     expect(await probeOllama(target)).toBe('ready');
     expect(await probeOllama({ ...target, model: 'llama3.1:8b' })).toBe('model-missing');

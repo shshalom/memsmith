@@ -48,9 +48,8 @@ function resolveIntervalMs(): number {
  *   1. Resolves the server runtime context (URL/key/projectId) the same way
  *      the observation hook does — via resolveRuntimeContext — so the loop
  *      posts to the same server/project the events were recorded against.
- *   2. Resolves a generation provider from settings/env (same resolution
- *      order create-server-service.ts uses for the server runtime: env >
- *      settings.json > 'ollama' default).
+ *   2. Resolves a generation provider from settings/env the same way
+ *      create-server-service.ts does for the server runtime.
  *   3. Drains the queue via drainGenerationQueue, generating with
  *      generateOne and posting with ServerClient.addObservation.
  *
@@ -59,6 +58,8 @@ function resolveIntervalMs(): number {
  */
 export async function startGenerationLoop(options: StartGenerationLoopOptions = {}): Promise<void> {
   const intervalMs = options.intervalMs ?? resolveIntervalMs();
+  const { pinLegacyGenerationSettings } = await import('../../server/settings/pin-legacy-generation-settings.js');
+  pinLegacyGenerationSettings();
 
   const runPass = async (): Promise<void> => {
     try {
@@ -168,46 +169,22 @@ async function runOneDrainPass(): Promise<void> {
   }
 }
 
-/**
- * Resolve a generation provider the same way the server runtime does
- * (create-server-service.ts's buildServerGenerationProviderFromEnv):
- * env > settings.json > the registry default ('ollama'). Duplicated rather
- * than imported because that function is private to create-server-service.ts
- * and importing it would pull in the server's Postgres/Redis-heavy module
- * graph — exactly what this laptop-side loop must avoid.
- */
 async function resolveLaptopGenerationProvider() {
-  const { loadFromFileOnce } = await import('../../shared/hook-settings.js');
-  const { resolveGenerationProviderName } = await import('../../server/runtime/resolve-generation-provider.js');
-  const { instantiateServerGenerationProvider } = await import('../../server/runtime/create-server-service.js');
+  const { buildGenerationProvider, readBootGenerationSettings } = await import('../../server/runtime/create-server-service.js');
+  const { resolveBootGenerationSpec } = await import('../../server/runtime/resolve-generation-provider.js');
 
-  let fileSettings: Record<string, unknown> = {};
-  try {
-    fileSettings = loadFromFileOnce() as unknown as Record<string, unknown>;
-  } catch {
-    // Defaults still apply if settings are unreadable.
-  }
-
-  const providerName = resolveGenerationProviderName(process.env, fileSettings);
-  if (!providerName) return null;
-
-  const model = providerName === 'ollama'
-    ? (process.env.MEMSMITH_OLLAMA_MODEL ?? asNonEmptyString(fileSettings.MEMSMITH_OLLAMA_MODEL) ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL))
-    : (process.env.MEMSMITH_SERVER_MODEL ?? asNonEmptyString(fileSettings.MEMSMITH_SERVER_MODEL));
+  const spec = resolveBootGenerationSpec(process.env, readBootGenerationSettings());
+  if (!spec) return null;
 
   try {
-    return instantiateServerGenerationProvider(providerName, model);
+    return buildGenerationProvider(spec);
   } catch (error) {
     logger.warn(
       'SYSTEM',
       'generation loop: failed to construct generation provider; skipping pass',
-      { provider: providerName },
+      { provider: spec.provider },
       error instanceof Error ? error : new Error(String(error)),
     );
     return null;
   }
-}
-
-function asNonEmptyString(v: unknown): string | undefined {
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }

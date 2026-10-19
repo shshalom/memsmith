@@ -105,6 +105,8 @@ export class SettingsResolver {
 
   provider(teamId: string) { return this.str(teamId, 'provider'); }
   model(teamId: string) { return this.str(teamId, 'model'); }
+  fallback(teamId: string) { return this.str(teamId, 'fallback'); }
+  fallbackModel(teamId: string) { return this.str(teamId, 'fallbackModel'); }
   tieringEnabled(teamId: string) { return this.bool(teamId, 'tiering'); }
   searchHybridEnabled(teamId: string) { return this.bool(teamId, 'searchHybrid'); }
   async weights(teamId: string) {

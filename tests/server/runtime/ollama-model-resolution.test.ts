@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// instantiateServerGenerationProvider read the model from
-// process.env.MEMSMITH_SERVER_MODEL only, and otherwise fell back to a
-// hardcoded per-provider default. For ollama that default is llama3.1:8b —
-// which produces materially worse observations than the configured
-// qwen2.5:14b (vague restatements, invented rationale; see the comment at
-// settingKeys.ts and the measured 2.86 vs 3.90 quality gap).
-//
-// Ollama's model lives under its OWN key, MEMSMITH_OLLAMA_MODEL, which nothing
-// in this path ever read. The right model only arrived because some other code
-// path happened to export it into process.env first — luck, not design. On any
-// path without that export, memory would silently be distilled by the model the
-// project explicitly rejected.
-//
-// Same shape as the provider bug fixed earlier: configured in one key, read from
-// another, hardcoded default silently winning.
+// instantiateServerGenerationProvider once read the model from
+// process.env.MEMSMITH_SERVER_MODEL only, so an Ollama model configured in
+// settings was silently replaced by a hardcoded per-provider default (then
+// llama3.1:8b, which wrote materially worse observations). A model passed in
+// must always win, and the hardcoded default applies only when nothing is
+// configured anywhere.
 import { describe, it, expect } from 'bun:test';
 import { instantiateServerGenerationProvider } from '../../../src/server/runtime/create-server-service.js';
 
@@ -44,9 +35,7 @@ describe('ollama model resolution', () => {
     delete process.env.MEMSMITH_SERVER_MODEL;
     try {
       const p = instantiateServerGenerationProvider('ollama');
-      // The last-resort fallback is qwen, NOT llama3.1:8b — if it ever fires it
-      // must not silently downgrade the quality of stored memory.
-      expect(modelOf(p)).toBe('qwen2.5:14b');
+      expect(modelOf(p)).toBe('gemma4:12b');
     } finally {
       if (before !== undefined) process.env.MEMSMITH_SERVER_MODEL = before;
     }

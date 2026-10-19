@@ -130,7 +130,7 @@ export interface SettingsDefaults {
 
 export class SettingsDefaultsManager {
   private static readonly DEFAULTS: SettingsDefaults = {
-    MEMSMITH_MODEL: 'claude-haiku-4-5-20251001',
+    MEMSMITH_MODEL: 'claude-haiku-5-5',
     MEMSMITH_CONTEXT_OBSERVATIONS: '50',
     MEMSMITH_WORKER_PORT: String(38700 + ((process.getuid?.() ?? 77) % 100)),
     MEMSMITH_WORKER_HOST: '127.0.0.1',
@@ -145,7 +145,7 @@ export class SettingsDefaultsManager {
     MEMSMITH_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
     MEMSMITH_OPENROUTER_APP_NAME: 'memsmith',  // App name for OpenRouter analytics
     MEMSMITH_OLLAMA_URL: 'http://localhost:11434/v1',  // Ollama local base URL (OpenAI-compatible)
-    MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b',  // Default Ollama model
+    MEMSMITH_OLLAMA_MODEL: 'gemma4:12b',
     // An isolated install's settings must describe ITSELF, not the developer's
     // home. This baked join(homedir(), '.memsmith') into every settings file it
     // wrote — including one written INTO a throwaway data dir. Because

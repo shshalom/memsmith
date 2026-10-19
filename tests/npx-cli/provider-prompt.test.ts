@@ -48,10 +48,10 @@ describe('currentGenerationSelection', () => {
   });
 
   it('a reinstall keeps a custom Ollama model saved under either model key', () => {
-    const fromOllamaKey = currentGenerationSelection({ MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
+    const fromOllamaKey = currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
     expect(fromOllamaKey.model).toBe('llama3.3:70b');
     expect(providerSettingsUpdates('ollama', { current: fromOllamaKey }).MEMSMITH_SERVER_MODEL).toBe('llama3.3:70b');
-    const fromServerKey = currentGenerationSelection({ MEMSMITH_SERVER_MODEL: 'mistral:7b', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
+    const fromServerKey = currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'mistral:7b', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
     expect(fromServerKey.model).toBe('mistral:7b');
   });
 });

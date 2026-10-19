@@ -16,7 +16,7 @@ export function getOllamaConfig(): OllamaConfig {
   // Non-empty dummy key: the OpenAI-compat base class throws on falsy apiKey; Ollama ignores it.
   const apiKey = 'ollama-local';
   const model = (typeof settings.MEMSMITH_OLLAMA_MODEL === 'string' && settings.MEMSMITH_OLLAMA_MODEL.trim())
-    ? settings.MEMSMITH_OLLAMA_MODEL : 'qwen2.5:14b';
+    ? settings.MEMSMITH_OLLAMA_MODEL : 'gemma4:12b';
   const base = settings.MEMSMITH_OLLAMA_URL || process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
   const apiUrl = base.replace(/\/+$/, '').endsWith('/chat/completions')
     ? base

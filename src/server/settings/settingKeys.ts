@@ -22,16 +22,22 @@ export interface SettingKey {
 }
 
 export const SETTING_KEYS: readonly SettingKey[] = [
-  { key: 'provider', type: 'enum', env: 'MEMSMITH_SERVER_PROVIDER', default: 'ollama',
+  { key: 'provider', type: 'enum', env: 'MEMSMITH_SERVER_PROVIDER', default: 'claude',
     boot: false, options: ['ollama', 'claude', 'gemini', 'openrouter'],
     label: 'Generation model', description: "Who distills your team's memory. Switching applies live.",
-    help: 'The AI provider that turns raw session activity into stored observations. "ollama" runs a local model on your machine (private, free, no API key); "claude"/"gemini"/"openrouter" call a hosted model (higher quality, needs an API key, costs tokens). Changing this takes effect on the next observation — no restart.' },
-  // qwen2.5:14b, not llama3.1:8b — the 8b model produced materially worse
-  // observations (vague restatements, invented rationale) on the same input.
-  { key: 'model', type: 'string', env: 'MEMSMITH_SERVER_MODEL', default: 'qwen2.5:14b',
+    help: 'The AI provider that turns raw session activity into stored observations. "claude" (the default) calls Claude Haiku 5.5, which needs an Anthropic API key and costs tokens; "gemini" and "openrouter" also call a hosted model with an API key. "ollama" runs a local model on your machine (private, free, no API key). Changing this takes effect on the next observation, with no restart.' },
+  { key: 'model', type: 'string', env: 'MEMSMITH_SERVER_MODEL', default: 'claude-haiku-5-5',
     boot: false, label: 'Model name',
     description: 'The specific model the provider runs.',
-    help: 'The exact model the chosen provider uses to write observations (e.g. "qwen2.5:14b" for ollama, "claude-haiku-4-5" for claude). Larger models write sharper, more accurate memory but are slower and — for hosted providers — more expensive per observation.' },
+    help: 'The exact model the chosen provider uses to write observations (for example, "claude-haiku-5-5" for claude or "gemma4:12b" for ollama). Larger models write sharper, more accurate memory but are slower and, for hosted providers, more expensive per observation.' },
+  { key: 'fallback', type: 'enum', env: 'MEMSMITH_SERVER_FALLBACK', default: 'ollama',
+    boot: false, options: ['ollama', 'none'],
+    label: 'Local backup', description: 'Where a job goes when the hosted provider fails.',
+    help: 'When a hosted provider fails (an outage, a revoked key, or no credit), "ollama" sends the same job to a local Ollama model so memory keeps being written. After a failure, jobs go to the local model first for 5 minutes before the hosted provider is tried again. "none" turns the backup off, so failed jobs retry on the hosted provider only. The backup never sends a local job to the cloud.' },
+  { key: 'fallbackModel', type: 'string', env: 'MEMSMITH_SERVER_FALLBACK_MODEL', default: 'gemma4:12b',
+    boot: false, label: 'Backup model',
+    description: 'The Ollama model the local backup runs.',
+    help: 'The Ollama model that writes observations while the hosted provider is unavailable. The model must already be pulled into Ollama (for example, with "ollama pull gemma4:12b"); if it is missing, the backup fails and the job retries on the hosted provider.' },
   { key: 'skipAgentPlumbing', type: 'boolean', env: 'MEMSMITH_SKIP_AGENT_PLUMBING', default: true,
     boot: false, label: 'Skip agent tooling',
     description: "Don't record the assistant operating its own tools.",

@@ -21,12 +21,12 @@ describe('provider prompt choices', () => {
 });
 
 describe('initialGenerationProvider', () => {
-  it('defaults to Ollama on a fresh install', () => {
-    expect(initialGenerationProvider({}, {})).toBe('ollama');
+  it('defaults to Claude on a fresh install', () => {
+    expect(initialGenerationProvider({}, {})).toBe('claude');
   });
 
   it('ignores the legacy MEMSMITH_PROVIDER key that generation never read', () => {
-    expect(initialGenerationProvider({ MEMSMITH_PROVIDER: 'claude' }, {})).toBe('ollama');
+    expect(initialGenerationProvider({ MEMSMITH_PROVIDER: 'gemini' }, {})).toBe('claude');
   });
 
   it('starts from the provider generation actually uses', () => {
@@ -34,8 +34,8 @@ describe('initialGenerationProvider', () => {
     expect(initialGenerationProvider({ MEMSMITH_SERVER_PROVIDER: 'gemini' }, { MEMSMITH_SERVER_PROVIDER: 'openrouter' })).toBe('openrouter');
   });
 
-  it('falls back to Ollama when the saved provider is not a known one', () => {
-    expect(initialGenerationProvider({ MEMSMITH_SERVER_PROVIDER: 'gpt' }, {})).toBe('ollama');
+  it('falls back to Claude when the saved provider is not a known one', () => {
+    expect(initialGenerationProvider({ MEMSMITH_SERVER_PROVIDER: 'gpt' }, {})).toBe('claude');
   });
 });
 

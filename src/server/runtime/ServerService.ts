@@ -23,6 +23,7 @@ import { ServerV1PostgresRoutes } from '../routes/v1/ServerV1PostgresRoutes.js';
 import { setTrackedViewResolver } from '../middleware/postgres-auth.js';
 import { SettingsStore } from '../settings/SettingsStore.js';
 import { SettingsResolver } from '../settings/SettingsResolver.js';
+import { pinLegacyGenerationSettings } from '../settings/pin-legacy-generation-settings.js';
 import { GenerationProviderHolder } from '../generation/GenerationProviderHolder.js';
 import { SessionsObservationsAdapter } from '../compat/SessionsObservationsAdapter.js';
 import { SessionsSummarizeAdapter } from '../compat/SessionsSummarizeAdapter.js';
@@ -304,10 +305,9 @@ export class ServerService {
       },
     });
     server.registerRoutes(new ServerRuntimeInfoRoutes(this.graph));
+    pinLegacyGenerationSettings();
     const settingsStore = new SettingsStore(this.graph.postgres.pool);
     const settingsResolver = new SettingsResolver(settingsStore);
-    // Task 8: build a GenerationProviderHolder from the settings resolver so
-    // POST /v1/record-intent can resolve the live provider per request.
     const generationProviderHolder = new GenerationProviderHolder(settingsResolver);
     // ONE proxy instance, shared by the /v1 and /dashboard route trees. A joined
     // project's reads span both — the metrics tile is GET /dashboard/metrics, the

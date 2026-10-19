@@ -1,23 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// A fresh local install never generated a single observation. The setting
-// registry declares the generation provider's default as 'ollama' — "runs a
-// local model on your machine (private, free, no API key)" — but the boot path
-// read process.env.MEMSMITH_SERVER_PROVIDER and returned null when empty.
-// MemSmith's settings live in ~/.memsmith/settings.json, not the process
-// environment, so the declared default never applied: generation stayed
-// disabled and every job sat queued forever unless the operator hand-exported
-// an env var.
-//
-// This is the same class of defect as three others found on 2026-07-27 —
-// configuration written to settings.json but read from process.env.
+// A fresh install once generated nothing: the boot path read only
+// process.env.MEMSMITH_SERVER_PROVIDER, while MemSmith's settings live in
+// ~/.memsmith/settings.json, so the registry default never applied and every
+// job sat queued forever.
 import { describe, it, expect } from 'bun:test';
-import { resolveGenerationProviderName } from '../../../src/server/runtime/resolve-generation-provider.js';
+import {
+  resolveBootGenerationSpec,
+  resolveGenerationProviderName,
+} from '../../../src/server/runtime/resolve-generation-provider.js';
 
 describe('generation provider resolution', () => {
   it('falls back to the registry default when nothing is configured', () => {
     // The bug: this returned '' / null, so a fresh install never generated.
-    expect(resolveGenerationProviderName({}, {})).toBe('ollama');
+    expect(resolveGenerationProviderName({}, {})).toBe('claude');
   });
 
   it('prefers an explicit env var (deployments set it that way)', () => {
@@ -36,9 +32,9 @@ describe('generation provider resolution', () => {
   });
 
   it('treats empty or whitespace-only values as unset', () => {
-    expect(resolveGenerationProviderName({ MEMSMITH_SERVER_PROVIDER: '' }, {})).toBe('ollama');
-    expect(resolveGenerationProviderName({ MEMSMITH_SERVER_PROVIDER: '   ' }, {})).toBe('ollama');
-    expect(resolveGenerationProviderName({}, { MEMSMITH_SERVER_PROVIDER: '' })).toBe('ollama');
+    expect(resolveGenerationProviderName({ MEMSMITH_SERVER_PROVIDER: '' }, {})).toBe('claude');
+    expect(resolveGenerationProviderName({ MEMSMITH_SERVER_PROVIDER: '   ' }, {})).toBe('claude');
+    expect(resolveGenerationProviderName({}, { MEMSMITH_SERVER_PROVIDER: '' })).toBe('claude');
   });
 
   it('normalises case so "Ollama" is not treated as a different provider', () => {
@@ -49,5 +45,40 @@ describe('generation provider resolution', () => {
     // Silently falling back would hide a typo and generate with the wrong
     // provider; returning null lets the caller log and disable explicitly.
     expect(resolveGenerationProviderName({ MEMSMITH_SERVER_PROVIDER: 'not-a-provider' }, {})).toBeNull();
+  });
+});
+
+describe('boot generation spec', () => {
+  it('defaults to Claude with an Ollama gemma4:12b backup', () => {
+    expect(resolveBootGenerationSpec({}, {})).toEqual({
+      provider: 'claude',
+      fallback: 'ollama',
+      fallbackModel: 'gemma4:12b',
+    });
+  });
+
+  it('a pinned legacy install keeps its model even when the Ollama default changed', () => {
+    const settings = {
+      MEMSMITH_SERVER_PROVIDER: 'ollama',
+      MEMSMITH_SERVER_MODEL: 'qwen2.5:14b',
+      MEMSMITH_OLLAMA_MODEL: 'gemma4:12b',
+    };
+    expect(resolveBootGenerationSpec({}, settings)?.model).toBe('qwen2.5:14b');
+  });
+
+  it('reads the fallback settings, with env winning', () => {
+    const spec = resolveBootGenerationSpec(
+      { MEMSMITH_SERVER_FALLBACK: 'NONE' },
+      { MEMSMITH_SERVER_FALLBACK: 'ollama', MEMSMITH_SERVER_FALLBACK_MODEL: 'qwen2.5:14b' },
+    );
+    expect(spec).toMatchObject({ fallback: 'none', fallbackModel: 'qwen2.5:14b' });
+  });
+
+  it('ignores an unknown fallback value', () => {
+    expect(resolveBootGenerationSpec({}, { MEMSMITH_SERVER_FALLBACK: 'cloud' })?.fallback).toBe('ollama');
+  });
+
+  it('returns null for an unknown provider', () => {
+    expect(resolveBootGenerationSpec({ MEMSMITH_SERVER_PROVIDER: 'gpt' }, {})).toBeNull();
   });
 });
