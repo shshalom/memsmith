@@ -762,7 +762,7 @@ async function runNpmInstallInMarketplace(summary: InstallSummary): Promise<void
   }, summary);
 }
 
-function mergeSettings(updates: Record<string, string>): boolean {
+export function mergeSettings(updates: Record<string, string>): boolean {
   const path = USER_SETTINGS_PATH;
   try {
     let current: Record<string, unknown> = {};
@@ -919,7 +919,7 @@ async function bootstrapAndPersistServerApiKey(): Promise<void> {
   );
 }
 
-function readUserSettings(): Record<string, unknown> {
+export function readUserSettings(): Record<string, unknown> {
   try {
     return readFlatSettings(USER_SETTINGS_PATH) ?? {};
   } catch {
@@ -941,7 +941,7 @@ function cancelInstall(): never {
 }
 
 /** Returns false when the user cancels, leaving the existing key untouched. */
-async function promptAnthropicApiKey(): Promise<boolean> {
+export async function promptAnthropicApiKey(): Promise<boolean> {
   const existing = loadMemSmithEnv().ANTHROPIC_API_KEY?.trim() ?? '';
   if (existing) {
     const choice = await p.select<'keep' | 'replace'>({
@@ -981,7 +981,7 @@ async function promptClaudeModel(current: string | undefined): Promise<string> {
   return result;
 }
 
-async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, modelOverride?: string, localBackup = false): Promise<void> {
+export async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, modelOverride?: string, localBackup = false): Promise<void> {
   const resolvedTarget = resolveOllamaTarget(readUserSettings(), process.env);
   const target = resolvedTarget && modelOverride ? { ...resolvedTarget, model: modelOverride } : resolvedTarget;
   if (!target) {

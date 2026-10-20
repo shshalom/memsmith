@@ -17,13 +17,28 @@ import {
   writeJsonFileAtomic,
 } from '../utils/paths.js';
 import { defaultLifecycleDeps, resolveServerAddress, runLifecycle } from './lifecycle.js';
-import { copyPluginToCache, copyPluginToMarketplace, installMarketplaceDependencies } from './install.js';
+import * as p from '@clack/prompts';
+import { legacyGenerationPins } from '../../server/settings/pin-legacy-generation-settings.js';
+import { loadMemSmithEnv } from '../../shared/EnvManager.js';
+import { createInstallSummary } from '../install/error-reporter.js';
+import {
+  copyPluginToCache,
+  copyPluginToMarketplace,
+  installMarketplaceDependencies,
+  mergeSettings,
+  promptAnthropicApiKey,
+  readUserSettings,
+  setupOllamaForInstall,
+} from './install.js';
 
 const PLUGIN_KEY = 'memsmith@shshalom';
 const REEXEC_ENV = 'MEMSMITH_UPDATE_REEXEC';
 const USAGE = 'Usage: memsmith update [--force] [--no-self-update]';
 const KNOWN_FLAGS = new Set(['--force', '--no-self-update']);
 export const NPX_UNAVAILABLE = 127;
+const SWITCH_OFFERED = 'MEMSMITH_GENERATION_SWITCH_OFFERED';
+const SWITCH_QUESTION = 'Switch memory generation to Claude Haiku 5.5, with your local model as the backup? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
+const SWITCH_TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';
 const STOPPED_MARKER = () => join(paths.dataDir(), '.update-stopped-server');
 
 export type ServerState =
@@ -48,6 +63,11 @@ export interface UpdateDeps {
   startServer(): Promise<number>;
   out(line: string): void;
   err(line: string): void;
+  isInteractive?(): boolean;
+  confirm?(message: string): Promise<boolean>;
+  switchToHaiku?(): Promise<void>;
+  readSettings?(): Record<string, unknown>;
+  saveSettings?(updates: Record<string, string>): boolean;
 }
 
 function versionParts(version: string): { core: number[]; prerelease: boolean } {
@@ -232,7 +252,40 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
   d.out(`  Plugin: ${target}`);
   d.out(`  ${serverLine}`);
   if (!nothingChanged) d.out('Restart Claude Code to load the new plugin and its memory tools.');
+  await offerHaikuSwitch(d);
   return 0;
+}
+
+async function offerHaikuSwitch(d: UpdateDeps): Promise<void> {
+  if (!d.readSettings || !d.saveSettings) return;
+  try {
+    const settings = d.readSettings();
+    const configured = typeof settings.MEMSMITH_SERVER_PROVIDER === 'string' ? settings.MEMSMITH_SERVER_PROVIDER.trim() : '';
+    const provider = configured || legacyGenerationPins(settings, process.env)?.MEMSMITH_SERVER_PROVIDER;
+    if (provider !== 'ollama' || settings[SWITCH_OFFERED]) return;
+    if (!d.isInteractive?.() || !d.confirm || !d.switchToHaiku) {
+      d.out(SWITCH_TIP);
+      return;
+    }
+    const accepted = await d.confirm(SWITCH_QUESTION);
+    d.saveSettings({ [SWITCH_OFFERED]: '1' });
+    if (accepted) await d.switchToHaiku();
+  } catch (error) {
+    d.err(`Couldn't switch memory generation to Claude Haiku 5.5: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function switchToHaiku(): Promise<void> {
+  if (!loadMemSmithEnv().ANTHROPIC_API_KEY?.trim() && !(await promptAnthropicApiKey())) return;
+  if (!mergeSettings({
+    MEMSMITH_SERVER_PROVIDER: 'claude',
+    MEMSMITH_SERVER_MODEL: 'claude-haiku-5-5',
+    MEMSMITH_SERVER_FALLBACK: 'ollama',
+    MEMSMITH_SERVER_FALLBACK_MODEL: 'gemma4:12b',
+  })) {
+    throw new Error('Could not write ~/.memsmith/settings.json.');
+  }
+  await setupOllamaForInstall({}, createInstallSummary(), 'gemma4:12b', true);
 }
 
 const NPM_NETWORK_CONFIG = ['npm_config_proxy', 'npm_config_https_proxy', 'npm_config_noproxy', 'npm_config_registry'];
@@ -333,5 +386,10 @@ export function defaultUpdateDeps(): UpdateDeps {
     startServer: () => runLifecycle('start', [], quiet),
     out: (line) => console.log(line),
     err: (line) => console.error(styleText('yellow', line)),
+    isInteractive: () => process.stdin.isTTY === true && process.stdout.isTTY === true,
+    confirm: async (message) => (await p.confirm({ message, initialValue: true })) === true,
+    switchToHaiku,
+    readSettings: readUserSettings,
+    saveSettings: mergeSettings,
   };
 }

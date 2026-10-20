@@ -204,6 +204,86 @@ describe('memsmith update', () => {
     expect(f.calls).not.toContain('latest');
     expect(f.calls).toContain('install:1.1.0');
   });
+
+  describe('Haiku switch offer', () => {
+    const QUESTION = 'Switch memory generation to Claude Haiku 5.5, with your local model as the backup? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
+    const TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';
+
+    function withOffer(settings: Record<string, unknown>, o: { interactive?: boolean; answer?: boolean } = {}) {
+      const f = fake({ installed: '1.1.0', cacheReady: true, registryChanged: 0 });
+      const store = { ...settings };
+      const prompts: string[] = [];
+      const switches: number[] = [];
+      f.deps.isInteractive = () => o.interactive ?? true;
+      f.deps.confirm = async (message) => { prompts.push(message); return o.answer ?? true; };
+      f.deps.switchToHaiku = async () => { switches.push(1); };
+      f.deps.readSettings = () => ({ ...store });
+      f.deps.saveSettings = (updates) => { Object.assign(store, updates); return true; };
+      return { ...f, store, prompts, switches };
+    }
+
+    it('offers the switch once on an interactive update of an ollama install', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama' });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.prompts).toEqual([QUESTION]);
+      expect(f.switches).toHaveLength(1);
+      expect(f.store.MEMSMITH_GENERATION_SWITCH_OFFERED).toBe('1');
+    });
+
+    it('offers an older install that never set a provider', async () => {
+      const f = withOffer({ MEMSMITH_RUNTIME: 'local' });
+      await runUpdate([], f.deps);
+      expect(f.prompts).toEqual([QUESTION]);
+    });
+
+    it('does not offer again after an answer', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama' }, { answer: false });
+      await runUpdate([], f.deps);
+      await runUpdate([], f.deps);
+      expect(f.prompts).toHaveLength(1);
+      expect(f.switches).toHaveLength(0);
+    });
+
+    it('does not offer on a claude install', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'claude' });
+      await runUpdate([], f.deps);
+      expect(f.prompts).toHaveLength(0);
+      expect(f.text()).not.toContain(TIP);
+    });
+
+    it('non-interactive update prints the tip and never prompts', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama' }, { interactive: false });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.prompts).toHaveLength(0);
+      expect(f.switches).toHaveLength(0);
+      expect(f.out.filter(line => line === TIP)).toHaveLength(1);
+      expect(f.store.MEMSMITH_GENERATION_SWITCH_OFFERED).toBeUndefined();
+    });
+
+    it('declining changes no generation settings', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'qwen2.5:14b' }, { answer: false });
+      await runUpdate([], f.deps);
+      expect(f.store).toEqual({
+        MEMSMITH_SERVER_PROVIDER: 'ollama',
+        MEMSMITH_SERVER_MODEL: 'qwen2.5:14b',
+        MEMSMITH_GENERATION_SWITCH_OFFERED: '1',
+      });
+    });
+
+    it('reports a failed switch without failing the update', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama' });
+      f.deps.switchToHaiku = async () => { throw new Error('disk full'); };
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.err.join('\n')).toContain('disk full');
+    });
+
+    it('does not offer when the update itself fails', async () => {
+      const f = withOffer({ MEMSMITH_SERVER_PROVIDER: 'ollama' });
+      f.deps.installPluginFiles = async () => { throw new Error('boom'); };
+      expect(await runUpdate(['--force'], f.deps)).toBe(1);
+      expect(f.prompts).toHaveLength(0);
+    });
+  });
 });
 
 describe('isNewerVersion', () => {
