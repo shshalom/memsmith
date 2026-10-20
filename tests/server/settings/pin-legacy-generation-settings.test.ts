@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   legacyGenerationPins,
   pinLegacyGenerationSettings,
@@ -93,5 +93,48 @@ describe('pinLegacyGenerationSettings', () => {
     writeFileSync(path, '{not json');
     expect(pinLegacyGenerationSettings({ path, env: {} })).toBeNull();
     expect(readFileSync(path, 'utf8')).toBe('{not json');
+  });
+});
+
+// USER_SETTINGS_PATH and loadFromFileOnce are frozen per process, so the real
+// boot order runs in a child process with its own empty data dir.
+describe('boot order on a fresh machine', () => {
+  const root = resolve(import.meta.dir, '../../..');
+
+  function runBoot(dataDir: string) {
+    const script = `
+      const { pinLegacyGenerationSettings } = await import(${JSON.stringify(join(root, 'src/server/settings/pin-legacy-generation-settings.ts'))});
+      const { readBootGenerationSettings } = await import(${JSON.stringify(join(root, 'src/server/runtime/create-server-service.ts'))});
+      const first = pinLegacyGenerationSettings();
+      readBootGenerationSettings();
+      const second = pinLegacyGenerationSettings();
+      console.log(JSON.stringify({ first, second }));
+    `;
+    const env: Record<string, string> = { ...(process.env as Record<string, string>), MEMSMITH_DATA_DIR: dataDir };
+    delete env.MEMSMITH_SERVER_PROVIDER;
+    const proc = Bun.spawnSync([process.execPath, '-e', script], { cwd: root, env, stdout: 'pipe', stderr: 'pipe' });
+    const out = proc.stdout.toString().trim().split('\n').pop() ?? '';
+    expect(proc.exitCode).toBe(0);
+    return JSON.parse(out) as { first: unknown; second: unknown };
+  }
+
+  it('pin, then the boot settings read, then pin again leaves a fresh machine unpinned', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ms-fresh-'));
+    try {
+      expect(runBoot(dataDir)).toEqual({ first: null, second: null });
+      expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8')).MEMSMITH_SERVER_PROVIDER).toBe('claude');
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('a settings file written by an older version is still pinned on the same boot path', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ms-legacy-'));
+    try {
+      writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({ MEMSMITH_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b' }));
+      expect(runBoot(dataDir).first).toEqual({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'qwen2.5:14b' });
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

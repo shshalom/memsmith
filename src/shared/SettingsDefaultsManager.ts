@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { HOOK_TIMEOUTS, getTimeout } from './hook-constants.js';
+import { DEFAULT_GENERATION_PROVIDER } from '../server/runtime/resolve-generation-provider.js';
 
 /**
  * settings.json is credential-bearing: MEMSMITH_SERVER_API_KEY,
@@ -277,7 +278,10 @@ export class SettingsDefaultsManager {
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true, mode: SETTINGS_DIR_MODE });
           }
-          writeFileSync(settingsPath, JSON.stringify(defaults, null, 2), {
+          // A file created now is never a legacy install. Recording the provider
+          // keeps pin-legacy-generation-settings from pinning it to Ollama.
+          const created = { ...defaults, MEMSMITH_SERVER_PROVIDER: DEFAULT_GENERATION_PROVIDER };
+          writeFileSync(settingsPath, JSON.stringify(created, null, 2), {
             encoding: 'utf-8',
             mode: SETTINGS_FILE_MODE,
           });
