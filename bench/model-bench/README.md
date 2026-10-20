@@ -25,8 +25,6 @@ The header of `bench/model-bench/bench.ts` documents the environment options, in
 - A blind rubric judge scores each observation. The judge doesn't see which model wrote it.
 - A model counts as **Usable** on an event when it correctly skips the event or writes an observation that scores 3.5 or higher.
 
-Corpus: 10 synthetic + 40 real events. Local num_ctx 20480.
-
 ## Results
 
 ### Judge: anthropic:claude-opus-5-5
@@ -41,7 +39,7 @@ Corpus: 10 synthetic + 40 real events. Local num_ctx 20480.
 
 ### Cross-check judge: ollama:qwen3.6:27b
 
-A non-Claude local judge scores the same outputs. Claude Haiku 5.5 and Gemma 4 rank first, and the two Qwen models rank last.
+A non-Claude local judge scores the same outputs. Claude Haiku 5.5 ranks first, and the two Qwen models rank last.
 
 | Model | Usable | Quality (1-5) | Real-event quality | Faithful | Written | Skips | Bad skips | Parse fail | Errors | p50 latency (s) | p95 latency (s) | RAM (GB) | Disk (GB) | USD per 1k events |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -53,7 +51,7 @@ A non-Claude local judge scores the same outputs. Claude Haiku 5.5 and Gemma 4 r
 
 ## Caveats
 
-- The primary judge is from the Claude family. A non-Claude local judge cross-checked the results. The two judges agree on the tiers but swap the order of the two lowest models.
+- The primary judge is from the Claude family, so a non-Claude local judge cross-checked the results. Both judges put Claude Haiku 5.5 first and the two Qwen models last. They disagree on the middle: the Claude judge ranks Claude Haiku 4.5 above gemma4:12b, and the local judge ranks gemma4:12b above Claude Haiku 4.5.
 - Local latency was measured under contention from the live MemSmith runtime and other work, so treat local latency as an upper bound.
-- Gemma 4 RAM comes from the wired-memory delta, because Ollama's `/api/ps` under-reports it.
+- The Gemma 4 RAM figures were measured by hand from the wired-memory delta, because Ollama's `/api/ps` under-reports Gemma 4. Each result file in `results/gen/*.json` records the measurement method as `residentSource`. The `results/` directory is gitignored; running the bench produces it locally.
 - The real-event corpus is gitignored because it holds session data. You must sample your own with `sample-events.ts`, so your numbers differ.

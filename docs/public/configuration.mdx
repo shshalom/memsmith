@@ -18,7 +18,7 @@ The generation provider turns captured session activity into memories. The defau
 | `MEMSMITH_SERVER_PROVIDER` | `claude` | Generation provider: `ollama`, `claude`, `gemini`, or `openrouter`. |
 | `MEMSMITH_SERVER_MODEL` | `claude-haiku-5-5` | Model that the provider runs. Set a model that belongs to the provider, for example `gemma4:12b` for `ollama`. |
 | `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL. The provider calls Ollama's native `/api/chat` endpoint at the host of this URL. |
-| `MEMSMITH_OLLAMA_MODEL` | `gemma4:12b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. |
+| `MEMSMITH_OLLAMA_MODEL` | `gemma4:12b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. With the `ollama` provider, a `MEMSMITH_SERVER_MODEL` that you set wins over this value. |
 | `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
 | `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
 | `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
@@ -27,7 +27,9 @@ The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `
 
 For each API key, a MemSmith variable in the environment (`MEMSMITH_ANTHROPIC_API_KEY`, `MEMSMITH_GEMINI_API_KEY`, `MEMSMITH_OPENROUTER_API_KEY`) wins over the saved key, and the saved key wins over a generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`).
 
-Existing installs keep their provider. When the server starts and the settings file has no `MEMSMITH_SERVER_PROVIDER`, MemSmith pins the install to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b` if unset). `memsmith update` offers the switch to Claude Haiku 5.5 once, in an interactive terminal only.
+A shell `ANTHROPIC_API_KEY` alone doesn't turn on Claude generation, because it can come from an unrelated project. MemSmith uses it only when you choose the provider with the `MEMSMITH_SERVER_PROVIDER` environment variable or on the dashboard **Settings** tab. To use Claude otherwise, save the key with `npx memsmith install` or set `MEMSMITH_ANTHROPIC_API_KEY`.
+
+Existing installs keep their provider. When the server starts and the settings file has no `MEMSMITH_SERVER_PROVIDER`, MemSmith pins the install to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b` if unset). If your install runs Ollama, `memsmith update` offers the switch to Claude Haiku 5.5 with a local `gemma4:12b` backup once, in an interactive terminal. A non-interactive update prints a tip instead. Installs that already use another provider see no offer.
 
 The Ollama provider uses a fixed context of 20,480 tokens and turns thinking off. Without a fixed context, Ollama sizes the context itself, up to 256k tokens for Gemma 4, which multiplies RAM use. `gemma4:12b` needs an 8 GB download and about 9.7 GB of RAM while loaded.
 

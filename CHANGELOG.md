@@ -14,13 +14,14 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 - The default Ollama model is now `gemma4:12b` (8 GB download, about 9.7 GB of RAM while loaded).
 - The Ollama provider uses Ollama's native `/api/chat` with a fixed 20,480-token context and thinking off. Before, Ollama sized the context itself, up to 256k tokens for Gemma 4, which multiplied RAM use. The record-intent backstop and the import classifier use the same call.
 - The installer lists Claude Haiku 5.5 first as the recommended choice.
-- Existing installs keep their provider. At server start, an install whose settings file has no `MEMSMITH_SERVER_PROVIDER` is pinned to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b`).
+- Existing installs keep their provider. At server start, an install whose settings file has no `MEMSMITH_SERVER_PROVIDER` is pinned to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b`). An Ollama install with no `MEMSMITH_SERVER_MODEL` is pinned to the same model.
+- A shell `ANTHROPIC_API_KEY` alone no longer turns on Claude generation. MemSmith uses it only when you choose the provider with the `MEMSMITH_SERVER_PROVIDER` environment variable or on the dashboard. Otherwise, save the key with `npx memsmith install` or set `MEMSMITH_ANTHROPIC_API_KEY`.
 
 ### Added
 
 - Automatic failover to local Ollama. On any Claude error, the same job runs on the backup. After a failure, jobs go to the backup first for 5 minutes, and with no Anthropic key MemSmith uses the backup only. Failover never goes from a local model to a cloud one. Configure it with `MEMSMITH_SERVER_FALLBACK` (`ollama` or `none`) and `MEMSMITH_SERVER_FALLBACK_MODEL` (default `gemma4:12b`).
 - The installer asks "Install a local backup for outages? (8 GB)" after you choose Claude Haiku 5.5. The new `--local-backup` flag answers it in non-interactive installs.
-- `memsmith update` offers the switch to Claude Haiku 5.5 once, in an interactive terminal only.
+- If your install runs Ollama, `memsmith update` offers the switch to Claude Haiku 5.5 with a local `gemma4:12b` backup (8 GB download) once, in an interactive terminal. It asks before the download starts. A non-interactive update prints a tip instead.
 - A model benchmark in `bench/model-bench/` that scores generation models on synthetic and real events.
 
 ### Fixed

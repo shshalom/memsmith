@@ -377,7 +377,7 @@ Behaviour is pinned in `tests/server/convert/derive-server-url-production.test.t
 | `MEMSMITH_REDIS_URL` | — | Valkey/Redis URL for BullMQ (required with bullmq) |
 | `MEMSMITH_GENERATION_DISABLED` | `false` | Set `true` on HTTP task; set `false` (or omit) on worker task |
 | `MEMSMITH_SERVER_PROVIDER` | — | `claude`, `gemini`, `openrouter`, or `ollama` (local, keyless) |
-| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL (provider=ollama) |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL (provider=ollama). MemSmith calls Ollama's native `/api/chat` endpoint under it. |
 | `MEMSMITH_OLLAMA_API_KEY` | — | Optional; only when Ollama is behind an auth proxy |
 | `MEMSMITH_REFORMAT_RETRIES` | `1` | Bounded (0–3) re-prompts on malformed generation output; `0` disables. Applies to all providers. |
 | `ANTHROPIC_API_KEY` | — | Worker only (when provider=claude) |
