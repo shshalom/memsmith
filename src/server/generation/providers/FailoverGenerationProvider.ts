@@ -31,6 +31,10 @@ export class FailoverGenerationProvider implements ServerGenerationProvider {
     this.providerLabel = (opts.primary ?? opts.fallback).providerLabel;
   }
 
+  get hasPrimary(): boolean {
+    return this.primary !== null;
+  }
+
   async generate(
     context: ServerGenerationContext,
     signal?: AbortSignal,

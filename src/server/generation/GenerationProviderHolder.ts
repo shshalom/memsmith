@@ -4,6 +4,7 @@ import { buildGenerationProvider } from '../runtime/create-server-service.js';
 import type { GenerationProviderSpec, ServerGenerationProvider } from '../runtime/create-server-service.js';
 import { DEFAULT_GENERATION_PROVIDER, explicitModel, resolveOllamaModel } from '../runtime/resolve-generation-provider.js';
 import { loadGenerationConfigSources } from '../runtime/generation-credentials.js';
+import { FailoverGenerationProvider } from './providers/FailoverGenerationProvider.js';
 import { logger } from '../../utils/logger.js';
 
 type Build = (spec: GenerationProviderSpec) => ServerGenerationProvider | null;
@@ -12,7 +13,7 @@ type ModelSources = () => { env: Record<string, string | undefined>; settings: R
 /**
  * Keeps one built provider per resolved spec, so a FailoverGenerationProvider
  * keeps its cooldown across jobs, and keeps the last good provider when a
- * rebuild fails.
+ * rebuild fails. A failover built without its primary is never cached.
  */
 export class GenerationProviderCache {
   private cacheKey: string | null = null;
@@ -35,6 +36,9 @@ export class GenerationProviderCache {
       logger.warn('SYSTEM', 'provider holder: build returned null; keeping last-good', { ...spec });
       return this.instance;
     }
+    // Built without a primary because no key was set yet: rebuild on the next
+    // job so a key added later takes effect without a restart.
+    if (built instanceof FailoverGenerationProvider && !built.hasPrimary) return built;
     this.cacheKey = key;
     this.instance = built;
     return built;

@@ -142,6 +142,21 @@ describe('GenerationProviderHolder failover wiring', () => {
     expect(specs.map(s => s.explicitProvider)).toEqual([true, false]);
   });
 
+  it('a key added after a keyless build takes effect on the next job without a restart', async () => {
+    let claude: StubProvider | null = null;
+    const instantiate = (provider: string) => (provider === 'claude' ? claude : stubProvider('ollama'));
+    const store = { getTeamOverrides: async () => ({}), putTeamOverrides: async () => {} } as never;
+    const resolver = new SettingsResolver(store, { fileSettings: () => ({}), ttlMs: 0 });
+    const holder = new GenerationProviderHolder(resolver, spec => buildGenerationProvider(spec, sources, instantiate), () => ({ env: {}, settings: {} }));
+
+    const keyless = await holder.current('t');
+    expect((keyless as FailoverGenerationProvider).hasPrimary).toBe(false);
+    claude = stubProvider('claude');
+    const keyed = await holder.current('t');
+    expect((keyed as FailoverGenerationProvider).hasPrimary).toBe(true);
+    expect((await keyed!.generate(context)).providerLabel).toBe('claude');
+  });
+
   it('rebuilds when the fallback setting changes', async () => {
     const team: Record<string, unknown> = {};
     const { holder, claude } = harness({ team });
