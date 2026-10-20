@@ -1045,7 +1045,7 @@ async function promptProvider(
 ): Promise<ProviderOutcome> {
   const settings = readUserSettings();
   const resolved = await fetchResolvedGenerationSettings(chosenRuntime, settingsBeforeInstall);
-  const current = currentGenerationSelection(settings, process.env, resolved);
+  const current = currentGenerationSelection(settings, process.env, resolved, settingsBeforeInstall);
   return chooseGenerationProvider(options, current, {
     interactive: isInteractive,
     selectProvider: async (initial) => {

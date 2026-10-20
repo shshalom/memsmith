@@ -25,6 +25,12 @@ export interface CurrentGeneration {
   model?: string;
   /** Set when a dashboard override decides the provider, which outranks settings.json. */
   dashboardOverride?: GenerationProviderName;
+  /**
+   * The settings file named no provider before this run and is not a legacy
+   * install, so the provider must be written even when nothing is chosen;
+   * otherwise the next server boot pins the file to Ollama.
+   */
+  recordProvider?: boolean;
 }
 
 function asProvider(value: unknown): GenerationProviderName | undefined {
@@ -37,14 +43,20 @@ function nonBlank(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-/** `resolved` comes from the running server when it is reachable; null falls back to env and settings.json. */
+/**
+ * `resolved` comes from the running server when it is reachable; null falls
+ * back to env and settings.json. Legacy detection reads `settingsBeforeInstall`
+ * because this run has already written MEMSMITH_RUNTIME, which would make an
+ * empty machine look like an old install.
+ */
 export function currentGenerationSelection(
   settings: Record<string, unknown>,
   env: Record<string, string | undefined>,
   resolved: ResolvedSettingsSnapshot | null,
+  settingsBeforeInstall: Record<string, unknown>,
 ): CurrentGeneration {
   const resolvedProvider = asProvider(resolved?.provider?.value);
-  const pins = legacyGenerationPins(settings, env);
+  const pins = legacyGenerationPins(settingsBeforeInstall, env);
   const provider = resolvedProvider ?? (pins ? 'ollama' : initialGenerationProvider(settings, env));
   const resolvedModel = resolved?.model && resolved.model.source !== 'default' ? nonBlank(resolved.model.value) : undefined;
   const savedModel = nonBlank(settings.MEMSMITH_SERVER_MODEL)
@@ -52,6 +64,7 @@ export function currentGenerationSelection(
     ?? (pins && provider === 'ollama' ? pins.MEMSMITH_SERVER_MODEL : undefined);
   const current: CurrentGeneration = { provider, model: resolvedModel ?? savedModel };
   if (resolvedProvider && resolved?.provider?.source === 'team') current.dashboardOverride = resolvedProvider;
+  if (!pins && !nonBlank(settingsBeforeInstall.MEMSMITH_SERVER_PROVIDER)) current.recordProvider = true;
   return current;
 }
 
@@ -93,13 +106,20 @@ export async function chooseGenerationProvider(
       io.warn(`The dashboard Settings tab sets the generation provider to ${current.dashboardOverride}, which overrides this choice. To use ${provider}, change it there.`);
     }
   };
+  const recordCurrent = (): void => {
+    if (current.recordProvider) io.saveSettings({ MEMSMITH_SERVER_PROVIDER: current.provider });
+  };
   const cancelled = (): ProviderOutcome => {
     io.warn(`API key prompt cancelled — generation provider stays ${current.provider}.`);
+    recordCurrent();
     return { provider: current.provider, confirmed: false, localBackup: false };
   };
 
   if (!io.interactive) {
-    if (!options.provider) return { provider: current.provider, confirmed: true, localBackup: false };
+    if (!options.provider) {
+      recordCurrent();
+      return { provider: current.provider, confirmed: true, localBackup: false };
+    }
     const localBackup = options.provider === 'claude' && options.localBackup === true;
     save(options.provider, options.provider === 'claude' ? { fallback: localBackup ? 'ollama' : 'none' } : {});
     const missing = io.missingCredential(options.provider);

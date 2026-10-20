@@ -39,20 +39,23 @@ describe('currentGenerationSelection', () => {
       { MEMSMITH_SERVER_PROVIDER: 'ollama' },
       {},
       { provider: { value: 'claude', source: 'team' } },
+      { MEMSMITH_SERVER_PROVIDER: 'ollama' },
     );
     expect(current.provider).toBe('claude');
     expect(current.dashboardOverride).toBe('claude');
   });
 
   it('falls back to env and settings file when the server is not reachable', () => {
-    expect(currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'gemini' }, {}, null).provider).toBe('gemini');
+    expect(currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'gemini' }, {}, null, { MEMSMITH_SERVER_PROVIDER: 'gemini' }).provider).toBe('gemini');
   });
 
   it('a reinstall keeps a custom Ollama model saved under either model key', () => {
-    const fromOllamaKey = currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
+    const ollamaKeySettings = { MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' };
+    const fromOllamaKey = currentGenerationSelection(ollamaKeySettings, {}, null, ollamaKeySettings);
     expect(fromOllamaKey.model).toBe('llama3.3:70b');
     expect(providerSettingsUpdates('ollama', { current: fromOllamaKey }).MEMSMITH_SERVER_MODEL).toBe('llama3.3:70b');
-    const fromServerKey = currentGenerationSelection({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'mistral:7b', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {}, null);
+    const serverKeySettings = { MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'mistral:7b', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' };
+    const fromServerKey = currentGenerationSelection(serverKeySettings, {}, null, serverKeySettings);
     expect(fromServerKey.model).toBe('mistral:7b');
   });
 });
@@ -61,15 +64,47 @@ describe('an install that predates the provider setting', () => {
   const legacy = { MEMSMITH_RUNTIME: 'local', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' };
 
   it('starts from Ollama with its pinned model, so a flag-less reinstall never moves it to Claude', async () => {
-    const current = currentGenerationSelection(legacy, {}, null);
+    const current = currentGenerationSelection(legacy, {}, null, legacy);
     expect(current).toMatchObject({ provider: 'ollama', model: 'llama3.3:70b' });
     const h = io({ interactive: false });
     expect(await chooseGenerationProvider({}, current, h.io)).toEqual({ provider: 'ollama', confirmed: true, localBackup: false });
     expect(h.saved).toEqual([]);
   });
 
-  it('pins qwen2.5:14b when the install never named a model', () => {
-    expect(currentGenerationSelection({ MEMSMITH_RUNTIME: 'local' }, {}, null)).toMatchObject({ provider: 'ollama', model: 'qwen2.5:14b' });
+  it('an install that ran Ollama under the old provider key stays on Ollama and its model', () => {
+    const old = { MEMSMITH_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b' };
+    const current = currentGenerationSelection({ ...old, MEMSMITH_RUNTIME: 'local' }, {}, null, old);
+    expect(current).toMatchObject({ provider: 'ollama', model: 'qwen2.5:14b' });
+    expect(current.recordProvider).toBeUndefined();
+  });
+});
+
+describe('a fresh install', () => {
+  // promptRuntime has already written MEMSMITH_RUNTIME when the provider step runs.
+  const afterRuntimePrompt = { MEMSMITH_RUNTIME: 'local' };
+
+  it('starts from Claude even though this run already wrote MEMSMITH_RUNTIME', () => {
+    expect(currentGenerationSelection(afterRuntimePrompt, {}, null, {})).toMatchObject({ provider: 'claude', recordProvider: true });
+  });
+
+  it('a non-interactive run records MEMSMITH_SERVER_PROVIDER=claude so the next boot does not pin Ollama', async () => {
+    const h = io({ interactive: false });
+    const outcome = await chooseGenerationProvider({}, currentGenerationSelection(afterRuntimePrompt, {}, null, {}), h.io);
+    expect(outcome.provider).toBe('claude');
+    expect(h.saved).toEqual([{ MEMSMITH_SERVER_PROVIDER: 'claude' }]);
+  });
+
+  it('a cancelled key prompt still records the default provider', async () => {
+    const h = io({ anthropicKey: async () => false });
+    await chooseGenerationProvider({}, currentGenerationSelection(afterRuntimePrompt, {}, null, {}), h.io);
+    expect(h.saved).toEqual([{ MEMSMITH_SERVER_PROVIDER: 'claude' }]);
+  });
+
+  it('a reinstall that already names a provider writes nothing when nothing is chosen', async () => {
+    const saved = { MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_PROVIDER: 'gemini' };
+    const h = io({ interactive: false });
+    await chooseGenerationProvider({}, currentGenerationSelection(saved, {}, null, saved), h.io);
+    expect(h.saved).toEqual([]);
   });
 });
 
