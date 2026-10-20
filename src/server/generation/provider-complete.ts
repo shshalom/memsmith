@@ -33,9 +33,11 @@ export async function providerComplete(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const model = process.env.MEMSMITH_SERVER_MODEL;
   try {
+    // The provider was already built, so the gate on a shell ANTHROPIC_API_KEY
+    // has been applied; re-applying it here would drop a team-chosen key.
     const { apiKey, baseUrl } = resolveGenerationCredentials(
       input.provider.providerLabel,
-      deps.sources ?? loadGenerationConfigSources(),
+      { explicitProvider: true, ...(deps.sources ?? loadGenerationConfigSources()) },
     );
     switch (input.provider.providerLabel) {
       case 'ollama': {
