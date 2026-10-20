@@ -151,6 +151,11 @@ describe('ollamaSetupMode', () => {
     expect(ollamaSetupMode({ interactive: true })).toBe('interactive');
   });
 
+  it('a confirmed local backup installs without asking again, even with --provider claude', () => {
+    expect(ollamaSetupMode({ interactive: true, provider: 'claude', localBackup: true })).toBe('opt-in');
+    expect(ollamaSetupMode({ interactive: true, provider: 'claude', localBackup: false })).toBe('non-interactive');
+  });
+
   it('treats --provider in a terminal as non-interactive', () => {
     expect(ollamaSetupMode({ interactive: true, provider: 'ollama' })).toBe('non-interactive');
   });
@@ -167,6 +172,11 @@ describe('ollamaSetupMode', () => {
 describe('ollamaSetupPlan', () => {
   it('runs for a chosen Ollama on the local runtime', () => {
     expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'local', false)).toEqual({ run: true });
+  });
+
+  it('verifies the model an older install is pinned to, not the new default', () => {
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'local', false, 'qwen2.5:14b'))
+      .toEqual({ run: true, model: 'qwen2.5:14b' });
   });
 
   it('skips the server runtime, which generates on the team server', () => {

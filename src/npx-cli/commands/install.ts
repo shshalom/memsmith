@@ -36,6 +36,7 @@ import {
   type ResolvedSettingsSnapshot,
 } from '../install/provider-prompt.js';
 import { loadGenerationConfigSources, missingGenerationCredential } from '../../server/runtime/generation-credentials.js';
+import { legacyGenerationPins } from '../../server/settings/pin-legacy-generation-settings.js';
 import { resolveOllamaTarget } from '../../cli/handlers/generation-readiness.js';
 import {
   defaultCommandRunner,
@@ -980,9 +981,9 @@ async function promptClaudeModel(current: string | undefined): Promise<string> {
   return result;
 }
 
-async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, backupModel?: string): Promise<void> {
+async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, modelOverride?: string, localBackup = false): Promise<void> {
   const resolvedTarget = resolveOllamaTarget(readUserSettings(), process.env);
-  const target = resolvedTarget && backupModel ? { ...resolvedTarget, model: backupModel } : resolvedTarget;
+  const target = resolvedTarget && modelOverride ? { ...resolvedTarget, model: modelOverride } : resolvedTarget;
   if (!target) {
     summary.warnings.push({
       component: 'ollama',
@@ -994,7 +995,7 @@ async function setupOllamaForInstall(options: InstallOptions, summary: InstallSu
   const runner = defaultCommandRunner();
   const ollamaHost = ollamaHostFor(target.origin);
   const { ready } = await runOllamaSetup({
-    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama || (backupModel !== undefined && options.localBackup === true) }),
+    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama, localBackup }),
     host: detectOllamaHost(runner, target, process.stdin.isTTY === true),
     model: target.model,
     origin: target.origin,
@@ -1394,9 +1395,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // After the plugin and runtime are in place, so a long model download does
   // not hold up the rest of the install; before auto-start, so the server finds
   // Ollama ready.
-  const ollamaPlan = ollamaSetupPlan(providerOutcome, selectedRuntime, options.setupOllama === true);
+  const pinnedModel = legacyGenerationPins(settingsBeforeInstall, process.env)?.MEMSMITH_SERVER_MODEL;
+  const ollamaPlan = ollamaSetupPlan(providerOutcome, selectedRuntime, options.setupOllama === true, pinnedModel);
   if (ollamaPlan.ignored) log.warn(ollamaPlan.ignored);
-  if (ollamaPlan.run) await setupOllamaForInstall(options, summary, ollamaPlan.model);
+  if (ollamaPlan.run) await setupOllamaForInstall(options, summary, ollamaPlan.model, providerOutcome.localBackup);
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
   // `memsmith start`), NOT the local-runtime spawner. Skip the

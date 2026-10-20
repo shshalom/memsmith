@@ -152,8 +152,8 @@ export function shouldQueryRunningServer(o: {
   }
 }
 
-export function ollamaSetupMode(o: { interactive: boolean; provider?: string; setupOllama?: boolean }): OllamaSetupMode {
-  if (o.setupOllama) return 'opt-in';
+export function ollamaSetupMode(o: { interactive: boolean; provider?: string; setupOllama?: boolean; localBackup?: boolean }): OllamaSetupMode {
+  if (o.setupOllama || o.localBackup) return 'opt-in';
   return o.interactive && !o.provider ? 'interactive' : 'non-interactive';
 }
 
@@ -161,11 +161,15 @@ export function ollamaSetupPlan(
   outcome: ProviderOutcome,
   runtime: 'local' | 'server',
   setupOllamaFlag: boolean,
+  /** The model an older install's server is pinned to, which the readiness check must verify. */
+  pinnedModel?: string,
 ): { run: boolean; model?: string; ignored?: string } {
   if (runtime === 'local' && outcome.provider === 'claude' && outcome.confirmed && outcome.localBackup) {
     return { run: true, model: DEFAULT_OLLAMA_MODEL };
   }
-  if (outcome.provider === 'ollama' && outcome.confirmed && runtime === 'local') return { run: true };
+  if (outcome.provider === 'ollama' && outcome.confirmed && runtime === 'local') {
+    return pinnedModel ? { run: true, model: pinnedModel } : { run: true };
+  }
   if (!setupOllamaFlag) return { run: false };
   if (runtime === 'server') return { run: false, ignored: '--setup-ollama ignored: the server runtime generates on the team server.' };
   if (outcome.provider !== 'ollama') return { run: false, ignored: `--setup-ollama ignored: the generation provider is ${outcome.provider}, not ollama.` };
