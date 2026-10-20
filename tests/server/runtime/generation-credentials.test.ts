@@ -5,7 +5,7 @@
 // process.env only. A user who picked Gemini in the installer and pasted a key
 // got a server that could not generate.
 import { describe, it, expect } from 'bun:test';
-import { instantiateServerGenerationProvider } from '../../../src/server/runtime/create-server-service.js';
+import { buildGenerationProvider, instantiateServerGenerationProvider } from '../../../src/server/runtime/create-server-service.js';
 import {
   missingGenerationCredential,
   resolveGenerationCredentials,
@@ -34,7 +34,7 @@ describe('resolveGenerationCredentials', () => {
 
   it('prefers the saved Anthropic key over one inherited from the shell', () => {
     const creds = resolveGenerationCredentials('claude', sources({
-      env: { ANTHROPIC_API_KEY: 'from-shell' },
+      env: { ANTHROPIC_API_KEY: 'from-shell', MEMSMITH_SERVER_PROVIDER: 'claude' },
       dotEnv: { ANTHROPIC_API_KEY: 'from-dotenv' },
     }));
     expect(creds.apiKey).toBe('from-dotenv');
@@ -48,8 +48,23 @@ describe('resolveGenerationCredentials', () => {
     expect(creds.apiKey).toBe('memsmith-env');
   });
 
-  it('falls back to a shell ANTHROPIC_API_KEY when nothing is saved', () => {
-    expect(resolveGenerationCredentials('claude', sources({ env: { ANTHROPIC_API_KEY: 'from-shell' } })).apiKey).toBe('from-shell');
+  // Ruling R8: an unrelated project's ANTHROPIC_API_KEY must not turn on Claude generation.
+  it('ignores a shell ANTHROPIC_API_KEY when the provider comes from the settings file or the default', () => {
+    expect(resolveGenerationCredentials('claude', sources({ env: { ANTHROPIC_API_KEY: 'from-shell' } })).apiKey).toBeUndefined();
+    expect(resolveGenerationCredentials('claude', sources({
+      env: { ANTHROPIC_API_KEY: 'from-shell' },
+      settings: { MEMSMITH_SERVER_PROVIDER: 'claude' },
+    })).apiKey).toBeUndefined();
+  });
+
+  it('uses a shell ANTHROPIC_API_KEY when env MEMSMITH_SERVER_PROVIDER or a team override chose the provider', () => {
+    expect(resolveGenerationCredentials('claude', sources({
+      env: { ANTHROPIC_API_KEY: 'from-shell', MEMSMITH_SERVER_PROVIDER: 'claude' },
+    })).apiKey).toBe('from-shell');
+    expect(resolveGenerationCredentials('claude', sources({
+      env: { ANTHROPIC_API_KEY: 'from-shell' },
+      explicitProvider: true,
+    })).apiKey).toBe('from-shell');
   });
 
   for (const [provider, memsmithVar, genericVar] of [
@@ -107,6 +122,13 @@ describe('instantiateServerGenerationProvider credential sources', () => {
       dotEnv: { ANTHROPIC_API_KEY: 'sk-ant' },
     }));
     expect(provider?.providerLabel).toBe('claude');
+  });
+
+  it('a team-chosen Claude provider builds from a shell key, a file or default one does not', () => {
+    const shellKey = sources({ env: { ANTHROPIC_API_KEY: 'from-shell' } });
+    const spec = { provider: 'claude', model: 'claude-haiku-5-5', fallback: 'none', fallbackModel: 'gemma4:12b' };
+    expect(buildGenerationProvider({ ...spec, explicitProvider: true }, shellKey)?.providerLabel).toBe('claude');
+    expect(buildGenerationProvider({ ...spec, explicitProvider: false }, shellKey)).toBeNull();
   });
 
   it('still refuses a hosted provider with no key anywhere', () => {

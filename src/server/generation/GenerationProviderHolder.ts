@@ -21,7 +21,7 @@ export class GenerationProviderCache {
   constructor(private readonly build: Build = buildGenerationProvider) {}
 
   get(spec: GenerationProviderSpec): ServerGenerationProvider | null {
-    const key = [spec.provider, spec.model ?? '', spec.fallback, spec.fallbackModel].join('::');
+    const key = [spec.provider, spec.model ?? '', spec.fallback, spec.fallbackModel, spec.explicitProvider ?? ''].join('::');
     if (key === this.cacheKey && this.instance) return this.instance;
     let built: ServerGenerationProvider | null = null;
     try {
@@ -53,7 +53,8 @@ export class GenerationProviderHolder {
   }
 
   private async resolveSpec(teamId: string): Promise<GenerationProviderSpec> {
-    const provider = await this.resolver.provider(teamId);
+    const providerSetting = await this.resolver.resolve(teamId, 'provider');
+    const provider = String(providerSetting.value);
     const resolvedModel = await this.resolver.resolve(teamId, 'model');
     const explicit = explicitModel(resolvedModel);
     let model: string | undefined;
@@ -70,6 +71,7 @@ export class GenerationProviderHolder {
       ...(model ? { model } : {}),
       fallback: await this.resolver.fallback(teamId),
       fallbackModel: await this.resolver.fallbackModel(teamId),
+      explicitProvider: providerSetting.source === 'team' || providerSetting.source === 'env',
     };
   }
 

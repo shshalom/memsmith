@@ -20,6 +20,8 @@ export interface GenerationProviderSpec {
   model?: string;
   fallback: string;
   fallbackModel: string;
+  /** Set when env MEMSMITH_SERVER_PROVIDER or a team override chose the provider. */
+  explicitProvider?: boolean;
 }
 
 function clean(value: unknown): string {
@@ -88,6 +90,7 @@ export function resolveBootGenerationSpec(
   return {
     provider,
     ...(model ? { model } : {}),
+    explicitProvider: Boolean(clean(env.MEMSMITH_SERVER_PROVIDER)),
     fallback: fallbackSpec.options!.includes(configuredFallback) ? configuredFallback : String(fallbackSpec.default),
     fallbackModel: firstNonEmpty(env.MEMSMITH_SERVER_FALLBACK_MODEL, settings.MEMSMITH_SERVER_FALLBACK_MODEL)
       ?? String(getSettingKey('fallbackModel')!.default),

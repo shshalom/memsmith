@@ -601,7 +601,8 @@ export function buildGenerationProvider(
   sources: GenerationConfigSources = loadGenerationConfigSources(),
   instantiate: InstantiateProvider = instantiateServerGenerationProvider,
 ): ServerGenerationProvider | null {
-  const primary = instantiate(spec.provider, spec.model, sources);
+  const primarySources = spec.explicitProvider === undefined ? sources : { ...sources, explicitProvider: spec.explicitProvider };
+  const primary = instantiate(spec.provider, spec.model, primarySources);
   if (spec.provider === 'ollama' || spec.fallback === 'none') return primary;
   const fallback = instantiate('ollama', spec.fallbackModel, sources);
   if (!fallback) return primary;

@@ -5,7 +5,9 @@
 // either file exported into its environment, so credentials resolve here. Each
 // key follows MemSmith env var > saved file > generic shell var: a generic var
 // such as ANTHROPIC_API_KEY can arrive from an unrelated project's .env (#733),
-// so it never outranks what the user saved for MemSmith.
+// so it never outranks what the user saved for MemSmith. A shell
+// ANTHROPIC_API_KEY counts only when an operator chose the provider; alone it
+// must not turn on Claude generation (Ruling R8).
 
 import { loadMemSmithEnv } from '../../shared/EnvManager.js';
 import { readFlatSettings } from '../../shared/flat-settings.js';
@@ -15,6 +17,11 @@ export interface GenerationConfigSources {
   env: Record<string, string | undefined>;
   settings: Record<string, unknown>;
   dotEnv: Record<string, string | undefined>;
+  /**
+   * Whether an operator chose the provider, through env MEMSMITH_SERVER_PROVIDER
+   * or a team override. Unset means env MEMSMITH_SERVER_PROVIDER decides.
+   */
+  explicitProvider?: boolean;
 }
 
 export interface GenerationCredentials {
@@ -46,7 +53,12 @@ export function resolveGenerationCredentials(provider: string, s: GenerationConf
   switch (provider) {
     case 'claude':
     case 'anthropic':
-      return { apiKey: firstNonBlank(env.MEMSMITH_ANTHROPIC_API_KEY, dotEnv.ANTHROPIC_API_KEY, env.ANTHROPIC_API_KEY) };
+    {
+      const explicit = s.explicitProvider ?? Boolean(firstNonBlank(env.MEMSMITH_SERVER_PROVIDER));
+      return {
+        apiKey: firstNonBlank(env.MEMSMITH_ANTHROPIC_API_KEY, dotEnv.ANTHROPIC_API_KEY, explicit ? env.ANTHROPIC_API_KEY : undefined),
+      };
+    }
     case 'gemini':
       return { apiKey: firstNonBlank(env.MEMSMITH_GEMINI_API_KEY, settings.MEMSMITH_GEMINI_API_KEY, env.GEMINI_API_KEY) };
     case 'openrouter':

@@ -54,6 +54,7 @@ describe('boot generation spec', () => {
       provider: 'claude',
       fallback: 'ollama',
       fallbackModel: 'gemma4:12b',
+      explicitProvider: false,
     });
   });
 

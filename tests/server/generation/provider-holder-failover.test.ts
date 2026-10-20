@@ -132,6 +132,16 @@ describe('GenerationProviderHolder failover wiring', () => {
     expect(claude!.calls).toBe(1);
   });
 
+  it('marks a team-chosen provider as explicit and a file one as not', async () => {
+    const specs: Array<{ explicitProvider?: boolean }> = [];
+    const store = (team: Record<string, unknown>) => ({ getTeamOverrides: async () => team, putTeamOverrides: async () => {} }) as never;
+    for (const [team, file] of [[{ provider: 'claude' }, {}], [{}, { MEMSMITH_SERVER_PROVIDER: 'claude' }]] as const) {
+      const resolver = new SettingsResolver(store(team), { fileSettings: () => file, ttlMs: 0 });
+      await new GenerationProviderHolder(resolver, spec => { specs.push(spec); return null; }, () => ({ env: {}, settings: file })).current('t');
+    }
+    expect(specs.map(s => s.explicitProvider)).toEqual([true, false]);
+  });
+
   it('rebuilds when the fallback setting changes', async () => {
     const team: Record<string, unknown> = {};
     const { holder, claude } = harness({ team });

@@ -5,7 +5,7 @@ import { GenerationProviderHolder } from '../../src/server/generation/Generation
 function resolverStub(get: () => { provider: string; model: string }) {
   return {
     provider: async () => get().provider,
-    resolve: async () => ({ value: get().model, source: 'file' }),
+    resolve: async (_team: string, key: string) => ({ value: key === 'provider' ? get().provider : get().model, source: 'file' }),
     fallback: async () => 'ollama',
     fallbackModel: async () => 'gemma4:12b',
   } as any;
