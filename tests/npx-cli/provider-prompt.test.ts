@@ -79,6 +79,18 @@ describe('an install that predates the provider setting', () => {
   });
 });
 
+describe('an Ollama install with no saved model', () => {
+  const saved = { MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_PROVIDER: 'ollama' };
+
+  it('starts from the model it ran before the default changed', () => {
+    expect(currentGenerationSelection(saved, {}, null, saved)).toMatchObject({ provider: 'ollama', model: 'qwen2.5:14b' });
+  });
+
+  it('an env provider still outranks the settings file', () => {
+    expect(currentGenerationSelection(saved, { MEMSMITH_SERVER_PROVIDER: 'claude' }, null, saved).provider).toBe('claude');
+  });
+});
+
 describe('a fresh install', () => {
   // promptRuntime has already written MEMSMITH_RUNTIME when the provider step runs.
   const afterRuntimePrompt = { MEMSMITH_RUNTIME: 'local' };

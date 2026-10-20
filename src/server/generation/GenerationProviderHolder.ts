@@ -2,10 +2,12 @@
 import type { SettingsResolver } from '../settings/SettingsResolver.js';
 import { buildGenerationProvider } from '../runtime/create-server-service.js';
 import type { GenerationProviderSpec, ServerGenerationProvider } from '../runtime/create-server-service.js';
-import { DEFAULT_GENERATION_PROVIDER } from '../runtime/resolve-generation-provider.js';
+import { DEFAULT_GENERATION_PROVIDER, explicitModel, resolveOllamaModel } from '../runtime/resolve-generation-provider.js';
+import { loadGenerationConfigSources } from '../runtime/generation-credentials.js';
 import { logger } from '../../utils/logger.js';
 
 type Build = (spec: GenerationProviderSpec) => ServerGenerationProvider | null;
+type ModelSources = () => { env: Record<string, string | undefined>; settings: Record<string, unknown> };
 
 /**
  * Keeps one built provider per resolved spec, so a FailoverGenerationProvider
@@ -45,20 +47,27 @@ export class GenerationProviderHolder {
   constructor(
     private readonly resolver: SettingsResolver,
     build: Build = buildGenerationProvider,
+    private readonly modelSources: ModelSources = loadGenerationConfigSources,
   ) {
     this.cache = new GenerationProviderCache(build);
   }
 
   private async resolveSpec(teamId: string): Promise<GenerationProviderSpec> {
     const provider = await this.resolver.provider(teamId);
-    const model = await this.resolver.resolve(teamId, 'model');
-    return {
-      provider,
+    const resolvedModel = await this.resolver.resolve(teamId, 'model');
+    const explicit = explicitModel(resolvedModel);
+    let model: string | undefined;
+    if (provider === 'ollama') {
+      const { env, settings } = this.modelSources();
+      model = resolveOllamaModel(env, settings, explicit);
+    } else {
       // The registry's default model is a Claude model id; any other provider
       // falls back to its own default model instead.
-      ...(model.source !== 'default' || provider === DEFAULT_GENERATION_PROVIDER
-        ? { model: String(model.value) }
-        : {}),
+      model = explicit ?? (provider === DEFAULT_GENERATION_PROVIDER ? String(resolvedModel.value) : undefined);
+    }
+    return {
+      provider,
+      ...(model ? { model } : {}),
       fallback: await this.resolver.fallback(teamId),
       fallbackModel: await this.resolver.fallbackModel(teamId),
     };

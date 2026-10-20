@@ -66,6 +66,19 @@ describe('boot generation spec', () => {
     expect(resolveBootGenerationSpec({}, settings)?.model).toBe('qwen2.5:14b');
   });
 
+  it('for Ollama, env MEMSMITH_SERVER_MODEL outranks the settings file', () => {
+    const spec = resolveBootGenerationSpec(
+      { MEMSMITH_SERVER_MODEL: 'llama3.3:70b' },
+      { MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'qwen2.5:14b' },
+    );
+    expect(spec?.model).toBe('llama3.3:70b');
+  });
+
+  it('for Ollama with no generation model, uses MEMSMITH_OLLAMA_MODEL, then gemma4:12b', () => {
+    expect(resolveBootGenerationSpec({}, { MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'mistral:7b' })?.model).toBe('mistral:7b');
+    expect(resolveBootGenerationSpec({}, { MEMSMITH_SERVER_PROVIDER: 'ollama' })?.model).toBe('gemma4:12b');
+  });
+
   it('reads the fallback settings, with env winning', () => {
     const spec = resolveBootGenerationSpec(
       { MEMSMITH_SERVER_FALLBACK: 'NONE' },

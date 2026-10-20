@@ -57,6 +57,7 @@ function harness(opts: {
   const holder = new GenerationProviderHolder(
     resolver,
     spec => buildGenerationProvider(spec, sources, instantiate),
+    () => ({ env: {}, settings: opts.file ?? {} }),
   );
   return { holder, calls, claude, ollama };
 }
@@ -89,7 +90,13 @@ describe('GenerationProviderHolder failover wiring', () => {
   it('an Ollama install with no model set gets the Ollama default, not the Claude model id', async () => {
     const { holder, calls } = harness({ team: { provider: 'ollama' } });
     await holder.current('t');
-    expect(calls).toEqual([['ollama', undefined]]);
+    expect(calls).toEqual([['ollama', 'gemma4:12b']]);
+  });
+
+  it('an Ollama install with no generation model uses MEMSMITH_OLLAMA_MODEL', async () => {
+    const { holder, calls } = harness({ file: { MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' } });
+    await holder.current('t');
+    expect(calls).toEqual([['ollama', 'llama3.3:70b']]);
   });
 
   it('holder builds plain Claude when fallback is none', async () => {

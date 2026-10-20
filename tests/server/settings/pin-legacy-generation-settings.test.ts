@@ -27,6 +27,17 @@ describe('legacyGenerationPins', () => {
       .toEqual({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'qwen2.5:14b' });
   });
 
+  it('an Ollama install with no generation model is pinned to the model it ran on main', () => {
+    expect(legacyGenerationPins({ MEMSMITH_SERVER_PROVIDER: 'ollama' }, {}))
+      .toEqual({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'qwen2.5:14b' });
+    expect(legacyGenerationPins({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_OLLAMA_MODEL: 'llama3.1:8b' }, {}))
+      .toEqual({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'llama3.1:8b' });
+  });
+
+  it('an Ollama install that names its model is not pinned', () => {
+    expect(legacyGenerationPins({ MEMSMITH_SERVER_PROVIDER: 'ollama', MEMSMITH_SERVER_MODEL: 'mistral:7b' }, {})).toBeNull();
+  });
+
   it('install that already set MEMSMITH_SERVER_PROVIDER is not pinned', () => {
     expect(legacyGenerationPins(
       { MEMSMITH_SERVER_PROVIDER: 'claude', MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b' },

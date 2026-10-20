@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { installedPluginVersion } from '../../src/npx-cli/utils/paths.js';
+import { generationSettingsFromServer } from '../../src/cli/handlers/generation-readiness.js';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   applyRepairs,
@@ -277,5 +278,16 @@ describe('probeGenerationStatus', () => {
     let probedModel = '';
     await probeGenerationStatus({ provider: 'ollama', model: 'llama3.3:70b' }, sources, async (target) => { probedModel = target.model; return 'ready'; });
     expect(probedModel).toBe('llama3.3:70b');
+  });
+
+  it('an Ollama install with no model probes the Ollama default, never the Claude default the server reports', async () => {
+    let probedModel = '';
+    const resolved = generationSettingsFromServer({
+      provider: { value: 'ollama', source: 'file' },
+      model: { value: 'claude-haiku-5-5', source: 'default' },
+    });
+    const status = await probeGenerationStatus(resolved, sources, async (target) => { probedModel = target.model; return 'ready'; });
+    expect(probedModel).toBe('gemma4:12b');
+    expect(status).toMatchObject({ model: 'gemma4:12b' });
   });
 });

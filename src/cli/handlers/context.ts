@@ -81,7 +81,7 @@ async function defaultCheckGenerationReadiness(
   cwd: string,
   runtime: RuntimeContext,
 ): Promise<string | null> {
-  const [{ checkGenerationReadiness }, { selectRuntime }] = await Promise.all([
+  const [{ checkGenerationReadiness, generationSettingsFromServer }, { selectRuntime }] = await Promise.all([
     import('./generation-readiness.js'),
     import('../../services/hooks/runtime-selector.js'),
   ]);
@@ -90,10 +90,7 @@ async function defaultCheckGenerationReadiness(
   if (runtime.runtime === 'server') {
     try {
       const { settings: effective } = await runtime.client.getResolvedSettings();
-      resolved = {
-        provider: typeof effective.provider?.value === 'string' ? effective.provider.value : undefined,
-        model: typeof effective.model?.value === 'string' ? effective.model.value : undefined,
-      };
+      resolved = generationSettingsFromServer(effective);
     } catch { /* server not ready yet: fall back to the settings file */ }
   }
   return checkGenerationReadiness(settings as Record<string, unknown>, process.env, {}, resolved);

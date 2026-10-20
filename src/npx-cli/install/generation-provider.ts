@@ -2,13 +2,14 @@
 
 import {
   DEFAULT_GENERATION_PROVIDER,
+  DEFAULT_OLLAMA_MODEL,
   resolveGenerationProviderName,
   type GenerationProviderName,
 } from '../../server/runtime/resolve-generation-provider.js';
 import { DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from '../../server/generation/providers/GeminiObservationProvider.js';
 import { DEFAULT_MODEL as OPENROUTER_DEFAULT_MODEL } from '../../server/generation/providers/OpenRouterObservationProvider.js';
 
-export const DEFAULT_OLLAMA_MODEL = 'gemma4:12b';
+export { DEFAULT_OLLAMA_MODEL };
 export const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
 
 export const GENERATION_PROVIDER_CHOICES: ReadonlyArray<{ value: GenerationProviderName; label: string; hint: string }> = [

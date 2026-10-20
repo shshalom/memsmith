@@ -7,16 +7,33 @@
 // the session looks healthy; the server's health check only surfaces it as a
 // stale backlog in the dashboard.
 
-import { resolveGenerationProviderName } from '../../server/runtime/resolve-generation-provider.js';
+import {
+  explicitModel,
+  resolveGenerationProviderName,
+  resolveOllamaModel,
+} from '../../server/runtime/resolve-generation-provider.js';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434/v1';
-const DEFAULT_OLLAMA_MODEL = 'gemma4:12b';
 const PROBE_TIMEOUT_MS = 1500;
 
-/** Provider and model as the server resolves them (dashboard > env > settings file > default). */
+/**
+ * Provider and model as the server resolves them (dashboard > env > settings
+ * file > default). `model` is set only when an operator chose it, never the
+ * registry default.
+ */
 export interface ResolvedGenerationSettings {
   provider?: string;
   model?: string;
+}
+
+type ResolvedEntry = { value: unknown; source?: string } | undefined;
+
+/** Maps `GET /v1/settings` entries, dropping a model that is only the registry default. */
+export function generationSettingsFromServer(effective: { provider?: ResolvedEntry; model?: ResolvedEntry }): ResolvedGenerationSettings {
+  return {
+    provider: typeof effective.provider?.value === 'string' ? effective.provider.value : undefined,
+    model: explicitModel(effective.model),
+  };
 }
 
 export interface GenerationReadinessDeps {
@@ -42,14 +59,14 @@ function hasModel(tags: unknown, model: string): boolean {
   return Array.isArray(models) && models.some((m) => m?.name === wanted);
 }
 
-/** The Ollama origin and model generation uses (env > settings file > default), or null for an unparseable URL. */
+/** The Ollama origin and model generation uses, or null for an unparseable URL. */
 export function resolveOllamaTarget(
   settings: Record<string, unknown>,
   env: Record<string, string | undefined> = process.env,
   resolved: ResolvedGenerationSettings | null = null,
 ): OllamaTarget | null {
   const configuredUrl = String(env.MEMSMITH_OLLAMA_URL || settings.MEMSMITH_OLLAMA_URL || DEFAULT_OLLAMA_URL);
-  const model = String(resolved?.model || env.MEMSMITH_SERVER_MODEL || settings.MEMSMITH_SERVER_MODEL || DEFAULT_OLLAMA_MODEL);
+  const model = resolveOllamaModel(env, settings, resolved?.model);
   try {
     const url = new URL(configuredUrl);
     return { origin: url.origin, model, local: LOOPBACK_HOSTS.has(url.hostname) };

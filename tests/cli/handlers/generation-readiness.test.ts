@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { checkGenerationReadiness, probeOllama, resolveOllamaTarget } from '../../../src/cli/handlers/generation-readiness.js';
+import { checkGenerationReadiness, generationSettingsFromServer, probeOllama, resolveOllamaTarget } from '../../../src/cli/handlers/generation-readiness.js';
 
 // An install that generates with Ollama, but has no Ollama or no model, failed
 // generation for every captured event and remembered nothing, with no sign of
@@ -57,6 +57,17 @@ describe('checkGenerationReadiness', () => {
     expect(message).toContain('ollama pull llama3.1:8b');
   });
 
+  it('an Ollama install with no model checks the Ollama model, never the Claude default the server reports', async () => {
+    const url = fakeOllama(['llama3.1:8b']);
+    const resolved = generationSettingsFromServer({
+      provider: { value: 'ollama', source: 'file' },
+      model: { value: 'claude-haiku-5-5', source: 'default' },
+    });
+    const message = await checkGenerationReadiness({ MEMSMITH_OLLAMA_URL: url, MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b' }, {}, {}, resolved);
+    expect(message).toContain('ollama pull qwen2.5:14b');
+    expect(message).not.toContain('claude-haiku-5-5');
+  });
+
   it('does not probe Ollama when another provider is configured', async () => {
     let probed = false;
     const message = await checkGenerationReadiness({ MEMSMITH_SERVER_PROVIDER: 'claude' }, {}, {
@@ -94,5 +105,9 @@ describe('resolveOllamaTarget', () => {
 
   it('uses the model the installer saved', () => {
     expect(resolveOllamaTarget({ MEMSMITH_SERVER_MODEL: 'llama3.3:70b' }, {})?.model).toBe('llama3.3:70b');
+  });
+
+  it('uses MEMSMITH_OLLAMA_MODEL when no generation model is set', () => {
+    expect(resolveOllamaTarget({ MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' }, {})?.model).toBe('llama3.3:70b');
   });
 });

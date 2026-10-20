@@ -57,14 +57,15 @@ export function currentGenerationSelection(
 ): CurrentGeneration {
   const resolvedProvider = asProvider(resolved?.provider?.value);
   const pins = legacyGenerationPins(settingsBeforeInstall, env);
-  const provider = resolvedProvider ?? (pins ? 'ollama' : initialGenerationProvider(settings, env));
+  const unrecorded = !nonBlank(settingsBeforeInstall.MEMSMITH_SERVER_PROVIDER);
+  const provider = resolvedProvider ?? (pins && unrecorded ? 'ollama' : initialGenerationProvider(settings, env));
   const resolvedModel = resolved?.model && resolved.model.source !== 'default' ? nonBlank(resolved.model.value) : undefined;
   const savedModel = nonBlank(settings.MEMSMITH_SERVER_MODEL)
     ?? (provider === 'ollama' ? nonBlank(settings.MEMSMITH_OLLAMA_MODEL) : undefined)
     ?? (pins && provider === 'ollama' ? pins.MEMSMITH_SERVER_MODEL : undefined);
   const current: CurrentGeneration = { provider, model: resolvedModel ?? savedModel };
   if (resolvedProvider && resolved?.provider?.source === 'team') current.dashboardOverride = resolvedProvider;
-  if (!pins && !nonBlank(settingsBeforeInstall.MEMSMITH_SERVER_PROVIDER)) current.recordProvider = true;
+  if (!pins && unrecorded) current.recordProvider = true;
   return current;
 }
 

@@ -21,11 +21,16 @@ export function legacyGenerationPins(
   env: Record<string, string | undefined>,
 ): Record<string, string> | null {
   if (!Object.keys(settings).some(key => key.startsWith('MEMSMITH_'))) return null;
-  if (nonEmpty(settings.MEMSMITH_SERVER_PROVIDER) || nonEmpty(env.MEMSMITH_SERVER_PROVIDER)) return null;
-  return {
+  const pins = {
     MEMSMITH_SERVER_PROVIDER: 'ollama',
     MEMSMITH_SERVER_MODEL: nonEmpty(settings.MEMSMITH_OLLAMA_MODEL) ?? LEGACY_OLLAMA_MODEL,
   };
+  const savedProvider = nonEmpty(settings.MEMSMITH_SERVER_PROVIDER);
+  // An Ollama install with no model ran the old default; the new default must not swap its model.
+  if (savedProvider) {
+    return savedProvider.toLowerCase() === 'ollama' && !nonEmpty(settings.MEMSMITH_SERVER_MODEL) ? pins : null;
+  }
+  return nonEmpty(env.MEMSMITH_SERVER_PROVIDER) ? null : pins;
 }
 
 export function pinLegacyGenerationSettings(opts: {

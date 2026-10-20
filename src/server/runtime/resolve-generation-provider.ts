@@ -13,6 +13,7 @@ export const GENERATION_PROVIDERS = ['ollama', 'claude', 'gemini', 'openrouter']
 export type GenerationProviderName = typeof GENERATION_PROVIDERS[number];
 
 export const DEFAULT_GENERATION_PROVIDER: GenerationProviderName = 'claude';
+export const DEFAULT_OLLAMA_MODEL = 'gemma4:12b';
 
 export interface GenerationProviderSpec {
   provider: string;
@@ -49,6 +50,30 @@ function firstNonEmpty(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+/** The resolved model when an operator set it; the registry default is a Claude model id, so it never counts. */
+export function explicitModel(resolved: { value: unknown; source?: string } | null | undefined): string | undefined {
+  return resolved && resolved.source !== 'default' ? firstNonEmpty(resolved.value) : undefined;
+}
+
+/**
+ * The model Ollama generates with: an explicit model (team override, env
+ * MEMSMITH_SERVER_MODEL, or the settings file), then MEMSMITH_OLLAMA_MODEL
+ * (env, then settings file), then gemma4:12b.
+ */
+export function resolveOllamaModel(
+  env: Record<string, string | undefined>,
+  settings: Record<string, unknown>,
+  explicit?: string,
+): string {
+  return firstNonEmpty(
+    explicit,
+    env.MEMSMITH_SERVER_MODEL,
+    settings.MEMSMITH_SERVER_MODEL,
+    env.MEMSMITH_OLLAMA_MODEL,
+    settings.MEMSMITH_OLLAMA_MODEL,
+  ) ?? DEFAULT_OLLAMA_MODEL;
+}
+
 export function resolveBootGenerationSpec(
   env: Record<string, string | undefined>,
   settings: Record<string, unknown>,
@@ -56,7 +81,7 @@ export function resolveBootGenerationSpec(
   const provider = resolveGenerationProviderName(env, settings);
   if (!provider) return null;
   const model = provider === 'ollama'
-    ? firstNonEmpty(env.MEMSMITH_OLLAMA_MODEL, settings.MEMSMITH_SERVER_MODEL, settings.MEMSMITH_OLLAMA_MODEL)
+    ? resolveOllamaModel(env, settings)
     : firstNonEmpty(env.MEMSMITH_SERVER_MODEL, settings.MEMSMITH_SERVER_MODEL);
   const fallbackSpec = getSettingKey('fallback')!;
   const configuredFallback = clean(env.MEMSMITH_SERVER_FALLBACK) || clean(settings.MEMSMITH_SERVER_FALLBACK);

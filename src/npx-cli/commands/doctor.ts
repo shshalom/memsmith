@@ -17,6 +17,7 @@ import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 import {
+  generationSettingsFromServer,
   resolveOllamaTarget,
   type OllamaTarget,
   type ResolvedGenerationSettings,
@@ -233,10 +234,7 @@ async function fetchResolvedGeneration(): Promise<ResolvedGenerationSettings | n
     const runtime = resolveRuntimeContext(process.cwd());
     if (runtime.runtime !== 'server') return null;
     const { settings } = await runtime.client.getResolvedSettings();
-    return {
-      provider: typeof settings.provider?.value === 'string' ? settings.provider.value : undefined,
-      model: typeof settings.model?.value === 'string' ? settings.model.value : undefined,
-    };
+    return generationSettingsFromServer(settings);
   } catch {
     return null;
   }
