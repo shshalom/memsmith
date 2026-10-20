@@ -46,6 +46,12 @@ describe('decideOllamaStep', () => {
       }
     });
 
+    it('quotes the 8 GB download for the Gemma backup model', () => {
+      const d = decideOllamaStep({ state: 'not-installed', mode: 'interactive', host: macBrew, model: 'gemma4:12b', origin: ORIGIN });
+      if (d.kind === 'ask') expect(d.question).toContain('8 GB');
+      else throw new Error('expected an ask decision');
+    });
+
     it('asks before running the official script on Linux', () => {
       const d = decide('not-installed', 'interactive', linux);
       expect(d).toMatchObject({ kind: 'ask', action: { kind: 'linux-install' } });

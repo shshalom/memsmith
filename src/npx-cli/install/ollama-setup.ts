@@ -40,6 +40,7 @@ export const LINUX_INSTALL_COMMAND = 'curl -fsSL https://ollama.com/install.sh |
 const DOWNLOAD_URL = 'https://ollama.com/download';
 
 function downloadSize(model: string): string {
+  if (model === 'gemma4:12b') return '8 GB';
   return model === 'qwen2.5:14b' ? '~9 GB' : 'multi-GB';
 }
 

@@ -21,7 +21,8 @@ function io(overrides: Partial<ProviderPromptIO> = {}) {
     interactive: true,
     selectProvider: async (initial) => { prompts.push(`select:${initial}`); return initial; },
     anthropicKey: async () => { prompts.push('anthropic-key'); return true; },
-    claudeModel: async () => { prompts.push('claude-model'); return 'claude-haiku-4-5-20251001'; },
+    claudeModel: async () => { prompts.push('claude-model'); return 'claude-haiku-5-5'; },
+    offerLocalBackup: async () => { prompts.push('local-backup'); return true; },
     hostedKey: async (provider) => { prompts.push(`key:${provider}`); return 'pasted'; },
     hasSavedKey: () => false,
     saveSettings: (updates) => { saved.push(updates); return true; },
@@ -56,25 +57,71 @@ describe('currentGenerationSelection', () => {
   });
 });
 
+describe('an install that predates the provider setting', () => {
+  const legacy = { MEMSMITH_RUNTIME: 'local', MEMSMITH_OLLAMA_MODEL: 'llama3.3:70b' };
+
+  it('starts from Ollama with its pinned model, so a flag-less reinstall never moves it to Claude', async () => {
+    const current = currentGenerationSelection(legacy, {}, null);
+    expect(current).toMatchObject({ provider: 'ollama', model: 'llama3.3:70b' });
+    const h = io({ interactive: false });
+    expect(await chooseGenerationProvider({}, current, h.io)).toEqual({ provider: 'ollama', confirmed: true, localBackup: false });
+    expect(h.saved).toEqual([]);
+  });
+
+  it('pins qwen2.5:14b when the install never named a model', () => {
+    expect(currentGenerationSelection({ MEMSMITH_RUNTIME: 'local' }, {}, null)).toMatchObject({ provider: 'ollama', model: 'qwen2.5:14b' });
+  });
+});
+
 describe('chooseGenerationProvider', () => {
   const ollamaCurrent = { provider: 'ollama' as const };
 
   it('cancelling the Gemini key prompt keeps the current provider and saves nothing', async () => {
     const h = io({ selectProvider: async () => 'gemini', hostedKey: async () => null });
-    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'ollama', confirmed: false });
+    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'ollama', confirmed: false, localBackup: false });
     expect(h.saved).toEqual([]);
   });
 
   it('cancelling the Anthropic key prompt keeps the current provider and saves nothing', async () => {
     const h = io({ selectProvider: async () => 'claude', anthropicKey: async () => false });
-    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'ollama', confirmed: false });
+    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'ollama', confirmed: false, localBackup: false });
     expect(h.saved).toEqual([]);
   });
 
   it('choosing Claude with a key saves MEMSMITH_SERVER_PROVIDER=claude', async () => {
     const h = io({ selectProvider: async () => 'claude' });
-    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'claude', confirmed: true });
-    expect(h.saved[0]).toMatchObject({ MEMSMITH_SERVER_PROVIDER: 'claude', MEMSMITH_SERVER_MODEL: 'claude-haiku-4-5-20251001' });
+    expect(await chooseGenerationProvider({}, ollamaCurrent, h.io)).toEqual({ provider: 'claude', confirmed: true, localBackup: true });
+    expect(h.saved[0]).toMatchObject({ MEMSMITH_SERVER_PROVIDER: 'claude', MEMSMITH_SERVER_MODEL: 'claude-haiku-5-5' });
+  });
+
+  it('claude choice asks for the local backup and plans a gemma4:12b pull on yes', async () => {
+    const h = io({ selectProvider: async () => 'claude' });
+    const outcome = await chooseGenerationProvider({}, ollamaCurrent, h.io);
+    expect(h.prompts).toEqual(['anthropic-key', 'claude-model', 'local-backup']);
+    expect(h.saved[0]).toMatchObject({ MEMSMITH_SERVER_PROVIDER: 'claude', MEMSMITH_SERVER_FALLBACK: 'ollama' });
+    expect(ollamaSetupPlan(outcome, 'local', false)).toEqual({ run: true, model: 'gemma4:12b' });
+  });
+
+  it('declining the backup saves fallback none and plans no pull', async () => {
+    const h = io({ selectProvider: async () => 'claude', offerLocalBackup: async () => false });
+    const outcome = await chooseGenerationProvider({}, ollamaCurrent, h.io);
+    expect(h.saved[0]).toMatchObject({ MEMSMITH_SERVER_PROVIDER: 'claude', MEMSMITH_SERVER_FALLBACK: 'none' });
+    expect(outcome.localBackup).toBe(false);
+    expect(ollamaSetupPlan(outcome, 'local', false)).toEqual({ run: false });
+  });
+
+  it('non-interactive claude install does not prompt and keeps the backup off unless --local-backup is passed', async () => {
+    const off = io({ interactive: false });
+    const offOutcome = await chooseGenerationProvider({ provider: 'claude' }, ollamaCurrent, off.io);
+    expect(off.prompts).toEqual([]);
+    expect(off.saved[0]).toMatchObject({ MEMSMITH_SERVER_FALLBACK: 'none' });
+    expect(offOutcome.localBackup).toBe(false);
+
+    const on = io({ interactive: false });
+    const onOutcome = await chooseGenerationProvider({ provider: 'claude', localBackup: true }, ollamaCurrent, on.io);
+    expect(on.prompts).toEqual([]);
+    expect(on.saved[0]).toMatchObject({ MEMSMITH_SERVER_FALLBACK: 'ollama' });
+    expect(ollamaSetupPlan(onOutcome, 'local', false)).toEqual({ run: true, model: 'gemma4:12b' });
   });
 
   it('--provider in a terminal skips the menu but still asks for the key', async () => {
@@ -86,7 +133,7 @@ describe('chooseGenerationProvider', () => {
 
   it('a non-interactive --provider writes the provider and warns about a missing key', async () => {
     const h = io({ interactive: false, missingCredential: () => 'MEMSMITH_GEMINI_API_KEY in ~/.memsmith/settings.json' });
-    expect(await chooseGenerationProvider({ provider: 'gemini' }, ollamaCurrent, h.io)).toEqual({ provider: 'gemini', confirmed: true });
+    expect(await chooseGenerationProvider({ provider: 'gemini' }, ollamaCurrent, h.io)).toEqual({ provider: 'gemini', confirmed: true, localBackup: false });
     expect(h.prompts).toEqual([]);
     expect(h.saved[0].MEMSMITH_SERVER_PROVIDER).toBe('gemini');
     expect(h.warnings.join('\n')).toContain('MEMSMITH_GEMINI_API_KEY');
@@ -119,21 +166,21 @@ describe('ollamaSetupMode', () => {
 
 describe('ollamaSetupPlan', () => {
   it('runs for a chosen Ollama on the local runtime', () => {
-    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'local', false)).toEqual({ run: true });
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'local', false)).toEqual({ run: true });
   });
 
   it('skips the server runtime, which generates on the team server', () => {
-    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'server', false)).toEqual({ run: false });
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'server', false)).toEqual({ run: false });
   });
 
   it('skips when a cancelled key prompt left Ollama in place', () => {
-    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: false }, 'local', false)).toEqual({ run: false });
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: false, localBackup: false }, 'local', false)).toEqual({ run: false });
   });
 
   it('says --setup-ollama was ignored when it cannot apply', () => {
-    expect(ollamaSetupPlan({ provider: 'claude', confirmed: true }, 'local', true).ignored).toContain('--setup-ollama');
-    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'server', true).ignored).toContain('server runtime');
-    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true }, 'local', true).ignored).toBeUndefined();
+    expect(ollamaSetupPlan({ provider: 'claude', confirmed: true, localBackup: false }, 'local', true).ignored).toContain('--setup-ollama');
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'server', true).ignored).toContain('server runtime');
+    expect(ollamaSetupPlan({ provider: 'ollama', confirmed: true, localBackup: false }, 'local', true).ignored).toBeUndefined();
   });
 });
 

@@ -24,9 +24,10 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith')}                     Interactive install
   ${styleText('cyan', 'npx memsmith install')}              Interactive install
   ${styleText('cyan', 'npx memsmith install --ide <id>')}   Install for specific IDE
-  ${styleText('cyan', 'npx memsmith install --provider ollama|claude|gemini|openrouter')}   Set the generation provider (default: ollama) without the prompt
+  ${styleText('cyan', 'npx memsmith install --provider ollama|claude|gemini|openrouter')}   Set the generation provider (default: claude) without the prompt
   ${styleText('cyan', 'npx memsmith install --model <id>')}   Set the generation model for the chosen provider
   ${styleText('cyan', 'npx memsmith install --setup-ollama')}   Install Ollama, start it, and download its model without asking
+  ${styleText('cyan', 'npx memsmith install --provider claude --local-backup')}   Also install the local Ollama backup that takes over when Claude is unavailable
   ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx memsmith install --runtime local|server')}   Select runtime non-interactively (local: embedded Postgres, the default; server: a team MemSmith server)
@@ -67,6 +68,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
       'no-auto-start': { type: 'boolean' },
       'disable-auto-memory': { type: 'boolean' },
       'setup-ollama': { type: 'boolean' },
+      'local-backup': { type: 'boolean' },
     },
     strict: false,
     allowPositionals: true,
@@ -90,6 +92,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     noAutoStart: values['no-auto-start'] === true,
     disableAutoMemory: values['disable-auto-memory'] === true,
     setupOllama: values['setup-ollama'] === true,
+    localBackup: values['local-backup'] === true ? true : undefined,
     runtime,
     serverUrl: flag('server-url'),
   };

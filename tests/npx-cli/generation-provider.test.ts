@@ -13,9 +13,9 @@ import {
 import { resolveGenerationProviderName } from '../../src/server/runtime/resolve-generation-provider.js';
 
 describe('provider prompt choices', () => {
-  it('lists Ollama first and recommends it', () => {
-    expect(GENERATION_PROVIDER_CHOICES.map((c) => c.value)).toEqual(['ollama', 'claude', 'gemini', 'openrouter']);
-    expect(GENERATION_PROVIDER_CHOICES[0].label).toContain('recommended');
+  it('lists Claude Haiku 5.5 first and recommends it', () => {
+    expect(GENERATION_PROVIDER_CHOICES.map((c) => c.value)).toEqual(['claude', 'ollama', 'gemini', 'openrouter']);
+    expect(GENERATION_PROVIDER_CHOICES[0].label).toBe('Claude Haiku 5.5 (recommended)');
     expect(GENERATION_PROVIDER_CHOICES.slice(1).some((c) => c.label.includes('recommended'))).toBe(false);
   });
 });
@@ -64,12 +64,12 @@ describe('providerSettingsUpdates', () => {
       .not.toBe('qwen2.5:14b');
   });
 
-  it('selecting Ollama writes qwen2.5:14b to both model keys the server reads', () => {
+  it('selecting Ollama writes gemma4:12b to both model keys the server reads', () => {
     const updates = providerSettingsUpdates('ollama', {});
     expect(updates).toEqual({
       MEMSMITH_SERVER_PROVIDER: 'ollama',
-      MEMSMITH_SERVER_MODEL: 'qwen2.5:14b',
-      MEMSMITH_OLLAMA_MODEL: 'qwen2.5:14b',
+      MEMSMITH_SERVER_MODEL: 'gemma4:12b',
+      MEMSMITH_OLLAMA_MODEL: 'gemma4:12b',
     });
   });
 

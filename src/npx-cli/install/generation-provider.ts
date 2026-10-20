@@ -8,12 +8,12 @@ import {
 import { DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from '../../server/generation/providers/GeminiObservationProvider.js';
 import { DEFAULT_MODEL as OPENROUTER_DEFAULT_MODEL } from '../../server/generation/providers/OpenRouterObservationProvider.js';
 
-export const DEFAULT_OLLAMA_MODEL = 'qwen2.5:14b';
-export const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+export const DEFAULT_OLLAMA_MODEL = 'gemma4:12b';
+export const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
 
 export const GENERATION_PROVIDER_CHOICES: ReadonlyArray<{ value: GenerationProviderName; label: string; hint: string }> = [
-  { value: 'ollama', label: 'Ollama — local, private, no API key (recommended)', hint: 'runs on this machine; downloads a ~9 GB model' },
-  { value: 'claude', label: 'Claude', hint: 'needs an Anthropic API key; billed per token' },
+  { value: 'claude', label: 'Claude Haiku 5.5 (recommended)', hint: 'needs an Anthropic API key; about $1 per 1,000 observations' },
+  { value: 'ollama', label: 'Ollama — local and private, no API key', hint: 'runs on this machine; downloads an 8 GB model' },
   { value: 'gemini', label: 'Gemini', hint: 'needs a Google AI Studio API key' },
   { value: 'openrouter', label: 'OpenRouter', hint: 'needs an OpenRouter API key; many hosted models' },
 ];
@@ -47,6 +47,8 @@ export interface ProviderSettingsOptions {
   /** Gemini or OpenRouter key; the Anthropic key lives in ~/.memsmith/.env instead. */
   apiKey?: string;
   current?: { provider?: string; model?: string };
+  /** Whether a failed Claude call falls back to the local Ollama model. */
+  fallback?: 'ollama' | 'none';
 }
 
 /** The settings.json entries that make generation use `provider`. */
@@ -62,6 +64,7 @@ export function providerSettingsUpdates(
   };
   // The boot-time provider reads the Ollama model from its own key first.
   if (provider === 'ollama') updates.MEMSMITH_OLLAMA_MODEL = model;
+  if (opts.fallback) updates.MEMSMITH_SERVER_FALLBACK = opts.fallback;
   const keySetting = API_KEY_SETTING[provider];
   if (keySetting && opts.apiKey?.trim()) updates[keySetting] = opts.apiKey.trim();
   return updates;

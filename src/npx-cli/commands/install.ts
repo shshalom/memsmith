@@ -927,7 +927,9 @@ function readUserSettings(): Record<string, unknown> {
 }
 
 const CLAUDE_MODEL_CHOICES = [
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
+  { value: 'claude-haiku-5-5', label: 'Haiku 5.5 (recommended — fast, cheap, great for compression)' },
+  { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5 (balanced quality and cost)' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (fast and cheap)' },
   { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced quality and cost)' },
   { value: 'claude-opus-4-7', label: 'Opus 4.7 (highest quality, most expensive)' },
 ];
@@ -978,8 +980,9 @@ async function promptClaudeModel(current: string | undefined): Promise<string> {
   return result;
 }
 
-async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary): Promise<void> {
-  const target = resolveOllamaTarget(readUserSettings(), process.env);
+async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, backupModel?: string): Promise<void> {
+  const resolvedTarget = resolveOllamaTarget(readUserSettings(), process.env);
+  const target = resolvedTarget && backupModel ? { ...resolvedTarget, model: backupModel } : resolvedTarget;
   if (!target) {
     summary.warnings.push({
       component: 'ollama',
@@ -991,7 +994,7 @@ async function setupOllamaForInstall(options: InstallOptions, summary: InstallSu
   const runner = defaultCommandRunner();
   const ollamaHost = ollamaHostFor(target.origin);
   const { ready } = await runOllamaSetup({
-    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama }),
+    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama || (backupModel !== undefined && options.localBackup === true) }),
     host: detectOllamaHost(runner, target, process.stdin.isTTY === true),
     model: target.model,
     origin: target.origin,
@@ -1055,6 +1058,11 @@ async function promptProvider(
     },
     anthropicKey: promptAnthropicApiKey,
     claudeModel: promptClaudeModel,
+    offerLocalBackup: async () => {
+      const result = await p.confirm({ message: 'Install a local backup for outages? (8 GB)', initialValue: true });
+      if (p.isCancel(result)) cancelInstall();
+      return result;
+    },
     hostedKey: async (provider) => {
       const result = await p.password({
         message: `Paste your ${provider === 'gemini' ? 'Gemini' : 'OpenRouter'} API key:`,
@@ -1115,6 +1123,8 @@ export interface InstallOptions {
   model?: string;
   /** Install, start, and pull Ollama without asking (still never prompts for sudo without a terminal). */
   setupOllama?: boolean;
+  /** With `--provider claude`, install the local Ollama backup without asking. */
+  localBackup?: boolean;
   noAutoStart?: boolean;
   disableAutoMemory?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
@@ -1386,7 +1396,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // Ollama ready.
   const ollamaPlan = ollamaSetupPlan(providerOutcome, selectedRuntime, options.setupOllama === true);
   if (ollamaPlan.ignored) log.warn(ollamaPlan.ignored);
-  if (ollamaPlan.run) await setupOllamaForInstall(options, summary);
+  if (ollamaPlan.run) await setupOllamaForInstall(options, summary, ollamaPlan.model);
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
   // `memsmith start`), NOT the local-runtime spawner. Skip the

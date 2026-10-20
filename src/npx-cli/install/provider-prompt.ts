@@ -8,9 +8,11 @@ import {
   type GenerationProviderName,
 } from '../../server/runtime/resolve-generation-provider.js';
 import {
+  DEFAULT_OLLAMA_MODEL,
   initialGenerationProvider,
   providerSettingsUpdates,
 } from './generation-provider.js';
+import { legacyGenerationPins } from '../../server/settings/pin-legacy-generation-settings.js';
 import type { OllamaSetupMode } from './ollama-setup.js';
 import { normalizeRuntimeFlag } from '../commands/server-runtime-setup.js';
 import { resolveServerAddress } from '../commands/lifecycle.js';
@@ -42,10 +44,12 @@ export function currentGenerationSelection(
   resolved: ResolvedSettingsSnapshot | null,
 ): CurrentGeneration {
   const resolvedProvider = asProvider(resolved?.provider?.value);
-  const provider = resolvedProvider ?? initialGenerationProvider(settings, env);
+  const pins = legacyGenerationPins(settings, env);
+  const provider = resolvedProvider ?? (pins ? 'ollama' : initialGenerationProvider(settings, env));
   const resolvedModel = resolved?.model && resolved.model.source !== 'default' ? nonBlank(resolved.model.value) : undefined;
   const savedModel = nonBlank(settings.MEMSMITH_SERVER_MODEL)
-    ?? (provider === 'ollama' ? nonBlank(settings.MEMSMITH_OLLAMA_MODEL) : undefined);
+    ?? (provider === 'ollama' ? nonBlank(settings.MEMSMITH_OLLAMA_MODEL) : undefined)
+    ?? (pins && provider === 'ollama' ? pins.MEMSMITH_SERVER_MODEL : undefined);
   const current: CurrentGeneration = { provider, model: resolvedModel ?? savedModel };
   if (resolvedProvider && resolved?.provider?.source === 'team') current.dashboardOverride = resolvedProvider;
   return current;
@@ -57,6 +61,8 @@ export interface ProviderPromptIO {
   /** False when the user cancels; true when a key is kept or entered. */
   anthropicKey(): Promise<boolean>;
   claudeModel(current: string | undefined): Promise<string>;
+  /** Whether to install the local Ollama model that takes over when Claude is unavailable. */
+  offerLocalBackup(): Promise<boolean>;
   /** The pasted key, or null when the user cancels. */
   hostedKey(provider: 'gemini' | 'openrouter'): Promise<string | null>;
   hasSavedKey(provider: GenerationProviderName): boolean;
@@ -70,15 +76,16 @@ export interface ProviderPromptIO {
 export interface ProviderOutcome {
   provider: GenerationProviderName;
   confirmed: boolean;
+  localBackup: boolean;
 }
 
 export async function chooseGenerationProvider(
-  options: { provider?: GenerationProviderName; model?: string },
+  options: { provider?: GenerationProviderName; model?: string; localBackup?: boolean },
   current: CurrentGeneration,
   io: ProviderPromptIO,
 ): Promise<ProviderOutcome> {
-  const save = (provider: GenerationProviderName, extra: { model?: string; apiKey?: string } = {}): void => {
-    const updates = providerSettingsUpdates(provider, { model: extra.model ?? options.model, apiKey: extra.apiKey, current });
+  const save = (provider: GenerationProviderName, extra: { model?: string; apiKey?: string; fallback?: 'ollama' | 'none' } = {}): void => {
+    const updates = providerSettingsUpdates(provider, { model: extra.model ?? options.model, apiKey: extra.apiKey, fallback: extra.fallback, current });
     if (io.saveSettings(updates)) {
       io.info(`Saved generation provider=${provider} (model ${updates.MEMSMITH_SERVER_MODEL}) to ~/.memsmith/settings.json`);
     }
@@ -88,39 +95,41 @@ export async function chooseGenerationProvider(
   };
   const cancelled = (): ProviderOutcome => {
     io.warn(`API key prompt cancelled — generation provider stays ${current.provider}.`);
-    return { provider: current.provider, confirmed: false };
+    return { provider: current.provider, confirmed: false, localBackup: false };
   };
 
   if (!io.interactive) {
-    if (!options.provider) return { provider: current.provider, confirmed: true };
-    save(options.provider);
+    if (!options.provider) return { provider: current.provider, confirmed: true, localBackup: false };
+    const localBackup = options.provider === 'claude' && options.localBackup === true;
+    save(options.provider, options.provider === 'claude' ? { fallback: localBackup ? 'ollama' : 'none' } : {});
     const missing = io.missingCredential(options.provider);
     if (missing) io.warn(`Generation provider ${options.provider} needs an API key before it can create memories. Set ${missing}.`);
-    return { provider: options.provider, confirmed: true };
+    return { provider: options.provider, confirmed: true, localBackup };
   }
 
   const provider = options.provider ?? await io.selectProvider(current.provider);
 
   if (provider === 'ollama') {
     save('ollama');
-    return { provider, confirmed: true };
+    return { provider, confirmed: true, localBackup: false };
   }
 
   if (provider === 'claude') {
     if (!(await io.anthropicKey())) return cancelled();
     const model = options.model ?? await io.claudeModel(current.provider === 'claude' ? current.model : undefined);
-    save('claude', { model });
-    return { provider, confirmed: true };
+    const localBackup = options.localBackup ?? await io.offerLocalBackup();
+    save('claude', { model, fallback: localBackup ? 'ollama' : 'none' });
+    return { provider, confirmed: true, localBackup };
   }
 
   if (io.hasSavedKey(provider)) {
     save(provider);
-    return { provider, confirmed: true };
+    return { provider, confirmed: true, localBackup: false };
   }
   const apiKey = await io.hostedKey(provider);
   if (apiKey === null) return cancelled();
   save(provider, { apiKey });
-  return { provider, confirmed: true };
+  return { provider, confirmed: true, localBackup: false };
 }
 
 /**
@@ -152,7 +161,10 @@ export function ollamaSetupPlan(
   outcome: ProviderOutcome,
   runtime: 'local' | 'server',
   setupOllamaFlag: boolean,
-): { run: boolean; ignored?: string } {
+): { run: boolean; model?: string; ignored?: string } {
+  if (runtime === 'local' && outcome.provider === 'claude' && outcome.confirmed && outcome.localBackup) {
+    return { run: true, model: DEFAULT_OLLAMA_MODEL };
+  }
   if (outcome.provider === 'ollama' && outcome.confirmed && runtime === 'local') return { run: true };
   if (!setupOllamaFlag) return { run: false };
   if (runtime === 'server') return { run: false, ignored: '--setup-ollama ignored: the server runtime generates on the team server.' };
