@@ -11,14 +11,14 @@ MemSmith reads its settings from `~/.memsmith/settings.json` and creates the fil
 
 ## Generation provider
 
-The generation provider turns captured session activity into memories. The default is Ollama, which runs a local model on your machine and needs no API key. `npx memsmith install` asks which provider to use and writes these settings. A provider that you choose on the dashboard **Settings** tab overrides the settings file.
+The generation provider turns captured session activity into memories. The default is Claude Haiku 5.5, which needs an Anthropic API key. Ollama runs a local model on your machine and needs no API key. `npx memsmith install` asks which provider to use and writes these settings. A provider that you choose on the dashboard **Settings** tab overrides the settings file.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_SERVER_PROVIDER` | `ollama` | Generation provider: `ollama`, `claude`, `gemini`, or `openrouter`. |
-| `MEMSMITH_SERVER_MODEL` | `qwen2.5:14b` | Model that the provider runs. Set a model that belongs to the provider, for example `claude-haiku-4-5-20251001` for `claude`. |
-| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible base URL. |
-| `MEMSMITH_OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. |
+| `MEMSMITH_SERVER_PROVIDER` | `claude` | Generation provider: `ollama`, `claude`, `gemini`, or `openrouter`. |
+| `MEMSMITH_SERVER_MODEL` | `claude-haiku-5-5` | Model that the provider runs. Set a model that belongs to the provider, for example `gemma4:12b` for `ollama`. |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL. The provider calls Ollama's native `/api/chat` endpoint at the host of this URL. |
+| `MEMSMITH_OLLAMA_MODEL` | `gemma4:12b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. |
 | `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
 | `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
 | `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
@@ -27,9 +27,29 @@ The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `
 
 For each API key, a MemSmith variable in the environment (`MEMSMITH_ANTHROPIC_API_KEY`, `MEMSMITH_GEMINI_API_KEY`, `MEMSMITH_OPENROUTER_API_KEY`) wins over the saved key, and the saved key wins over a generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`).
 
+Existing installs keep their provider. When the server starts and the settings file has no `MEMSMITH_SERVER_PROVIDER`, MemSmith pins the install to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b` if unset). `memsmith update` offers the switch to Claude Haiku 5.5 once, in an interactive terminal only.
+
+The Ollama provider uses a fixed context of 20,480 tokens and turns thinking off. Without a fixed context, Ollama sizes the context itself, up to 256k tokens for Gemma 4, which multiplies RAM use. `gemma4:12b` needs an 8 GB download and about 9.7 GB of RAM while loaded.
+
 Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_MODEL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
 
 For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usage/openrouter-provider).
+
+### Local backup
+
+When Claude fails, MemSmith runs the same job on a local Ollama model, so a Claude outage doesn't stop memory capture.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_SERVER_FALLBACK` | `ollama` | Backup provider: `ollama`, or `none` to turn failover off. |
+| `MEMSMITH_SERVER_FALLBACK_MODEL` | `gemma4:12b` | Ollama model that the backup runs. |
+
+Failover behaves as follows:
+
+- Any Claude error triggers it. If the backup also fails, MemSmith reports Claude's error and normal retries apply.
+- After a Claude failure, jobs go to the backup first for 5 minutes.
+- With no Anthropic API key, MemSmith uses the backup only.
+- Failover never goes from a local model to a cloud one. If you choose `ollama` as the provider, there is no cloud backup.
 
 ### Check generation
 

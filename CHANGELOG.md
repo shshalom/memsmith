@@ -8,8 +8,24 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Changed
+
+- The default generation provider is now Claude Haiku 5.5 (`claude-haiku-5-5`). It needs an Anthropic API key in `~/.memsmith/.env` or `MEMSMITH_ANTHROPIC_API_KEY`; a Claude subscription login doesn't cover it.
+- The default Ollama model is now `gemma4:12b` (8 GB download, about 9.7 GB of RAM while loaded).
+- The Ollama provider uses Ollama's native `/api/chat` with a fixed 20,480-token context and thinking off. Before, Ollama sized the context itself, up to 256k tokens for Gemma 4, which multiplied RAM use. The record-intent backstop and the import classifier use the same call.
+- The installer lists Claude Haiku 5.5 first as the recommended choice.
+- Existing installs keep their provider. At server start, an install whose settings file has no `MEMSMITH_SERVER_PROVIDER` is pinned to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b`).
+
+### Added
+
+- Automatic failover to local Ollama. On any Claude error, the same job runs on the backup. After a failure, jobs go to the backup first for 5 minutes, and with no Anthropic key MemSmith uses the backup only. Failover never goes from a local model to a cloud one. Configure it with `MEMSMITH_SERVER_FALLBACK` (`ollama` or `none`) and `MEMSMITH_SERVER_FALLBACK_MODEL` (default `gemma4:12b`).
+- The installer asks "Install a local backup for outages? (8 GB)" after you choose Claude Haiku 5.5. The new `--local-backup` flag answers it in non-interactive installs.
+- `memsmith update` offers the switch to Claude Haiku 5.5 once, in an interactive terminal only.
+- A model benchmark in `bench/model-bench/` that scores generation models on synthetic and real events.
+
 ### Fixed
 
+- The server now reads `MEMSMITH_SERVER_PROVIDER` and `MEMSMITH_SERVER_MODEL` from `settings.json` at startup. The boot loader dropped both.
 - The Claude generation provider no longer sends `temperature`. Claude Haiku 5.5 and Claude Sonnet 5.5 reject that parameter, so every observation failed when you selected either model.
 
 ## [13.11.2] - 2026-10-15

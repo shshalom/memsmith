@@ -19,8 +19,9 @@ The interactive installer does the following:
 
 - Checks the runtime and installs Bun and uv if they're missing.
 - Detects your IDEs (Claude Code, Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, and others) and lets you choose which ones to set up.
-- Asks for a generation provider. Ollama is the recommended default: it runs a local model, keeps your data on your machine, and needs no API key. Claude, Gemini, and OpenRouter need an API key, which the installer asks for.
-- If you choose Ollama, checks that Ollama is installed, running, and has the model (`qwen2.5:14b`, about 9 GB). With your consent, it installs Ollama (Homebrew on macOS, the official script on Linux), starts it, and downloads the model. On Windows and on macOS without Homebrew, it prints the install steps instead.
+- Asks for a generation provider. Claude Haiku 5.5 is listed first and recommended. It needs an Anthropic API key, which the installer asks for; a Claude subscription login doesn't cover it. Gemini, OpenRouter, and Ollama are also available.
+- After you choose Claude Haiku 5.5, asks "Install a local backup for outages? (8 GB)" with Yes preselected. For non-interactive installs, pass `--local-backup`.
+- If you choose Ollama or the local backup, checks that Ollama is installed, running, and has the model (`gemma4:12b`, 8 GB download). With your consent, it installs Ollama (Homebrew on macOS, the official script on Linux), starts it, and downloads the model. On Windows and on macOS without Homebrew, it prints the install steps instead.
 - Copies the plugin files into the Claude Code marketplace directory and registers the plugin.
 - Starts the local MemSmith server.
 

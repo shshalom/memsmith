@@ -52,12 +52,12 @@ questions and runs `npx memsmith install` for you, so both paths end with the
 same setup. Claude never asks for an API key in chat.
 
 The installer asks which generation provider turns your sessions into
-memories. The default is Ollama, which runs a local model on your machine and
-needs no API key. If you choose Ollama, the installer checks that it is
-installed, running, and has the model (`qwen2.5:14b`, about 9 GB), and offers
-to set up whatever is missing. To use Claude, Gemini, or OpenRouter instead,
-choose it at the prompt and paste an API key, or run
-`npx memsmith install --provider claude`. To check generation later, run
+memories. The default is Claude Haiku 5.5, which needs an Anthropic API key. A
+Claude subscription login doesn't cover it. After you choose it, the installer
+offers a local backup (Ollama with `gemma4:12b`, an 8 GB download) that takes
+over when Claude is unavailable. To skip the prompt in a non-interactive
+install, pass `--local-backup`. To use Gemini, OpenRouter, or a local-only
+Ollama model instead, choose it at the prompt. To check generation later, run
 `memsmith doctor`.
 
 Restart Claude Code. Context from previous sessions automatically appears in
