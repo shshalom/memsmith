@@ -4,7 +4,7 @@ import { paths } from '../../shared/paths.js';
 import { dirname, join, resolve } from 'path';
 import { styleText } from 'node:util';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
-import { pickProxyVars } from '../install/ollama-setup.js';
+import { pickProxyVars, type OllamaSetupMode } from '../install/ollama-setup.js';
 import { ensureBun, ensureUv, installPluginDependencies, writeInstallMarker } from '../install/setup-runtime.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
 import {
@@ -37,7 +37,8 @@ const USAGE = 'Usage: memsmith update [--force] [--no-self-update]';
 const KNOWN_FLAGS = new Set(['--force', '--no-self-update']);
 export const NPX_UNAVAILABLE = 127;
 const SWITCH_OFFERED = 'MEMSMITH_GENERATION_SWITCH_OFFERED';
-const SWITCH_QUESTION = 'Switch memory generation to Claude Haiku 5.5, with your local model as the backup? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
+const SWITCH_QUESTION = 'Switch memory generation to Claude Haiku 5.5, with a local gemma4:12b backup (8 GB download)? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
+const SWITCH_CANCELLED = 'No changes made. Run memsmith install to switch later.';
 const SWITCH_TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';
 const STOPPED_MARKER = () => join(paths.dataDir(), '.update-stopped-server');
 
@@ -275,9 +276,29 @@ async function offerHaikuSwitch(d: UpdateDeps): Promise<void> {
   }
 }
 
-async function switchToHaiku(): Promise<void> {
-  if (!loadMemSmithEnv().ANTHROPIC_API_KEY?.trim() && !(await promptAnthropicApiKey())) return;
-  if (!mergeSettings({
+export interface HaikuSwitchDeps {
+  hasAnthropicKey(): boolean;
+  /** False when the user cancels. */
+  promptAnthropicKey(): Promise<boolean>;
+  saveSettings(updates: Record<string, string>): boolean;
+  setupOllama(model: string, mode: OllamaSetupMode): Promise<void>;
+  out(line: string): void;
+}
+
+const defaultHaikuSwitchDeps: HaikuSwitchDeps = {
+  hasAnthropicKey: () => Boolean(loadMemSmithEnv().ANTHROPIC_API_KEY?.trim()),
+  promptAnthropicKey: promptAnthropicApiKey,
+  saveSettings: mergeSettings,
+  setupOllama: (model, mode) => setupOllamaForInstall({}, createInstallSummary(), model, false, mode),
+  out: (line) => console.log(line),
+};
+
+export async function switchToHaiku(d: HaikuSwitchDeps = defaultHaikuSwitchDeps): Promise<void> {
+  if (!d.hasAnthropicKey() && !(await d.promptAnthropicKey())) {
+    d.out(SWITCH_CANCELLED);
+    return;
+  }
+  if (!d.saveSettings({
     MEMSMITH_SERVER_PROVIDER: 'claude',
     MEMSMITH_SERVER_MODEL: 'claude-haiku-5-5',
     MEMSMITH_SERVER_FALLBACK: 'ollama',
@@ -285,7 +306,8 @@ async function switchToHaiku(): Promise<void> {
   })) {
     throw new Error('Could not write ~/.memsmith/settings.json.');
   }
-  await setupOllamaForInstall({}, createInstallSummary(), 'gemma4:12b', true);
+  // The question named the 8 GB download, but the pull still asks before it starts.
+  await d.setupOllama('gemma4:12b', 'interactive');
 }
 
 const NPM_NETWORK_CONFIG = ['npm_config_proxy', 'npm_config_https_proxy', 'npm_config_noproxy', 'npm_config_registry'];
@@ -388,7 +410,7 @@ export function defaultUpdateDeps(): UpdateDeps {
     err: (line) => console.error(styleText('yellow', line)),
     isInteractive: () => process.stdin.isTTY === true && process.stdout.isTTY === true,
     confirm: async (message) => (await p.confirm({ message, initialValue: true })) === true,
-    switchToHaiku,
+    switchToHaiku: () => switchToHaiku(),
     readSettings: readUserSettings,
     saveSettings: mergeSettings,
   };

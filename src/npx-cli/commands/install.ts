@@ -46,6 +46,7 @@ import {
   probeOllamaState,
   runOllamaSetup,
   waitForOllama,
+  type OllamaSetupMode,
 } from '../install/ollama-setup.js';
 import { ErrorSeverity } from '../install/error-taxonomy.js';
 import {
@@ -981,7 +982,13 @@ async function promptClaudeModel(current: string | undefined): Promise<string> {
   return result;
 }
 
-export async function setupOllamaForInstall(options: InstallOptions, summary: InstallSummary, modelOverride?: string, localBackup = false): Promise<void> {
+export async function setupOllamaForInstall(
+  options: InstallOptions,
+  summary: InstallSummary,
+  modelOverride?: string,
+  localBackup = false,
+  mode?: OllamaSetupMode,
+): Promise<void> {
   const resolvedTarget = resolveOllamaTarget(readUserSettings(), process.env);
   const target = resolvedTarget && modelOverride ? { ...resolvedTarget, model: modelOverride } : resolvedTarget;
   if (!target) {
@@ -995,7 +1002,7 @@ export async function setupOllamaForInstall(options: InstallOptions, summary: In
   const runner = defaultCommandRunner();
   const ollamaHost = ollamaHostFor(target.origin);
   const { ready } = await runOllamaSetup({
-    mode: ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama, localBackup }),
+    mode: mode ?? ollamaSetupMode({ interactive: isInteractive, provider: options.provider, setupOllama: options.setupOllama, localBackup }),
     host: detectOllamaHost(runner, target, process.stdin.isTTY === true),
     model: target.model,
     origin: target.origin,

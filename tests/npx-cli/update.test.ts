@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
   runUpdate,
+  switchToHaiku,
   isNewerVersion,
   syncInstalledPluginEntries,
   type UpdateDeps,
@@ -206,7 +207,7 @@ describe('memsmith update', () => {
   });
 
   describe('Haiku switch offer', () => {
-    const QUESTION = 'Switch memory generation to Claude Haiku 5.5, with your local model as the backup? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
+    const QUESTION = 'Switch memory generation to Claude Haiku 5.5, with a local gemma4:12b backup (8 GB download)? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
     const TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';
 
     function withOffer(settings: Record<string, unknown>, o: { interactive?: boolean; answer?: boolean } = {}) {
@@ -275,6 +276,42 @@ describe('memsmith update', () => {
       f.deps.switchToHaiku = async () => { throw new Error('disk full'); };
       expect(await runUpdate([], f.deps)).toBe(0);
       expect(f.err.join('\n')).toContain('disk full');
+    });
+
+    describe('accepting the switch', () => {
+      function switchDeps(o: { hasKey?: boolean; keyEntered?: boolean } = {}) {
+        const saved: Array<Record<string, string>> = [];
+        const pulls: Array<[string, string]> = [];
+        const out: string[] = [];
+        const deps = {
+          hasAnthropicKey: () => o.hasKey ?? false,
+          promptAnthropicKey: async () => o.keyEntered ?? true,
+          saveSettings: (updates: Record<string, string>) => { saved.push(updates); return true; },
+          setupOllama: async (model: string, mode: string) => { pulls.push([model, mode]); },
+          out: (line: string) => out.push(line),
+        };
+        return { deps, saved, pulls, out };
+      }
+
+      it('saves Claude Haiku 5.5 with the gemma4:12b backup and asks before the pull', async () => {
+        const s = switchDeps();
+        await switchToHaiku(s.deps);
+        expect(s.saved).toEqual([{
+          MEMSMITH_SERVER_PROVIDER: 'claude',
+          MEMSMITH_SERVER_MODEL: 'claude-haiku-5-5',
+          MEMSMITH_SERVER_FALLBACK: 'ollama',
+          MEMSMITH_SERVER_FALLBACK_MODEL: 'gemma4:12b',
+        }]);
+        expect(s.pulls).toEqual([['gemma4:12b', 'interactive']]);
+      });
+
+      it('cancelling the key prompt changes nothing and says how to switch later', async () => {
+        const s = switchDeps({ keyEntered: false });
+        await switchToHaiku(s.deps);
+        expect(s.saved).toEqual([]);
+        expect(s.pulls).toEqual([]);
+        expect(s.out).toEqual(['No changes made. Run memsmith install to switch later.']);
+      });
     });
 
     it('does not offer when the update itself fails', async () => {
