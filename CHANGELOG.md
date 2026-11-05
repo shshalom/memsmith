@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.13.0] - 2026-11-05
+
 ### Added
 
 - `memsmith autostart enable | disable | status` registers MemSmith to start when you log in, using a LaunchAgent on macOS, a systemd user unit on Linux, and a `Run` registry value on Windows. The installer asks `Start MemSmith when you log in?` in interactive local installs; `--start-at-login` and `--no-start-at-login` control it in non-interactive installs. `memsmith update` offers it once, and `memsmith uninstall` removes it. Only macOS has been verified on a real machine; Linux and Windows support is experimental.
