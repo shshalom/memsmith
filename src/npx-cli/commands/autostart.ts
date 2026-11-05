@@ -182,7 +182,7 @@ export function loginAutostartStatus(d: AutostartDeps): { registered: boolean; h
     const r = d.run('powershell', ['-NoProfile', '-NonInteractive', '-Command', READ_RUN_VALUE_SCRIPT]);
     command = r.code === 0 ? r.stdout.trim() || null : null;
     if (!command) return { registered: false, healthy: false };
-    script = command ? scriptFromRunValue(command) : null;
+    script = scriptFromRunValue(command);
   } else {
     const body = d.readFile(entryPathOf(d));
     if (body === null) return { registered: false, healthy: false };
@@ -251,7 +251,7 @@ export function defaultAutostartDeps(): AutostartDeps {
     },
     run(cmd, args) {
       const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS });
-      return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? r.error?.message ?? '' };
+      return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.error?.message || r.stderr || '' };
     },
     out: (line) => console.log(line),
     err: (line) => console.error(line),

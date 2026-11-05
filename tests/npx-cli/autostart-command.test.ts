@@ -229,7 +229,6 @@ describe('loginAutostartStatus', () => {
     const script = 'C:\\Users\\José\\mkt\\server-service.cjs';
     const f = fake('win32', {
       command: () => ({ bunPath: 'C:\\bun\\bun.exe', scriptPath: script, logPath: 'l' }),
-      run: (l) => (l.startsWith('powershell') ? undefined : undefined),
     });
     let written = '';
     const base = f.deps.run;
