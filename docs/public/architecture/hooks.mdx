@@ -208,6 +208,13 @@ Hooks are configured in `plugin/hooks/hooks.json`:
         "command": "bun ${CLAUDE_PLUGIN_ROOT}/scripts/context-hook.js",
         "timeout": 60
       }]
+    }, {
+      "matcher": "resume",
+      "hooks": [{
+        "type": "command",
+        "command": "bun ${CLAUDE_PLUGIN_ROOT}/scripts/worker-service.cjs start",
+        "timeout": 60
+      }]
     }],
     "UserPromptSubmit": [{
       "hooks": [{

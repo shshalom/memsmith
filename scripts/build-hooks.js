@@ -84,6 +84,7 @@ function shellTemplateManifest(buildShellCommand) {
         }),
         'SessionStart.0.0': claudeHook(['start'], { trailingJson: { continue: true, suppressOutput: true } }),
         'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
+        'SessionStart.1.0': claudeHook(['start'], { trailingJson: { continue: true, suppressOutput: true } }),
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),

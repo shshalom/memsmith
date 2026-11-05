@@ -38,4 +38,14 @@ describe('plugin/hooks/hooks.json', () => {
     expect(g).toBeDefined();
     expect(g!.hooks[0].command).toContain('hook claude-code record-intent-intercept');
   });
+  // A resumed session after a reboot found MemSmith down: SessionStart matched
+  // only startup|clear|compact, so nothing started the server.
+  it('starts the server on resume without re-injecting session-start context', () => {
+    const groups = h.hooks.SessionStart as Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
+    const resume = groups.filter(g => (g.matcher ?? '').split('|').includes('resume'));
+    expect(resume).toHaveLength(1);
+    const commands = resume[0].hooks.map(x => x.command);
+    expect(commands.some(c => c.includes('server-service.cjs" start'))).toBe(true);
+    expect(commands.some(c => c.includes('hook claude-code context'))).toBe(false);
+  });
 });
