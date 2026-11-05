@@ -278,7 +278,7 @@ async function offerLoginAutostart(d: UpdateDeps): Promise<void> {
     if (!accepted) return;
     const result = d.loginAutostart.enable();
     if (result.ok) d.out(result.message);
-    else d.err(result.message);
+    else d.err(`${result.message} Run \`memsmith autostart enable\` to retry.`);
   } catch (error) {
     d.err(`Couldn't register start at login: ${error instanceof Error ? error.message : String(error)}`);
   }

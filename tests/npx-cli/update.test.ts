@@ -257,6 +257,7 @@ describe('memsmith update', () => {
       const f = withLoginOffer({}, { enableOk: false });
       expect(await runUpdate([], f.deps)).toBe(0);
       expect(f.err.join('\n')).toContain('bootstrap failed');
+      expect(f.err.join('\n')).toContain('memsmith autostart enable');
     });
 
     it('reports a throwing registration without failing the update', async () => {
