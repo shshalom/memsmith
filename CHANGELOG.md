@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.12.0] - 2026-11-05
+
 ### Changed
 
 - The default generation provider is now Claude Haiku 5.5 (`claude-haiku-5-5`). It needs an Anthropic API key in `~/.memsmith/.env` or `MEMSMITH_ANTHROPIC_API_KEY`; a Claude subscription login doesn't cover it.
