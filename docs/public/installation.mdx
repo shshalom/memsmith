@@ -74,9 +74,11 @@ memsmith autostart status
 
 | Platform | Login entry |
 |----------|-------------|
-| macOS | LaunchAgent at `~/Library/LaunchAgents/com.memsmith.start.plist`. Output goes to `~/.memsmith/logs/launchd-start.log`. |
-| Linux | systemd user unit at `~/.config/systemd/user/memsmith.service`. |
-| Windows | `MemSmith` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. You don't need administrator rights. A console window can flash at login. |
+| macOS | LaunchAgent at `~/Library/LaunchAgents/com.memsmith.start.plist`. Output goes to `~/.memsmith/logs/launchd-start.log`. Enabling it also starts MemSmith right away. |
+| Linux (experimental) | systemd user unit at `~/.config/systemd/user/memsmith.service`. The server runs inside your user session and stops when your last session ends. If you turn on lingering with `loginctl enable-linger`, the server starts at boot instead. |
+| Windows (experimental) | `MemSmith` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. You don't need administrator rights. A console window can appear at login. |
+
+Only macOS has been verified on a real machine. Linux and Windows support is experimental.
 
 On Linux without a working `systemctl --user`, such as a system without systemd or WSL, `memsmith autostart enable` fails and suggests that you add `memsmith start` to your shell profile.
 
