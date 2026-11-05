@@ -44,6 +44,7 @@ ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed pl
   ${styleText('cyan', 'memsmith status')}                   Show server status (exit 1 when not running)
   ${styleText('cyan', 'memsmith doctor [--fix]')}           Diagnose, and optionally repair, the install
   ${styleText('cyan', 'memsmith server api-key create|list|revoke')}   Manage API keys
+  ${styleText('cyan', 'memsmith autostart enable|disable|status')}   Start MemSmith when you log in
   ${styleText('cyan', 'npx memsmith telemetry status|enable|disable')}   Manage anonymous telemetry (off unless MEMSMITH_TELEMETRY_KEY is set)
   ${styleText('cyan', 'npx memsmith search <query>')}       Search observations
   ${styleText('cyan', 'npx memsmith transcript watch')}     Start transcript watcher
@@ -152,6 +153,11 @@ async function main(): Promise<void> {
       const { runDoctorCommand } = await import('./commands/doctor.js');
       await runDoctorCommand(args.slice(1));
       break;
+    }
+
+    case 'autostart': {
+      const { runAutostartCommand } = await import('./commands/autostart.js');
+      process.exit(await runAutostartCommand(args.slice(1)));
     }
 
     case 'telemetry': {
