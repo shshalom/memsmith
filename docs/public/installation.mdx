@@ -54,7 +54,33 @@ To do the setup yourself instead, run `npx memsmith install`.
 | `--model <id>` | Sets the generation model for the chosen provider. |
 | `--setup-ollama` | Installs Ollama, starts it, and downloads the model without asking. On Linux without a terminal, the installer prints the install command instead of running it, because the script can prompt for `sudo`. |
 | `--runtime local\|server` | Selects the runtime. `local` (the default) runs an embedded Postgres; `server` connects to a team's MemSmith server. Add `--server-url <url>` for the server address. |
-| `--no-auto-start` | Skips starting the server at the end of the install. |
+| `--no-auto-start` | Skips starting the server at the end of the install. This option is unrelated to starting at login. |
+| `--start-at-login` | Registers MemSmith to start when you log in, without the prompt. Without this option, a non-interactive install registers nothing. |
+| `--no-start-at-login` | Skips the start-at-login prompt and registers nothing. |
+
+## Start at login
+
+An interactive install on the local runtime asks `Start MemSmith when you log in?` and preselects **Yes**. The installer doesn't ask in CI or on the server runtime. If you register MemSmith, the login entry runs the MemSmith server `start` command once at login. That command starts the embedded Postgres and the server, then exits. MemSmith doesn't supervise or restart the server afterward.
+
+To manage the login entry yourself, run:
+
+```bash
+memsmith autostart enable
+memsmith autostart disable
+memsmith autostart status
+```
+
+`enable` is idempotent. `disable` succeeds when nothing is registered. `status` shows whether the entry is registered and whether the script it runs still exists. It exits with code 1 when the entry is registered but broken.
+
+| Platform | Login entry |
+|----------|-------------|
+| macOS | LaunchAgent at `~/Library/LaunchAgents/com.memsmith.start.plist`. Output goes to `~/.memsmith/logs/launchd-start.log`. |
+| Linux | systemd user unit at `~/.config/systemd/user/memsmith.service`. |
+| Windows | `MemSmith` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. You don't need administrator rights. A console window can flash at login. |
+
+On Linux without a working `systemctl --user`, such as a system without systemd or WSL, `memsmith autostart enable` fails and suggests that you add `memsmith start` to your shell profile.
+
+If registration fails during an install or update, the install or update still succeeds. MemSmith shows a warning with the fix, `memsmith autostart enable`. `memsmith update` offers to register MemSmith once, in an interactive terminal on the local runtime, when nothing is registered.
 
 ## System requirements
 
@@ -135,6 +161,8 @@ For the version history, see the [changelog](https://github.com/shshalom/memsmit
 ```bash
 npx memsmith uninstall
 ```
+
+Uninstall also removes the start-at-login entry.
 
 Close all Claude Code sessions first. Otherwise, active hooks can recreate `~/.memsmith`.
 
