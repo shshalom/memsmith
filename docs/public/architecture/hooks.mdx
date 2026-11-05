@@ -253,11 +253,13 @@ Hooks are configured in `plugin/hooks/hooks.json`:
 
 ## Stage 1: SessionStart
 
-**Timing**: When user opens Claude Code or resumes session
+**Timing**: When you open, clear, or compact a session, and when you resume one
 
 **Hooks Triggered** (in order):
 1. `worker-service.cjs start` - Starts the worker service
 2. `context-hook.js` - Fetches and silently injects prior session context
+
+On resume, only step 1 runs. MemSmith doesn't inject session-start context again into a resumed conversation.
 
 (Runtime setup is handled out-of-band by `npx memsmith install` / `npx memsmith repair`. The Setup phase runs a sub-100ms `version-check.js` that prompts the user to repair if the `.install-version` marker is stale.)
 
