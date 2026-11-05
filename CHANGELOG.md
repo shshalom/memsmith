@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.12.1] - 2026-11-05
+
 ### Fixed
 
 - Resuming a Claude Code session now starts the MemSmith server. Before, only a new, cleared, or compacted session started it, so after a reboot a resumed session ran without memory until you ran `memsmith start`. MemSmith doesn't inject session-start context again on resume.
