@@ -1,8 +1,3 @@
-/**
- * `memsmith autostart enable | disable | status` — register or remove the
- * login entry that runs `memsmith start` once when the user logs in.
- */
-
 import { spawnSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
@@ -41,6 +36,9 @@ const LABEL = 'com.memsmith.start';
 const SERVICE = 'memsmith.service';
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_VALUE = 'MemSmith';
+const READ_RUN_VALUE_SCRIPT =
+  "[Console]::OutputEncoding=[Text.Encoding]::UTF8; (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name MemSmith -ErrorAction SilentlyContinue).MemSmith";
+const PROBE_TIMEOUT_MS = 15000;
 const USAGE = 'Usage: memsmith autostart enable | disable | status';
 
 function guiTarget(d: AutostartDeps): string {
@@ -114,8 +112,9 @@ export function disableLoginAutostart(d: AutostartDeps): Result {
       return done;
     }
     case 'win32': {
+      if (d.run('reg', ['query', RUN_KEY, '/v', RUN_VALUE]).code !== 0) return done;
       const r = d.run('reg', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f']);
-      if (r.code !== 0 && !/unable to find/i.test(`${r.stdout}${r.stderr}`)) {
+      if (r.code !== 0) {
         return { ok: false, message: `reg delete failed: ${r.stderr.trim() || `exit ${r.code}`}` };
       }
       return done;
@@ -180,9 +179,9 @@ export function loginAutostartStatus(d: AutostartDeps): { registered: boolean; h
   let script: string | null = null;
 
   if (d.platform === 'win32') {
-    const r = d.run('reg', ['query', RUN_KEY, '/v', RUN_VALUE]);
-    if (r.code !== 0) return { registered: false, healthy: false };
-    command = /REG_SZ\s+(.+?)\s*$/m.exec(r.stdout)?.[1] ?? null;
+    const r = d.run('powershell', ['-NoProfile', '-NonInteractive', '-Command', READ_RUN_VALUE_SCRIPT]);
+    command = r.code === 0 ? r.stdout.trim() || null : null;
+    if (!command) return { registered: false, healthy: false };
     script = command ? scriptFromRunValue(command) : null;
   } else {
     const body = d.readFile(entryPathOf(d));
@@ -251,7 +250,7 @@ export function defaultAutostartDeps(): AutostartDeps {
       }
     },
     run(cmd, args) {
-      const r = spawnSync(cmd, args, { encoding: 'utf-8' });
+      const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS });
       return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? r.error?.message ?? '' };
     },
     out: (line) => console.log(line),

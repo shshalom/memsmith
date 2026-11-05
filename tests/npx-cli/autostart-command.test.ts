@@ -14,6 +14,7 @@ interface Fake {
   deps: AutostartDeps;
   files: Map<string, string>;
   calls: string[];
+  argvs: string[][];
   outLines: string[];
   errLines: string[];
 }
@@ -27,6 +28,7 @@ function fake(
 ): Fake {
   const files = new Map<string, string>();
   const calls: string[] = [];
+  const argvs: string[][] = [];
   const outLines: string[] = [];
   const errLines: string[] = [];
   const deps: AutostartDeps = {
@@ -45,13 +47,14 @@ function fake(
     run: (cmd, args) => {
       const line = [cmd, ...args].join(' ');
       calls.push(line);
+      argvs.push([cmd, ...args]);
       const r = opts.run?.(line);
       return { code: r?.code ?? 0, stdout: r?.stdout ?? '', stderr: r?.stderr ?? '' };
     },
     out: (l) => void outLines.push(l),
     err: (l) => void errLines.push(l),
   };
-  return { deps, files, calls, outLines, errLines };
+  return { deps, files, calls, argvs, outLines, errLines };
 }
 
 const PLIST = '/home/u/Library/LaunchAgents/com.memsmith.start.plist';
@@ -109,8 +112,12 @@ describe('enableLoginAutostart', () => {
     const f = fake('win32');
     const r = enableLoginAutostart(f.deps);
     expect(r.ok).toBe(true);
-    expect(f.calls).toEqual([
-      `reg add ${RUN_KEY} /v MemSmith /t REG_SZ /d "/opt/bun/bin/bun" "/mkt/plugin/scripts/server-service.cjs" start /f`,
+    expect(f.argvs).toEqual([
+      [
+        'reg', 'add', RUN_KEY, '/v', 'MemSmith', '/t', 'REG_SZ',
+        '/d', '"/opt/bun/bin/bun" "/mkt/plugin/scripts/server-service.cjs" start',
+        '/f',
+      ],
     ]);
   });
 
@@ -151,21 +158,27 @@ describe('disableLoginAutostart', () => {
     expect(f.files.size).toBe(0);
   });
 
-  it('on win32 deletes the Run value', () => {
+  it('on win32 queries first, then deletes the Run value when present', () => {
     const f = fake('win32');
     expect(disableLoginAutostart(f.deps).ok).toBe(true);
-    expect(f.calls).toEqual([`reg delete ${RUN_KEY} /v MemSmith /f`]);
+    expect(f.calls).toEqual([
+      `reg query ${RUN_KEY} /v MemSmith`,
+      `reg delete ${RUN_KEY} /v MemSmith /f`,
+    ]);
   });
 
-  it('on win32 treats a missing value as success', () => {
+  it('on win32 returns ok without deleting when the query finds nothing, on any locale', () => {
     const f = fake('win32', {
-      run: () => ({ code: 1, stderr: 'ERROR: The system was unable to find the specified registry key or value.' }),
+      run: () => ({ code: 1, stderr: 'FEHLER: Das System konnte den angegebenen Registrierungsschluessel nicht finden.' }),
     });
     expect(disableLoginAutostart(f.deps).ok).toBe(true);
+    expect(f.calls.some((c) => c.startsWith('reg delete'))).toBe(false);
   });
 
-  it('on win32 fails on any other reg error', () => {
-    const f = fake('win32', { run: () => ({ code: 1, stderr: 'ERROR: Access is denied.' }) });
+  it('on win32 fails when the delete fails', () => {
+    const f = fake('win32', {
+      run: (l) => (l.startsWith('reg delete') ? { code: 1, stderr: 'ERROR: Access is denied.' } : undefined),
+    });
     expect(disableLoginAutostart(f.deps).ok).toBe(false);
   });
 });
@@ -201,20 +214,37 @@ describe('loginAutostartStatus', () => {
     expect(loginAutostartStatus(f.deps)).toMatchObject({ registered: true, healthy: true });
   });
 
-  it('on win32 reads the value back with reg query and checks the script', () => {
-    const query = (script: string) => ({
-      code: 0,
-      stdout: `\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    MemSmith    REG_SZ    "C:\\bun\\bun.exe" "${script}" start\r\n\r\n`,
-    });
-    const f = fake('win32', { run: () => query('C:\\mkt\\server-service.cjs') });
+  it('on win32 reads the value back through PowerShell and checks the script', () => {
+    const value = (script: string) => ({ code: 0, stdout: `"C:\\bun\\bun.exe" "${script}" start\r\n` });
+    const f = fake('win32', { run: () => value('C:\\mkt\\server-service.cjs') });
     expect(loginAutostartStatus(f.deps)).toMatchObject({ registered: true, healthy: false });
-    expect(f.calls[0]).toBe(`reg query ${RUN_KEY} /v MemSmith`);
+    expect(f.argvs[0].slice(0, 4)).toEqual(['powershell', '-NoProfile', '-NonInteractive', '-Command']);
+    expect(f.argvs[0][4]).toContain('[Console]::OutputEncoding=[Text.Encoding]::UTF8');
+    expect(f.argvs[0][4]).toContain("-Name MemSmith");
     f.files.set('C:\\mkt\\server-service.cjs', '');
     expect(loginAutostartStatus(f.deps)).toMatchObject({ registered: true, healthy: true });
   });
 
-  it('on win32 is unregistered when reg query fails', () => {
-    const f = fake('win32', { run: () => ({ code: 1 }) });
+  it('on win32 round-trips a non-ASCII script path to a healthy status', () => {
+    const script = 'C:\\Users\\José\\mkt\\server-service.cjs';
+    const f = fake('win32', {
+      command: () => ({ bunPath: 'C:\\bun\\bun.exe', scriptPath: script, logPath: 'l' }),
+      run: (l) => (l.startsWith('powershell') ? undefined : undefined),
+    });
+    let written = '';
+    const base = f.deps.run;
+    f.deps.run = (cmd, args) => {
+      if (cmd === 'reg') written = args[args.indexOf('/d') + 1];
+      if (cmd === 'powershell') return { code: 0, stdout: `${written}\r\n`, stderr: '' };
+      return base(cmd, args);
+    };
+    enableLoginAutostart(f.deps);
+    f.files.set(script, '');
+    expect(loginAutostartStatus(f.deps)).toMatchObject({ registered: true, healthy: true });
+  });
+
+  it('on win32 is unregistered when PowerShell prints nothing', () => {
+    const f = fake('win32', { run: () => ({ code: 0, stdout: '\r\n' }) });
     expect(loginAutostartStatus(f.deps)).toEqual({ registered: false, healthy: false });
   });
 });
