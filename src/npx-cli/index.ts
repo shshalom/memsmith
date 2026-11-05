@@ -29,6 +29,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith install --setup-ollama')}   Install Ollama, start it, and download its model without asking
   ${styleText('cyan', 'npx memsmith install --provider claude --local-backup')}   Also install the local Ollama backup that takes over when Claude is unavailable
   ${styleText('cyan', 'npx memsmith install --no-auto-start')}   Skip server auto-start at the end
+  ${styleText('cyan', 'npx memsmith install --start-at-login')}   Start MemSmith when you log in, without asking (--no-start-at-login skips)
   ${styleText('cyan', 'npx memsmith install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx memsmith install --runtime local|server')}   Select runtime non-interactively (local: embedded Postgres, the default; server: a team MemSmith server)
   ${styleText('cyan', 'npx memsmith install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
@@ -70,6 +71,8 @@ function parseInstallOptions(argv: string[]): InstallOptions {
       'disable-auto-memory': { type: 'boolean' },
       'setup-ollama': { type: 'boolean' },
       'local-backup': { type: 'boolean' },
+      'start-at-login': { type: 'boolean' },
+      'no-start-at-login': { type: 'boolean' },
     },
     strict: false,
     allowPositionals: true,
@@ -94,6 +97,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     disableAutoMemory: values['disable-auto-memory'] === true,
     setupOllama: values['setup-ollama'] === true,
     localBackup: values['local-backup'] === true ? true : undefined,
+    startAtLogin: values['no-start-at-login'] === true ? false : values['start-at-login'] === true ? true : undefined,
     runtime,
     serverUrl: flag('server-url'),
   };

@@ -186,6 +186,8 @@ import { readJsonSafe } from '../../utils/json-utils.js';
 import { readFlatSettings } from '../../shared/flat-settings.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';
 import { detectInstalledIDEs } from './ide-detection.js';
+import { applyStartAtLogin, START_AT_LOGIN_QUESTION, startAtLoginDecision } from '../install/start-at-login.js';
+import { defaultAutostartDeps, enableLoginAutostart } from './autostart.js';
 
 function registerMarketplace(): void {
   const knownMarketplaces = readJsonSafe<Record<string, any>>(knownMarketplacesPath(), {});
@@ -1134,6 +1136,8 @@ export interface InstallOptions {
   /** With `--provider claude`, install the local Ollama backup without asking. */
   localBackup?: boolean;
   noAutoStart?: boolean;
+  /** `--start-at-login` / `--no-start-at-login`; undefined means ask when interactive. */
+  startAtLogin?: boolean;
   disableAutoMemory?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
   // alias for the canonical `server-beta` runtime id.
@@ -1451,6 +1455,25 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       },
     },
   ]);
+
+  await applyStartAtLogin(
+    startAtLoginDecision({
+      interactive: isInteractive,
+      ci: Boolean(process.env.CI),
+      runtime: selectedRuntime === 'server' ? 'server' : 'local',
+      flag: options.startAtLogin,
+    }),
+    {
+      ask: async () => (await p.confirm({ message: START_AT_LOGIN_QUESTION, initialValue: true })) === true,
+      enable: () => enableLoginAutostart(defaultAutostartDeps()),
+      info: (line) => log.info(line),
+      warn: (message) => summary.warnings.push({
+        component: 'start-at-login',
+        message,
+        remediation: 'Run `memsmith autostart enable` to retry.',
+      }),
+    },
+  );
 
   // "Installation Complete" only when no ABORT fired (we'd have thrown) AND no
   // IDE failed. Any failed IDE => "Installation Partial". Reads summary.failedIDEs

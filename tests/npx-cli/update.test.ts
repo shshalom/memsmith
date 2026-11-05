@@ -206,6 +206,67 @@ describe('memsmith update', () => {
     expect(f.calls).toContain('install:1.1.0');
   });
 
+  describe('login autostart offer', () => {
+    const QUESTION = 'Start MemSmith when you log in?';
+
+    function withLoginOffer(settings: Record<string, unknown>, o: { interactive?: boolean; answer?: boolean; registered?: boolean; enableOk?: boolean } = {}) {
+      const f = fake({ installed: '1.1.0', cacheReady: true, registryChanged: 0 });
+      const store = { ...settings };
+      const prompts: string[] = [];
+      const enables: number[] = [];
+      f.deps.isInteractive = () => o.interactive ?? true;
+      f.deps.confirm = async (message) => { prompts.push(message); return o.answer ?? true; };
+      f.deps.readSettings = () => ({ ...store });
+      f.deps.saveSettings = (updates) => { Object.assign(store, updates); return true; };
+      f.deps.loginAutostart = {
+        status: () => ({ registered: o.registered ?? false }),
+        enable: () => { enables.push(1); return { ok: o.enableOk ?? true, message: o.enableOk === false ? 'bootstrap failed' : 'MemSmith starts when you log in.' }; },
+      };
+      return { ...f, store, prompts, enables };
+    }
+
+    it('offers once when nothing is registered, writes the marker on either answer, never offers again', async () => {
+      for (const answer of [true, false]) {
+        const f = withLoginOffer({ MEMSMITH_RUNTIME: 'local' }, { answer });
+        expect(await runUpdate([], f.deps)).toBe(0);
+        expect(f.prompts).toEqual([QUESTION]);
+        expect(f.enables).toHaveLength(answer ? 1 : 0);
+        expect(f.store.MEMSMITH_LOGIN_AUTOSTART_OFFERED).toBe('1');
+        await runUpdate([], f.deps);
+        expect(f.prompts).toHaveLength(1);
+      }
+    });
+
+    it('never prompts when non-interactive', async () => {
+      const f = withLoginOffer({}, { interactive: false });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.prompts).toHaveLength(0);
+      expect(f.store.MEMSMITH_LOGIN_AUTOSTART_OFFERED).toBeUndefined();
+    });
+
+    it('does not offer when already registered or on the server runtime', async () => {
+      const registered = withLoginOffer({}, { registered: true });
+      await runUpdate([], registered.deps);
+      expect(registered.prompts).toHaveLength(0);
+      const server = withLoginOffer({ MEMSMITH_RUNTIME: 'server' });
+      await runUpdate([], server.deps);
+      expect(server.prompts).toHaveLength(0);
+    });
+
+    it('reports a failed registration without failing the update', async () => {
+      const f = withLoginOffer({}, { enableOk: false });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.err.join('\n')).toContain('bootstrap failed');
+    });
+
+    it('reports a throwing registration without failing the update', async () => {
+      const f = withLoginOffer({});
+      f.deps.loginAutostart!.enable = () => { throw new Error('disk full'); };
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.err.join('\n')).toContain('disk full');
+    });
+  });
+
   describe('Haiku switch offer', () => {
     const QUESTION = 'Switch memory generation to Claude Haiku 5.5, with a local gemma4:12b backup (8 GB download)? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
     const TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';

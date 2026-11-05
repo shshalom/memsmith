@@ -16,8 +16,11 @@ import {
   readPluginVersion,
   writeJsonFileAtomic,
 } from '../utils/paths.js';
+import { defaultAutostartDeps, enableLoginAutostart, loginAutostartStatus } from './autostart.js';
+import { START_AT_LOGIN_QUESTION } from '../install/start-at-login.js';
 import { defaultLifecycleDeps, resolveServerAddress, runLifecycle } from './lifecycle.js';
 import * as p from '@clack/prompts';
+import { normalizeRuntimeFlag } from './server-runtime-setup.js';
 import { legacyGenerationPins } from '../../server/settings/pin-legacy-generation-settings.js';
 import { loadMemSmithEnv } from '../../shared/EnvManager.js';
 import { createInstallSummary } from '../install/error-reporter.js';
@@ -36,6 +39,7 @@ const REEXEC_ENV = 'MEMSMITH_UPDATE_REEXEC';
 const USAGE = 'Usage: memsmith update [--force] [--no-self-update]';
 const KNOWN_FLAGS = new Set(['--force', '--no-self-update']);
 export const NPX_UNAVAILABLE = 127;
+const LOGIN_OFFERED = 'MEMSMITH_LOGIN_AUTOSTART_OFFERED';
 const SWITCH_OFFERED = 'MEMSMITH_GENERATION_SWITCH_OFFERED';
 const SWITCH_QUESTION = 'Switch memory generation to Claude Haiku 5.5, with a local gemma4:12b backup (8 GB download)? It needs an Anthropic API key and costs about $1 per 1,000 observations.';
 const SWITCH_CANCELLED = 'No changes made. Run memsmith install to switch later.';
@@ -69,6 +73,10 @@ export interface UpdateDeps {
   switchToHaiku?(): Promise<void>;
   readSettings?(): Record<string, unknown>;
   saveSettings?(updates: Record<string, string>): boolean;
+  loginAutostart?: {
+    status(): { registered: boolean };
+    enable(): { ok: boolean; message: string };
+  };
 }
 
 function versionParts(version: string): { core: number[]; prerelease: boolean } {
@@ -254,7 +262,26 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
   d.out(`  ${serverLine}`);
   if (!nothingChanged) d.out('Restart Claude Code to load the new plugin and its memory tools.');
   await offerHaikuSwitch(d);
+  await offerLoginAutostart(d);
   return 0;
+}
+
+async function offerLoginAutostart(d: UpdateDeps): Promise<void> {
+  if (!d.readSettings || !d.saveSettings || !d.loginAutostart || !d.confirm || !d.isInteractive?.()) return;
+  try {
+    const settings = d.readSettings();
+    if (settings[LOGIN_OFFERED]) return;
+    if (normalizeRuntimeFlag(typeof settings.MEMSMITH_RUNTIME === 'string' ? settings.MEMSMITH_RUNTIME : undefined) === 'server') return;
+    if (d.loginAutostart.status().registered) return;
+    const accepted = await d.confirm(START_AT_LOGIN_QUESTION);
+    d.saveSettings({ [LOGIN_OFFERED]: '1' });
+    if (!accepted) return;
+    const result = d.loginAutostart.enable();
+    if (result.ok) d.out(result.message);
+    else d.err(result.message);
+  } catch (error) {
+    d.err(`Couldn't register start at login: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function offerHaikuSwitch(d: UpdateDeps): Promise<void> {
@@ -413,5 +440,9 @@ export function defaultUpdateDeps(): UpdateDeps {
     switchToHaiku: () => switchToHaiku(),
     readSettings: readUserSettings,
     saveSettings: mergeSettings,
+    loginAutostart: {
+      status: () => loginAutostartStatus(defaultAutostartDeps()),
+      enable: () => enableLoginAutostart(defaultAutostartDeps()),
+    },
   };
 }

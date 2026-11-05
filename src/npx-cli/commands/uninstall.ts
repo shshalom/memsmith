@@ -22,6 +22,7 @@ import {
   SERVER_RUNTIME_SETTINGS_KEYS,
   type InstallRuntimeId,
 } from './server-runtime-setup.js';
+import { defaultAutostartDeps, disableLoginAutostart } from './autostart.js';
 import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 
 function readSelectedRuntime(): InstallRuntimeId {
@@ -232,6 +233,108 @@ function removeStrayMemSmithPaths(): number {
   return removedCount;
 }
 
+export interface RemovalSeams {
+  disableLoginAutostart(): { ok: boolean; message: string };
+  removeMarketplaceDirectory(): boolean;
+  removeCacheDirectory(): boolean;
+  removeFromKnownMarketplaces(): void;
+  removeFromInstalledPlugins(): void;
+  removeFromClaudeSettings(): void;
+  stripLegacyMemSmithAlias(): void;
+  removeStrayMemSmithPaths(): number;
+  warn(line: string): void;
+}
+
+const defaultRemovalSeams: RemovalSeams = {
+  disableLoginAutostart: () => disableLoginAutostart(defaultAutostartDeps()),
+  removeMarketplaceDirectory,
+  removeCacheDirectory,
+  removeFromKnownMarketplaces,
+  removeFromInstalledPlugins,
+  removeFromClaudeSettings,
+  stripLegacyMemSmithAlias,
+  removeStrayMemSmithPaths,
+  warn: (line) => p.log.warn(line),
+};
+
+type RemovalTask = { title: string; task: (message: (msg: string) => void) => Promise<string> };
+
+export function buildRemovalTasks(s: RemovalSeams = defaultRemovalSeams): RemovalTask[] {
+  return [
+    {
+      title: 'Removing start at login',
+      task: async () => {
+        try {
+          const result = s.disableLoginAutostart();
+          if (!result.ok) {
+            s.warn(result.message);
+            return `Start at login not removed ${styleText('yellow', '!')}`;
+          }
+        } catch (error: unknown) {
+          s.warn(`Could not remove start at login: ${error instanceof Error ? error.message : String(error)}`);
+          return `Start at login not removed ${styleText('yellow', '!')}`;
+        }
+        return `Start at login removed ${styleText('green', 'OK')}`;
+      },
+    },
+    {
+      title: 'Removing marketplace directory',
+      task: async () => {
+        const removed = s.removeMarketplaceDirectory();
+        return removed
+          ? `Marketplace directory removed ${styleText('green', 'OK')}`
+          : `Marketplace directory not found ${styleText('dim', 'skipped')}`;
+      },
+    },
+    {
+      title: 'Removing cache directory',
+      task: async () => {
+        const removed = s.removeCacheDirectory();
+        return removed
+          ? `Cache directory removed ${styleText('green', 'OK')}`
+          : `Cache directory not found ${styleText('dim', 'skipped')}`;
+      },
+    },
+    {
+      title: 'Removing marketplace registration',
+      task: async () => {
+        s.removeFromKnownMarketplaces();
+        return `Marketplace registration removed ${styleText('green', 'OK')}`;
+      },
+    },
+    {
+      title: 'Removing plugin registration',
+      task: async () => {
+        s.removeFromInstalledPlugins();
+        return `Plugin registration removed ${styleText('green', 'OK')}`;
+      },
+    },
+    {
+      title: 'Removing from Claude settings',
+      task: async () => {
+        s.removeFromClaudeSettings();
+        return `Claude settings updated ${styleText('green', 'OK')}`;
+      },
+    },
+    {
+      title: 'Removing legacy memsmith shell alias',
+      task: async () => {
+        s.stripLegacyMemSmithAlias();
+        return `Legacy alias check complete ${styleText('green', 'OK')}`;
+      },
+    },
+    {
+      title: 'Removing stray memsmith caches and logs',
+      task: async () => {
+        const removed = s.removeStrayMemSmithPaths();
+        return removed > 0
+          ? `Stray paths removed: ${removed} ${styleText('green', 'OK')}`
+          : `No stray paths found ${styleText('dim', 'skipped')}`;
+      },
+    },
+  ];
+}
+
 export async function runUninstallCommand(): Promise<void> {
   p.intro(styleText(['bgRed', 'white'], ' memsmith uninstall '));
 
@@ -293,63 +396,7 @@ export async function runUninstallCommand(): Promise<void> {
     p.log.info('Server runtime settings cleared from ~/.memsmith/settings.json.');
   }
 
-  await p.tasks([
-    {
-      title: 'Removing marketplace directory',
-      task: async () => {
-        const removed = removeMarketplaceDirectory();
-        return removed
-          ? `Marketplace directory removed ${styleText('green', 'OK')}`
-          : `Marketplace directory not found ${styleText('dim', 'skipped')}`;
-      },
-    },
-    {
-      title: 'Removing cache directory',
-      task: async () => {
-        const removed = removeCacheDirectory();
-        return removed
-          ? `Cache directory removed ${styleText('green', 'OK')}`
-          : `Cache directory not found ${styleText('dim', 'skipped')}`;
-      },
-    },
-    {
-      title: 'Removing marketplace registration',
-      task: async () => {
-        removeFromKnownMarketplaces();
-        return `Marketplace registration removed ${styleText('green', 'OK')}`;
-      },
-    },
-    {
-      title: 'Removing plugin registration',
-      task: async () => {
-        removeFromInstalledPlugins();
-        return `Plugin registration removed ${styleText('green', 'OK')}`;
-      },
-    },
-    {
-      title: 'Removing from Claude settings',
-      task: async () => {
-        removeFromClaudeSettings();
-        return `Claude settings updated ${styleText('green', 'OK')}`;
-      },
-    },
-    {
-      title: 'Removing legacy memsmith shell alias',
-      task: async () => {
-        stripLegacyMemSmithAlias();
-        return `Legacy alias check complete ${styleText('green', 'OK')}`;
-      },
-    },
-    {
-      title: 'Removing stray memsmith caches and logs',
-      task: async () => {
-        const removed = removeStrayMemSmithPaths();
-        return removed > 0
-          ? `Stray paths removed: ${removed} ${styleText('green', 'OK')}`
-          : `No stray paths found ${styleText('dim', 'skipped')}`;
-      },
-    },
-  ]);
+  await p.tasks(buildRemovalTasks());
 
   const ideCleanups: Array<{ label: string; fn: () => Promise<number> | number }> = [
     { label: 'Windsurf hooks', fn: async () => {
