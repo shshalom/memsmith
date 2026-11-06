@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.13.1] - 2026-11-06
+
 ### Added
 
 - `memsmith get <id> [<id>...]` prints the full records for observation ids, so you can read memory from a terminal without the MCP tools.
