@@ -37,8 +37,12 @@ function contextOrReport(d: MemoryCommandDeps): Pick<ServerRuntimeContext, 'clie
 
 function reportFailure(error: unknown, d: MemoryCommandDeps): number {
   if (error instanceof ServerClientError) {
-    if (error.kind === 'transport' || error.kind === 'timeout') {
+    if (error.kind === 'transport') {
       d.err('The MemSmith server is not reachable. Start it with: memsmith start');
+      return 1;
+    }
+    if (error.kind === 'timeout') {
+      d.err('The MemSmith server did not answer in time. Try again, or check memsmith status.');
       return 1;
     }
     if (error.status === 401 || error.status === 403) {
@@ -51,16 +55,28 @@ function reportFailure(error: unknown, d: MemoryCommandDeps): number {
   return 1;
 }
 
+const SEARCH_USAGE = 'Usage: memsmith search <query> [--limit <n>]';
+
 export async function runMemorySearch(args: string[], d: MemoryCommandDeps = defaultMemoryCommandDeps()): Promise<number> {
   const words: string[] = [];
-  let rawLimit: unknown;
+  let rawLimit: number | undefined;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--limit') rawLimit = Number(args[++i]);
-    else words.push(args[i]);
+    const arg = args[i];
+    if (arg !== '--limit' && !arg.startsWith('--limit=')) {
+      words.push(arg);
+      continue;
+    }
+    const value = arg === '--limit' ? args[++i] : arg.slice('--limit='.length);
+    if (!/^[1-9]\d*$/.test(value ?? '')) {
+      d.err(`--limit needs a positive whole number (got ${value === undefined ? 'nothing' : `"${value}"`}).`);
+      d.err(SEARCH_USAGE);
+      return 1;
+    }
+    rawLimit = Number(value);
   }
   const query = words.join(' ').trim();
   if (!query) {
-    d.err('Usage: memsmith search <query> [--limit <n>]');
+    d.err(SEARCH_USAGE);
     return 1;
   }
   const ctx = contextOrReport(d);
@@ -80,7 +96,7 @@ export async function runMemorySearch(args: string[], d: MemoryCommandDeps = def
 }
 
 export async function runMemoryGet(ids: string[], d: MemoryCommandDeps = defaultMemoryCommandDeps()): Promise<number> {
-  const wanted = ids.map((id) => id.trim()).filter(Boolean);
+  const wanted = [...new Set(ids.flatMap((id) => id.split(',')).map((id) => id.trim()).filter(Boolean))];
   if (wanted.length === 0) {
     d.err('Usage: memsmith get <id> [<id>...]');
     return 1;
@@ -93,8 +109,9 @@ export async function runMemoryGet(ids: string[], d: MemoryCommandDeps = default
   if (!ctx) return 1;
   try {
     const response = await ctx.client.getObservations({ projectId: ctx.projectId, ids: wanted });
-    d.out(formatObservationDetails(response.observations ?? [], wanted));
-    return 0;
+    const rows = response.observations ?? [];
+    d.out(formatObservationDetails(rows, wanted));
+    return rows.some((row) => wanted.includes(row.id)) ? 0 : 1;
   } catch (error) {
     return reportFailure(error, d);
   }

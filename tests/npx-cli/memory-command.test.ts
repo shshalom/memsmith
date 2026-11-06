@@ -51,8 +51,8 @@ describe('memsmith search', () => {
     const out = f.outs.join('\n');
     expect(out).toContain('[obs-1]');
     expect(out).toContain('Start-at-login design');
-    expect(out).toContain('memsmith get <id>');
-    expect(out).not.toContain('observation_get');
+    expect(out).toContain('Fetch the full record for the relevant ids with memsmith get <id> [<id>...], up to 10 at a time.');
+    expect(out).not.toContain('(ids=[...])');
   });
 
   it('honors --limit and clamps it to the server maximum', async () => {
@@ -61,6 +61,25 @@ describe('memsmith search', () => {
     await runMemorySearch(['login', '--limit', '500'], f.deps);
     expect(f.calls.map((c) => c.input.limit)).toEqual([3, 25]);
     expect(f.calls.map((c) => c.input.query)).toEqual(['login', 'login']);
+  });
+
+  it('accepts --limit=<n> and rejects a missing or non-numeric limit', async () => {
+    const f = fake();
+    expect(await runMemorySearch(['--limit=4', 'login'], f.deps)).toBe(0);
+    expect(f.calls.map((c) => [c.input.query, c.input.limit])).toEqual([['login', 4]]);
+    for (const bad of [['login', '--limit'], ['login', '--limit', 'abc'], ['login', '--limit', '0'], ['--limit=-2', 'login']]) {
+      expect(await runMemorySearch(bad, f.deps)).toBe(1);
+    }
+    expect(f.calls).toHaveLength(1);
+    expect(f.errs.join('\n')).toContain('--limit needs a positive whole number');
+  });
+
+  it('does not tell you to start a server that answered too slowly', async () => {
+    const f = fake({ search: async () => { throw new ServerClientError('timeout', 'timed out'); } });
+    expect(await runMemorySearch(['login'], f.deps)).toBe(1);
+    const err = f.errs.join('\n');
+    expect(err).toContain('did not answer in time');
+    expect(err).not.toContain('memsmith start');
   });
 
   it('prints usage and exits 1 without a query', async () => {
@@ -99,6 +118,18 @@ describe('memsmith get', () => {
     const out = f.outs.join('\n');
     expect(out).toContain('One-shot login entry with no supervision.');
     expect(out).toContain('Not found: obs-2');
+  });
+
+  it('splits comma-separated ids and drops duplicates, like observation_get', async () => {
+    const f = fake();
+    await runMemoryGet(['obs-1,obs-2', 'obs-1'], f.deps);
+    expect(f.calls[0].input.ids).toEqual(['obs-1', 'obs-2']);
+  });
+
+  it('exits 1 when none of the ids exist, so scripts can detect the miss', async () => {
+    const f = fake({ get: async () => ({ observations: [] }) });
+    expect(await runMemoryGet(['nope'], f.deps)).toBe(1);
+    expect(f.outs.join('\n')).toContain('Not found: nope');
   });
 
   it('rejects more ids than the server accepts in one call', async () => {
