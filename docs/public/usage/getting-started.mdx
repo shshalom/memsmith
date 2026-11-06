@@ -46,6 +46,15 @@ Ask Claude in plain language:
 
 Claude uses the MemSmith MCP tools: `observation_search` returns a ranked index of matching observations, and `observation_get` returns the full records for the ones that matter. You can also run `/ms-mem-search` to follow the search workflow explicitly.
 
+To search from a terminal, run these commands from a project folder:
+
+```bash
+memsmith search "start at login"     # Ranked index of matching observations; add --limit <n> for up to 25
+memsmith get <id> [<id>...]          # Full records for up to 10 ids from the index
+```
+
+The commands search the project that the current folder belongs to, so they also work from subfolders.
+
 ## Record a note
 
 When you ask Claude to remember, record, or note something, it saves a user note with the `note_add` tool. Notes appear in the dashboard's notes panel and rank ahead of ambient observations in search.

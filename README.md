@@ -80,6 +80,8 @@ by a port derived from your user ID.
 | `memsmith doctor` | Checks Bun, uv, the plugin install, the server, and whether the generation provider can create memories. |
 | `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model. |
 | `memsmith update` | Updates the CLI, the plugin, and the server to the latest version and keeps your settings. |
+| `memsmith search <query>` | Searches the current project's memory and prints a ranked index. Accepts `--limit <n>` (default 10, maximum 25). |
+| `memsmith get <id> [<id>...]` | Prints the full records for up to 10 observation ids from `memsmith search`. |
 
 Without a global install, prefix each command with `npx`, for example
 `npx memsmith status`.

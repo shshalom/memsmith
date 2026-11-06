@@ -8,6 +8,14 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- `memsmith get <id> [<id>...]` prints the full records for observation ids, so you can read memory from a terminal without the MCP tools.
+
+### Fixed
+
+- `memsmith search` works on local installs. Before, it printed `MemSmith runtime is not configured` even while the server was running, because it read only team-server settings. It now searches the project that the current folder belongs to, prints the same ranked index as the `observation_search` tool, and accepts `--limit <n>`.
+
 ## [13.13.0] - 2026-11-05
 
 ### Added
