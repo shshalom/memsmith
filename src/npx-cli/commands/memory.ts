@@ -1,0 +1,101 @@
+import { buildServerContext, type ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
+import { ServerClientError } from '../../services/hooks/server-client.js';
+import {
+  clampLimit,
+  formatObservationDetails,
+  formatObservationIndex,
+  GET_MAX_IDS,
+  SEARCH_LIMIT,
+} from '../../shared/observation-format.js';
+
+export interface MemoryCommandDeps {
+  cwd: string;
+  resolveContext: (cwd: string) => Pick<ServerRuntimeContext, 'client' | 'projectId'> | null;
+  out: (line: string) => void;
+  err: (line: string) => void;
+}
+
+export function defaultMemoryCommandDeps(): MemoryCommandDeps {
+  return {
+    cwd: process.cwd(),
+    resolveContext: (cwd) => buildServerContext({ cwd }),
+    out: (line) => console.log(line),
+    err: (line) => console.error(line),
+  };
+}
+
+const GET_HINT = 'memsmith get <id> [<id>...]';
+
+function contextOrReport(d: MemoryCommandDeps): Pick<ServerRuntimeContext, 'client' | 'projectId'> | null {
+  const ctx = d.resolveContext(d.cwd);
+  if (!ctx) {
+    d.err(`No MemSmith project found for ${d.cwd}.`);
+    d.err('Run this from a project folder where MemSmith has recorded a Claude Code session.');
+  }
+  return ctx;
+}
+
+function reportFailure(error: unknown, d: MemoryCommandDeps): number {
+  if (error instanceof ServerClientError) {
+    if (error.kind === 'transport' || error.kind === 'timeout') {
+      d.err('The MemSmith server is not reachable. Start it with: memsmith start');
+      return 1;
+    }
+    if (error.status === 401 || error.status === 403) {
+      d.err(`MemSmith refused the request: authentication error (HTTP ${error.status}).`);
+      d.err('Re-run the installer to refresh credentials: npx memsmith install');
+      return 1;
+    }
+  }
+  d.err(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
+  return 1;
+}
+
+export async function runMemorySearch(args: string[], d: MemoryCommandDeps = defaultMemoryCommandDeps()): Promise<number> {
+  const words: string[] = [];
+  let rawLimit: unknown;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--limit') rawLimit = Number(args[++i]);
+    else words.push(args[i]);
+  }
+  const query = words.join(' ').trim();
+  if (!query) {
+    d.err('Usage: memsmith search <query> [--limit <n>]');
+    return 1;
+  }
+  const ctx = contextOrReport(d);
+  if (!ctx) return 1;
+  try {
+    const response = await ctx.client.searchObservations({
+      projectId: ctx.projectId,
+      query,
+      limit: clampLimit(rawLimit, SEARCH_LIMIT),
+    });
+    const text = formatObservationIndex(response.observations ?? [], { query, getTool: GET_HINT });
+    d.out(text.replace(`${GET_HINT}(ids=[...])`, GET_HINT));
+    return 0;
+  } catch (error) {
+    return reportFailure(error, d);
+  }
+}
+
+export async function runMemoryGet(ids: string[], d: MemoryCommandDeps = defaultMemoryCommandDeps()): Promise<number> {
+  const wanted = ids.map((id) => id.trim()).filter(Boolean);
+  if (wanted.length === 0) {
+    d.err('Usage: memsmith get <id> [<id>...]');
+    return 1;
+  }
+  if (wanted.length > GET_MAX_IDS) {
+    d.err(`memsmith get takes at most ${GET_MAX_IDS} ids at a time (got ${wanted.length}).`);
+    return 1;
+  }
+  const ctx = contextOrReport(d);
+  if (!ctx) return 1;
+  try {
+    const response = await ctx.client.getObservations({ projectId: ctx.projectId, ids: wanted });
+    d.out(formatObservationDetails(response.observations ?? [], wanted));
+    return 0;
+  } catch (error) {
+    return reportFailure(error, d);
+  }
+}

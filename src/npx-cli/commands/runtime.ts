@@ -5,7 +5,6 @@ import { join } from 'path';
 import { styleText } from 'node:util';
 import { getBunPath } from '../install/setup-runtime.js';
 import { isPluginInstalled, marketplaceDirectory } from '../utils/paths.js';
-import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 
 function ensureInstalledOrExit(): void {
   if (!isPluginInstalled()) {
@@ -95,84 +94,6 @@ export function runServerApiKeyCommand(extraArgs: string[] = []): void {
 export function runUnavailableCommand(command: string): never {
   console.error(`memsmith ${command} is not available in this version.`);
   process.exit(1);
-}
-
-export async function runSearchCommand(queryParts: string[]): Promise<void> {
-  ensureInstalledOrExit();
-
-  const query = queryParts.join(' ').trim();
-  if (!query) {
-    console.error(styleText('red', 'Usage: npx memsmith search <query>'));
-    process.exit(1);
-  }
-
-  // Worker retirement — the old route `/api/search` on the legacy worker is
-  // gone. Repoint to the local/server runtime's POST /v1/search, using the
-  // same credentials pattern as the opencode-plugin (MEMSMITH_SERVER_URL,
-  // MEMSMITH_SERVER_API_KEY, MEMSMITH_SERVER_PROJECT_ID from settings).
-  const serverBaseUrl = SettingsDefaultsManager.get('MEMSMITH_SERVER_URL').replace(/\/+$/, '');
-  const serverApiKey = SettingsDefaultsManager.get('MEMSMITH_SERVER_API_KEY');
-  const serverProjectId = SettingsDefaultsManager.get('MEMSMITH_SERVER_PROJECT_ID');
-
-  if (!serverApiKey || !serverProjectId) {
-    console.error(styleText('red', 'MemSmith runtime is not configured.'));
-    console.error(`Start it with: ${styleText('bold', 'npx memsmith start')}`);
-    process.exit(1);
-  }
-
-  const searchUrl = `${serverBaseUrl}/v1/search`;
-
-  let response: Response;
-  try {
-    response = await fetch(searchUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serverApiKey}`,
-      },
-      body: JSON.stringify({ query, projectId: serverProjectId, limit: 20 }),
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    const cause = error instanceof Error ? (error as any).cause : undefined;
-    if (cause?.code === 'ECONNREFUSED' || message.includes('ECONNREFUSED')) {
-      console.error(styleText('red', 'MemSmith runtime is not running.'));
-      console.error(`Start it with: ${styleText('bold', 'npx memsmith start')}`);
-      process.exit(1);
-    }
-    console.error(styleText('red', `Search failed: ${message}`));
-    process.exit(1);
-  }
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      console.error(styleText('red', `Search failed: authentication error (HTTP ${response.status}).`));
-      console.error('Re-run the installer to refresh credentials: ' + styleText('bold', 'npx memsmith install'));
-      process.exit(1);
-    }
-    if (response.status === 404) {
-      console.error(styleText('red', 'Search endpoint not found. Is the MemSmith runtime running?'));
-      console.error(`Try: ${styleText('bold', 'npx memsmith start')}`);
-      process.exit(1);
-    }
-    console.error(styleText('red', `Search failed: HTTP ${response.status}`));
-    process.exit(1);
-  }
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(styleText('red', `Search failed: invalid JSON response (${message})`));
-    process.exit(1);
-  }
-
-  if (typeof data === 'object' && data !== null) {
-    console.log(JSON.stringify(data, null, 2));
-  } else {
-    console.log(data);
-  }
 }
 
 export function runTranscriptWatchCommand(): void {
