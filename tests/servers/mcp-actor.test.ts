@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+const UNREACHABLE_DB = 'postgres://127.0.0.1:1/unreachable';
 const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url).pathname;
 
 const ROW = {
@@ -54,7 +55,7 @@ describe('MCP tools and the session actor', () => {
       command: process.execPath,
       args: [mcpServerPath],
       cwd: home,
-      env: { ...env, HOME: home, MEMSMITH_DATA_DIR: dataDir, CLAUDE_CONFIG_DIR: join(home, '.claude'), MEMSMITH_ACTOR: 'reviewer' },
+      env: { ...env, HOME: home, MEMSMITH_DATA_DIR: dataDir, CLAUDE_CONFIG_DIR: join(home, '.claude'), MEMSMITH_ACTOR: 'reviewer', MEMSMITH_SERVER_DATABASE_URL: UNREACHABLE_DB },
       stderr: 'ignore',
     }));
   }, 30_000);

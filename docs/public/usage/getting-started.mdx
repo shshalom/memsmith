@@ -108,7 +108,7 @@ memsmith note "Deploys freeze on Fridays"
 git log -1 --format=%B | memsmith note -    # Read the note from stdin
 ```
 
-`memsmith note` saves the same kind of user note as `note_add`, for the project of the current folder or of `MEMSMITH_PROJECT_CWD`. It stamps the note with `MEMSMITH_ACTOR` when that is set. When `MEMSMITH_MODE` is `read`, it refuses and saves nothing. It exits 0 when the note is saved and 1 otherwise. With `--json`, it prints `{ "project": {...}, "note": { "id", "content", "actor", "createdAtEpoch" } }`.
+`memsmith note` saves the same kind of user note as `note_add`, for the project of the current folder or of `MEMSMITH_PROJECT_CWD`. It stamps the note with `MEMSMITH_ACTOR` when that is set. When `MEMSMITH_ACCESS` is `read`, it refuses and saves nothing. It exits 0 when the note is saved and 1 otherwise. With `--json`, it prints `{ "project": {...}, "note": { "id", "content", "actor", "createdAtEpoch" } }`.
 
 ## Open the dashboard
 

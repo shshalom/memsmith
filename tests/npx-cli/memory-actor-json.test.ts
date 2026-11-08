@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   READ_ONLY_REFUSAL,
   runMemoryGet,
@@ -7,6 +7,15 @@ import {
   type MemoryCommandDeps,
 } from '../../src/npx-cli/commands/memory.js';
 import { ServerClientError } from '../../src/services/hooks/server-client.js';
+
+// Nothing here may reach the real local Postgres on 55433.
+const savedDatabaseUrl = process.env.MEMSMITH_SERVER_DATABASE_URL;
+beforeAll(() => { process.env.MEMSMITH_SERVER_DATABASE_URL = 'postgres://127.0.0.1:1/unreachable'; });
+afterAll(() => {
+  if (savedDatabaseUrl === undefined) delete process.env.MEMSMITH_SERVER_DATABASE_URL;
+  else process.env.MEMSMITH_SERVER_DATABASE_URL = savedDatabaseUrl;
+});
+
 
 const ROW = {
   id: 'obs-1',
@@ -26,7 +35,7 @@ interface FakeOptions {
   get?: () => Promise<unknown>;
   add?: () => Promise<unknown>;
   stdin?: string;
-  mode?: string;
+  access?: string;
   actor?: string;
 }
 
@@ -58,7 +67,7 @@ function fake(opts: FakeOptions = {}) {
     out: (l) => { outs.push(l); },
     err: (l) => { errs.push(l); },
     readStdin: async () => opts.stdin ?? '',
-    mode: () => opts.mode,
+    access: () => opts.access,
     actorSource: { env: () => opts.actor, setting: () => undefined },
   };
   const json = () => JSON.parse(outs.join('\n'));
@@ -233,16 +242,16 @@ describe('memsmith note', () => {
   });
 
   it('refuses to save in read-only mode without contacting the server', async () => {
-    const f = fake({ mode: 'read' });
+    const f = fake({ access: 'read' });
     expect(await runMemoryNote(['Cache TTL is 5 minutes'], f.deps)).toBe(1);
     expect(f.calls).toEqual([]);
     expect(f.resolvedCwds).toEqual([]);
     expect(f.errs.join('\n')).toBe(READ_ONLY_REFUSAL);
-    expect(READ_ONLY_REFUSAL).toBe('MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.');
+    expect(READ_ONLY_REFUSAL).toBe('MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.');
   });
 
   it('reports read-only mode as a JSON error', async () => {
-    const f = fake({ mode: 'read' });
+    const f = fake({ access: 'read' });
     expect(await runMemoryNote(['--json', 'x'], f.deps)).toBe(1);
     expect(f.json()).toEqual({ error: { code: 'read_only', message: READ_ONLY_REFUSAL } });
   });

@@ -30,7 +30,7 @@ export interface MemoryCommandDeps {
   out: (line: string) => void;
   err: (line: string) => void;
   readStdin?: () => Promise<string>;
-  mode?: () => string | undefined;
+  access?: () => string | undefined;
   actorSource?: ActorSource;
 }
 
@@ -42,7 +42,7 @@ export function defaultMemoryCommandDeps(): MemoryCommandDeps {
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     readStdin: readAllStdin,
-    mode: configuredMode,
+    access: configuredAccess,
     actorSource: defaultActorSource,
   };
 }
@@ -53,17 +53,17 @@ async function readAllStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-function configuredMode(): string | undefined {
-  if (process.env.MEMSMITH_MODE !== undefined) return process.env.MEMSMITH_MODE;
+function configuredAccess(): string | undefined {
+  if (process.env.MEMSMITH_ACCESS !== undefined) return process.env.MEMSMITH_ACCESS;
   try {
-    const value = (JSON.parse(readFileSync(USER_SETTINGS_PATH, 'utf-8').replace(/^﻿/, '')) as Record<string, unknown>).MEMSMITH_MODE;
+    const value = (JSON.parse(readFileSync(USER_SETTINGS_PATH, 'utf-8').replace(/^﻿/, '')) as Record<string, unknown>).MEMSMITH_ACCESS;
     return typeof value === 'string' ? value : undefined;
   } catch {
     return undefined;
   }
 }
 
-export const READ_ONLY_REFUSAL = 'MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.';
+export const READ_ONLY_REFUSAL = 'MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.';
 
 const GET_HINT = 'memsmith get <id> [<id>...]';
 const SEARCH_USAGE = 'Usage: memsmith search [--json] [--actor <name>] [--limit <n>] [--] <query>';
@@ -290,7 +290,7 @@ export async function runMemoryNote(args: string[], d: MemoryCommandDeps = defau
   const parsed = parseArgs(args, {}, NOTE_USAGE);
   const report = reporter(d, parsed.json);
   if (parsed.failure) return report.fail(parsed.failure);
-  if ((d.mode?.() ?? '').trim().toLowerCase() === 'read') {
+  if ((d.access?.() ?? '').trim().toLowerCase() === 'read') {
     return report.fail(new CommandFailure('read_only', [READ_ONLY_REFUSAL]));
   }
   try {

@@ -1,9 +1,18 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as realRuntimeSelector from '../../../src/services/hooks/runtime-selector.js';
 import * as realCaptureSpool from '../../../src/cli/handlers/capture-spool.js';
 import { logger } from '../../../src/utils/logger.js';
 import { createRecordIntentHandler } from '../../../src/cli/handlers/record-intent.js';
 import { createPromptInjectionHandler } from '../../../src/cli/handlers/prompt-injection.js';
+
+// Nothing here may reach the real local Postgres on 55433.
+const savedDatabaseUrl = process.env.MEMSMITH_SERVER_DATABASE_URL;
+beforeAll(() => { process.env.MEMSMITH_SERVER_DATABASE_URL = 'postgres://127.0.0.1:1/unreachable'; });
+afterAll(() => {
+  if (savedDatabaseUrl === undefined) delete process.env.MEMSMITH_SERVER_DATABASE_URL;
+  else process.env.MEMSMITH_SERVER_DATABASE_URL = savedDatabaseUrl;
+});
+
 
 const realRuntimeSelectorSnapshot = { ...realRuntimeSelector };
 const realCaptureSpoolSnapshot = { ...realCaptureSpool };
