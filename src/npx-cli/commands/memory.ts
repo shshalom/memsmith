@@ -1,6 +1,11 @@
 import { buildServerContext, type ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { ServerClientError } from '../../services/hooks/server-client.js';
 import {
+  describeUnusableProject,
+  resolveFolderProject,
+  type FolderProjectResolution,
+} from '../../services/identity/folder-project.js';
+import {
   clampLimit,
   formatObservationDetails,
   formatObservationIndex,
@@ -11,6 +16,7 @@ import {
 export interface MemoryCommandDeps {
   cwd: string;
   resolveContext: (cwd: string) => Pick<ServerRuntimeContext, 'client' | 'projectId'> | null;
+  diagnose?: (cwd: string) => FolderProjectResolution;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -19,6 +25,7 @@ export function defaultMemoryCommandDeps(): MemoryCommandDeps {
   return {
     cwd: process.env.MEMSMITH_PROJECT_CWD || process.cwd(),
     resolveContext: (cwd) => buildServerContext({ cwd }),
+    diagnose: (cwd) => resolveFolderProject(cwd),
     out: (line) => console.log(line),
     err: (line) => console.error(line),
   };
@@ -29,8 +36,13 @@ const GET_HINT = 'memsmith get <id> [<id>...]';
 function contextOrReport(d: MemoryCommandDeps): Pick<ServerRuntimeContext, 'client' | 'projectId'> | null {
   const ctx = d.resolveContext(d.cwd);
   if (!ctx) {
-    d.err(`No MemSmith project found for ${d.cwd}.`);
-    d.err('Run this from a project folder where MemSmith has recorded a Claude Code session.');
+    const resolution = d.diagnose?.(d.cwd) ?? { kind: 'no_project', folder: d.cwd };
+    const lines = describeUnusableProject(
+      resolution.kind === 'no_key' ? resolution : { kind: 'no_project', folder: d.cwd },
+      'Memory was not searched; this is not an empty result.',
+      'Run this from a project folder where MemSmith has recorded a session.',
+    );
+    for (const line of lines ?? []) d.err(line);
   }
   return ctx;
 }

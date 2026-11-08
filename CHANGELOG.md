@@ -10,7 +10,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Fixed
 
-- The `observation_search`, `observation_get`, and `observation_context` MCP tools tell you when a folder has no MemSmith project: `No MemSmith project found for <folder>. Memory was not searched; this is not an empty result.` Before, they reported an incomplete configuration, or they searched the project of the folder where the session started and answered `No observations matched`, so an agent working in another checkout concluded that memory was empty. The tools accept an optional `cwd` argument, so an agent that works in a folder other than the one the session started in can search that folder's project.
+- The MemSmith MCP tools no longer answer `No observations matched` for a folder whose memory they didn't search. Before, the tools always used the project of the folder where the session started, so an agent working in another checkout searched the wrong project and concluded that memory was empty.
+  - The memory tools (`observation_search`, `observation_get`, `observation_context`, `note_add`, `observation_add`, `observation_record_event`, and `observation_generation_status`) accept an optional `cwd` argument with the absolute path of the folder you work in. They use that folder's project, even when your settings name a team project, and an explicit `projectId` still takes precedence.
+  - When the folder has no MemSmith project, the tools say `No MemSmith project found for <folder>. Memory was not searched; this is not an empty result.` When the folder belongs to a team that this machine hasn't joined, they say so and tell you how to join. A relative or missing `cwd` returns an error.
+  - `memsmith search` and `memsmith get` print the same messages.
 
 ## [13.13.2] - 2026-11-08
 

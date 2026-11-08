@@ -7,21 +7,27 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 // Reported incident: in a checkout with no project marker, observation_search
 // answered "No observations matched", so the agent concluded memory was empty.
-// The local runtime here mirrors a real install: no settings-level key or
+// The default install here mirrors a real local one: no settings-level key or
 // project, so only a folder's marker plus its cached team key resolves a project.
 
 const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url).pathname;
 
 type ToolResult = { content: Array<{ text: string }>; isError?: boolean };
+type Received = { path: string; body: any; auth: string | null };
 
-describe('memory MCP read tools in a folder without a MemSmith project', () => {
+const NOT_SEARCHED = 'Memory was not searched; this is not an empty result.';
+
+describe('memory MCP tools and folders without a usable MemSmith project', () => {
   let fake: ReturnType<typeof Bun.serve>;
   let home: string;
   let pinned: string;
   let unpinned: string;
+  let unjoinedTeam: string;
+  let keylessLocal: string;
   let fromPinned: Client;
   let fromUnpinned: Client;
-  let received: Array<{ path: string; body: any }> = [];
+  let withSettingsProject: Client;
+  let received: Received[] = [];
 
   async function connect(cwd: string, dataDir: string): Promise<Client> {
     const env = Object.fromEntries(
@@ -38,6 +44,17 @@ describe('memory MCP read tools in a folder without a MemSmith project', () => {
     return client;
   }
 
+  function writeDataDir(dir: string, settings: Record<string, string>) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ MEMSMITH_SERVER_URL: `http://127.0.0.1:${fake.port}`, ...settings }));
+    writeFileSync(join(dir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned' } }));
+  }
+
+  function writeMarker(dir: string, marker: Record<string, string>) {
+    mkdirSync(join(dir, '.memsmith'), { recursive: true });
+    writeFileSync(join(dir, '.memsmith', 'project.json'), JSON.stringify(marker));
+  }
+
   beforeAll(async () => {
     fake = Bun.serve({
       port: 0,
@@ -45,34 +62,35 @@ describe('memory MCP read tools in a folder without a MemSmith project', () => {
       async fetch(req) {
         const path = new URL(req.url).pathname;
         const body = req.method === 'POST' ? await req.json() : null;
-        received.push({ path, body });
+        received.push({ path, body, auth: req.headers.get('authorization') });
         return Response.json({ observations: [], context: '' });
       },
     });
 
     home = mkdtempSync(join(tmpdir(), 'ms-mcp-noproj-'));
-    const dataDir = join(home, '.memsmith');
-    mkdirSync(dataDir, { recursive: true });
-    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({
-      MEMSMITH_RUNTIME: 'local',
-      MEMSMITH_SERVER_URL: `http://127.0.0.1:${fake.port}`,
-      MEMSMITH_SERVER_API_KEY: '',
-      MEMSMITH_SERVER_PROJECT_ID: '',
-    }));
-    writeFileSync(join(dataDir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned' } }));
+    const localData = join(home, '.memsmith');
+    writeDataDir(localData, { MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_API_KEY: '', MEMSMITH_SERVER_PROJECT_ID: '' });
+    const settingsData = join(home, 'settings-project-data');
+    writeDataDir(settingsData, { MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_API_KEY: 'key-settings', MEMSMITH_SERVER_PROJECT_ID: 'proj-settings' });
 
     pinned = join(home, 'pinned-repo');
-    mkdirSync(join(pinned, '.memsmith'), { recursive: true });
-    writeFileSync(join(pinned, '.memsmith', 'project.json'), JSON.stringify({ teamId: 'team-pinned', projectId: 'proj-pinned' }));
+    writeMarker(pinned, { teamId: 'team-pinned', projectId: 'proj-pinned' });
+    unjoinedTeam = join(home, 'team-clone');
+    writeMarker(unjoinedTeam, { teamId: 'team-unjoined', projectId: 'proj-unjoined', runtime: 'server' });
+    keylessLocal = join(home, 'keyless-local');
+    writeMarker(keylessLocal, { teamId: 'team-keyless', projectId: 'proj-keyless', runtime: 'local' });
     unpinned = join(home, 'unpinned-checkout');
     mkdirSync(unpinned, { recursive: true });
 
-    [fromPinned, fromUnpinned] = await Promise.all([connect(pinned, dataDir), connect(unpinned, dataDir)]);
+    [fromPinned, fromUnpinned, withSettingsProject] = await Promise.all([
+      connect(pinned, localData),
+      connect(unpinned, localData),
+      connect(pinned, settingsData),
+    ]);
   }, 30_000);
 
   afterAll(async () => {
-    await fromPinned?.close();
-    await fromUnpinned?.close();
+    await Promise.all([fromPinned?.close(), fromUnpinned?.close(), withSettingsProject?.close()]);
     fake?.stop(true);
     rmSync(home, { recursive: true, force: true });
   });
@@ -81,50 +99,125 @@ describe('memory MCP read tools in a folder without a MemSmith project', () => {
     received = [];
   });
 
+  async function call(client: Client, name: string, args: Record<string, unknown>): Promise<{ result: ToolResult; text: string }> {
+    const result = await client.callTool({ name, arguments: args }) as ToolResult;
+    return { result, text: result.content.map(c => c.text).join('') };
+  }
+
+  async function expectRefused(client: Client, name: string, args: Record<string, unknown>, ...expected: string[]) {
+    const { result, text } = await call(client, name, args);
+    expect(result.isError).toBe(true);
+    for (const part of expected) expect(text).toContain(part);
+    expect(text).not.toContain('No observations matched');
+    expect(received).toEqual([]);
+  }
+
+  async function expectSentTo(client: Client, name: string, args: Record<string, unknown>, projectId: string, auth: string) {
+    const { result } = await call(client, name, args);
+    expect(result.isError).toBeFalsy();
+    expect(received).toHaveLength(1);
+    expect(received[0]?.body?.projectId).toBe(projectId);
+    expect(received[0]?.auth).toBe(`Bearer ${auth}`);
+  }
+
   const readCalls: Array<[string, Record<string, unknown>]> = [
     ['observation_search', { query: 'queue engine' }],
     ['observation_context', { query: 'queue engine' }],
     ['observation_get', { ids: ['obs-1'] }],
   ];
 
-  function expectNoProject(result: ToolResult, folder: string) {
-    const text = result.content.map(c => c.text).join('');
-    expect(result.isError).toBe(true);
-    expect(text).toContain(`No MemSmith project found for ${folder}.`);
-    expect(text).toContain('Memory was not searched; this is not an empty result.');
-    expect(text).not.toContain('No observations matched');
-  }
-
   for (const [name, args] of readCalls) {
-    it(`${name} reports no project when the session folder is unpinned`, async () => {
-      const result = await fromUnpinned.callTool({ name, arguments: args }) as ToolResult;
-      expectNoProject(result, realpathSync(unpinned));
-      expect(received).toEqual([]);
-    });
+    describe(name, () => {
+      it('reports no project when the session folder is unpinned', async () => {
+        // The child reports its cwd through process.cwd(), which resolves the
+        // macOS /var -> /private/var symlink in the tmp path.
+        await expectRefused(fromUnpinned, name, args, `No MemSmith project found for ${realpathSync(unpinned)}.`, NOT_SEARCHED);
+      });
 
-    it(`${name} reports no project for an unpinned cwd even when the session folder is pinned`, async () => {
-      const result = await fromPinned.callTool({ name, arguments: { ...args, cwd: unpinned } }) as ToolResult;
-      expectNoProject(result, unpinned);
-      expect(received).toEqual([]);
-    });
+      it('reports no project for an unpinned cwd even when the session folder is pinned', async () => {
+        await expectRefused(fromPinned, name, { ...args, cwd: unpinned }, `No MemSmith project found for ${unpinned}.`, NOT_SEARCHED);
+      });
 
-    it(`${name} still reads the session folder's project when no cwd is passed`, async () => {
-      const result = await fromPinned.callTool({ name, arguments: args }) as ToolResult;
-      expect(result.isError).toBeFalsy();
-      expect(received).toHaveLength(1);
-      expect(received[0]?.body.projectId).toBe('proj-pinned');
-    });
+      it('reports no project for an unpinned cwd even when settings name a project', async () => {
+        await expectRefused(withSettingsProject, name, { ...args, cwd: unpinned }, `No MemSmith project found for ${unpinned}.`, NOT_SEARCHED);
+      });
 
-    it(`${name} reads a pinned cwd's project from an unpinned session folder`, async () => {
-      const result = await fromUnpinned.callTool({ name, arguments: { ...args, cwd: pinned } }) as ToolResult;
-      expect(result.isError).toBeFalsy();
-      expect(received).toHaveLength(1);
-      expect(received[0]?.body.projectId).toBe('proj-pinned');
+      it("reads the session folder's project when no cwd is passed", async () => {
+        await expectSentTo(fromPinned, name, args, 'proj-pinned', 'key-pinned');
+      });
+
+      it("reads a pinned cwd's project from an unpinned session folder", async () => {
+        await expectSentTo(fromUnpinned, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-pinned');
+      });
+
+      it("reads a pinned cwd's project even when settings name another project", async () => {
+        await expectSentTo(withSettingsProject, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-settings');
+      });
+
+      it('lets an explicit projectId win over the cwd project', async () => {
+        await expectSentTo(fromUnpinned, name, { ...args, cwd: pinned, projectId: 'proj-explicit' }, 'proj-explicit', 'key-pinned');
+      });
+
+      it("says the team isn't joined when the cwd's team has no key on this machine", async () => {
+        await expectRefused(
+          fromPinned, name, { ...args, cwd: unjoinedTeam },
+          `The folder ${unjoinedTeam} belongs to MemSmith project proj-unjoined in a team this machine hasn't joined.`,
+          NOT_SEARCHED,
+          'choose Join',
+        );
+      });
     });
   }
 
-  it('observation_search keeps the empty-result answer for a pinned project with no match', async () => {
-    const result = await fromPinned.callTool({ name: 'observation_search', arguments: { query: 'queue engine' } }) as ToolResult;
-    expect(result.content[0]?.text).toContain('No observations matched "queue engine"');
+  it('keeps the settings project when no cwd is passed', async () => {
+    await expectSentTo(withSettingsProject, 'observation_search', { query: 'queue engine' }, 'proj-settings', 'key-settings');
+  });
+
+  it('says a local project has no key when its marker has no cached key', async () => {
+    await expectRefused(
+      fromPinned, 'observation_search', { query: 'queue engine', cwd: keylessLocal },
+      `The folder ${keylessLocal} belongs to MemSmith project proj-keyless, but this machine holds no key for it.`,
+      NOT_SEARCHED,
+    );
+  });
+
+  it('rejects a relative cwd', async () => {
+    await expectRefused(fromPinned, 'observation_search', { query: 'queue engine', cwd: 'pinned-repo' }, '"cwd" must be an absolute path');
+  });
+
+  it('says when the cwd folder does not exist', async () => {
+    const missing = join(home, 'no-such-folder');
+    await expectRefused(fromPinned, 'observation_search', { query: 'queue engine', cwd: missing }, `The folder ${missing} does not exist.`, NOT_SEARCHED);
+  });
+
+  it('keeps the empty-result answer for a pinned project with no match', async () => {
+    const { text } = await call(fromPinned, 'observation_search', { query: 'queue engine' });
+    expect(text).toContain('No observations matched "queue engine"');
+  });
+
+  const writeCalls: Array<[string, Record<string, unknown>]> = [
+    ['note_add', { content: 'Remember the queue engine decision.' }],
+    ['observation_add', { content: 'Queue engine observation.' }],
+    ['observation_record_event', { eventType: 'PostToolUse', payload: {} }],
+  ];
+
+  for (const [name, args] of writeCalls) {
+    it(`${name} writes to the cwd's project`, async () => {
+      await expectSentTo(fromUnpinned, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-pinned');
+    });
+  }
+
+  it('note_add saves nothing for an unpinned cwd', async () => {
+    await expectRefused(
+      fromPinned, 'note_add', { content: 'Remember this.', cwd: unpinned },
+      `No MemSmith project found for ${unpinned}.`, 'Nothing was saved.',
+    );
+  });
+
+  it("observation_generation_status uses the cwd project's key", async () => {
+    const { result } = await call(fromUnpinned, 'observation_generation_status', { jobId: 'job-1', cwd: pinned });
+    expect(result.isError).toBeFalsy();
+    expect(received).toHaveLength(1);
+    expect(received[0]?.auth).toBe('Bearer key-pinned');
   });
 });

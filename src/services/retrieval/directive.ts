@@ -15,6 +15,8 @@ export const MEMORY_FIRST_DIRECTIVE = [
   '3. Validate: check load-bearing claims against the current code before relying on them.',
   'Session-start context is orientation, not the answer source. If memory has no record, say so',
   'and fall back to CLAUDE.md, specs, then code.',
+  'When you work in a folder other than the one the session started in, pass its absolute',
+  'path as cwd to the memory tools so they use that folder\'s project.',
 ].join('\n');
 
 /** The record-intent directive (Layer 1 — agent detection). Injected at SessionStart
