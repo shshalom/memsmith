@@ -14,10 +14,10 @@ const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 const READ_ONLY_RECORD: HookResult = {
   continue: true,
   suppressOutput: false,
-  systemMessage: 'MemSmith is in read-only mode for this session (MEMSMITH_MODE=read), so this request is not saved to memory.',
+  systemMessage: 'MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read), so this request is not saved to memory.',
   hookSpecificOutput: {
     hookEventName: 'UserPromptSubmit',
-    additionalContext: 'MemSmith memory is read-only in this session (MEMSMITH_MODE=read). Do not call note_add or observation_add for this request; they refuse. Tell the user that nothing was recorded to memory because this session is read-only.',
+    additionalContext: 'MemSmith memory is read-only in this session (MEMSMITH_ACCESS=read). Do not call note_add or observation_add for this request; they refuse. Tell the user that nothing was recorded to memory because this session is read-only.',
   },
 };
 

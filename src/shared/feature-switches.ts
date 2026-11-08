@@ -17,40 +17,33 @@ export const HOOK_FEATURES = [
 ] as const;
 
 export type HookFeature = (typeof HOOK_FEATURES)[number];
-export type MemoryMode = 'read' | 'write';
+export type MemoryAccess = 'read' | 'write';
 export type SwitchSource = 'env' | 'settings' | 'default';
 
 export const READ_ONLY_REFUSAL =
-  'MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.';
+  'MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.';
 
 export const READ_ONLY_SESSION_NOTICE =
-  'MEMSMITH READ-ONLY SESSION: MemSmith memory is read-only in this session (MEMSMITH_MODE=read). '
+  'MEMSMITH READ-ONLY SESSION: MemSmith memory is read-only in this session (MEMSMITH_ACCESS=read). '
   + 'Search and read memory as usual. Nothing from this session is recorded, and the write tools '
   + '(note_add, observation_add, observation_record_event) refuse. If the user asks you to remember '
   + 'something, tell them that memory is read-only in this session.';
 
 export interface FeatureSwitches {
-  mode: MemoryMode;
-  modeSource: SwitchSource;
-  invalidMode: string | null;
+  access: MemoryAccess;
+  accessSource: SwitchSource;
+  invalidAccess: string | null;
   disabled: ReadonlySet<HookFeature>;
   disabledSource: SwitchSource;
   unknownFeatures: string[];
 }
 
 export interface SwitchSettings {
-  MEMSMITH_MODE?: string;
+  MEMSMITH_ACCESS?: string;
   MEMSMITH_HOOKS_DISABLED?: string;
 }
 
 const KNOWN = new Set<string>(HOOK_FEATURES);
-
-// MEMSMITH_MODE used to name an observation profile (`code`, `code--es`), and
-// settings.json files written by earlier versions still carry one. Those
-// values mean write.
-function isLegacyProfile(value: string): boolean {
-  return value === 'code' || value.startsWith('code--');
-}
 
 // A variable that is present but empty still wins, so a session can clear a
 // settings.json default (for example MEMSMITH_HOOKS_DISABLED=).
@@ -61,16 +54,16 @@ function pick(env: string | undefined, settings: string | undefined): { raw: str
 }
 
 export function resolveFeatureSwitches(settings: SwitchSettings, env: NodeJS.ProcessEnv = process.env): FeatureSwitches {
-  const modePick = pick(env.MEMSMITH_MODE, settings.MEMSMITH_MODE);
-  const modeValue = modePick.raw.trim().toLowerCase();
-  const known = modeValue === '' || modeValue === 'read' || modeValue === 'write' || isLegacyProfile(modeValue);
-  const mode: MemoryMode = modeValue === 'read' ? 'read' : 'write';
+  const accessPick = pick(env.MEMSMITH_ACCESS, settings.MEMSMITH_ACCESS);
+  const accessValue = accessPick.raw.trim().toLowerCase();
+  const known = accessValue === '' || accessValue === 'read' || accessValue === 'write';
+  const access: MemoryAccess = accessValue === 'read' ? 'read' : 'write';
   const listPick = pick(env.MEMSMITH_HOOKS_DISABLED, settings.MEMSMITH_HOOKS_DISABLED);
   const names = listPick.raw.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
   return {
-    mode,
-    modeSource: mode === 'read' || (modeValue === 'write' && modePick.source === 'env') ? modePick.source : 'default',
-    invalidMode: known ? null : modePick.raw.trim(),
+    access,
+    accessSource: access === 'read' || (accessValue === 'write' && accessPick.source === 'env') ? accessPick.source : 'default',
+    invalidAccess: known ? null : accessPick.raw.trim(),
     disabled: new Set(names.filter((n): n is HookFeature => KNOWN.has(n))),
     disabledSource: names.length === 0 ? 'default' : listPick.source,
     unknownFeatures: [...new Set(names.filter((n) => !KNOWN.has(n)))],
@@ -84,7 +77,7 @@ export function readSwitchSettings(settingsPath: string = USER_SETTINGS_PATH): S
   try {
     const flat = readFlatSettings(settingsPath) ?? {};
     const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
-    return { MEMSMITH_MODE: text(flat.MEMSMITH_MODE), MEMSMITH_HOOKS_DISABLED: text(flat.MEMSMITH_HOOKS_DISABLED) };
+    return { MEMSMITH_ACCESS: text(flat.MEMSMITH_ACCESS), MEMSMITH_HOOKS_DISABLED: text(flat.MEMSMITH_HOOKS_DISABLED) };
   } catch {
     return {};
   }
@@ -106,8 +99,8 @@ export function currentFeatureSwitches(env: NodeJS.ProcessEnv = process.env): Fe
   for (const name of switches.unknownFeatures) {
     warnOnce(`feature:${name}`, `MEMSMITH_HOOKS_DISABLED: ignoring unknown feature "${name}". Known features: ${HOOK_FEATURES.join(', ')}`);
   }
-  if (switches.invalidMode !== null) {
-    warnOnce(`mode:${switches.invalidMode}`, `MEMSMITH_MODE: "${switches.invalidMode}" is not read or write; using write`);
+  if (switches.invalidAccess !== null) {
+    warnOnce(`access:${switches.invalidAccess}`, `MEMSMITH_ACCESS: "${switches.invalidAccess}" is not read or write; using write`);
   }
   return switches;
 }
@@ -120,13 +113,13 @@ export function resetFeatureSwitchesForTesting(): void {
 export function isFeatureEnabled(feature: HookFeature, switches: FeatureSwitches = currentFeatureSwitches()): boolean {
   if (switches.disabled.has(feature)) return false;
   if (feature === 'capture' || feature === 'summary') {
-    return switches.mode === 'write' && !switches.disabled.has('capture');
+    return switches.access === 'write' && !switches.disabled.has('capture');
   }
   return true;
 }
 
 export function writesAllowed(switches: FeatureSwitches = currentFeatureSwitches()): boolean {
-  return switches.mode === 'write';
+  return switches.access === 'write';
 }
 
 const SOURCE_LABEL: Record<SwitchSource, string> = {
@@ -135,9 +128,9 @@ const SOURCE_LABEL: Record<SwitchSource, string> = {
   default: 'default',
 };
 
-export function memoryModeSummary(switches: FeatureSwitches): string | null {
-  if (switches.mode === 'write') return null;
-  return `read (MEMSMITH_MODE ${SOURCE_LABEL[switches.modeSource]})`;
+export function accessSummary(switches: FeatureSwitches): string | null {
+  if (switches.access === 'write') return null;
+  return `read (MEMSMITH_ACCESS ${SOURCE_LABEL[switches.accessSource]})`;
 }
 
 export function switchSourceLabel(source: SwitchSource): string {

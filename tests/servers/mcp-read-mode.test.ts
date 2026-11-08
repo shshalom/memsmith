@@ -6,10 +6,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 // A coordinator session writes memory; worker sessions launched with
-// MEMSMITH_MODE=read must be able to search it but never add to it.
+// MEMSMITH_ACCESS=read must be able to search it but never add to it.
 
 const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url).pathname;
-const REFUSAL = 'MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.';
+const REFUSAL = 'MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.';
 
 type ToolResult = { content: Array<{ text: string }>; isError?: boolean };
 
@@ -70,10 +70,10 @@ describe('memory MCP tools in read-only mode', () => {
     mkdirSync(join(project, '.memsmith'), { recursive: true });
     writeFileSync(join(project, '.memsmith', 'project.json'), JSON.stringify({ teamId: 'team-a', projectId: 'proj-a' }));
     [reader, writer, readerFromSettings, writerOverridingSettings] = await Promise.all([
-      connect({ env: { MEMSMITH_MODE: 'read' } }),
+      connect({ env: { MEMSMITH_ACCESS: 'read' } }),
       connect(),
-      connect({ settings: { MEMSMITH_MODE: 'read' } }),
-      connect({ settings: { MEMSMITH_MODE: 'read' }, env: { MEMSMITH_MODE: 'write' } }),
+      connect({ settings: { MEMSMITH_ACCESS: 'read' } }),
+      connect({ settings: { MEMSMITH_ACCESS: 'read' }, env: { MEMSMITH_ACCESS: 'write' } }),
     ]);
   }, 30_000);
 

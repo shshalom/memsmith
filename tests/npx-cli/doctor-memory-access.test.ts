@@ -27,18 +27,18 @@ async function checks(settings: Record<string, string>, env: Record<string, stri
   return checks;
 }
 
-describe('doctor memory mode and disabled hooks', () => {
-  it('shows write mode and no disabled hooks by default', async () => {
+describe('doctor memory access and disabled hooks', () => {
+  it('shows write access and no disabled hooks by default', async () => {
     const rows = await checks({}, {});
-    expect(rows.find((c) => c.name === 'Memory mode')).toMatchObject({ status: 'ok', detail: 'write (default)' });
+    expect(rows.find((c) => c.name === 'Memory access')).toMatchObject({ status: 'ok', detail: 'write (default)' });
     expect(rows.find((c) => c.name === 'Disabled hooks')).toMatchObject({ status: 'ok', detail: 'none' });
   });
 
-  it('shows read mode from the environment over settings.json', async () => {
-    const rows = await checks({ MEMSMITH_MODE: 'write' }, { MEMSMITH_MODE: 'read' });
-    const mode = rows.find((c) => c.name === 'Memory mode');
-    expect(mode?.status).toBe('warn');
-    expect(mode?.detail).toContain('read (MEMSMITH_MODE in the environment)');
+  it('shows read access from the environment over settings.json', async () => {
+    const rows = await checks({ MEMSMITH_ACCESS: 'write' }, { MEMSMITH_ACCESS: 'read' });
+    const access = rows.find((c) => c.name === 'Memory access');
+    expect(access?.status).toBe('warn');
+    expect(access?.detail).toContain('read (MEMSMITH_ACCESS in the environment)');
   });
 
   it('lists disabled features and warns about names it does not know', async () => {
@@ -49,10 +49,10 @@ describe('doctor memory mode and disabled hooks', () => {
     expect(disabled?.detail).toContain('unknown, ignored: promt-injection');
   });
 
-  it('warns about an unrecognized mode value', async () => {
-    const rows = await checks({ MEMSMITH_MODE: 'readonly' }, {});
-    const mode = rows.find((c) => c.name === 'Memory mode');
-    expect(mode?.status).toBe('warn');
-    expect(mode?.detail).toContain('"readonly" is not read or write');
+  it('warns about an unrecognized access value', async () => {
+    const rows = await checks({ MEMSMITH_ACCESS: 'readonly' }, {});
+    const access = rows.find((c) => c.name === 'Memory access');
+    expect(access?.status).toBe('warn');
+    expect(access?.detail).toContain('"readonly" is not read or write');
   });
 });

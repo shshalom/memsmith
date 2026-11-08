@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   currentFeatureSwitches,
   isFeatureEnabled,
-  memoryModeSummary,
+  accessSummary,
   resetFeatureSwitchesForTesting,
   resolveFeatureSwitches,
   writesAllowed,
@@ -15,11 +15,11 @@ afterEach(() => {
 });
 
 describe('resolveFeatureSwitches', () => {
-  it('lets the session environment override the settings.json mode in both directions', () => {
-    expect(resolveFeatureSwitches({ MEMSMITH_MODE: 'write' }, { MEMSMITH_MODE: 'read' }).mode).toBe('read');
-    expect(resolveFeatureSwitches({ MEMSMITH_MODE: 'read' }, { MEMSMITH_MODE: 'write' }).mode).toBe('write');
-    expect(resolveFeatureSwitches({ MEMSMITH_MODE: 'read' }, {}).mode).toBe('read');
-    expect(resolveFeatureSwitches({}, {}).mode).toBe('write');
+  it('lets the session environment override the settings.json access in both directions', () => {
+    expect(resolveFeatureSwitches({ MEMSMITH_ACCESS: 'write' }, { MEMSMITH_ACCESS: 'read' }).access).toBe('read');
+    expect(resolveFeatureSwitches({ MEMSMITH_ACCESS: 'read' }, { MEMSMITH_ACCESS: 'write' }).access).toBe('write');
+    expect(resolveFeatureSwitches({ MEMSMITH_ACCESS: 'read' }, {}).access).toBe('read');
+    expect(resolveFeatureSwitches({}, {}).access).toBe('write');
   });
 
   it('lets an empty session variable clear a disabled list from settings.json', () => {
@@ -27,8 +27,8 @@ describe('resolveFeatureSwitches', () => {
     expect([...s.disabled]).toEqual([]);
   });
 
-  it('turns read mode into no capture and no writes, and leaves reads on', () => {
-    const read = resolveFeatureSwitches({}, { MEMSMITH_MODE: 'read' });
+  it('turns read access into no capture and no writes, and leaves reads on', () => {
+    const read = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'read' });
     expect(writesAllowed(read)).toBe(false);
     expect(isFeatureEnabled('capture', read)).toBe(false);
     expect(isFeatureEnabled('summary', read)).toBe(false);
@@ -42,18 +42,17 @@ describe('resolveFeatureSwitches', () => {
     expect(writesAllowed(s)).toBe(true);
   });
 
-  it('reads a mode profile left in an older settings.json as write, without a warning', () => {
-    for (const profile of ['code', 'code--es', 'code--chill']) {
-      const s = resolveFeatureSwitches({ MEMSMITH_MODE: profile }, {});
-      expect(s.mode).toBe('write');
-      expect(s.invalidMode).toBeNull();
-    }
+  it('ignores the MEMSMITH_MODE observation profile that every settings.json carries', () => {
+    const fromFile: Record<string, string> = { MEMSMITH_MODE: 'code', MEMSMITH_ACCESS: 'read' };
+    const s = resolveFeatureSwitches(fromFile, { MEMSMITH_MODE: 'read' });
+    expect(s.access).toBe('read');
+    expect(resolveFeatureSwitches({}, { MEMSMITH_MODE: 'read' }).access).toBe('write');
   });
 
-  it('reports a mode it does not recognize and keeps writing', () => {
-    const s = resolveFeatureSwitches({}, { MEMSMITH_MODE: 'readonly' });
-    expect(s.mode).toBe('write');
-    expect(s.invalidMode).toBe('readonly');
+  it('reports an access value it does not recognize and keeps writing', () => {
+    const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'readonly' });
+    expect(s.access).toBe('write');
+    expect(s.invalidAccess).toBe('readonly');
   });
 });
 
@@ -70,13 +69,13 @@ describe('currentFeatureSwitches', () => {
   });
 });
 
-describe('memoryModeSummary', () => {
-  it('says nothing for the default write mode', () => {
-    expect(memoryModeSummary(resolveFeatureSwitches({}, {}))).toBeNull();
+describe('accessSummary', () => {
+  it('says nothing for the default write access', () => {
+    expect(accessSummary(resolveFeatureSwitches({}, {}))).toBeNull();
   });
 
-  it('names read mode and where it came from', () => {
-    expect(memoryModeSummary(resolveFeatureSwitches({}, { MEMSMITH_MODE: 'read' }))).toBe('read (MEMSMITH_MODE in the environment)');
-    expect(memoryModeSummary(resolveFeatureSwitches({ MEMSMITH_MODE: 'read' }, {}))).toBe('read (MEMSMITH_MODE in settings.json)');
+  it('names read access and where it came from', () => {
+    expect(accessSummary(resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'read' }))).toBe('read (MEMSMITH_ACCESS in the environment)');
+    expect(accessSummary(resolveFeatureSwitches({ MEMSMITH_ACCESS: 'read' }, {}))).toBe('read (MEMSMITH_ACCESS in settings.json)');
   });
 });

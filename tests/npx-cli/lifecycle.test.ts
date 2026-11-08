@@ -284,20 +284,20 @@ describe('--timeout validation', () => {
   }
 });
 
-describe('status memory mode line', () => {
-  it('shows a non-default mode whether or not the server is running', async () => {
-    const memoryMode = () => 'read (MEMSMITH_MODE in the environment)';
-    const running = deps({ health: [ready], memoryMode });
+describe('status memory access line', () => {
+  it('shows a non-default access whether or not the server is running', async () => {
+    const memoryAccess = () => 'read (MEMSMITH_ACCESS in the environment)';
+    const running = deps({ health: [ready], memoryAccess });
     await runLifecycle('status', [], running.d);
-    expect(running.calls.out).toContain('  Mode:      read (MEMSMITH_MODE in the environment)');
-    const stopped = deps({ memoryMode });
+    expect(running.calls.out).toContain('  Access:    read (MEMSMITH_ACCESS in the environment)');
+    const stopped = deps({ memoryAccess });
     await runLifecycle('status', [], stopped.d);
-    expect(stopped.calls.out).toContain('  Mode:      read (MEMSMITH_MODE in the environment)');
+    expect(stopped.calls.out).toContain('  Access:    read (MEMSMITH_ACCESS in the environment)');
   });
 
-  it('prints no mode line in write mode', async () => {
-    const { d, calls } = deps({ health: [ready], memoryMode: () => null });
+  it('prints no access line in write access', async () => {
+    const { d, calls } = deps({ health: [ready], memoryAccess: () => null });
     await runLifecycle('status', [], d);
-    expect(calls.out.some((l) => l.startsWith('  Mode:'))).toBe(false);
+    expect(calls.out.some((l) => l.startsWith('  Access:'))).toBe(false);
   });
 });

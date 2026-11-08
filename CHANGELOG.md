@@ -10,13 +10,13 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Added
 
-- Read-only mode. Set `MEMSMITH_MODE=read` in a session's environment, or as the default in `settings.json`, and that session records nothing: the capture hooks skip prompts, tool use, file edits, summaries, and transcript capture, and nothing goes to the capture spool. `note_add`, `observation_add`, and `observation_record_event` refuse with `MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.` A "remember this" request gets a read-only notice instead of being saved. Search, session-start context, and the memory gates keep working. A coordinator agent can write while the workers that it launches with `MEMSMITH_MODE=read` only read.
+- Read-only mode. Set `MEMSMITH_ACCESS=read` in a session's environment, or as the default in `settings.json`, and that session records nothing: the capture hooks skip prompts, tool use, file edits, summaries, and transcript capture, and nothing goes to the capture spool. `note_add`, `observation_add`, and `observation_record_event` refuse with `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.` A "remember this" request gets a read-only notice instead of being saved. Search, session-start context, and the memory gates keep working. A coordinator agent can write while the workers that it launches with `MEMSMITH_ACCESS=read` only read.
 - `MEMSMITH_HOOKS_DISABLED` turns off hook features by name: `capture`, `summary`, `context`, `prompt-injection`, `record-intent`, `answer-gate`, `memory-first-gate`, `discovery-context`, `file-context`, and `subagent-directive`. The environment overrides `settings.json`. MemSmith logs one warning for each unknown name and ignores it.
-- `memsmith doctor` shows the memory mode and the turned-off hook features, and warns about unknown names. `memsmith status` shows the mode when it is `read`.
+- `memsmith doctor` shows the memory access setting and the turned-off hook features, and warns about unknown names. `memsmith status` shows an `Access:` line when access is `read`.
 
-### Changed
+### Fixed
 
-- `MEMSMITH_MODE` no longer names a mode profile. The server already loaded the `code` profile for every job regardless of the setting. Profile values, such as `code--es`, now mean `write`.
+- The documentation no longer claims that `MEMSMITH_MODE` selects a mode profile. The server always loads the `code` profile and ignores the setting.
 
 ## [13.15.0] - 2026-11-08
 

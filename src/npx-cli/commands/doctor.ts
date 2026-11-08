@@ -142,14 +142,14 @@ export function generationCheck(status: GenerationStatus, remote: boolean): Chec
 }
 
 export function featureSwitchChecks(s: FeatureSwitches): CheckResult[] {
-  const modeSource = s.modeSource === 'default' ? 'default' : `MEMSMITH_MODE ${switchSourceLabel(s.modeSource)}`;
-  let mode: CheckResult;
-  if (s.invalidMode !== null) {
-    mode = { name: 'Memory mode', status: 'warn', detail: `write ("${s.invalidMode}" is not read or write; using write)`, required: false };
-  } else if (s.mode === 'read') {
-    mode = { name: 'Memory mode', status: 'warn', detail: `read (${modeSource}): capture is off and memory write tools refuse`, required: false };
+  const accessSource = s.accessSource === 'default' ? 'default' : `MEMSMITH_ACCESS ${switchSourceLabel(s.accessSource)}`;
+  let access: CheckResult;
+  if (s.invalidAccess !== null) {
+    access = { name: 'Memory access', status: 'warn', detail: `write ("${s.invalidAccess}" is not read or write; using write)`, required: false };
+  } else if (s.access === 'read') {
+    access = { name: 'Memory access', status: 'warn', detail: `read (${accessSource}): capture is off and memory write tools refuse`, required: false };
   } else {
-    mode = { name: 'Memory mode', status: 'ok', detail: `write (${modeSource})`, required: false };
+    access = { name: 'Memory access', status: 'ok', detail: `write (${accessSource})`, required: false };
   }
 
   const parts = [s.disabled.size > 0
@@ -162,7 +162,7 @@ export function featureSwitchChecks(s: FeatureSwitches): CheckResult[] {
     detail: parts.join('; '),
     required: false,
   };
-  return [mode, hooks];
+  return [access, hooks];
 }
 
 export function planRepairs(s: DoctorState): Repair[] {

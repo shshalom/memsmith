@@ -1,6 +1,6 @@
 // Drives the real hook entry (`ServerService.ts hook claude-code <event>`) the
 // way Claude Code does, against a fake server, with HOME and MEMSMITH_DATA_DIR
-// in a temp dir. Covers MEMSMITH_MODE=read and MEMSMITH_HOOKS_DISABLED.
+// in a temp dir. Covers MEMSMITH_ACCESS=read and MEMSMITH_HOOKS_DISABLED.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -111,7 +111,7 @@ async function runCaptureHooks(box: Box): Promise<string[]> {
 
 const spoolFiles = (box: Box) => ['capture-spool.jsonl', 'generation-queue.jsonl'].filter((f) => existsSync(join(box.dataDir, f)));
 
-describe('MEMSMITH_MODE=read through the real hook entry', () => {
+describe('MEMSMITH_ACCESS=read through the real hook entry', () => {
   it('records the prompt, the tool use, and the summary in write mode', async () => {
     const paths = await runCaptureHooks(sandbox());
     expect(paths).toContain('/v1/sessions/start');
@@ -120,7 +120,7 @@ describe('MEMSMITH_MODE=read through the real hook entry', () => {
   }, 60_000);
 
   it('sends no capture write in read mode', async () => {
-    const paths = await runCaptureHooks(sandbox({ env: { MEMSMITH_MODE: 'read' } }));
+    const paths = await runCaptureHooks(sandbox({ env: { MEMSMITH_ACCESS: 'read' } }));
     expect(paths.filter((p) => WRITE_PATH.test(p))).toEqual([]);
   }, 60_000);
 
@@ -130,7 +130,7 @@ describe('MEMSMITH_MODE=read through the real hook entry', () => {
     await hook(writing, 'observation', toolUse);
     expect(spoolFiles(writing)).toContain('capture-spool.jsonl');
 
-    const reading = sandbox({ serverUrl: down, env: { MEMSMITH_MODE: 'read' } });
+    const reading = sandbox({ serverUrl: down, env: { MEMSMITH_ACCESS: 'read' } });
     await hook(reading, 'observation', toolUse);
     expect(spoolFiles(reading)).toEqual([]);
   }, 60_000);
@@ -141,16 +141,16 @@ describe('MEMSMITH_MODE=read through the real hook entry', () => {
     const on = await track(() => hook(writing, 'file-edit', edit(writing), 'cursor'));
     expect(on.paths).toContain('/v1/events');
 
-    const reading = sandbox({ env: { MEMSMITH_MODE: 'read' } });
+    const reading = sandbox({ env: { MEMSMITH_ACCESS: 'read' } });
     const off = await track(() => hook(reading, 'file-edit', edit(reading), 'cursor'));
     expect(off.paths).toEqual([]);
   }, 60_000);
 
   it('takes the default from settings.json and lets the session environment override it', async () => {
-    const fromSettings = await runCaptureHooks(sandbox({ settings: { MEMSMITH_MODE: 'read' } }));
+    const fromSettings = await runCaptureHooks(sandbox({ settings: { MEMSMITH_ACCESS: 'read' } }));
     expect(fromSettings.filter((p) => WRITE_PATH.test(p))).toEqual([]);
 
-    const overridden = await runCaptureHooks(sandbox({ settings: { MEMSMITH_MODE: 'read' }, env: { MEMSMITH_MODE: 'write' } }));
+    const overridden = await runCaptureHooks(sandbox({ settings: { MEMSMITH_ACCESS: 'read' }, env: { MEMSMITH_ACCESS: 'write' } }));
     expect(overridden).toContain('/v1/events');
   }, 60_000);
 
@@ -158,15 +158,15 @@ describe('MEMSMITH_MODE=read through the real hook entry', () => {
     const writing = await track(() => hook(sandbox(), 'record-intent', { hook_event_name: 'UserPromptSubmit', prompt: RECORD_PROMPT }));
     expect(writing.paths).toContain('/v1/record-intent');
 
-    const box = sandbox({ env: { MEMSMITH_MODE: 'read' } });
+    const box = sandbox({ env: { MEMSMITH_ACCESS: 'read' } });
     const reading = await track(() => hook(box, 'record-intent', { hook_event_name: 'UserPromptSubmit', prompt: RECORD_PROMPT }));
     expect(reading.paths).toEqual([]);
     expect(reading.result.hookSpecificOutput?.additionalContext).toContain('read-only');
-    expect(reading.result.systemMessage).toContain('MEMSMITH_MODE=read');
+    expect(reading.result.systemMessage).toContain('MEMSMITH_ACCESS=read');
   }, 60_000);
 
   it('keeps read-side hooks working in read mode', async () => {
-    const box = sandbox({ env: { MEMSMITH_MODE: 'read' } });
+    const box = sandbox({ env: { MEMSMITH_ACCESS: 'read' } });
     const context = await hook(box, 'context', { hook_event_name: 'SessionStart', source: 'startup' });
     expect(context.hookSpecificOutput?.additionalContext).toContain('Search hit about the queue engine');
     expect(context.hookSpecificOutput?.additionalContext).toContain('read-only');

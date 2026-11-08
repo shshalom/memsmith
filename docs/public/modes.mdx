@@ -20,7 +20,7 @@ A mode is a configuration profile that defines the following:
 
 The server loads the `code` mode for every generation job. No setting selects another mode yet.
 
-`MEMSMITH_MODE` used to select the mode. It now sets whether a session can write memory. For more information, see [Read-only mode and hook switches](/configuration#read-only-mode-and-hook-switches). MemSmith reads an older mode value, such as `code--es`, as `write`.
+The `MEMSMITH_MODE` setting names the mode, such as `code--es`, but the server ignores it. The mode files below ship with the plugin.
 
 ## Available Modes
 
