@@ -127,6 +127,63 @@ export async function planPrune(inv: ProjectInventory, census: Census): Promise<
   return { candidates, kept, databaseOwners };
 }
 
+const DUMP_CONNECT_WAIT_MS = 5000;
+
+// Resolves once pg_dump is connected or finished; rejects if it already failed.
+async function waitForDumpConnection(db: ProjectsDb, name: string, dumping: Promise<unknown>): Promise<void> {
+  let state: 'running' | 'done' | 'failed' = 'running';
+  let failure: unknown;
+  void dumping.then(() => { state = 'done'; }, (error) => { state = 'failed'; failure = error; });
+  await Promise.resolve();
+  const deadline = Date.now() + DUMP_CONNECT_WAIT_MS;
+  while (state === 'running' && Date.now() < deadline) {
+    const r = await db.base.query(`SELECT 1 FROM pg_stat_activity WHERE datname = $1 AND application_name = 'pg_dump'`, [name]);
+    if (r.rows.length > 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (state === 'failed') throw failure;
+}
+
+/**
+ * Backs up, isolates, recounts, and drops one database. A connection held
+ * from the start does the recount, because once connections are blocked no
+ * new one can open. pg_dump is let in first; its snapshot predates the block,
+ * and the recount on the live database catches anything written after it.
+ * Returns true once the database is dropped.
+ */
+async function dumpBlockRecountDrop(deps: PruneDeps, candidate: PruneCandidate, name: string, file: string): Promise<boolean> {
+  const { db } = deps;
+  const { entry } = candidate;
+  const holder = await db.pool(name).connect();
+  let blocked = false;
+  let released = false;
+  try {
+    const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0]?.pid ?? null;
+    const dumping = deps.dump(db.urlFor(name), file);
+    await waitForDumpConnection(db, name, dumping);
+    await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS false`);
+    blocked = true;
+    await db.base.query(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid() AND pid <> $2 AND application_name <> 'pg_dump'`,
+      [name, pid],
+    );
+    await dumping;
+    const recount = await db.census(name, entry.projectId ? { projectId: entry.projectId, teamId: entry.teamId! } : 'from-name', holder);
+    const stop = censusBlocks(recount, candidate.reason === 'archived' ? { archivedAt: entry.archivedAt ?? '' } : null);
+    if (stop) throw new Error(`${stop} (it changed after the preview)`);
+    holder.release();
+    released = true;
+    await db.release(name);
+    await db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    return true;
+  } catch (error) {
+    if (blocked) await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`).catch(() => {});
+    throw error;
+  } finally {
+    if (!released) holder.release();
+  }
+}
+
 export interface PruneOutcome {
   candidate: PruneCandidate;
   backupFiles: string[];
@@ -167,14 +224,8 @@ export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<Pr
         }
         if (name) {
           const file = join(deps.backupDir, backupFileName('prune', name, deps.now()));
-          await deps.dump(db.urlFor(name), file);
+          droppedDatabase = await dumpBlockRecountDrop(deps, candidate, name, file);
           backupFiles.push(file);
-          const recount = await db.census(name, entry.projectId ? { projectId: entry.projectId, teamId: entry.teamId! } : 'from-name');
-          const blocked = censusBlocks(recount, candidate.reason === 'archived' ? { archivedAt: entry.archivedAt ?? '' } : null);
-          if (blocked) throw new Error(`${blocked} (it changed after the preview)`);
-          await db.release(name);
-          await db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-          droppedDatabase = true;
         }
         if (candidate.deleteProject && entry.projectId) {
           await db.base.query('DELETE FROM projects WHERE id = $1', [entry.projectId]);

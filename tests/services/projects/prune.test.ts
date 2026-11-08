@@ -97,6 +97,8 @@ describe('planPrune', () => {
 function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: DatabaseCensus | null } = {}) {
   const statements: string[] = [];
   let censusCalls = 0;
+  let released = 0;
+  const recountConnections: unknown[] = [];
   const db = {
     accountDatabase: 'postgres',
     accountDatabaseKnown: opts.known ?? true,
@@ -105,12 +107,17 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
     close: async () => {},
     withMaintenanceLock: async <T>(fn: () => Promise<T>) => fn(),
     // The first count plans the prune; any later one is the recheck before the drop.
-    census: async () => (censusCalls++ === 0 || opts.recount === undefined ? clean : opts.recount),
+    census: async (_name: string, _owner: unknown, conn?: unknown) => {
+      if (censusCalls > 0) recountConnections.push(conn);
+      return censusCalls++ === 0 || opts.recount === undefined ? clean : opts.recount;
+    },
+    pool: () => ({ connect: async () => ({ query: async () => ({ rows: [{ pid: 4242 }] }), release: () => { released += 1; } }) }),
     accountRowsSql: async (projectId: string) => `INSERT INTO projects VALUES ('${projectId}');\n`,
     base: {
       query: async (sql: string) => {
-        statements.push(sql.replace(/\s+/g, ' ').trim());
-        return { rows: [], rowCount: sql.startsWith('DELETE FROM teams') ? 1 : 0 };
+        const statement = sql.replace(/\s+/g, ' ').trim();
+        if (!statement.startsWith('SELECT 1 FROM pg_stat_activity')) statements.push(statement);
+        return { rows: statement.startsWith('SELECT 1 FROM pg_stat_activity') ? [{ '?column?': 1 }] : [], rowCount: sql.startsWith('DELETE FROM teams') ? 1 : 0 };
       },
     },
     inventorySource: () => ({
@@ -123,7 +130,7 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
       recordStats: async (_db: string, id: string | null) => stats(id === KEEP ? 3 : 0),
     }),
   };
-  return { db, statements, opts };
+  return { db, statements, opts, recountConnections, released: () => released };
 }
 
 function deps(fake: ReturnType<typeof fakeDb>, out: string[], forgotten: string[]): ProjectsCommandDeps {
@@ -153,12 +160,18 @@ describe('memsmith projects --prune --yes', () => {
     const forgotten: string[] = [];
     expect(await runProjectsCommand(['--prune', '--yes'], deps(fake, out, forgotten))).toBe(0);
     expect(fake.statements).toEqual([
+      `ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS false`,
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid() AND pid <> $2 AND application_name <> 'pg_dump'",
       `DROP DATABASE IF EXISTS "${msp(EMPTY)}" WITH (FORCE)`,
       'DELETE FROM projects WHERE id = $1',
       'DELETE FROM teams WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM projects WHERE team_id = $1)',
     ]);
     expect(forgotten).toEqual(['t-empty']);
     expect(out).toContain('Run `memsmith restart` to release connections to dropped databases.');
+    // The recount runs on the connection held from before connections were blocked.
+    expect(fake.recountConnections).toHaveLength(1);
+    expect(fake.recountConnections[0]).toBeDefined();
+    expect(fake.released()).toBe(1);
     const accountBackup = join(dir, 'backups', `prune-${EMPTY}-account-2026-11-08T00-00-00-000Z.sql`);
     expect(readFileSync(accountBackup, 'utf-8')).toContain(EMPTY);
     expect(statSync(accountBackup).mode & 0o777).toBe(0o600);
@@ -178,7 +191,11 @@ describe('memsmith projects --prune --yes', () => {
     const fake = fakeDb({ recount: { ...clean, dataRows: 1 } });
     const out: string[] = [];
     expect(await runProjectsCommand(['--prune', '--yes'], deps(fake, out, []))).toBe(1);
-    expect(fake.statements).toEqual([]);
+    expect(fake.statements).toEqual([
+      `ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS false`,
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid() AND pid <> $2 AND application_name <> 'pg_dump'",
+      `ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS true`,
+    ]);
     expect(out.join('\n')).toContain('changed after the preview');
   });
 

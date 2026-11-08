@@ -171,9 +171,13 @@ export class ProjectsDb {
    * whose id matches an msp_ name, and with none every teams/projects row is
    * foreign. Returns null when any count fails.
    */
-  async census(databaseName: string, ownerHint: { projectId: string; teamId: string } | 'from-name'): Promise<DatabaseCensus | null> {
+  async census(
+    databaseName: string,
+    ownerHint: { projectId: string; teamId: string } | 'from-name',
+    connection?: Queryable,
+  ): Promise<DatabaseCensus | null> {
     try {
-      const db = this.pool(databaseName);
+      const db = connection ?? this.pool(databaseName);
       let owner: { projectId: string; teamId: string } | null = ownerHint === 'from-name' ? null : ownerHint;
       if (ownerHint === 'from-name') {
         const suffix = databaseName.replace(/^msp_/, '');
