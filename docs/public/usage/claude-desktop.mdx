@@ -86,7 +86,7 @@ Ask about past work in plain language:
 | `observation_context` | Returns the full bodies of the top few observations for a query. Accepts `actor`, like `observation_search`. |
 | `note_add` | Saves a note when you ask Claude to remember something. |
 
-The memory tools stamp `MEMSMITH_ACTOR` from the MCP server's environment on what they save. For how actors work, see [Actor tags](/configuration#actor-tags).
+The memory tools stamp `MEMSMITH_ACTOR` from the MCP server's environment on what they save, and they replace any `actor` or `actors` that the agent passes in `metadata`. For how actors work, see [Actor tags](/configuration#actor-tags).
 
 Search first, then request context for only the few results that matter. This keeps token use low.
 

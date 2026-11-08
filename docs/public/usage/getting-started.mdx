@@ -55,7 +55,7 @@ memsmith get <id> [<id>...]          # Full records for up to 10 ids from the in
 
 The commands search the project that the current folder belongs to. In a git repository, they also work from any subfolder. To use another folder's project, set `MEMSMITH_PROJECT_CWD` to that folder.
 
-`memsmith search` accepts these options anywhere on the line:
+`memsmith search` accepts these options anywhere on the line. An option value can't be another option, so `--actor --json` is an error, and `--json` takes no value.
 
 - `--actor <name>`: return only records written by that actor. With no query, it lists the actor's most recent records. For how actors are set, see [Actor tags](/configuration#actor-tags).
 - `--limit <n>`: return up to `n` results. The default is 10 and the maximum is 25.
@@ -108,7 +108,7 @@ memsmith note "Deploys freeze on Fridays"
 git log -1 --format=%B | memsmith note -    # Read the note from stdin
 ```
 
-`memsmith note` saves the same kind of user note as `note_add`, for the project of the current folder or of `MEMSMITH_PROJECT_CWD`. It stamps the note with `MEMSMITH_ACTOR` when that is set. When `MEMSMITH_ACCESS` is `read`, it refuses and saves nothing. It exits 0 when the note is saved and 1 otherwise. With `--json`, it prints `{ "project": {...}, "note": { "id", "content", "actor", "createdAtEpoch" } }`.
+`memsmith note` saves the same kind of user note as `note_add`, for the project of the current folder or of `MEMSMITH_PROJECT_CWD`. It stamps the note with `MEMSMITH_ACTOR` when that is set. When `MEMSMITH_ACCESS` is `read`, it refuses and saves nothing. With `-`, the text on stdin can be up to 5 MB of UTF-8 without NUL bytes, and `memsmith note` refuses to wait on a terminal. It exits 0 when the note is saved and 1 otherwise. With `--json`, it prints `{ "project": {...}, "note": { "id", "content", "actor", "createdAtEpoch" } }`.
 
 ## Open the dashboard
 
