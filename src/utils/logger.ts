@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { paths } from '../shared/paths.js';
 import { emitDiagnostic } from '../shared/hook-io.js';
+import { redactSecrets } from '../shared/secret-redaction.js';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -150,6 +151,10 @@ class Logger {
   }
 
   formatTool(toolName: string, toolInput?: any): string {
+    return redactSecrets(this.summarizeTool(toolName, toolInput));
+  }
+
+  private summarizeTool(toolName: string, toolInput?: any): string {
     if (!toolInput) return toolName;
 
     let input = toolInput;
@@ -270,7 +275,7 @@ class Logger {
       }
     }
 
-    const logLine = `[${timestamp}] [${levelStr}] [${componentStr}] ${correlationStr}${message}${contextStr}${dataStr}`;
+    const logLine = redactSecrets(`[${timestamp}] [${levelStr}] [${componentStr}] ${correlationStr}${message}${contextStr}${dataStr}`);
 
     if (this.logFilePath) {
       try {
