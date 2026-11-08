@@ -78,11 +78,13 @@ For the full resolution rules, see [Projects](/usage/projects).
 
 The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_LOCAL_PG_PORT` environment variable.
 
+The embedded Postgres binaries live in `~/.memsmith/pg-binaries`, shared by every data directory. To use another folder, set the `MEMSMITH_PG_BINARIES_DIR` environment variable.
+
 ## Capture
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_MODE` | `code` | Mode profile for observation types and language. The server always loads the `code` profile and ignores this setting. See [Modes & languages](/modes). |
+| `MEMSMITH_MODE` | `code` | Mode profile for observation types and language. The server always loads the `code` profile and ignores this setting. See [Modes and languages](/modes). |
 | `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
 | `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
 | `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
@@ -91,23 +93,31 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs one warning, uses `write`, and `memsmith doctor` flags the value. |
-| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs one warning for each unknown name and ignores it. |
+| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs a warning, uses `write`, and `memsmith doctor` flags the value. |
+| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs a warning for each unknown name and ignores it. |
 
 An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+
+Each MemSmith process logs a warning about a value once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
+
+Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read both settings when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
 
 ### Read-only mode
 
 In read-only mode, MemSmith does the following:
 
 - Skips every capture hook: prompts, tool use, file edits, the end-of-turn summary, and transcript capture. Nothing goes to the server, and nothing goes to the local capture spool.
-- Refuses `note_add`, `observation_add`, and `observation_record_event` with this error: `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`
+- Leaves `note_add`, `observation_add`, and `observation_record_event` out of the MCP tool list, and refuses a call to any of them with this error: `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`
 - Answers a request such as "remember that..." with a notice that memory is read-only, instead of saving it.
-- Adds a read-only notice to the session-start context, so the agent knows not to try to write.
-- Never creates or registers a project. In a folder that has no MemSmith project yet, the read tools report that the folder has no project.
+- Replaces the record-intent directive, which tells the agent to call `note_add`, with a read-only notice in the session-start context and in the directives that subagents receive.
+- Never creates or registers a project, and never applies a pending team join. In a folder that has no MemSmith project yet, the read tools report that the folder has no project, unless `MEMSMITH_SERVER_PROJECT_ID` names a project for every folder.
 - Keeps reading: session-start context, `observation_search`, `observation_get`, `observation_context`, the memory-first gate, and the answer gate work as usual, unless you turn them off with `MEMSMITH_HOOKS_DISABLED`.
 
 The setting belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
+
+Read-only access is advisory. It stops MemSmith's hooks and tools from writing, but it is not a security boundary: an agent that can run shell commands can still call the server API directly.
+
+Claude Code runs only the server start-up hook when it resumes a session, so a resumed session doesn't get the read-only notice in its context. The write tools stay hidden and refuse calls, as in any read-only session.
 
 The transcript watcher (`memsmith transcript watch`), which captures sessions from tools that write transcript files, is a single long-running process for all sessions. It follows the `MEMSMITH_ACCESS` value of its own environment, or the `settings.json` default, not the value of each session that it reads.
 
@@ -139,10 +149,10 @@ Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the h
 
 | Feature | Hook | What turning it off skips |
 |---------|------|---------------------------|
-| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. |
+| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. The `/incognito` command, the incognito reminder, and pending team joins keep working. |
 | `summary` | `Stop` | Only the end-of-turn summary. |
 | `context` | `SessionStart` | Session-start context injection. |
-| `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. |
+| `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. This hook also marks the request that the answer gate waits for, so turning it off also stops the answer gate from holding back an answer. |
 | `record-intent` | `UserPromptSubmit`, `PreToolUse` | The record-intent backstop, which saves a "remember this" request when the agent doesn't, and the rewrite that marks an `observation_add` call from that turn as a user note. |
 | `answer-gate` | `Stop` | The answer gate, which in hard enforcement mode holds back an answer about past work until the agent has searched memory. The end-of-turn summary still runs. |
 | `memory-first-gate` | `PreToolUse` | The memory-first gate on `Grep`, `Glob`, `Read`, `Bash`, and `WebSearch`. Calls to the memory tools still count as a memory search for the answer gate. |
@@ -211,6 +221,6 @@ Set `MEMSMITH_SERVER_URL` to `http://127.0.0.1:<free-port>` and run `memsmith re
 
 ## Next steps
 
-- [Modes & languages](/modes)
+- [Modes and languages](/modes)
 - [Telemetry](/telemetry)
 - [Troubleshooting](/troubleshooting)

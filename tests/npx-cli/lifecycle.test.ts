@@ -301,3 +301,18 @@ describe('status memory access line', () => {
     expect(calls.out.some((l) => l.startsWith('  Access:'))).toBe(false);
   });
 });
+
+describe('status access line from the real settings', () => {
+  it('reports read access from the environment and nothing for write', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-status-access-')));
+    try {
+      const settingsPath = join(dir, 'settings.json');
+      writeFileSync(settingsPath, JSON.stringify({ MEMSMITH_ACCESS: 'read' }));
+      expect(defaultLifecycleDeps({ settingsPath, env: {} }).memoryAccess?.()).toBe('read (MEMSMITH_ACCESS in settings.json)');
+      expect(defaultLifecycleDeps({ settingsPath, env: { MEMSMITH_ACCESS: 'write' } }).memoryAccess?.()).toBeNull();
+      expect(defaultLifecycleDeps({ settingsPath, env: { MEMSMITH_ACCESS: 'ro' } }).memoryAccess?.()).toBe('read (MEMSMITH_ACCESS in the environment)');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

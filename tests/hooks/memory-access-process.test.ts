@@ -248,6 +248,15 @@ describe('MEMSMITH_HOOKS_DISABLED through the real hook entry', () => {
     expect(off.paths).toEqual([]);
   }, 60_000);
 
+  it('file-context: returns the neutral result for a Read without calling the server', async () => {
+    const box = disabled('file-context');
+    const big = join(box.cwd, 'big.ts');
+    writeFileSync(big, 'export const x = 1;\n'.repeat(200));
+    const off = await track(() => hook(box, 'file-context', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: big } }));
+    expect(off.result).toEqual({});
+    expect(off.paths).toEqual([]);
+  }, 60_000);
+
   it('subagent-directive: skips the directive injected into a subagent spawn', async () => {
     const spawn = { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { prompt: 'look around' } };
     const on = await hook(sandbox(), 'agent-directive', spawn);

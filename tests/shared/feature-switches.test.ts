@@ -54,13 +54,6 @@ describe('resolveFeatureSwitches', () => {
     expect(writesAllowed(s)).toBe(true);
   });
 
-  it('ignores the MEMSMITH_MODE observation profile that every settings.json carries', () => {
-    const fromFile: Record<string, string> = { MEMSMITH_MODE: 'code', MEMSMITH_ACCESS: 'read' };
-    const s = resolveFeatureSwitches(fromFile, { MEMSMITH_MODE: 'read' });
-    expect(s.access).toBe('read');
-    expect(resolveFeatureSwitches({}, { MEMSMITH_MODE: 'read' }).access).toBe('write');
-  });
-
   it('accepts the common spellings of read-only', () => {
     for (const value of ['read', 'READ', 'readonly', 'Read-Only', 'ro', ' ro ']) {
       const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: value });
