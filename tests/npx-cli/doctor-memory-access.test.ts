@@ -34,6 +34,11 @@ describe('doctor memory access and disabled hooks', () => {
     expect(rows.find((c) => c.name === 'Disabled hooks')).toMatchObject({ status: 'ok', detail: 'none' });
   });
 
+  it('names settings.json as the source of an explicit write', async () => {
+    const rows = await checks({ MEMSMITH_ACCESS: 'write' }, {});
+    expect(rows.find((c) => c.name === 'Memory access')?.detail).toBe('write (MEMSMITH_ACCESS in settings.json)');
+  });
+
   it('shows read access from the environment over settings.json', async () => {
     const rows = await checks({ MEMSMITH_ACCESS: 'write' }, { MEMSMITH_ACCESS: 'read' });
     const access = rows.find((c) => c.name === 'Memory access');
@@ -54,5 +59,6 @@ describe('doctor memory access and disabled hooks', () => {
     const access = rows.find((c) => c.name === 'Memory access');
     expect(access?.status).toBe('warn');
     expect(access?.detail).toContain('"reed" is not read or write');
+    expect(access?.detail).toContain('MEMSMITH_ACCESS in settings.json');
   });
 });

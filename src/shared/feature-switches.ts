@@ -46,24 +46,24 @@ export interface SwitchSettings {
 const KNOWN = new Set<string>(HOOK_FEATURES);
 const READ_VALUES = new Set(['read', 'readonly', 'read-only', 'ro']);
 
-// A variable that is present but empty still wins, so a session can clear a
-// settings.json default (for example MEMSMITH_HOOKS_DISABLED=).
-function pick(env: string | undefined, settings: string | undefined): { raw: string; source: SwitchSource } {
-  if (env !== undefined) return { raw: env, source: 'env' };
+// With emptyWins, a variable that is present but empty still overrides, so a
+// session can clear a settings.json list (MEMSMITH_HOOKS_DISABLED=).
+function pick(env: string | undefined, settings: string | undefined, emptyWins: boolean): { raw: string; source: SwitchSource } {
+  if (env !== undefined && (emptyWins || env.trim() !== '')) return { raw: env, source: 'env' };
   if (settings !== undefined && settings.trim() !== '') return { raw: settings, source: 'settings' };
   return { raw: '', source: 'default' };
 }
 
 export function resolveFeatureSwitches(settings: SwitchSettings, env: NodeJS.ProcessEnv = process.env): FeatureSwitches {
-  const accessPick = pick(env.MEMSMITH_ACCESS, settings.MEMSMITH_ACCESS);
+  const accessPick = pick(env.MEMSMITH_ACCESS, settings.MEMSMITH_ACCESS, false);
   const accessValue = accessPick.raw.trim().toLowerCase();
   const access: MemoryAccess = READ_VALUES.has(accessValue) ? 'read' : 'write';
   const known = accessValue === '' || accessValue === 'write' || access === 'read';
-  const listPick = pick(env.MEMSMITH_HOOKS_DISABLED, settings.MEMSMITH_HOOKS_DISABLED);
+  const listPick = pick(env.MEMSMITH_HOOKS_DISABLED, settings.MEMSMITH_HOOKS_DISABLED, true);
   const names = listPick.raw.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
   return {
     access,
-    accessSource: access === 'read' || (accessValue === 'write' && accessPick.source === 'env') ? accessPick.source : 'default',
+    accessSource: accessPick.source,
     invalidAccess: known ? null : accessPick.raw.trim(),
     disabled: new Set(names.filter((n): n is HookFeature => KNOWN.has(n))),
     disabledSource: names.length === 0 ? 'default' : listPick.source,

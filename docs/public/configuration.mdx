@@ -33,7 +33,7 @@ Existing installs keep their provider. When the server starts and the settings f
 
 The Ollama provider uses a fixed context of 20,480 tokens and turns thinking off. Without a fixed context, Ollama sizes the context itself, up to 256k tokens for Gemma 4, which multiplies RAM use. `gemma4:12b` needs an 8 GB download and about 9.7 GB of RAM while loaded.
 
-Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_ACCESSL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
+Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_MODEL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
 
 For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usage/openrouter-provider).
 
@@ -94,7 +94,7 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 | `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs one warning, uses `write`, and `memsmith doctor` flags the value. |
 | `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs one warning for each unknown name and ignores it. |
 
-An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty environment variable also wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
 
 ### Read-only mode
 

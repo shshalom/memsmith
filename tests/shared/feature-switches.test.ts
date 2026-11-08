@@ -22,6 +22,18 @@ describe('resolveFeatureSwitches', () => {
     expect(resolveFeatureSwitches({}, {}).access).toBe('write');
   });
 
+  it('falls through to settings.json when the session sets MEMSMITH_ACCESS to an empty value', () => {
+    const s = resolveFeatureSwitches({ MEMSMITH_ACCESS: 'read' }, { MEMSMITH_ACCESS: '' });
+    expect(s.access).toBe('read');
+    expect(s.accessSource).toBe('settings');
+  });
+
+  it('labels where the access value came from', () => {
+    expect(resolveFeatureSwitches({ MEMSMITH_ACCESS: 'write' }, {}).accessSource).toBe('settings');
+    expect(resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'write' }).accessSource).toBe('env');
+    expect(resolveFeatureSwitches({}, {}).accessSource).toBe('default');
+  });
+
   it('lets an empty session variable clear a disabled list from settings.json', () => {
     const s = resolveFeatureSwitches({ MEMSMITH_HOOKS_DISABLED: 'context' }, { MEMSMITH_HOOKS_DISABLED: '' });
     expect([...s.disabled]).toEqual([]);

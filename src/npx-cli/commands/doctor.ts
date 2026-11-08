@@ -145,7 +145,7 @@ export function featureSwitchChecks(s: FeatureSwitches): CheckResult[] {
   const accessSource = s.accessSource === 'default' ? 'default' : `MEMSMITH_ACCESS ${switchSourceLabel(s.accessSource)}`;
   let access: CheckResult;
   if (s.invalidAccess !== null) {
-    access = { name: 'Memory access', status: 'warn', detail: `write ("${s.invalidAccess}" is not read or write; using write)`, required: false };
+    access = { name: 'Memory access', status: 'warn', detail: `write ("${s.invalidAccess}" is not read or write; using write; ${accessSource})`, required: false };
   } else if (s.access === 'read') {
     access = { name: 'Memory access', status: 'warn', detail: `read (${accessSource}): capture is off and memory write tools refuse`, required: false };
   } else {
