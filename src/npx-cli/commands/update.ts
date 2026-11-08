@@ -77,6 +77,10 @@ export interface UpdateDeps {
     status(): { registered: boolean };
     enable(): { ok: boolean; message: string };
   };
+  globalCli?: {
+    version(): string | null;
+    install(version: string): { ok: boolean; message: string };
+  };
 }
 
 function versionParts(version: string): { core: number[]; prerelease: boolean } {
@@ -256,14 +260,32 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     serverLine = `Server: ${runningVersion}`;
   }
 
-  const nothingChanged = !replaceFiles && registryChanged === 0 && !staleServer;
+  const cli = syncGlobalCli(target, d);
+  const nothingChanged = !replaceFiles && registryChanged === 0 && !staleServer && !cli.changed;
   d.out(nothingChanged ? `MemSmith ${target} is already up to date.` : `MemSmith updated to ${target}.`);
   d.out(`  Plugin: ${target}`);
   d.out(`  ${serverLine}`);
-  if (!nothingChanged) d.out('Restart Claude Code to load the new plugin and its memory tools.');
+  if (cli.line) d.out(`  ${cli.line}`);
+  if (replaceFiles || registryChanged > 0 || staleServer) d.out('Restart Claude Code to load the new plugin and its memory tools.');
   await offerHaikuSwitch(d);
   await offerLoginAutostart(d);
   return 0;
+}
+
+// Observed 2026-11-06: the update moved the plugin and server to 13.13.1 but
+// left the global `memsmith` command on 13.12.1, so new commands such as
+// `memsmith autostart` failed with "Unknown command".
+function syncGlobalCli(target: string, d: UpdateDeps): { line: string | null; changed: boolean } {
+  if (!d.globalCli) return { line: null, changed: false };
+  const current = d.globalCli.version();
+  if (current === null) return { line: null, changed: false };
+  if (current === target || isNewerVersion(current, target)) return { line: `CLI: ${current}`, changed: false };
+  d.out(`Updating the global memsmith command from ${current}…`);
+  const result = d.globalCli.install(target);
+  if (result.ok) return { line: `CLI: ${target}`, changed: true };
+  d.err(`The global memsmith command is still ${current}: ${result.message}`);
+  d.err(`To update it, run: npm install -g memsmith@${target}`);
+  return { line: `CLI: ${current} (not updated)`, changed: false };
 }
 
 async function offerLoginAutostart(d: UpdateDeps): Promise<void> {
@@ -443,6 +465,34 @@ export function defaultUpdateDeps(): UpdateDeps {
     loginAutostart: {
       status: () => loginAutostartStatus(defaultAutostartDeps()),
       enable: () => enableLoginAutostart(defaultAutostartDeps()),
+    },
+    globalCli: {
+      version: () => {
+        const result = spawnSync(npmCommand('npm'), ['ls', '-g', 'memsmith', '--depth=0', '--json'], {
+          encoding: 'utf-8',
+          timeout: 20_000,
+          env: { ...sanitizeEnv(process.env), ...pickNpmNetworkConfig(process.env) },
+          shell: IS_WINDOWS,
+        });
+        try {
+          const version = JSON.parse(result.stdout || '{}')?.dependencies?.memsmith?.version;
+          return typeof version === 'string' ? version : null;
+        } catch {
+          return null;
+        }
+      },
+      install: (version) => {
+        const result = spawnSync(npmCommand('npm'), ['install', '-g', `memsmith@${version}`], {
+          encoding: 'utf-8',
+          timeout: 300_000,
+          env: { ...sanitizeEnv(process.env), ...pickProxyVars(process.env), ...pickNpmNetworkConfig(process.env) },
+          shell: IS_WINDOWS,
+        });
+        if (result.status === 0) return { ok: true, message: '' };
+        const detail = `${result.stderr ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^npm warn/i.test(l));
+        if (detail.some((l) => /EACCES|EPERM/.test(l))) return { ok: false, message: "npm doesn't have permission to write to its global folder" };
+        return { ok: false, message: result.error?.message ?? detail.at(-1) ?? `npm exited with ${result.status}` };
+      },
     },
   };
 }

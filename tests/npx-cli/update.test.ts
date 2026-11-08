@@ -206,6 +206,70 @@ describe('memsmith update', () => {
     expect(f.calls).toContain('install:1.1.0');
   });
 
+  // Observed 2026-11-06: the update moved the plugin and server to 13.13.1 and
+  // left the global `memsmith` command on 13.12.1.
+  describe('global memsmith command', () => {
+    function withGlobal(global: string | null, o: { installOk?: boolean; installed?: string; registryChanged?: number } = {}) {
+      const f = fake({ cli: '1.1.0', installed: o.installed ?? '1.0.0', registryChanged: o.registryChanged });
+      f.deps.globalCli = {
+        version: () => global,
+        install: (version) => {
+          f.calls.push(`global:${version}`);
+          return o.installOk === false ? { ok: false, message: 'EACCES: permission denied' } : { ok: true, message: '' };
+        },
+      };
+      return f;
+    }
+
+    it('updates an older global command to the version it installed', async () => {
+      const f = withGlobal('1.0.0');
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.calls).toContain('global:1.1.0');
+      expect(f.calls.indexOf('global:1.1.0')).toBeGreaterThan(f.calls.indexOf('install:1.1.0'));
+      expect(f.out).toContain('  CLI: 1.1.0');
+    });
+
+    it('updates the global command even when the plugin and server are already current', async () => {
+      const f = withGlobal('1.0.0', { installed: '1.1.0', registryChanged: 0 });
+      f.deps.serverState = async () => ({ kind: 'running', version: '1.1.0' });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.calls).toContain('global:1.1.0');
+      expect(f.out).toContain('MemSmith updated to 1.1.0.');
+      expect(f.out.join('\n')).not.toContain('Restart Claude Code');
+    });
+
+    it('leaves a current or newer global command alone', async () => {
+      for (const version of ['1.1.0', '2.0.0']) {
+        const f = withGlobal(version);
+        await runUpdate([], f.deps);
+        expect(f.calls.some((c) => c.startsWith('global:'))).toBe(false);
+        expect(f.out).toContain(`  CLI: ${version}`);
+      }
+    });
+
+    it('installs nothing globally when there is no global command', async () => {
+      const f = withGlobal(null);
+      await runUpdate([], f.deps);
+      expect(f.calls.some((c) => c.startsWith('global:'))).toBe(false);
+      expect(f.out.join('\n')).not.toContain('CLI:');
+    });
+
+    it('finishes the update and prints the command to run when the global install fails', async () => {
+      const f = withGlobal('1.0.0', { installOk: false });
+      expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.err.join('\n')).toContain('EACCES: permission denied');
+      expect(f.err.join('\n')).toContain('npm install -g memsmith@1.1.0');
+      expect(f.out).toContain('  CLI: 1.0.0 (not updated)');
+    });
+
+    it('leaves the global command to the newer CLI it re-runs', async () => {
+      const f = withGlobal('1.0.0');
+      f.deps.latestPublished = async () => '1.2.0';
+      await runUpdate([], f.deps);
+      expect(f.calls.some((c) => c.startsWith('global:'))).toBe(false);
+    });
+  });
+
   describe('login autostart offer', () => {
     const QUESTION = 'Start MemSmith when you log in?';
 
