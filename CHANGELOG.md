@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.14.1] - 2026-11-08
+
 ### Fixed
 
 - Secret redaction no longer removes test results after the word "pass". Before, a line such as `Stack CI first pass: 12/27 green` lost `12/27`. After a bare `pass:`, an unquoted count, fraction, or percentage now stays. Passwords in `pass` fields, such as `pass: hunter22x`, `pass=…`, and `"pass": "…"`, are still redacted.
