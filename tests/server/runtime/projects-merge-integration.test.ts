@@ -424,12 +424,37 @@ if (OPT_IN) {
       expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [jRace])).rows.map((r) => r.id)).toEqual([oWorker]);
       await b.query('DELETE FROM observations WHERE id = $1', [oWorker]);
 
+      // The target already had its own job for the same event, and it failed
+      // without output, while the source's job produced an observation. The
+      // source's observation becomes the target job's result.
+      const [jScopedTarget, jScopedSource, oScoped] = [randomUUID(), randomUUID(), randomUUID()];
+      await b.query(`INSERT INTO observation_generation_jobs (id, project_id, team_id, agent_event_id, source_type, source_id, job_type, status, idempotency_key, payload, failed_at)
+        VALUES ($1, $2, $3, $4, 'agent_event', $4, 'observation-scoped', 'failed', $5, '{}', now())`, [jScopedTarget, B, teamB, e2, `job-${jScopedTarget}`]);
+      await a.query(`INSERT INTO observation_generation_jobs (id, project_id, team_id, agent_event_id, source_type, source_id, job_type, status, idempotency_key, payload, completed_at)
+        VALUES ($1, $2, $3, $4, 'agent_event', $4, 'observation-scoped', 'completed', $5, '{}', now())`, [jScopedSource, A, teamA, e2, `job-${jScopedSource}`]);
+      await a.query(`INSERT INTO observations (id, project_id, team_id, content, created_by_job_id) VALUES ($1, $2, $3, 'pelican scoped result', $4)`, [oScoped, A, teamA, jScopedSource]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [jScopedTarget])).rows.map((r) => r.id)).toEqual([oScoped]);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [jScopedTarget])).rows[0].status).toBe('completed');
+
+      // A moved job's payload names the target's rows, and no source API key:
+      // prune deletes the source team's keys, and a job whose key is gone fails.
+      const jPayload = randomUUID();
+      await a.query(`INSERT INTO observation_generation_jobs (id, project_id, team_id, agent_event_id, source_type, source_id, server_session_id, job_type, status, idempotency_key, payload)
+        VALUES ($1, $2, $3, $4, 'agent_event', $4, $5, 'observation-payload', 'queued', $6, $7)`,
+        [jPayload, A, teamA, e3, s1, `job-${jPayload}`, JSON.stringify({ project_id: A, team_id: teamA, generation_job_id: jPayload, agent_event_id: e3, source_id: e3, server_session_id: s1, api_key_id: 'key-of-a' })]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      const sharedEvent = (await b.query(`SELECT id FROM agent_events WHERE idempotency_key = 'idem-shared'`)).rows[0].id;
+      const moved_ = (await b.query('SELECT source_id, server_session_id, payload FROM observation_generation_jobs WHERE id = $1', [jPayload])).rows[0];
+      expect(moved_.source_id).toBe(sharedEvent);
+      expect(moved_.payload).toMatchObject({ project_id: B, team_id: teamB, agent_event_id: sharedEvent, source_id: sharedEvent, server_session_id: sB, api_key_id: null });
+
       // E shares B's team; once merged and archived, a team-wide read must not return its rows twice.
       expect(await run(() => runMergeCommand([E, B, '--yes'], deps))).toBe(0);
       const browse = await postJson(http, '/v1/search', { projectId: B, query: '' , limit: 100 });
       const ids = (await browse.json() as { observations: Array<{ id: string }> }).observations.map((o) => o.id);
       expect(ids.length).toBe(new Set(ids).size);
-      expect(ids.length).toBe(moved.length + 1);
+      expect(ids.length).toBe(moved.length + 2);
 
       // Prune.
       expect(await run(() => runProjectsCommand(['--prune'], deps))).toBe(0);
@@ -456,7 +481,8 @@ if (OPT_IN) {
       const accountBackup = readFileSync(join(backupDir, pruneBackups.find((f) => f.includes(`${F}-account`))!), 'utf-8');
       expect(accountBackup).toContain(F);
       expect(accountBackup).toContain('json_populate_record');
-      expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length + 1);
+      expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length + 2);
+      expect((await b.query('SELECT created_by_job_id FROM observations WHERE id = $1', [oScoped])).rows[0].created_by_job_id).toBe(jScopedTarget);
     }, 180_000);
   });
 

@@ -326,9 +326,14 @@ export async function copyProject(
     )).rows) sourceGenerated.add(String(r.id));
     const holders = await lookupColumn(target, 'observation_generation_jobs', 'idempotency_key', page.map((j) => j.idempotency_key));
     for (const id of (await lookupColumn(target, 'observation_generation_jobs', 'bullmq_job_id', page.map((j) => j.bullmq_job_id))).keys()) bullmqTaken.add(id);
-    await noteTargetJobs(page.flatMap((j) => [String(j.id), ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(String(j.id), i + 1))]));
+    const scopedOf = (j: Row) => jobScopes.get(`${j.source_type}\u0000${jobSourceId(j)}\u0000${j.job_type}`);
+    await noteTargetJobs(page.flatMap((j) => [
+      String(j.id),
+      ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(String(j.id), i + 1)),
+      ...[scopedOf(j), holders.get(j.idempotency_key)?.id].filter((id): id is string => id != null).map(String),
+    ]));
     await decide('observation_generation_jobs', page, sameProjectRow, (j) => {
-      const scoped = jobScopes.get(`${j.source_type}\u0000${jobSourceId(j)}\u0000${j.job_type}`);
+      const scoped = scopedOf(j);
       if (scoped !== undefined && scoped !== j.id) return scoped;
       const holder = holders.get(j.idempotency_key);
       if (!holder || holder.id === j.id) return undefined;
@@ -366,6 +371,13 @@ export async function copyProject(
       if (job) {
         if (job.action === 'update') return false;
         if (job.action === 'copy') return sourceJobStatus.get(jobId) !== 'completed';
+        // The target holds its own job for this work. It keeps that job's
+        // result, unless the job gave up without one.
+        const status = job.target ? targetJobStatus.get(job.target) : undefined;
+        if (status && TARGET_GAVE_UP.has(status) && !targetGenerated.has(job.target) && sourceGenerated.has(jobId)) {
+          adoptedJobs.set(jobId, job.target);
+          return false;
+        }
         return true;
       }
       // The source job is no longer moved (it was cancelled after an earlier
@@ -461,6 +473,10 @@ export async function copyProject(
             if ('team_id' in payload) payload.team_id = scope.intoTeamId;
             if ('generation_job_id' in payload) payload.generation_job_id = targetId;
             if ('agent_event_id' in payload) payload.agent_event_id = mapId('agent_events', payload.agent_event_id);
+            if ('source_id' in payload) payload.source_id = out.source_id;
+            if ('server_session_id' in payload) payload.server_session_id = mapId('server_sessions', payload.server_session_id) ?? payload.server_session_id;
+            // The source team's keys don't belong to the target, and prune deletes them.
+            if ('api_key_id' in payload) payload.api_key_id = null;
             out.payload = JSON.stringify(payload);
           }
         } catch {
