@@ -90,6 +90,15 @@ describe('memory MCP tools in read-only mode', () => {
     return { result, text: result.content.map((c) => c.text).join('') };
   }
 
+  it('lists the write tools only to a session that can write', async () => {
+    const names = async (c: Client) => (await c.listTools()).tools.map((t) => t.name);
+    const writeTools = ['note_add', 'observation_add', 'observation_record_event'];
+    expect(await names(writer)).toEqual(expect.arrayContaining(writeTools));
+    const readable = await names(reader);
+    for (const tool of writeTools) expect(readable).not.toContain(tool);
+    expect(readable).toContain('observation_search');
+  });
+
   const writeCalls: Array<[string, Record<string, unknown>, string]> = [
     ['note_add', { content: 'The queue engine is inline' }, '/v1/memories'],
     ['observation_add', { content: 'The queue engine is inline' }, '/v1/memories'],

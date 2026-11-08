@@ -21,8 +21,8 @@ import {
   type RuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
-import { INJECTED_DIRECTIVES, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
-import { isFeatureEnabled, writesAllowed, READ_ONLY_SESSION_NOTICE } from '../../shared/feature-switches.js';
+import { standingDirectives, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
+import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -346,7 +346,6 @@ export const contextHandler: EventHandler = {
       // design and upserts teams/projects on every call — its own doc says a
       // "fresh DB / cloned repo self-heals" — so calling it unconditionally
       // costs an existing project one upsert and gives a clone the row it needs.
-      // A read-only session must not create or register a project anywhere.
       const registered = writesAllowed() ? await dependencies.mintProjectIdentity(cwd) : null;
       dashboardProjectId = registered?.projectId ?? marker?.projectId;
       noticeLine = await dependencies.projectNotice(cwd, registered);
@@ -390,8 +389,7 @@ export const contextHandler: EventHandler = {
     // Always prepend the injected directives (memory-first + record-intent) —
     // they are static standing instructions and must be present unconditionally
     // (even on empty projects).
-    additionalContext = `${INJECTED_DIRECTIVES}\n\n${additionalContext}`;
-    if (!writesAllowed()) additionalContext = `${READ_ONLY_SESSION_NOTICE}\n\n${additionalContext}`;
+    additionalContext = `${standingDirectives(writesAllowed())}\n\n${additionalContext}`;
 
     let coloredTimeline = '';
     if (showTerminalOutput) {

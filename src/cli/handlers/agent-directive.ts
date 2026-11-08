@@ -4,8 +4,8 @@
 // This handler is PURE: it returns a HookResult and MUST NOT call
 // process.stderr.write / process.stdout.write / console.* / process.exit.
 import type { EventHandler, HookResult, NormalizedHookInput } from '../types.js';
-import { INJECTED_DIRECTIVES } from '../../services/retrieval/directive.js';
-import { isFeatureEnabled } from '../../shared/feature-switches.js';
+import { standingDirectives } from '../../services/retrieval/directive.js';
+import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 /** PreToolUse:Agent — when the parent spawns a sub-agent (Task/Agent tool),
  *  inject the combined directives (memory-first + record-intent) so they ride
@@ -19,7 +19,7 @@ export const agentDirectiveHandler: EventHandler = {
       suppressOutput: true,
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        additionalContext: INJECTED_DIRECTIVES,
+        additionalContext: standingDirectives(writesAllowed()),
         permissionDecision: 'allow',
       },
     };

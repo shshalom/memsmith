@@ -47,18 +47,21 @@ export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps):
   return {
     async execute(input: NormalizedHookInput): Promise<HookResult> {
       const prompt = (input.prompt ?? '').trim();
-      if (!prompt || !isFeatureEnabled('record-intent')) return CONTINUE;
-      const armed = isRecordIntent(prompt);
-      if (!writesAllowed()) return armed ? READ_ONLY_RECORD : CONTINUE;
+      const enabled = isFeatureEnabled('record-intent');
+      const writes = writesAllowed();
+      const armed = enabled && prompt !== '' && isRecordIntent(prompt);
+      // Written on every turn, so a flag left by an earlier turn never makes the
+      // interceptor rewrite this turn's observation_add.
       try {
         deps.armedStore(input.sessionId).write({
-          armed,
+          armed: armed && writes,
           promptId: input.turnId ?? null,
           ts: Date.now(),
         });
       } catch {
         // best-effort; a failed arm just leaves the interceptor treating the turn as not-armed
       }
+      if (!writes) return armed ? READ_ONLY_RECORD : CONTINUE;
       if (!armed) return CONTINUE;
       try {
         const settings = deps.loadSettings();

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { contextHandler, setContextDependenciesForTesting } from '../../../src/cli/handlers/context.js';
+import { resetFeatureSwitchesForTesting } from '../../../src/shared/feature-switches.js';
 
 // A read-only worker started in a new folder must not create or register a
 // project; its read tools report that the folder has no project instead.
@@ -19,6 +20,7 @@ afterEach(() => {
 async function sessionStart(access: string | undefined): Promise<{ mints: number; text: string }> {
   if (access === undefined) delete process.env.MEMSMITH_ACCESS;
   else process.env.MEMSMITH_ACCESS = access;
+  resetFeatureSwitchesForTesting();
   let mints = 0;
   setContextDependenciesForTesting({
     mintProjectIdentity: async () => { mints++; return { teamId: 't', projectId: 'p', created: { root: cwd, name: 'fresh' } }; },
@@ -45,6 +47,13 @@ describe('SessionStart with MEMSMITH_ACCESS=read', () => {
     expect(mints).toBe(0);
     expect(text).not.toContain('MemSmith created project');
     expect(text).toContain('MEMSMITH_ACCESS=read');
+  });
+
+  it('drops the instruction to record notes with note_add in a read-only session', async () => {
+    const writing = await sessionStart(undefined);
+    expect(writing.text).toContain('call note_add');
+    const reading = await sessionStart('read');
+    expect(reading.text).not.toContain('RECORD-INTENT');
   });
 });
 

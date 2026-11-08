@@ -736,7 +736,7 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: tools.map(tool => ({
+    tools: tools.filter(tool => writesAllowed() || !WRITE_TOOLS.has(tool.name)).map(tool => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema

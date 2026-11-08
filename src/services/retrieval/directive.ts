@@ -1,4 +1,5 @@
 import type { EnforcementMode } from './types.js';
+import { READ_ONLY_SESSION_NOTICE } from '../../shared/feature-switches.js';
 
 /** The standing memory-first directive. Injected at SessionStart (main agent)
  *  and into Task framing (subagents). Memory is consulted when the agent needs
@@ -47,6 +48,12 @@ export const RECORD_INTENT_DIRECTIVE = [
 /** Combined injected directives: memory-first + record-intent.
  *  Used by SessionStart context handler and PreToolUse:Agent handler. */
 export const INJECTED_DIRECTIVES = [MEMORY_FIRST_DIRECTIVE, RECORD_INTENT_DIRECTIVE].join('\n\n');
+
+/** A read-only session gets the read-only notice in place of record-intent,
+ *  whose note_add instruction would only produce refusals. */
+export function standingDirectives(writes: boolean): string {
+  return writes ? INJECTED_DIRECTIVES : [READ_ONLY_SESSION_NOTICE, MEMORY_FIRST_DIRECTIVE].join('\n\n');
+}
 
 /** Heads the recent observations injected at SessionStart. */
 export const SESSION_START_ORIENTATION_LABEL =
