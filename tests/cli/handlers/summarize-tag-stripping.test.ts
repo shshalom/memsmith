@@ -1,5 +1,6 @@
+import { mkdtempSync } from 'fs';
 import { describe, it, expect, beforeEach, afterEach, afterAll, spyOn, mock } from 'bun:test';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 // Capture real exports before mock.module mutates the live namespace, then
@@ -10,6 +11,8 @@ import * as realHookSettings from '../../../src/shared/hook-settings.js';
 import * as realTranscriptParser from '../../../src/shared/transcript-parser.js';
 import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
 import * as realRuntimeSelector from '../../../src/services/hooks/runtime-selector.js';
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'ms-hook-test-data-'));
+
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
 const realTranscriptParserSnapshot = { ...realTranscriptParser };
@@ -19,7 +22,7 @@ const realRuntimeSelectorSnapshot = { ...realRuntimeSelector };
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
+      if (key === 'MEMSMITH_DATA_DIR') return TEST_DATA_DIR;
       return '';
     },
     getInt: () => 0,

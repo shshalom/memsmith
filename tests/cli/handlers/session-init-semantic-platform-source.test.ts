@@ -1,10 +1,13 @@
+import { mkdtempSync, writeFileSync } from 'fs';
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
 import * as realHookSettings from '../../../src/shared/hook-settings.js';
 import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
+
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'ms-hook-test-data-'));
 
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
@@ -14,7 +17,7 @@ const originalInternalEnv = process.env.MEMSMITH_INTERNAL;
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
+      if (key === 'MEMSMITH_DATA_DIR') return TEST_DATA_DIR;
       return '';
     },
     getInt: () => 0,
@@ -81,9 +84,17 @@ afterAll(() => {
 // This test verifies the clean-skip on the local path (platform-source plumbing
 // is exercised in the server path, which is tested in session-init-server-beta-context.test.ts).
 
+// Each child gets its own data dir with a settings file, so none of them
+// announces on stderr that it created one.
+function childEnv(): Record<string, string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-hook-child-data-'));
+  writeFileSync(join(dir, 'settings.json'), '{}');
+  return { ...process.env, MEMSMITH_DATA_DIR: dir };
+}
+
 describe('sessionInitHandler semantic injection platform source', () => {
   it('skips cleanly on local runtime — no worker semantic call, no additionalContext', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'Please restore the platform-specific context for semantic injection.';
     const script = `
