@@ -3,6 +3,7 @@ import {
   runUpdate,
   switchToHaiku,
   isNewerVersion,
+  parseGlobalCliListing,
   syncInstalledPluginEntries,
   type UpdateDeps,
   type ServerState,
@@ -206,13 +207,11 @@ describe('memsmith update', () => {
     expect(f.calls).toContain('install:1.1.0');
   });
 
-  // Observed 2026-11-06: the update moved the plugin and server to 13.13.1 and
-  // left the global `memsmith` command on 13.12.1.
   describe('global memsmith command', () => {
-    function withGlobal(global: string | null, o: { installOk?: boolean; installed?: string; registryChanged?: number } = {}) {
-      const f = fake({ cli: '1.1.0', installed: o.installed ?? '1.0.0', registryChanged: o.registryChanged });
+    function withGlobal(global: string | null, o: { installOk?: boolean; installed?: string; registryChanged?: number; linkedFrom?: string; server?: ServerState } = {}) {
+      const f = fake({ cli: '1.1.0', installed: o.installed ?? '1.0.0', registryChanged: o.registryChanged, server: o.server });
       f.deps.globalCli = {
-        version: () => global,
+        info: () => (global === null ? null : { version: global, ...(o.linkedFrom ? { linkedFrom: o.linkedFrom } : {}) }),
         install: (version) => {
           f.calls.push(`global:${version}`);
           return o.installOk === false ? { ok: false, message: 'EACCES: permission denied' } : { ok: true, message: '' };
@@ -254,9 +253,33 @@ describe('memsmith update', () => {
       expect(f.out.join('\n')).not.toContain('CLI:');
     });
 
+    it('updates the global command when the server is remote or stopped', async () => {
+      for (const server of [{ kind: 'remote', baseUrl: 'https://team.example' }, { kind: 'stopped' }] as ServerState[]) {
+        const f = withGlobal('1.0.0', { server });
+        expect(await runUpdate([], f.deps)).toBe(0);
+        expect(f.calls).toContain('global:1.1.0');
+      }
+    });
+
+    it('leaves a global command linked to a local checkout alone', async () => {
+      const f = withGlobal('1.0.0', { linkedFrom: '/src/memsmith' });
+      await runUpdate([], f.deps);
+      expect(f.calls.some((c) => c.startsWith('global:'))).toBe(false);
+      expect(f.out).toContain('  CLI: 1.0.0, linked from /src/memsmith (not updated)');
+    });
+
+    it('does not call a failed global update "already up to date"', async () => {
+      const f = withGlobal('1.0.0', { installOk: false, installed: '1.1.0', registryChanged: 0 });
+      f.deps.serverState = async () => ({ kind: 'running', version: '1.1.0' });
+      await runUpdate([], f.deps);
+      expect(f.out).not.toContain('MemSmith 1.1.0 is already up to date.');
+      expect(f.out).toContain('The MemSmith 1.1.0 plugin and server are already up to date.');
+    });
+
     it('finishes the update and prints the command to run when the global install fails', async () => {
       const f = withGlobal('1.0.0', { installOk: false });
       expect(await runUpdate([], f.deps)).toBe(0);
+      expect(f.out).toContain('Updating the global memsmith command from 1.0.0 to 1.1.0…');
       expect(f.err.join('\n')).toContain('EACCES: permission denied');
       expect(f.err.join('\n')).toContain('npm install -g memsmith@1.1.0');
       expect(f.out).toContain('  CLI: 1.0.0 (not updated)');
@@ -446,6 +469,23 @@ describe('memsmith update', () => {
       expect(await runUpdate(['--force'], f.deps)).toBe(1);
       expect(f.prompts).toHaveLength(0);
     });
+  });
+});
+
+describe('parseGlobalCliListing', () => {
+  it('reads the version of a registry install', () => {
+    expect(parseGlobalCliListing('{"dependencies":{"memsmith":{"version":"13.13.1","overridden":false}}}')).toEqual({ version: '13.13.1' });
+  });
+
+  it('marks an npm link install as linked so the update leaves it alone', () => {
+    const json = '{"dependencies":{"memsmith":{"version":"13.12.0","resolved":"file:../../../dev/memsmith","overridden":false}}}';
+    expect(parseGlobalCliListing(json)).toEqual({ version: '13.12.0', linkedFrom: '../../../dev/memsmith' });
+  });
+
+  it('reports no global install for an empty listing or unreadable output', () => {
+    for (const json of ['{}', '', 'npm error something', '{"dependencies":{}}']) {
+      expect(parseGlobalCliListing(json)).toBeNull();
+    }
   });
 });
 

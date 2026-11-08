@@ -46,6 +46,22 @@ const SWITCH_CANCELLED = 'No changes made. Run memsmith install to switch later.
 const SWITCH_TIP = 'Tip: run memsmith install to switch to Claude Haiku 5.5 with a local backup.';
 const STOPPED_MARKER = () => join(paths.dataDir(), '.update-stopped-server');
 
+export interface GlobalCliInfo {
+  version: string;
+  linkedFrom?: string;
+}
+
+export function parseGlobalCliListing(json: string): GlobalCliInfo | null {
+  try {
+    const entry = JSON.parse(json || '{}')?.dependencies?.memsmith;
+    if (typeof entry?.version !== 'string') return null;
+    const resolved = typeof entry.resolved === 'string' ? entry.resolved : '';
+    return resolved.startsWith('file:') ? { version: entry.version, linkedFrom: resolved.slice('file:'.length) } : { version: entry.version };
+  } catch {
+    return null;
+  }
+}
+
 export type ServerState =
   | { kind: 'remote'; baseUrl: string }
   | { kind: 'stopped' }
@@ -78,7 +94,7 @@ export interface UpdateDeps {
     enable(): { ok: boolean; message: string };
   };
   globalCli?: {
-    version(): string | null;
+    info(): GlobalCliInfo | null;
     install(version: string): { ok: boolean; message: string };
   };
 }
@@ -228,6 +244,7 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     return 1;
   }
   if (registryChanged > 0) d.out(`Updated ${registryChanged} Claude Code plugin entr${registryChanged === 1 ? 'y' : 'ies'} to ${target}.`);
+  const cli = syncGlobalCli(target, d);
 
   let serverLine: string;
   if (server.kind === 'remote') {
@@ -260,9 +277,9 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     serverLine = `Server: ${runningVersion}`;
   }
 
-  const cli = syncGlobalCli(target, d);
   const nothingChanged = !replaceFiles && registryChanged === 0 && !staleServer && !cli.changed;
-  d.out(nothingChanged ? `MemSmith ${target} is already up to date.` : `MemSmith updated to ${target}.`);
+  if (nothingChanged) d.out(cli.failed ? `The MemSmith ${target} plugin and server are already up to date.` : `MemSmith ${target} is already up to date.`);
+  else d.out(`MemSmith updated to ${target}.`);
   d.out(`  Plugin: ${target}`);
   d.out(`  ${serverLine}`);
   if (cli.line) d.out(`  ${cli.line}`);
@@ -275,17 +292,19 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
 // Observed 2026-11-06: the update moved the plugin and server to 13.13.1 but
 // left the global `memsmith` command on 13.12.1, so new commands such as
 // `memsmith autostart` failed with "Unknown command".
-function syncGlobalCli(target: string, d: UpdateDeps): { line: string | null; changed: boolean } {
-  if (!d.globalCli) return { line: null, changed: false };
-  const current = d.globalCli.version();
-  if (current === null) return { line: null, changed: false };
-  if (current === target || isNewerVersion(current, target)) return { line: `CLI: ${current}`, changed: false };
-  d.out(`Updating the global memsmith command from ${current}…`);
+function syncGlobalCli(target: string, d: UpdateDeps): { line: string | null; changed: boolean; failed: boolean } {
+  const unchanged = (line: string | null) => ({ line, changed: false, failed: false });
+  if (!d.globalCli) return unchanged(null);
+  const current = d.globalCli.info();
+  if (current === null) return unchanged(null);
+  if (current.linkedFrom) return unchanged(`CLI: ${current.version}, linked from ${current.linkedFrom} (not updated)`);
+  if (current.version === target || isNewerVersion(current.version, target)) return unchanged(`CLI: ${current.version}`);
+  d.out(`Updating the global memsmith command from ${current.version} to ${target}…`);
   const result = d.globalCli.install(target);
-  if (result.ok) return { line: `CLI: ${target}`, changed: true };
-  d.err(`The global memsmith command is still ${current}: ${result.message}`);
+  if (result.ok) return { line: `CLI: ${target}`, changed: true, failed: false };
+  d.err(`The global memsmith command is still ${current.version}: ${result.message}`);
   d.err(`To update it, run: npm install -g memsmith@${target}`);
-  return { line: `CLI: ${current} (not updated)`, changed: false };
+  return { line: `CLI: ${current.version} (not updated)`, changed: false, failed: true };
 }
 
 async function offerLoginAutostart(d: UpdateDeps): Promise<void> {
@@ -467,31 +486,25 @@ export function defaultUpdateDeps(): UpdateDeps {
       enable: () => enableLoginAutostart(defaultAutostartDeps()),
     },
     globalCli: {
-      version: () => {
+      info: () => {
         const result = spawnSync(npmCommand('npm'), ['ls', '-g', 'memsmith', '--depth=0', '--json'], {
           encoding: 'utf-8',
           timeout: 20_000,
           env: { ...sanitizeEnv(process.env), ...pickNpmNetworkConfig(process.env) },
           shell: IS_WINDOWS,
         });
-        try {
-          const version = JSON.parse(result.stdout || '{}')?.dependencies?.memsmith?.version;
-          return typeof version === 'string' ? version : null;
-        } catch {
-          return null;
-        }
+        return parseGlobalCliListing(result.stdout ?? '');
       },
+      // No timeout and inherited output: killing npm mid-install can leave the
+      // global command removed, and npm's own error text is the useful part.
       install: (version) => {
         const result = spawnSync(npmCommand('npm'), ['install', '-g', `memsmith@${version}`], {
-          encoding: 'utf-8',
-          timeout: 300_000,
+          stdio: ['ignore', 'inherit', 'inherit'],
           env: { ...sanitizeEnv(process.env), ...pickProxyVars(process.env), ...pickNpmNetworkConfig(process.env) },
           shell: IS_WINDOWS,
         });
         if (result.status === 0) return { ok: true, message: '' };
-        const detail = `${result.stderr ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^npm warn/i.test(l));
-        if (detail.some((l) => /EACCES|EPERM/.test(l))) return { ok: false, message: "npm doesn't have permission to write to its global folder" };
-        return { ok: false, message: result.error?.message ?? detail.at(-1) ?? `npm exited with ${result.status}` };
+        return { ok: false, message: result.error?.message ?? `npm exited with code ${result.status ?? 'unknown'}; see its error above` };
       },
     },
   };

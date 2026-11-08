@@ -144,7 +144,7 @@ The command does the following:
 1. If a newer MemSmith is on npm than the CLI you ran, it reruns itself with that version.
 2. It installs the new plugin into the Claude Code marketplace and cache folders, and moves every MemSmith plugin entry, user-wide and per-project, to the new version.
 3. It restarts the local server on the new version and checks that the server reports it. A stopped server stays stopped, and a team server isn't touched.
-4. If you installed the `memsmith` command globally with npm, it updates that command to the same version. If npm can't write to its global folder, the update still finishes and prints the `npm install -g` command to run yourself.
+4. If you installed the `memsmith` command globally with npm, it updates that command to the same version. It leaves a command linked to a local checkout with `npm link` alone. If the npm install fails, the update still finishes and prints the `npm install -g` command to run yourself.
 
 It keeps your settings and doesn't ask the installer questions again. When it finishes, restart Claude Code. `/reload-plugins` doesn't restart the running MemSmith MCP server, so new memory tools appear only after a restart.
 
