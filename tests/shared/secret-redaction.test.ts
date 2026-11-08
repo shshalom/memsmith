@@ -228,12 +228,149 @@ describe('redactSecrets: performance', () => {
     ['repeated assignment names with no value', 'A_KEY='.repeat(MB / 6)],
     ['an unterminated PEM header', `-----BEGIN PRIVATE KEY-----\n${'Q'.repeat(MB)}`],
     ['repeated Bearer words', 'Bearer '.repeat(MB / 7)],
+    ['an unclosed quoted value', `api_key="${'a'.repeat(MB)}`],
+    ['repeated unclosed quoted assignments', 'key:"'.repeat(MB / 5)],
+    ['repeated scheme separators with no @', `x://u:${'p'.repeat(MB)}`],
+    ['repeated short flags', '--a '.repeat(MB / 4)],
+    ['repeated Authorization headers', 'Authorization: '.repeat(MB / 15)],
+    ['repeated PEM headers', '-----BEGIN PRIVATE KEY-----'.repeat(MB / 27)],
+    ['a long escaped run', '\\'.repeat(MB / 2)],
   ];
   for (const [label, input] of inputs) {
-    it(`redacts 1 MB of ${label} in under 1 second`, () => {
+    it(`redacts 1 MB of ${label} in under 200 ms`, () => {
       const started = performance.now();
       redactSecrets(input);
-      expect(performance.now() - started).toBeLessThan(1000);
+      expect(performance.now() - started).toBeLessThan(200);
     });
   }
+});
+
+describe('redactSecrets: values longer than any fixed cap', () => {
+  const long = (n: number) => fill('', n, 'fAkE0bAsE64/+9');
+
+  it('redacts a 4500-character quoted value in full', () => {
+    expect(redactSecrets(`GCP_SA_KEY="${long(4500)}" next`)).toBe('GCP_SA_KEY="[REDACTED:key]" next');
+  });
+
+  it('redacts a 4500-character bare value in full', () => {
+    expect(redactSecrets(`GCP_SA_KEY=${long(4500)} next`)).toBe('GCP_SA_KEY=[REDACTED:key] next');
+  });
+
+  it('redacts a 4200-character bearer token in full', () => {
+    expect(redactSecrets(`Authorization: Bearer ${fill('', 4200, 'fAkE0tOkEn9')} next`))
+      .toBe('Authorization: Bearer [REDACTED:bearer_token] next');
+  });
+
+  it('redacts a JWT with a 5000-character segment', () => {
+    const jwt = `eyJhbGciOiJIUzI1NiJ9.eyJ${fill('', 5000, 'ZmFrZQ9')}.ZmFrZS1zaWduYXR1cmUtdGVzdA`;
+    expect(redactSecrets(`jwt ${jwt} end`)).toBe('jwt [REDACTED:jwt] end');
+  });
+});
+
+describe('redactSecrets: more credential formats', () => {
+  const cases: Array<[string, string, string]> = [
+    ['connection string password', 'postgres://app_user:fAkEpAss42@db.internal:5432/app', 'postgres://app_user:[REDACTED:password]@db.internal:5432/app'],
+    ['connection string with empty user', 'redis://:fAkEpAss42@cache:6379', 'redis://:[REDACTED:password]@cache:6379'],
+    ['--api-key flag', 'mytool --api-key fAkE0123456789abcdef --verbose', 'mytool --api-key [REDACTED:key] --verbose'],
+    ['--password flag', 'mysql --password hunter42 -h db', 'mysql --password [REDACTED:password] -h db'],
+    ['--token flag after another flag', 'cli --verbose --token fAkE0123456789abcdef', 'cli --verbose --token [REDACTED:token]'],
+    ['Authorization: token', 'Authorization: token fAkE0123456789abcdef', 'Authorization: token [REDACTED:authorization]'],
+    ['Authorization: Basic', '"Authorization": "Basic ZmFrZTp1c2VyMTIz"', '"Authorization": "Basic [REDACTED:authorization]"'],
+    ['.netrc password', 'machine api.example.com login alex password fAkEpass42', 'machine api.example.com login alex password [REDACTED:password]'],
+    ['SECRET_KEY_BASE', `SECRET_KEY_BASE=${fill('', 64, 'fake0123456789ab')}`, 'SECRET_KEY_BASE=[REDACTED:key]'],
+    ['*_PASS', 'SMTP_PASS=hunter42', 'SMTP_PASS=[REDACTED:password]'],
+    ['quoted passphrase', 'DB_PASSWORD="correct horse battery staple"', 'DB_PASSWORD="[REDACTED:password]"'],
+    ['escaped JSON', '{\\"api_key\\":\\"fAkEvAlUe0123456789xyz\\"}', '{\\"api_key\\":\\"[REDACTED:key]\\"}'],
+    ['value with an escaped backslash', '{"password": "fake\\\\pass42"}', '{"password": "[REDACTED:password]"}'],
+  ];
+  for (const [label, input, expected] of cases) {
+    it(`redacts a ${label}`, () => {
+      expect(redactSecrets(input)).toBe(expected);
+    });
+  }
+
+  const tokens: Array<[string, string, string]> = [
+    ['Stripe live secret key', fill('sk_live_', 24), 'stripe_key'],
+    ['Stripe test restricted key', fill('rk_test_', 24), 'stripe_key'],
+    ['GitLab token', fill('glpat-', 20), 'gitlab_token'],
+    ['Hugging Face token', fill('hf_', 34), 'huggingface_token'],
+  ];
+  for (const [label, secret, kind] of tokens) {
+    it(`redacts a ${label}`, () => {
+      expect(redactSecrets(`value ${secret} end`)).toBe(`value [REDACTED:${kind}] end`);
+    });
+  }
+
+  it('redacts a PGP private key block', () => {
+    const block = '-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQOYBFAKEfakeFAKE0000\n=FAKE\n-----END PGP PRIVATE KEY BLOCK-----';
+    expect(redactSecrets(`a\n${block}\nb`)).toBe('a\n[REDACTED:private_key]\nb');
+  });
+
+  it('stops an unterminated PEM block at the first blank line', () => {
+    expect(redactSecrets('-----BEGIN PRIVATE KEY-----\nMIIfakeFAKE0000\n\nThe next paragraph stays.'))
+      .toBe('[REDACTED:private_key]\n\nThe next paragraph stays.');
+  });
+
+  it('stops an unterminated PEM block at the first quote', () => {
+    expect(redactSecrets('{"k": "-----BEGIN PRIVATE KEY-----\\nMIIfake", "other": "kept"}'))
+      .toBe('{"k": "[REDACTED:private_key]", "other": "kept"}');
+  });
+});
+
+describe('redactSecrets: review false-positive guards', () => {
+  const intact = [
+    '{"key": "row-12345678"}',
+    'items.map(item => <Row key={item.id} />)',
+    'Key: Enter',
+    '"nextToken": "AAEAAWZha2UwMTIzNDU2Nzg5"',
+    'pageToken=CAoQAA1234abcd',
+    'cursor_token: c2Vjb25kLXBhZ2UtMTIzNA',
+    'SSL_KEY=certs/server-2024.key',
+    'ssl_key: config/tls/server.pem',
+    'postgres://app_user:${DB_PASSWORD}@db.internal/app',
+    'see https://github.com/org/repo and http://localhost:3000/x',
+    'mytool --token-file ~/.config/token --verbose',
+    'git commit --password-reset-flow docs',
+    'The password reset email expired.',
+    'bypass: true',
+  ];
+  for (const text of intact) {
+    it(`leaves ${JSON.stringify(text)} intact`, () => {
+      expect(redactSecrets(text)).toBe(text);
+    });
+  }
+});
+
+describe('redactSecretsDeep: hostile shapes', () => {
+  it('replaces a cycle with a marker instead of recursing forever', () => {
+    const node: Record<string, unknown> = { name: 'root', token_value: 'x' };
+    node.self = node;
+    expect(redactSecretsDeep(node)).toEqual({ name: 'root', token_value: 'x', self: '[REDACTED:circular]' });
+  });
+
+  it('keeps an own __proto__ key as data and does not change the prototype', () => {
+    const input = JSON.parse(`{"__proto__": {"apiKey": "fAkEvAlUe0123456789xyz"}, "a": 1}`);
+    const out = redactSecretsDeep(input) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(true);
+    expect(JSON.stringify(out)).toBe('{"__proto__":{"apiKey":"[REDACTED:key]"},"a":1}');
+  });
+
+  it('serializes non-plain objects the way JSON.stringify would', () => {
+    const when = new Date('2026-11-08T00:00:00.000Z');
+    const out = redactSecretsDeep({ when, map: new Map([['k', 'v']]), buf: Buffer.from('hi') });
+    expect(JSON.stringify(out)).toBe(JSON.stringify({ when, map: {}, buf: Buffer.from('hi') }));
+  });
+
+  it('never returns unredacted content when the walk throws', () => {
+    const hostile = { command: `echo ${FAKE.ghp}` } as Record<string, unknown>;
+    Object.defineProperty(hostile, 'boom', { enumerable: true, get() { throw new Error('getter failed'); } });
+    const out = redactSecretsDeep(hostile);
+    expect(JSON.stringify(out) ?? '').not.toContain(FAKE.ghp);
+  });
+
+  it('redacts a passphrase under a secret-named key', () => {
+    expect(redactSecretsDeep({ password: 'correct horse battery staple', label: 'Enter your password' }))
+      .toEqual({ password: '[REDACTED:password]', label: 'Enter your password' });
+  });
 });

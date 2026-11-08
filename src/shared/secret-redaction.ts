@@ -4,27 +4,35 @@
 // the content is spooled, stored, or sent to a generation provider.
 //
 // Every pattern runs in linear time on hostile input. Each pattern starts with
-// a literal, so the engine skips ahead to candidates instead of testing every
-// position. Token boundaries are checked after the literal or in a callback,
-// and every repetition that can be followed by a failing suffix is bounded.
+// a literal or \b, so the engine skips ahead to candidates instead of testing
+// every position. Token boundaries are checked in a callback, not with a
+// lookbehind: any lookbehind makes the engine several times slower per
+// megabyte. A repetition is unbounded only where its character class stops at
+// the delimiter that follows it, so no start position is rescanned.
 // Tool outputs reach megabytes, and this runs inside hooks on the user's
 // critical path.
 
 export type SecretKind =
   | 'anthropic_key'
   | 'openai_key'
+  | 'stripe_key'
   | 'github_token'
+  | 'gitlab_token'
+  | 'huggingface_token'
   | 'google_api_key'
   | 'aws_access_key_id'
   | 'slack_token'
   | 'npm_token'
   | 'jwt'
   | 'bearer_token'
+  | 'authorization'
   | 'private_key'
   | 'key'
   | 'token'
   | 'secret'
-  | 'password';
+  | 'password'
+  | 'circular'
+  | 'unserializable';
 
 const marker = (kind: SecretKind) => `[REDACTED:${kind}]`;
 const MARKER_PREFIX = '[REDACTED:';
@@ -41,8 +49,10 @@ const hasDigitAndLetter = (s: string) => /\d/.test(s) && /[A-Za-z]/.test(s);
 
 const TOKEN_RULES: TokenRule[] = [
   {
+    // Without an END line the block ends at the first quote or blank line, so
+    // a truncated key cannot erase the text that follows it.
     kind: 'private_key',
-    pattern: /-----BEGIN ((?:[A-Z0-9]+ )*)PRIVATE KEY-----(?:[^-]|-(?!----)){0,65536}(?:-----END \1PRIVATE KEY-----)?/g,
+    pattern: /-----BEGIN ((?:[A-Z0-9]+ )*)PRIVATE KEY( BLOCK)?-----(?:\r?\n)?(?:[^-"'\n]|\n(?![ \t]*\r?\n)|-(?!----))*(?:-----END \1PRIVATE KEY\2-----)?/g,
   },
   { kind: 'anthropic_key', pattern: /sk-ant-[A-Za-z0-9_-]{20,}/g, inWord: /[A-Za-z0-9_-]/ },
   {
@@ -51,7 +61,15 @@ const TOKEN_RULES: TokenRule[] = [
     inWord: /[A-Za-z0-9_-]/,
     accept: m => !m.startsWith('sk-ant-') && hasDigitAndLetter(m.slice(3)),
   },
+  { kind: 'stripe_key', pattern: /[sr]k_(?:live|test)_[A-Za-z0-9]{16,}/g, inWord: /[A-Za-z0-9_]/ },
   { kind: 'github_token', pattern: /gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{22,}/g, inWord: /[A-Za-z0-9_]/ },
+  { kind: 'gitlab_token', pattern: /glpat-[A-Za-z0-9_-]{20,}/g, inWord: /[A-Za-z0-9_-]/ },
+  {
+    kind: 'huggingface_token',
+    pattern: /hf_[A-Za-z0-9]{30,}/g,
+    inWord: /[A-Za-z0-9_]/,
+    accept: m => hasDigitAndLetter(m.slice(3)),
+  },
   { kind: 'google_api_key', pattern: /AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9_-])/g, inWord: /[A-Za-z0-9_-]/ },
   { kind: 'aws_access_key_id', pattern: /A(?:KIA|SIA)[0-9A-Z]{16}(?![A-Za-z0-9])/g, inWord: /[A-Za-z0-9]/ },
   {
@@ -62,20 +80,33 @@ const TOKEN_RULES: TokenRule[] = [
   },
   { kind: 'npm_token', pattern: /npm_[A-Za-z0-9]{36,}/g, inWord: /[A-Za-z0-9_]/ },
   {
-    // The boundary lookbehind sits after the literal: a run of `eyJ` with no
-    // dots must not restart the bounded segment scan at every occurrence.
+    // The leading \b lets a segment scan start only at the beginning of a
+    // token run, so each run is scanned once.
     kind: 'jwt',
-    pattern: /eyJ(?<![A-Za-z0-9_-]eyJ)[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}(?![A-Za-z0-9_-])/g,
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])/g,
   },
 ];
 
-const BEARER = /\b(Bearer[ \t]+)([A-Za-z0-9._~+/-]{8,4096}=*)/g;
+const looksLikeToken = (token: string) => /\d/.test(token) || token.length >= 20;
+
+const BEARER = /\b(Bearer[ \t]+)([A-Za-z0-9._~+/-]{8,}=*)/g;
+
+const AUTHORIZATION =
+  /\b(Authorization\\?["']?[ \t]*[:=][ \t]*\\?["']?(?:(?:Basic|Token|Digest)[ \t]+)?)([A-Za-z0-9._~+/-]{8,}=*)/gi;
+
+const CONNECTION_PASSWORD = /:\/\/([^\s:/@"'<>]{0,256}:)([^\s/@"'<>]+)(?=@)/g;
+
+const FLAG = /-(-?[A-Za-z][A-Za-z0-9_-]{0,63}[ \t]+)(?:"((?:[^"\\\r\n]|\\.)*)"|'([^'\r\n]*)'|([^\s"'`;&|()<>\\-][^\s"'`;&|()<>]*))/g;
+
+const NETRC_PASSWORD = /\b(password|passwd)([ \t]+)([^\s"'`;&|()<>\\-][^\s"'`;&|()<>]*)/g;
 
 // Matches from the name's secret suffix so the scan skips to candidates; the
 // rest of the name is read backward in the callback. Group 1: suffix. Group 2:
-// separator. Groups 3-5: double-quoted, single-quoted, or bare value.
+// separator. Groups 3-6: escaped-quoted, double-quoted, single-quoted, or bare
+// value. Values are unbounded: a capped value leaves the rest of a long secret
+// in place, and every value class stops at its own delimiter.
 const ASSIGNMENT =
-  /(key|token|secret|password|passwd)(?![A-Za-z0-9_])(["']?[ \t]*[:=][ \t]*)(?:"([^"\\\r\n]{0,4096})"|'([^'\\\r\n]{0,4096})'|([^\s"'`,;&(){}[\]<>]{1,4096}))/gi;
+  /(key_base|key|token|secret|password|passwd|pass)(?![A-Za-z0-9_])(\\?["']?[ \t]*[:=][ \t]*)(?:\\"((?:[^"\\\r\n]|\\(?!")[^\r\n])*)\\"|"((?:[^"\\\r\n]|\\.)*)"|'((?:[^'\\\r\n]|\\.)*)'|([^\s"'`,;&(){}[\]<>\\]+))/gi;
 
 const NAME_CHAR = /[A-Za-z0-9_.-]/;
 const MAX_NAME_PREFIX = 96;
@@ -91,22 +122,27 @@ function nameBefore(text: string, offset: number, suffix: string): string {
 const NON_SECRET_KEY_PREFIX =
   /(?:idempotency|generation|cache|hash|lookup|query|sort|primary|foreign|partition|dedupe?|config|object|row|group|composite|unique|index|translation|storage|bucket|registry|public|license)[_.-]?$/i;
 
+// Pagination cursors and model token settings, not credentials.
+const NON_SECRET_TOKEN_PREFIX =
+  /(?:next|page|continuation|pagination|cursor|sync|resume|max|min|num|total|input|output|prompt|completion|stop|eos|bos|pad|unk|special)[_.-]?$/i;
+
 const GLUED_PREFIX = /^(?:api|access|auth|secret|private|client|refresh|session|app|master|bearer|signing|encryption)$/i;
 
 /** The kind a secret-named field carries, or null when the name is not a secret name. */
 function secretNameKind(name: string): SecretKind | null {
-  const match = /(key|token|secret|password|passwd)$/i.exec(name);
+  const match = /(key_base|key|token|secret|password|passwd|pass)$/i.exec(name);
   if (!match) return null;
   const suffix = match[1];
   const lower = suffix.toLowerCase();
   if (lower === 'password' || lower === 'passwd') return 'password';
-  const kind = lower as 'key' | 'token' | 'secret';
+  const kind: SecretKind = lower === 'pass' ? 'password' : lower === 'key_base' ? 'key' : (lower as 'key' | 'token' | 'secret');
   const before = name.slice(0, -suffix.length);
-  if (kind === 'key' && NON_SECRET_KEY_PREFIX.test(before)) return null;
+  if (kind === 'key' && (before === '' || NON_SECRET_KEY_PREFIX.test(before))) return null;
+  if (kind === 'token' && NON_SECRET_TOKEN_PREFIX.test(before)) return null;
   if (before === '' || /[_.-]$/.test(before)) return kind;
   const camel = suffix[0] === suffix[0].toUpperCase() && suffix.slice(1) === suffix.slice(1).toLowerCase();
   if (camel && /[A-Za-z0-9]$/.test(before)) return kind;
-  if (GLUED_PREFIX.test(before)) return kind;
+  if (lower !== 'pass' && GLUED_PREFIX.test(before)) return kind;
   return null;
 }
 
@@ -128,18 +164,21 @@ const NON_SECRET_WORDS = new Set([
 
 const DOTTED_IDENTIFIER = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const PATH = /^(?:\/|~\/|\.\.?\/)/;
+const FILE_PATH = /\/.*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+const SECRET_WORD = /pass|key|token|secret/i;
 
 /**
  * Decides whether a value assigned to a secret-named field is a real secret.
  * A bare value is held to a stricter bar than a quoted one: in source code a
- * bare value is usually an identifier, not a literal.
+ * bare value is usually an identifier, not a literal. A quoted value with
+ * spaces is a passphrase unless it names the field, as a UI label does.
  */
 function isSecretValue(value: string, kind: SecretKind, quoted: boolean): boolean {
   if (value.length === 0 || value.startsWith(MARKER_PREFIX)) return false;
-  if (/\s/.test(value)) return false;
   if (PLACEHOLDERS.some(p => p.test(value))) return false;
   if (NON_SECRET_WORDS.has(value.toLowerCase())) return false;
-  if (DOTTED_IDENTIFIER.test(value) || PATH.test(value)) return false;
+  if (/\s/.test(value)) return quoted && !/[\r\n]/.test(value) && !SECRET_WORD.test(value) && value.length >= 8;
+  if (DOTTED_IDENTIFIER.test(value) || PATH.test(value) || FILE_PATH.test(value)) return false;
   if (kind === 'password') {
     if (value.length < 4) return false;
     return quoted || /[^A-Za-z]/.test(value);
@@ -151,18 +190,31 @@ function isSecretValue(value: string, kind: SecretKind, quoted: boolean): boolea
 function redactAssignments(text: string): string {
   return text.replace(
     ASSIGNMENT,
-    (match, suffix: string, sep: string, dq: string | undefined, sq: string | undefined, bare: string | undefined, offset: number) => {
+    (match, suffix: string, sep: string, esc: string | undefined, dq: string | undefined, sq: string | undefined, bare: string | undefined, offset: number) => {
       const kind = secretNameKind(nameBefore(text, offset, suffix));
       if (!kind) return match;
       if (bare !== undefined) {
         if (text[offset + match.length] === '(') return match;
         return isSecretValue(bare, kind, false) ? `${suffix}${sep}${marker(kind)}` : match;
       }
-      const value = dq ?? sq ?? '';
-      const quote = dq !== undefined ? '"' : "'";
+      const value = esc ?? dq ?? sq ?? '';
+      const quote = esc !== undefined ? '\\"' : dq !== undefined ? '"' : "'";
       return isSecretValue(value, kind, true) ? `${suffix}${sep}${quote}${marker(kind)}${quote}` : match;
     },
   );
+}
+
+function redactFlags(text: string): string {
+  return text.replace(FLAG, (match, prefix: string, dq: string | undefined, sq: string | undefined, bare: string | undefined, offset: number) => {
+    if (offset > 0 && /[\w-]/.test(text[offset - 1])) return match;
+    const kind = secretNameKind(prefix.trim().replace(/^-/, ''));
+    if (!kind) return match;
+    const quoted = bare === undefined;
+    const value = dq ?? sq ?? bare ?? '';
+    if (!isSecretValue(value, kind, quoted)) return match;
+    const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : '';
+    return `-${prefix}${quote}${marker(kind)}${quote}`;
+  });
 }
 
 /** Replaces every recognized secret in `text` with `[REDACTED:<kind>]`. Idempotent. */
@@ -178,7 +230,19 @@ export function redactSecrets(text: string): string {
     });
   }
   out = out.replace(BEARER, (m, scheme: string, token: string) =>
-    /\d/.test(token) || token.length >= 20 ? `${scheme}${marker('bearer_token')}` : m,
+    looksLikeToken(token) ? `${scheme}${marker('bearer_token')}` : m,
+  );
+  out = out.replace(AUTHORIZATION, (m, prefix: string, token: string) =>
+    looksLikeToken(token) ? `${prefix}${marker('authorization')}` : m,
+  );
+  out = out.replace(CONNECTION_PASSWORD, (m, user: string, password: string, offset: number, source: string) =>
+    offset > 0 && /[A-Za-z0-9]/.test(source[offset - 1]) && isSecretValue(password, 'password', true)
+      ? `://${user}${marker('password')}`
+      : m,
+  );
+  out = redactFlags(out);
+  out = out.replace(NETRC_PASSWORD, (m, word: string, space: string, value: string) =>
+    isSecretValue(value, 'password', false) ? `${word}${space}${marker('password')}` : m,
   );
   return redactAssignments(out);
 }
@@ -187,22 +251,51 @@ export function redactSecrets(text: string): string {
  * Returns a copy of `value` with every string redacted. A string stored under
  * a secret-named object key, such as `{ "API_KEY": "..." }`, is redacted as a
  * whole, because a JSON payload carries the name in the key, not the text.
+ * The copy has the shape `JSON.stringify` would produce: `toJSON` is applied
+ * and other non-plain objects become their own enumerable properties.
+ *
+ * Never returns unredacted content. If the walk throws, the value is
+ * stringified and redacted as text; if that fails too, a marker replaces it.
  */
 export function redactSecretsDeep<T>(value: T): T {
-  return redactValue(value, null) as T;
+  try {
+    return redactValue(value, null, new Set()) as T;
+  } catch {
+    try {
+      const json = JSON.stringify(value);
+      return (json === undefined ? marker('unserializable') : redactSecrets(json)) as T;
+    } catch {
+      return marker('unserializable') as T;
+    }
+  }
 }
 
-function redactValue(value: unknown, key: string | null): unknown {
+function redactValue(value: unknown, key: string | null, ancestors: Set<object>): unknown {
   if (typeof value === 'string') {
     const kind = key !== null ? secretNameKind(key) : null;
     if (kind && isSecretValue(value, kind, true)) return marker(kind);
     return redactSecrets(value);
   }
-  if (Array.isArray(value)) return value.map(item => redactValue(item, null));
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactValue(v, k);
-    return out;
+  if (!value || typeof value !== 'object') return value;
+  if (ancestors.has(value)) return marker('circular');
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === 'function') {
+    ancestors.add(value);
+    const result = redactValue(toJSON.call(value, key ?? ''), key, ancestors);
+    ancestors.delete(value);
+    return result;
   }
-  return value;
+  ancestors.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map(item => redactValue(item, null, ancestors));
+  } else {
+    const copy: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      Object.defineProperty(copy, k, { value: redactValue(v, k, ancestors), enumerable: true, writable: true, configurable: true });
+    }
+    out = copy;
+  }
+  ancestors.delete(value);
+  return out;
 }
