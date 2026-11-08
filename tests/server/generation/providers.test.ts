@@ -153,6 +153,13 @@ describe('buildServerGenerationPrompt', () => {
     expect(result.prompt).toContain('[REDACTED:password]');
   });
 
+  it('redacts secrets in a string payload before it reaches any provider', () => {
+    const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+    const result = buildServerGenerationPrompt(makeContext({ payload: `printenv shows ANTHROPIC_API_KEY=${fakeKey}` }));
+    expect(result.prompt).not.toContain(fakeKey);
+    expect(result.prompt).toContain('printenv shows ANTHROPIC_API_KEY=[REDACTED:anthropic_key]');
+  });
+
   it('marks skippedAll when every event is fully private', () => {
     const context = makeContext({ payload: '<private>secret</private>' });
     const result = buildServerGenerationPrompt(context);

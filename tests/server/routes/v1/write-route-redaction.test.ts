@@ -4,16 +4,20 @@
 // fake pool and asserts that no secret reaches SQL, the embedder, or the
 // generation provider. These routes serve every client, including hook
 // builds that predate client-side redaction.
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterAll } from 'bun:test';
+import * as embedderModule from '../../../../src/server/generation/embedder.js';
 
-// Same embedder mock as embed-for-persist.test.ts. It is not restored: later
-// files that call embed() rely on a mocked embedder, because loading the real
-// model exceeds the default test timeout.
+// mock.module is process-wide and survives mock.restore(), so the module that
+// was registered before this file is put back in afterAll.
+const embedderBefore = { ...embedderModule };
 const embeddedTexts: string[] = [];
 mock.module('../../../../src/server/generation/embedder.js', () => ({
   embed: async (text: string) => { embeddedTexts.push(text); return Array.from({ length: 384 }, () => 0); },
   embedBatch: async (texts: string[]) => texts.map(() => Array.from({ length: 384 }, () => 0)),
 }));
+afterAll(() => {
+  mock.module('../../../../src/server/generation/embedder.js', () => embedderBefore);
+});
 
 import { ServerV1PostgresRoutes } from '../../../../src/server/routes/v1/ServerV1PostgresRoutes.js';
 import type { RequestHandler } from 'express';
