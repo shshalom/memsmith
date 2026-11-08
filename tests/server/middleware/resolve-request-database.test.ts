@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { resolveRequestDatabase } from '../../../src/server/middleware/resolve-request-database.js';
+import { BoundedSeen, resolveRequestDatabase } from '../../../src/server/middleware/resolve-request-database.js';
 import { projectDatabaseName } from '../../../src/server/runtime/resolve-project-database.js';
 
 const BASE_PROJECT_ID = 'base-proj';
@@ -118,6 +118,14 @@ describe('resolveRequestDatabase', () => {
   });
 });
 
+// A request as the local runtime receives it: loopback address and Host.
+function localReq(fields: Record<string, unknown>, headers: Record<string, string> = { host: '127.0.0.1:37777' }): any {
+  return { ip: '127.0.0.1', socket: { remoteAddress: '127.0.0.1' }, header: (n: string) => headers[n.toLowerCase()], ...fields };
+}
+function remoteReq(fields: Record<string, unknown>): any {
+  return { ip: '10.0.0.5', socket: { remoteAddress: '10.0.0.5' }, header: (n: string) => ({ host: 'memsmith.example.com' } as Record<string, string>)[n.toLowerCase()], ...fields };
+}
+
 describe('resolveRequestDatabase for a merged project', () => {
   const account = (projects: Record<string, { team: string; mergedInto?: string }>) => ({
     query: async (_sql: string, values?: unknown[]) => {
@@ -131,7 +139,7 @@ describe('resolveRequestDatabase for a merged project', () => {
     const middleware = resolveRequestDatabase(registry, {
       ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
     });
-    const req: any = { authContext: { projectId: 'old', teamId: 't-old' }, query: { projectId: 'old' }, body: { projectId: 'old', content: 'x' } };
+    const req = localReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: { projectId: 'old' }, body: { projectId: 'old', content: 'x' } });
     const res = mockRes();
     let nexted = false;
     await middleware(req, res, () => { nexted = true; });
@@ -147,13 +155,45 @@ describe('resolveRequestDatabase for a merged project', () => {
     const middleware = resolveRequestDatabase(registry, {
       ...opts(), accountPool: account({ a: { team: 't', mergedInto: 'b' }, b: { team: 't', mergedInto: 'a' } }),
     });
-    const req: any = { authContext: { projectId: 'a', teamId: 't' }, query: {}, body: {} };
+    const req = localReq({ authContext: { projectId: 'a', teamId: 't' }, query: {}, body: {} });
     const res = mockRes();
     let nexted = false;
     await middleware(req, res, () => { nexted = true; });
     expect(nexted).toBe(false);
     expect(res.statusCode).toBe(409);
     expect(calls).toHaveLength(0);
+  });
+
+  it('does not move a remote request into another team', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
+    });
+    const req = remoteReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: {}, body: { projectId: 'old' } });
+    await middleware(req, mockRes(), () => {});
+    expect(calls[0].databaseName).toBe(projectDatabaseName('old'));
+    expect(req.authContext).toMatchObject({ projectId: 'old', teamId: 't-old' });
+    expect(req.body.projectId).toBe('old');
+  });
+
+  it('moves a remote request when the target is in the same team', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), accountPool: account({ old: { team: 't', mergedInto: 'new' }, new: { team: 't' } }),
+    });
+    const req = remoteReq({ authContext: { projectId: 'old', teamId: 't' }, query: {}, body: {} });
+    await middleware(req, mockRes(), () => {});
+    expect(calls[0].databaseName).toBe(projectDatabaseName('new'));
+  });
+
+  it('does not treat a forwarded request as local', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
+    });
+    const req = localReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: {}, body: {} }, { host: '127.0.0.1', 'x-forwarded-for': '203.0.113.9' });
+    await middleware(req, mockRes(), () => {});
+    expect(calls[0].databaseName).toBe(projectDatabaseName('old'));
   });
 
   it('leaves an active project untouched', async () => {
@@ -163,5 +203,15 @@ describe('resolveRequestDatabase for a merged project', () => {
     await middleware(req, mockRes(), () => {});
     expect(calls[0].databaseName).toBe(projectDatabaseName('p'));
     expect(req.authContext.projectId).toBe('p');
+  });
+});
+
+describe('BoundedSeen', () => {
+  it('reports each value once and never holds more than its limit', () => {
+    const seen = new BoundedSeen(3);
+    expect(seen.first('a')).toBe(true);
+    expect(seen.first('a')).toBe(false);
+    for (const v of ['b', 'c', 'd', 'e']) seen.first(v);
+    expect(seen.size).toBeLessThanOrEqual(3);
   });
 });

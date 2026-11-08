@@ -15,6 +15,7 @@ import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
 import { projectDatabaseName } from '../runtime/resolve-project-database.js';
 import { logger } from '../../utils/logger.js';
 import { resolveMergeChain } from '../../services/projects/merge-chain.js';
+import { hasForwardedClientHeaders, hasLoopbackHostHeader, isLocalhost } from './request-auth-helpers.js';
 
 export interface ResolveRequestDatabaseOptions {
   // The cold-boot/dogfood project's database lives in the base database, not
@@ -29,7 +30,28 @@ export interface ResolveRequestDatabaseOptions {
   accountPool?: { query(text: string, values?: unknown[]): Promise<{ rows: any[] }> };
 }
 
-const loggedRedirects = new Set<string>();
+/** Remembers values to act on once each; forgets them all when full, so it never grows without bound. */
+export class BoundedSeen {
+  private readonly values = new Set<string>();
+  constructor(private readonly limit: number) {}
+  get size(): number { return this.values.size; }
+  first(value: string): boolean {
+    if (this.values.has(value)) return false;
+    if (this.values.size >= this.limit) this.values.clear();
+    this.values.add(value);
+    return true;
+  }
+}
+
+const loggedRedirects = new BoundedSeen(1000);
+
+function isLoopbackRequest(req: Request): boolean {
+  try {
+    return isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req);
+  } catch {
+    return false;
+  }
+}
 
 // Returns false after answering the request itself.
 async function followMerge(opts: ResolveRequestDatabaseOptions, req: Request, res: Response): Promise<boolean> {
@@ -47,8 +69,11 @@ async function followMerge(opts: ResolveRequestDatabaseOptions, req: Request, re
     res.status(409).json({ error: 'merged_project_unresolvable', message: chain.reason });
     return false;
   }
-  if (!loggedRedirects.has(projectId)) {
-    loggedRedirects.add(projectId);
+  // A merge combines two local projects that may sit in different teams. The
+  // local runtime only answers loopback requests; elsewhere a credential is
+  // never moved into another team.
+  if (chain.teamId !== req.authContext.teamId && !isLoopbackRequest(req)) return true;
+  if (loggedRedirects.first(projectId)) {
     logger.info('HTTP', 'routing a merged project to the project it was merged into', { projectId, into: chain.projectId });
   }
   const archived = new Set(chain.via);
