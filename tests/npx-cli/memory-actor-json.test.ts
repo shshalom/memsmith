@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
+  defaultMemoryCommandDeps,
   READ_ONLY_REFUSAL,
   runMemoryGet,
   runMemoryNote,
@@ -7,6 +8,7 @@ import {
   type MemoryCommandDeps,
 } from '../../src/npx-cli/commands/memory.js';
 import { ServerClientError } from '../../src/services/hooks/server-client.js';
+import { resetFeatureSwitchesForTesting } from '../../src/shared/feature-switches.js';
 
 // Nothing here may reach the real local Postgres on 55433.
 const savedDatabaseUrl = process.env.MEMSMITH_SERVER_DATABASE_URL;
@@ -264,6 +266,19 @@ describe('memsmith note', () => {
     expect(f.resolvedCwds).toEqual([]);
     expect(f.errs.join('\n')).toBe(READ_ONLY_REFUSAL);
     expect(READ_ONLY_REFUSAL).toBe('MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.');
+  });
+
+  it('reads access the way the hooks do, so a read alias also blocks the note', () => {
+    const saved = process.env.MEMSMITH_ACCESS;
+    try {
+      process.env.MEMSMITH_ACCESS = 'ro';
+      resetFeatureSwitchesForTesting();
+      expect(defaultMemoryCommandDeps().access?.()).toBe('read');
+    } finally {
+      if (saved === undefined) delete process.env.MEMSMITH_ACCESS;
+      else process.env.MEMSMITH_ACCESS = saved;
+      resetFeatureSwitchesForTesting();
+    }
   });
 
   it('reports read-only mode as a JSON error', async () => {

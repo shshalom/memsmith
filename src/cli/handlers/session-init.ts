@@ -17,6 +17,7 @@ import {
 import { isServerClientError } from '../../services/hooks/server-client.js';
 import { isIncognito, bumpTurn } from '../incognito.js';
 import { handleIncognitoCommand } from './incognito-command.js';
+import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 type MintedIdentity = { projectId?: string; created?: { root: string; name: string } } | null;
 
@@ -30,7 +31,38 @@ async function defaultProjectNotice(cwd: string, minted: MintedIdentity): Promis
   return projectNoticeFor(cwd, minted);
 }
 
+async function defaultClaimPendingJoin(cwd: string): Promise<void> {
+  const [
+    { claimPendingTeamJoin }, { applyConvertJoin },
+    { readProjectMarker, writeProjectRuntime }, { CredentialStore },
+    { getSharedPostgresPool }, { shareMarkerInGit },
+  ] = await Promise.all([
+    import('../../server/convert/claim-pending-join.js'),
+    import('../../server/convert/apply-join.js'),
+    import('../../services/identity/project-identity.js'),
+    import('../../services/identity/credential-store.js'),
+    import('../../storage/postgres/pool.js'),
+    import('../../server/convert/share-marker.js'),
+  ]);
+  const store = new CredentialStore();
+  await claimPendingTeamJoin(cwd, {
+    readProjectMarker: (c) => readProjectMarker(c) as any,
+    resolveKeyForTeam: (teamId) => store.resolveKeyForTeam(teamId),
+    // The LOCAL base-account pool, already open above for identity minting.
+    // The note lives here, not on the destination: putting it on the remote is
+    // circular, since reaching the remote needs the URL the note carries.
+    pool: getSharedPostgresPool({ requireDatabaseUrl: true }),
+    applyJoin: (c, join) => applyConvertJoin({
+      readProjectMarker: (x) => readProjectMarker(x) as any,
+      writeProjectRuntime,
+      storeKeyForTeam: (teamId, key) => store.storeKeyForTeam(teamId, key),
+      shareMarkerInGit,
+    }, c, join),
+  });
+}
+
 const defaultDependencies = {
+  claimPendingJoin: defaultClaimPendingJoin,
   mintProjectIdentity: defaultMintProjectIdentity,
   projectNotice: defaultProjectNotice,
   resolveRuntimeContext: defaultResolveRuntimeContext,
@@ -112,6 +144,8 @@ export const sessionInitHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
+    if (!writesAllowed()) return { continue: true, suppressOutput: true };
+
     const prompt = (!rawPrompt || !rawPrompt.trim()) ? '[media prompt]' : rawPrompt;
 
     const project = getProjectContext(cwd).primary;
@@ -155,33 +189,7 @@ export const sessionInitHandler: EventHandler = {
     // Entirely non-fatal: any failure leaves the project on local with its data
     // intact and the note still pending, so the next session retries.
     try {
-      const [
-        { claimPendingTeamJoin }, { applyConvertJoin },
-        { readProjectMarker, writeProjectRuntime }, { CredentialStore },
-        { getSharedPostgresPool }, { shareMarkerInGit },
-      ] = await Promise.all([
-        import('../../server/convert/claim-pending-join.js'),
-        import('../../server/convert/apply-join.js'),
-        import('../../services/identity/project-identity.js'),
-        import('../../services/identity/credential-store.js'),
-        import('../../storage/postgres/pool.js'),
-        import('../../server/convert/share-marker.js'),
-      ]);
-      const store = new CredentialStore();
-      await claimPendingTeamJoin(cwd, {
-        readProjectMarker: (c) => readProjectMarker(c) as any,
-        resolveKeyForTeam: (teamId) => store.resolveKeyForTeam(teamId),
-        // The LOCAL base-account pool, already open above for identity minting.
-        // The note lives here, not on the destination: putting it on the remote is
-        // circular, since reaching the remote needs the URL the note carries.
-        pool: getSharedPostgresPool({ requireDatabaseUrl: true }),
-        applyJoin: (c, join) => applyConvertJoin({
-          readProjectMarker: (x) => readProjectMarker(x) as any,
-          writeProjectRuntime,
-          storeKeyForTeam: (teamId, key) => store.storeKeyForTeam(teamId, key),
-          shareMarkerInGit,
-        }, c, join),
-      });
+      await dependencies.claimPendingJoin(cwd);
     } catch (err) {
       logger.warn('IDENTITY', 'pending team join not applied (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
@@ -193,6 +201,8 @@ export const sessionInitHandler: EventHandler = {
         hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: noticeLine },
       }
       : result);
+
+    if (!isFeatureEnabled('capture')) return withNotice({ continue: true, suppressOutput: true });
 
     const runtime = dependencies.resolveRuntimeContext(cwd);
 

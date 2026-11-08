@@ -8,6 +8,7 @@ import { topicKey } from '../../services/retrieval/topic-key.js';
 import { resolveRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 /** PreToolUse must default to allowing the tool through — retrieval-first never
  *  blocks the agent due to its own failure. */
@@ -73,6 +74,7 @@ export const toolIntentHandler: EventHandler = {
         return ALLOW;
       }
 
+      if (!isFeatureEnabled('memory-first-gate')) return ALLOW;
       const settings = loadFromFileOnce();
       if (settings.MEMSMITH_SEMANTIC_INJECT !== 'true') return ALLOW;
 

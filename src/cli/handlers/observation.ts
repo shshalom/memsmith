@@ -9,6 +9,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback, selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { isIncognito } from '../incognito.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 import { scrubEventPayload } from '../../server/services/event-payload-scrub.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
 import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
@@ -87,6 +88,7 @@ function enqueueForLocalGeneration(event: unknown): void {
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('capture')) return { continue: true, suppressOutput: true };
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
     const platformSource = normalizePlatformSource(input.platform);
 

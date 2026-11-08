@@ -83,9 +83,26 @@ describe('embedded PG paths honour MEMSMITH_DATA_DIR', () => {
     // not state — nothing an isolated run does can corrupt the dogfood through
     // them.
     process.env.MEMSMITH_DATA_DIR = dir;
-    const paths = embeddedPostgresDefaultPaths();
-    expect(paths.binariesDir).toContain('.memsmith');
-    expect(paths.binariesDir).not.toContain(dir);
+    const priorBinaries = process.env.MEMSMITH_PG_BINARIES_DIR;
+    delete process.env.MEMSMITH_PG_BINARIES_DIR;
+    try {
+      const paths = embeddedPostgresDefaultPaths();
+      expect(paths.binariesDir).toContain('.memsmith');
+      expect(paths.binariesDir).not.toContain(dir);
+    } finally {
+      if (priorBinaries !== undefined) process.env.MEMSMITH_PG_BINARIES_DIR = priorBinaries;
+    }
+  });
+
+  it('takes the binaries folder from MEMSMITH_PG_BINARIES_DIR when it is set', () => {
+    const priorBinaries = process.env.MEMSMITH_PG_BINARIES_DIR;
+    process.env.MEMSMITH_PG_BINARIES_DIR = join(dir, 'bins');
+    try {
+      expect(embeddedPostgresDefaultPaths().binariesDir).toBe(join(dir, 'bins'));
+    } finally {
+      if (priorBinaries === undefined) delete process.env.MEMSMITH_PG_BINARIES_DIR;
+      else process.env.MEMSMITH_PG_BINARIES_DIR = priorBinaries;
+    }
   });
 
   it('falls back to ~/.memsmith when nothing is overridden', () => {

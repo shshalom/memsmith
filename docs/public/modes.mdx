@@ -1,11 +1,11 @@
 ---
-title: "Modes & Languages"
-description: "Configure MemSmith behavior and language with the Mode System"
+title: "Modes and languages"
+description: "The observation modes that ship with MemSmith, and which one the server uses"
 ---
 
-# Modes & Languages
+# Modes and languages
 
-MemSmith uses a **mode system** to control what it records and which language it writes in. You can switch modes without reinstalling the plugin.
+MemSmith uses a **mode system** to control what it records and which language it writes in.
 
 ## What is a mode?
 
@@ -18,19 +18,9 @@ A mode is a configuration profile that defines the following:
 
 ## Configuration
 
-To set the active mode, set `MEMSMITH_MODE` in `~/.memsmith/settings.json`:
+The server loads the `code` mode for every generation job. No setting selects another mode yet.
 
-```json
-{
-  "MEMSMITH_MODE": "code--es"
-}
-```
-
-You can also set it as an environment variable:
-
-```bash
-export MEMSMITH_MODE="code--fr"
-```
+The `MEMSMITH_MODE` setting names the mode, such as `code--es`, but the server ignores it. The mode files below ship with the plugin.
 
 ## Available Modes
 

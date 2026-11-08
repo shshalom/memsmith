@@ -9,6 +9,7 @@ import { frameAnswerFromMemoryDirective, frameUnavailableNotice } from '../../se
 import { resolveRuntimeContext, type RuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
+import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
 
@@ -63,6 +64,7 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
       // Cleared first so a failure below can never leave the previous turn's
       // request pending for this turn's Stop.
       gate.beginTurn({ pending: false, topic: '' });
+      if (!isFeatureEnabled('prompt-injection')) return CONTINUE;
       try {
         const settings = deps.loadSettings();
         if (settings.MEMSMITH_SEMANTIC_INJECT !== 'true') return CONTINUE;
@@ -78,7 +80,7 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
         );
         const probe = await broker.probe(ask);
         if (probe.unavailable) return inject(frameUnavailableNotice());
-        if (probe.isGap) await persistGap(runtime, ask, resolveActor(input));
+        if (probe.isGap && writesAllowed()) await persistGap(runtime, ask, resolveActor(input));
         gate.beginTurn({ pending: true, topic: topicKey(ask) });
         return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
       } catch (err) {

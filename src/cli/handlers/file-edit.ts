@@ -7,9 +7,11 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 export const fileEditHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('capture')) return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     const { sessionId, cwd, filePath, edits } = input;
     const platformSource = normalizePlatformSource(input.platform);
 

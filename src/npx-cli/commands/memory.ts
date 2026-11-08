@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { buildServerContext, type ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { ServerClientError } from '../../services/hooks/server-client.js';
 import {
@@ -9,7 +8,7 @@ import {
 } from '../../services/identity/folder-project.js';
 import { buildUserNoteRequest } from '../../services/retrieval/user-note-write.js';
 import { actorField, actorsOf, configuredActor, defaultActorSource, parseActor, type ActorSource } from '../../shared/actor.js';
-import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { currentFeatureSwitches, READ_ONLY_REFUSAL } from '../../shared/feature-switches.js';
 import {
   clampLimit,
   formatObservationDetails,
@@ -44,7 +43,7 @@ export function defaultMemoryCommandDeps(): MemoryCommandDeps {
     err: (line) => console.error(line),
     readStdin: readAllStdin,
     stdinIsTTY: () => process.stdin.isTTY === true,
-    access: configuredAccess,
+    access: () => currentFeatureSwitches().access,
     actorSource: defaultActorSource,
   };
 }
@@ -86,17 +85,8 @@ async function noteTextFromStdin(d: MemoryCommandDeps): Promise<string> {
   }
 }
 
-function configuredAccess(): string | undefined {
-  if (process.env.MEMSMITH_ACCESS !== undefined) return process.env.MEMSMITH_ACCESS;
-  try {
-    const value = (JSON.parse(readFileSync(USER_SETTINGS_PATH, 'utf-8').replace(/^﻿/, '')) as Record<string, unknown>).MEMSMITH_ACCESS;
-    return typeof value === 'string' ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
-export const READ_ONLY_REFUSAL = 'MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.';
+export { READ_ONLY_REFUSAL };
 
 const GET_HINT = 'memsmith get <id> [<id>...]';
 const SEARCH_USAGE = 'Usage: memsmith search [--json] [--actor <name>] [--limit <n>] [--] <query>';

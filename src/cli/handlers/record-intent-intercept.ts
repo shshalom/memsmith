@@ -3,6 +3,7 @@
 import type { EventHandler, HookResult, NormalizedHookInput } from '../types.js';
 import { RecordArmedStore } from '../../services/retrieval/record-armed-store.js';
 import { logger } from '../../utils/logger.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 const OBSERVATION_ADD_TOOL = 'mcp__plugin_memsmith_mem__observation_add';
@@ -14,7 +15,7 @@ const OBSERVATION_ADD_TOOL = 'mcp__plugin_memsmith_mem__observation_add';
 export const recordIntentInterceptHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     try {
-      if (input.toolName !== OBSERVATION_ADD_TOOL) return CONTINUE;
+      if (input.toolName !== OBSERVATION_ADD_TOOL || !isFeatureEnabled('record-intent')) return CONTINUE;
       const rec = new RecordArmedStore(input.sessionId).read();
       if (!rec?.armed) return CONTINUE;
       const ti = input.toolInput;

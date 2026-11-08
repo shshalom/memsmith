@@ -64,7 +64,7 @@ const SHARED_HOME = join(homedir(), '.memsmith');
 export function embeddedPostgresDefaultPaths(): EmbeddedPostgresPaths {
   const dataHome = resolveDataDir();
   return {
-    binariesDir: join(SHARED_HOME, 'pg-binaries'),
+    binariesDir: process.env.MEMSMITH_PG_BINARIES_DIR || join(SHARED_HOME, 'pg-binaries'),
     dataDir: join(dataHome, 'pgdata'),
     pidFile: join(dataHome, 'local-pg.pid'),
   };

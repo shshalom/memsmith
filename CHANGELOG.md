@@ -13,10 +13,18 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 - Actor tags. Set `MEMSMITH_ACTOR` in a session's environment, or as a default in `settings.json`, and MemSmith stamps that name on the events, notes, and observations the session captures. An empty `MEMSMITH_ACTOR` opts a session out of the default. Without one, an event from a Claude Code subagent takes the subagent type as its actor. An observation generated from events lists their actors in `actors`, has `actor` only when one actor wrote every source event, and has `unattributed: true` when some source events have none. `observation_search`, `observation_context`, the hosted `/v1/mcp` `search` and `context` tools, `memsmith search --actor <name>`, and `POST /v1/search` and `/v1/context` filter by actor, and the search index and full records show it. Records saved before this release have no actor, so an actor filter excludes them. The actor is self-reported: the MCP tools replace a caller-supplied actor with the session's own, but any API key holder can set one through the API.
 - `memsmith note "<text>"` saves a user note for the current folder's project, the same as the `note_add` tool. It reads the text from stdin when you pass `-`, honors `MEMSMITH_PROJECT_CWD` and `MEMSMITH_ACTOR`, and refuses to save when `MEMSMITH_ACCESS` is `read`.
 - `--json` for `memsmith search`, `memsmith get`, and `memsmith note` prints one JSON object to stdout, and prints errors as `{ "error": { "code", "message" } }` with exit code 1.
+- Read-only mode. Set `MEMSMITH_ACCESS=read` in a session's environment, or as the default in `settings.json`, and that session records nothing: the capture hooks skip prompts, tool use, file edits, summaries, and transcript capture, and nothing goes to the capture spool. `note_add`, `observation_add`, and `observation_record_event` refuse with `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.` A "remember this" request gets a read-only notice instead of being saved. A read-only session never creates or registers a project, hides the write tools from the MCP tool list, and gets a read-only notice in place of the instruction to call `note_add`. `readonly`, `read-only`, and `ro` also mean read. Search, session-start context, and the memory gates keep working. A coordinator agent can write while the workers that it launches with `MEMSMITH_ACCESS=read` only read.
+- `MEMSMITH_HOOKS_DISABLED` turns off hook features by name: `capture`, `summary`, `context`, `prompt-injection`, `record-intent`, `answer-gate`, `memory-first-gate`, `discovery-context`, `file-context`, and `subagent-directive`. The environment overrides `settings.json`. MemSmith logs one warning for each unknown name and ignores it.
+- `MEMSMITH_PG_BINARIES_DIR` sets where embedded Postgres keeps its binaries. The default is still `~/.memsmith/pg-binaries`.
+- `memsmith doctor` shows the memory access setting and the turned-off hook features, and warns about unknown names. `memsmith status` shows an `Access:` line when access is `read`.
 
 ### Changed
 
 - The memory commands parse options more strictly. An unknown `--option` is now an error instead of part of the query, an option value can't be another option (`--actor --json`), and `--json` takes no value. Put `--` before a query that starts with `--`.
+
+### Fixed
+
+- The documentation no longer claims that `MEMSMITH_MODE` selects a mode profile. The server always loads the `code` profile and ignores the setting.
 
 ## [13.15.0] - 2026-11-08
 

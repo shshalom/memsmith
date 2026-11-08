@@ -38,6 +38,7 @@ import { describeUnusableProject, resolveFolderProject } from '../services/ident
 import { normalizePlatformSource } from '../shared/platform-source.js';
 import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
 import { parseActor, resolveActor } from '../shared/actor.js';
+import { READ_ONLY_REFUSAL, writesAllowed } from '../shared/feature-switches.js';
 import {
   clampLimit,
   formatObservationContext,
@@ -449,6 +450,7 @@ const ACTOR_FILTER_PROPERTY = {
   type: 'string',
   description: 'Only return records written by this actor (exact match on the MEMSMITH_ACTOR name or subagent type). Records saved before actor tags existed have no actor and are excluded.',
 } as const;
+const WRITE_TOOLS: ReadonlySet<string> = new Set(['observation_add', 'note_add', 'observation_record_event']);
 
 const tools = [
   {
@@ -766,7 +768,7 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: tools.map(tool => ({
+    tools: tools.filter(tool => writesAllowed() || !WRITE_TOOLS.has(tool.name)).map(tool => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema
@@ -779,6 +781,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (!tool) {
     throw new Error(`Unknown tool: ${request.params.name}`);
+  }
+
+  if (WRITE_TOOLS.has(tool.name) && !writesAllowed()) {
+    return { content: [{ type: 'text' as const, text: READ_ONLY_REFUSAL }], isError: true };
   }
 
   try {

@@ -283,3 +283,36 @@ describe('--timeout validation', () => {
     });
   }
 });
+
+describe('status memory access line', () => {
+  it('shows a non-default access whether or not the server is running', async () => {
+    const memoryAccess = () => 'read (MEMSMITH_ACCESS in the environment)';
+    const running = deps({ health: [ready], memoryAccess });
+    await runLifecycle('status', [], running.d);
+    expect(running.calls.out).toContain('  Access:    read (MEMSMITH_ACCESS in the environment)');
+    const stopped = deps({ memoryAccess });
+    await runLifecycle('status', [], stopped.d);
+    expect(stopped.calls.out).toContain('  Access:    read (MEMSMITH_ACCESS in the environment)');
+  });
+
+  it('prints no access line in write access', async () => {
+    const { d, calls } = deps({ health: [ready], memoryAccess: () => null });
+    await runLifecycle('status', [], d);
+    expect(calls.out.some((l) => l.startsWith('  Access:'))).toBe(false);
+  });
+});
+
+describe('status access line from the real settings', () => {
+  it('reports read access from settings.json or the environment, and nothing for write', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-status-access-')));
+    try {
+      const settingsPath = join(dir, 'settings.json');
+      writeFileSync(settingsPath, JSON.stringify({ MEMSMITH_ACCESS: 'read' }));
+      expect(defaultLifecycleDeps({ settingsPath, env: {} }).memoryAccess?.()).toBe('read (MEMSMITH_ACCESS in settings.json)');
+      expect(defaultLifecycleDeps({ settingsPath, env: { MEMSMITH_ACCESS: 'write' } }).memoryAccess?.()).toBeNull();
+      expect(defaultLifecycleDeps({ settingsPath, env: { MEMSMITH_ACCESS: 'ro' } }).memoryAccess?.()).toBe('read (MEMSMITH_ACCESS in the environment)');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

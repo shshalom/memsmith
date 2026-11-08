@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { statSync } from 'fs';
 import path from 'path';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 const FILE_READ_GATE_MIN_BYTES = 1_500;
 
@@ -21,6 +22,7 @@ const MAX_FILE_CONTEXT_PATHS = 10;
 
 export const fileContextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('file-context')) return { continue: true, suppressOutput: true };
     const toolInput = input.toolInput as Record<string, unknown> | undefined;
     const filePaths = Array.isArray(toolInput?.filePaths)
       ? (toolInput.filePaths as unknown[]).filter((p): p is string => typeof p === 'string').slice(0, MAX_FILE_CONTEXT_PATHS)

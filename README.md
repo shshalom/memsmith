@@ -204,9 +204,16 @@ Settings are managed in `~/.memsmith/settings.json` (auto-created with defaults
 on first run). Configure the AI provider, data directory, log level, and
 context injection settings.
 
-The `MEMSMITH_MODE` setting controls workflow behavior and the language of
-generated observations. Language modes follow the pattern `code--[lang]`, such
-as `code--zh` or `code--ja`. Restart Claude Code after changing the mode.
+The `MEMSMITH_ACCESS` setting controls whether a session can write memory. Set
+`MEMSMITH_ACCESS=read` in a session's environment to make memory read-only for
+that session: MemSmith records nothing and refuses the memory write tools, but
+search and context still work. The `MEMSMITH_HOOKS_DISABLED` setting turns off
+hook features by name, such as `context` or `answer-gate`. For details, see
+[Read-only mode and hook switches](docs/public/configuration.mdx#read-only-mode-and-hook-switches).
+
+The `MEMSMITH_MODE` setting names a mode profile for observation types and
+language, such as `code--zh` or `code--ja`. The server always loads the `code`
+profile and ignores this setting.
 
 ## System requirements
 

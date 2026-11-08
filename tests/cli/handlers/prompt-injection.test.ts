@@ -6,6 +6,7 @@ import { createPromptInjectionHandler } from '../../../src/cli/handlers/prompt-i
 import { AnswerGateStore } from '../../../src/services/retrieval/answer-gate-store.js';
 import { createAnswerGateHandler } from '../../../src/cli/handlers/answer-gate.js';
 import { topicKey } from '../../../src/services/retrieval/topic-key.js';
+import { resetFeatureSwitchesForTesting } from '../../../src/shared/feature-switches.js';
 
 const MEMORY_BODY = 'We chose the inline queue because BullMQ needed Redis on every laptop';
 
@@ -182,5 +183,23 @@ describe('promptInjectionHandler — directive reflects the mode', () => {
     const soft = await run(setup({ MEMSMITH_RETRIEVAL_ENFORCEMENT: 'soft' }).handler, 'why did we switch the queue engine to inline?');
     expect(hard.hookSpecificOutput?.additionalContext ?? '').toContain('Hard mode');
     expect(soft.hookSpecificOutput?.additionalContext ?? '').not.toContain('Hard mode');
+  });
+});
+
+describe('promptInjectionHandler — read-only mode', () => {
+  it('still directs the agent to memory but records no memory gap', async () => {
+    const previous = process.env.MEMSMITH_ACCESS;
+    process.env.MEMSMITH_ACCESS = 'read';
+    resetFeatureSwitchesForTesting();
+    try {
+      const { handler, rt } = setup({}, { observations: [] });
+      const res = await run(handler, 'why did we switch the queue engine to inline?');
+      expect(res.hookSpecificOutput?.additionalContext).toContain('observation_search');
+      expect(rt.added).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.MEMSMITH_ACCESS;
+      else process.env.MEMSMITH_ACCESS = previous;
+      resetFeatureSwitchesForTesting();
+    }
   });
 });
