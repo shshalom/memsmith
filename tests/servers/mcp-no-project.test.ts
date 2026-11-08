@@ -13,20 +13,25 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url).pathname;
 
 type ToolResult = { content: Array<{ text: string }>; isError?: boolean };
-type Received = { path: string; body: any; auth: string | null };
+type Received = { server: 'local' | 'team'; path: string; body: any; auth: string | null };
 
 const NOT_SEARCHED = 'Memory was not searched; this is not an empty result.';
 
 describe('memory MCP tools and folders without a usable MemSmith project', () => {
   let fake: ReturnType<typeof Bun.serve>;
+  let teamFake: ReturnType<typeof Bun.serve>;
   let home: string;
   let pinned: string;
   let unpinned: string;
   let unjoinedTeam: string;
   let keylessLocal: string;
+  let otherTeam: string;
+  let sharedWithSettings: string;
+  let joinedTeam: string;
   let fromPinned: Client;
   let fromUnpinned: Client;
   let withSettingsProject: Client;
+  let withSettingsKeyOnly: Client;
   let received: Received[] = [];
 
   async function connect(cwd: string, dataDir: string): Promise<Client> {
@@ -38,7 +43,13 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
       command: process.execPath,
       args: [mcpServerPath],
       cwd,
-      env: { ...env, HOME: home, MEMSMITH_DATA_DIR: dataDir, CLAUDE_CONFIG_DIR: join(home, '.claude') },
+      env: {
+        ...env,
+        HOME: home,
+        MEMSMITH_DATA_DIR: dataDir,
+        MEMSMITH_SERVER_PORT: String(fake.port),
+        CLAUDE_CONFIG_DIR: join(home, '.claude'),
+      },
       stderr: 'ignore',
     }));
     return client;
@@ -47,7 +58,7 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
   function writeDataDir(dir: string, settings: Record<string, string>) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ MEMSMITH_SERVER_URL: `http://127.0.0.1:${fake.port}`, ...settings }));
-    writeFileSync(join(dir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned' } }));
+    writeFileSync(join(dir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned', 'team-joined': 'key-team' } }));
   }
 
   function writeMarker(dir: string, marker: Record<string, string>) {
@@ -56,22 +67,31 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
   }
 
   beforeAll(async () => {
-    fake = Bun.serve({
+    const serve = (server: Received['server']) => Bun.serve({
       port: 0,
       hostname: '127.0.0.1',
       async fetch(req) {
         const path = new URL(req.url).pathname;
         const body = req.method === 'POST' ? await req.json() : null;
-        received.push({ path, body, auth: req.headers.get('authorization') });
+        received.push({ server, path, body, auth: req.headers.get('authorization') });
         return Response.json({ observations: [], context: '' });
       },
     });
+    fake = serve('local');
+    teamFake = serve('team');
 
     home = mkdtempSync(join(tmpdir(), 'ms-mcp-noproj-'));
     const localData = join(home, '.memsmith');
     writeDataDir(localData, { MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_API_KEY: '', MEMSMITH_SERVER_PROJECT_ID: '' });
     const settingsData = join(home, 'settings-project-data');
-    writeDataDir(settingsData, { MEMSMITH_RUNTIME: 'server', MEMSMITH_SERVER_API_KEY: 'key-settings', MEMSMITH_SERVER_PROJECT_ID: 'proj-settings' });
+    writeDataDir(settingsData, {
+      MEMSMITH_RUNTIME: 'server',
+      MEMSMITH_SERVER_URL: `http://127.0.0.1:${teamFake.port}`,
+      MEMSMITH_SERVER_API_KEY: 'key-settings',
+      MEMSMITH_SERVER_PROJECT_ID: 'proj-settings',
+    });
+    const keyOnlyData = join(home, 'settings-key-only-data');
+    writeDataDir(keyOnlyData, { MEMSMITH_RUNTIME: 'local', MEMSMITH_SERVER_API_KEY: 'key-settings', MEMSMITH_SERVER_PROJECT_ID: '' });
 
     pinned = join(home, 'pinned-repo');
     writeMarker(pinned, { teamId: 'team-pinned', projectId: 'proj-pinned' });
@@ -79,19 +99,27 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
     writeMarker(unjoinedTeam, { teamId: 'team-unjoined', projectId: 'proj-unjoined', runtime: 'server' });
     keylessLocal = join(home, 'keyless-local');
     writeMarker(keylessLocal, { teamId: 'team-keyless', projectId: 'proj-keyless', runtime: 'local' });
+    otherTeam = join(home, 'other-team');
+    writeMarker(otherTeam, { teamId: 'team-other', projectId: 'proj-other', runtime: 'local' });
+    sharedWithSettings = join(home, 'settings-project-folder');
+    writeMarker(sharedWithSettings, { teamId: 'team-settings', projectId: 'proj-settings', runtime: 'server', serverUrl: `http://127.0.0.1:${teamFake.port}` });
+    joinedTeam = join(home, 'joined-team');
+    writeMarker(joinedTeam, { teamId: 'team-joined', projectId: 'proj-team', runtime: 'server', serverUrl: `http://127.0.0.1:${teamFake.port}` });
     unpinned = join(home, 'unpinned-checkout');
     mkdirSync(unpinned, { recursive: true });
 
-    [fromPinned, fromUnpinned, withSettingsProject] = await Promise.all([
+    [fromPinned, fromUnpinned, withSettingsProject, withSettingsKeyOnly] = await Promise.all([
       connect(pinned, localData),
       connect(unpinned, localData),
       connect(pinned, settingsData),
+      connect(unpinned, keyOnlyData),
     ]);
   }, 30_000);
 
   afterAll(async () => {
-    await Promise.all([fromPinned?.close(), fromUnpinned?.close(), withSettingsProject?.close()]);
+    await Promise.all([fromPinned?.close(), fromUnpinned?.close(), withSettingsProject?.close(), withSettingsKeyOnly?.close()]);
     fake?.stop(true);
+    teamFake?.stop(true);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -112,10 +140,18 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
     expect(received).toEqual([]);
   }
 
-  async function expectSentTo(client: Client, name: string, args: Record<string, unknown>, projectId: string, auth: string) {
+  async function expectSentTo(
+    client: Client,
+    name: string,
+    args: Record<string, unknown>,
+    projectId: string,
+    auth: string,
+    server: Received['server'] = 'local',
+  ) {
     const { result } = await call(client, name, args);
     expect(result.isError).toBeFalsy();
     expect(received).toHaveLength(1);
+    expect(received[0]?.server).toBe(server);
     expect(received[0]?.body?.projectId).toBe(projectId);
     expect(received[0]?.auth).toBe(`Bearer ${auth}`);
   }
@@ -150,8 +186,20 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
         await expectSentTo(fromUnpinned, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-pinned');
       });
 
-      it("reads a pinned cwd's project even when settings name another project", async () => {
-        await expectSentTo(withSettingsProject, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-settings');
+      it("reads a pinned cwd's project with its own key and server even when settings name another project", async () => {
+        await expectSentTo(withSettingsProject, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-pinned');
+      });
+
+      it("never sends the settings key for a cwd in another team that has no cached key", async () => {
+        await expectRefused(
+          withSettingsProject, name, { ...args, cwd: otherTeam },
+          `The folder ${otherTeam} belongs to MemSmith project proj-other, but this machine holds no key for it.`,
+          NOT_SEARCHED,
+        );
+      });
+
+      it("reads a pinned cwd's project when settings hold a key but no project", async () => {
+        await expectSentTo(withSettingsKeyOnly, name, { ...args, cwd: pinned }, 'proj-pinned', 'key-pinned');
       });
 
       it('lets an explicit projectId win over the cwd project', async () => {
@@ -170,7 +218,18 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
   }
 
   it('keeps the settings project when no cwd is passed', async () => {
-    await expectSentTo(withSettingsProject, 'observation_search', { query: 'queue engine' }, 'proj-settings', 'key-settings');
+    await expectSentTo(withSettingsProject, 'observation_search', { query: 'queue engine' }, 'proj-settings', 'key-settings', 'team');
+  });
+
+  it("uses the settings key for a cwd whose marker names the settings project", async () => {
+    await expectSentTo(
+      withSettingsProject, 'observation_search', { query: 'queue engine', cwd: sharedWithSettings },
+      'proj-settings', 'key-settings', 'team',
+    );
+  });
+
+  it("sends a joined team folder's requests to the marker's server", async () => {
+    await expectSentTo(fromPinned, 'observation_search', { query: 'queue engine', cwd: joinedTeam }, 'proj-team', 'key-team', 'team');
   });
 
   it('says a local project has no key when its marker has no cached key', async () => {

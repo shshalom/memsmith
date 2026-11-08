@@ -99,6 +99,15 @@ describe('memsmith search', () => {
     expect(err).not.toContain('not configured');
   });
 
+  it('says the settings are incomplete when the folder has a usable project marker', async () => {
+    const f = fake({ context: false, diagnose: (cwd) => ({ kind: 'unconfigured', folder: cwd }) });
+    expect(await runMemorySearch(['login'], f.deps)).toBe(1);
+    const err = f.errs.join('\n');
+    expect(err).toContain('The folder /work/repo/sub has a MemSmith project, but the MemSmith server settings are incomplete. Memory was not searched; this is not an empty result.');
+    expect(err).toContain('npx memsmith install');
+    expect(err).not.toContain('No MemSmith project found');
+  });
+
   it("says the folder's team isn't joined rather than that it has no project", async () => {
     const f = fake({
       context: false,

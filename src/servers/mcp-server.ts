@@ -114,12 +114,7 @@ function requireProjectForTool(toolName: string, cwd: unknown, consequence: stri
   }
   const resolution = resolveFolderProject(folder, { pinToMarker: explicit });
   if (resolution.kind === 'resolved') return { ...resolution.ctx, available: true };
-  const lines = describeUnusableProject(resolution, consequence, NO_PROJECT_HINT);
-  if (lines) throw new ToolMessageError(lines.join('\n'));
-  throw new ServerClientError(
-    'missing_api_key',
-    `${toolName}: ${selectRuntime(folder)} runtime is selected but configuration is incomplete (missing url, api key, or project id)`,
-  );
+  throw new ToolMessageError(describeUnusableProject(resolution, consequence, NO_PROJECT_HINT).join('\n'));
 }
 
 function formatToolError(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {

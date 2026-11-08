@@ -1,6 +1,14 @@
-import { buildServerContext, type ServerRuntimeContext } from '../hooks/runtime-selector.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { resolveDashboardPort } from '../../shared/dashboard-url.js';
+import {
+  buildServerContext,
+  normalizeRuntime,
+  selectRuntime,
+  type ServerRuntimeContext,
+} from '../hooks/runtime-selector.js';
+import { ServerClient } from '../hooks/server-client.js';
 import { CredentialStore } from './credential-store.js';
-import { readProjectMarker } from './project-identity.js';
+import { readProjectMarker, type ProjectMarker } from './project-identity.js';
 
 export type FolderProjectResolution =
   | { kind: 'resolved'; ctx: ServerRuntimeContext }
@@ -18,29 +26,61 @@ export interface ResolveFolderProjectOptions {
 
 export function resolveFolderProject(folder: string, options: ResolveFolderProjectOptions = {}): FolderProjectResolution {
   const marker = readProjectMarker(folder);
-  if (options.pinToMarker && !marker) return { kind: 'no_project', folder };
-  const ctx = buildServerContext({ cwd: folder, ...(options.credentialStore ? { credentialStore: options.credentialStore } : {}) });
-  if (ctx) {
-    return { kind: 'resolved', ctx: options.pinToMarker && marker ? { ...ctx, projectId: marker.projectId } : ctx };
-  }
-  if (!marker) return { kind: 'no_project', folder };
   const store = options.credentialStore ?? new CredentialStore();
+  if (options.pinToMarker) {
+    return marker ? resolvePinnedMarker(folder, marker, store) : { kind: 'no_project', folder };
+  }
+  const ctx = buildServerContext({ cwd: folder, credentialStore: store });
+  if (ctx) return { kind: 'resolved', ctx };
+  if (!marker) return { kind: 'no_project', folder };
   if (!store.resolveKeyForTeam(marker.teamId)) {
     return { kind: 'no_key', folder, projectId: marker.projectId, team: marker.runtime === 'server' };
   }
   return { kind: 'unconfigured', folder };
 }
 
+function firstNonEmpty(...candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    const trimmed = (candidate ?? '').trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
+}
+
+// A key only ever goes to its own team's server. The settings key carries no
+// team id, so it is trusted for a marker only when settings name that same
+// project; any other team needs its own cached key.
+function resolvePinnedMarker(folder: string, marker: ProjectMarker, store: CredentialStore): FolderProjectResolution {
+  const settings = loadFromFileOnce();
+  const settingsKey = firstNonEmpty(settings.MEMSMITH_SERVER_API_KEY, settings.MEMSMITH_SERVER_BETA_API_KEY);
+  const settingsProject = firstNonEmpty(settings.MEMSMITH_SERVER_PROJECT_ID, settings.MEMSMITH_SERVER_BETA_PROJECT_ID);
+  const settingsUrl = firstNonEmpty(settings.MEMSMITH_SERVER_URL, settings.MEMSMITH_SERVER_BETA_URL);
+  const settingsAreLocal = normalizeRuntime(settings.MEMSMITH_RUNTIME) === 'local';
+  const isTeam = marker.runtime === 'server';
+
+  const apiKey = store.resolveKeyForTeam(marker.teamId)
+    ?? (settingsKey && settingsProject === marker.projectId ? settingsKey : null);
+  if (!apiKey) return { kind: 'no_key', folder, projectId: marker.projectId, team: isTeam };
+
+  const localUrl = settingsAreLocal && settingsUrl ? settingsUrl : `http://127.0.0.1:${resolveDashboardPort()}`;
+  const serverBaseUrl = marker.serverUrl ?? (isTeam ? (settingsAreLocal ? '' : settingsUrl) : localUrl);
+  if (!serverBaseUrl) return { kind: 'unconfigured', folder };
+
+  const client = new ServerClient({ serverBaseUrl, apiKey, delegateGeneration: selectRuntime(folder) === 'server' });
+  return { kind: 'resolved', ctx: { runtime: 'server', client, projectId: marker.projectId, serverBaseUrl } };
+}
+
+export type UnusableFolderProject = Exclude<FolderProjectResolution, { kind: 'resolved' }>;
+
 /**
  * Explains why a folder has no usable project. `consequence` states what did
  * not happen, so a caller never reads the refusal as an empty result.
- * Returns null for 'resolved' and 'unconfigured', which callers report themselves.
  */
 export function describeUnusableProject(
-  resolution: FolderProjectResolution,
+  resolution: UnusableFolderProject,
   consequence: string,
   noProjectHint: string,
-): string[] | null {
+): string[] {
   switch (resolution.kind) {
     case 'no_project':
       return [`No MemSmith project found for ${resolution.folder}. ${consequence}`, noProjectHint];
@@ -54,7 +94,10 @@ export function describeUnusableProject(
           `The folder ${resolution.folder} belongs to MemSmith project ${resolution.projectId}, but this machine holds no key for it. ${consequence}`,
           'To restore the key, start a MemSmith session in that folder.',
         ];
-    default:
-      return null;
+    case 'unconfigured':
+      return [
+        `The folder ${resolution.folder} has a MemSmith project, but the MemSmith server settings are incomplete. ${consequence}`,
+        'To repair the settings, run: npx memsmith install',
+      ];
   }
 }

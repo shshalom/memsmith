@@ -4,6 +4,7 @@ import {
   describeUnusableProject,
   resolveFolderProject,
   type FolderProjectResolution,
+  type UnusableFolderProject,
 } from '../../services/identity/folder-project.js';
 import {
   clampLimit,
@@ -36,13 +37,16 @@ const GET_HINT = 'memsmith get <id> [<id>...]';
 function contextOrReport(d: MemoryCommandDeps): Pick<ServerRuntimeContext, 'client' | 'projectId'> | null {
   const ctx = d.resolveContext(d.cwd);
   if (!ctx) {
-    const resolution = d.diagnose?.(d.cwd) ?? { kind: 'no_project', folder: d.cwd };
+    const diagnosed = d.diagnose?.(d.cwd);
+    const resolution: UnusableFolderProject = diagnosed && diagnosed.kind !== 'resolved'
+      ? diagnosed
+      : { kind: 'no_project', folder: d.cwd };
     const lines = describeUnusableProject(
-      resolution.kind === 'no_key' ? resolution : { kind: 'no_project', folder: d.cwd },
+      resolution,
       'Memory was not searched; this is not an empty result.',
       'Run this from a project folder where MemSmith has recorded a session.',
     );
-    for (const line of lines ?? []) d.err(line);
+    for (const line of lines) d.err(line);
   }
   return ctx;
 }
