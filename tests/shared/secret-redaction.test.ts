@@ -374,3 +374,82 @@ describe('redactSecretsDeep: hostile shapes', () => {
       .toEqual({ password: '[REDACTED:password]', label: 'Enter your password' });
   });
 });
+
+describe('redactSecrets: re-review fixes', () => {
+  it('redacts a multi-line .netrc entry and a default entry', () => {
+    expect(redactSecrets('machine api.example.com\n  login alex\n  password fAkEpass42\n'))
+      .toBe('machine api.example.com\n  login alex\n  password [REDACTED:password]\n');
+    expect(redactSecrets('default login alex password fAkEpass42'))
+      .toBe('default login alex password [REDACTED:password]');
+  });
+
+  it('redacts an npm _authToken set with a space', () => {
+    expect(redactSecrets('npm config set //registry.npmjs.org/:_authToken fAkE0123-4567-89ab-cdef'))
+      .toBe('npm config set //registry.npmjs.org/:_authToken [REDACTED:token]');
+  });
+
+  it('redacts an Authorization: Negotiate value', () => {
+    expect(redactSecrets('Authorization: Negotiate YIIFAKEfake0123456789'))
+      .toBe('Authorization: Negotiate [REDACTED:authorization]');
+  });
+
+  it('redacts an Authorization value without a scheme when it looks like a token', () => {
+    expect(redactSecrets('Authorization: fAkE0123AbCd4567EfGh')).toBe('Authorization: [REDACTED:authorization]');
+  });
+
+  it('keeps a passphrase with digits or symbols redacted', () => {
+    expect(redactSecretsDeep({ forgotPassword: 'Correct horse 42 staple!' })).toEqual({ forgotPassword: '[REDACTED:password]' });
+  });
+
+  it('is idempotent when one redaction exposes another candidate', () => {
+    for (const text of [
+      'password @Authorization: Authorization: pw1234567',
+      'machine m login l password @Authorization: Authorization: pw1234567',
+      `KEY=Bearer ${FAKE.bearer} --token Authorization: fAkE0123AbCd4567EfGh`,
+    ]) {
+      const once = redactSecrets(text);
+      expect(redactSecrets(once)).toBe(once);
+    }
+  });
+
+  const intact = [
+    'password strength: weak',
+    'password reset-link',
+    'password manager2',
+    'Use a password manager2 for this.',
+    'docker build --secret id=mysecret,src=./secret.txt .',
+    'renderPass: pipeline2024',
+    'authorization: enabled_for_users_2024',
+    '"forgotPassword": "Forgot your login details?"',
+  ];
+  for (const text of intact) {
+    it(`leaves ${JSON.stringify(text)} intact`, () => {
+      expect(redactSecrets(text)).toBe(text);
+    });
+  }
+
+  it('leaves a sentence-like label under a password key intact', () => {
+    const input = { forgotPassword: 'Forgot your login details?', confirmPassword: 'Type it again to confirm' };
+    expect(redactSecretsDeep(input)).toEqual(input);
+  });
+});
+
+describe('redactSecrets: every pattern on a 1 MB run of its own start token', () => {
+  const MB = 1024 * 1024;
+  const starts = [
+    '-eyJabcdefgh', 'eyJabcdefgh', '.eyJabcdefgh', 'eyJabcdefgh.eyJabcdefgh-', 'sk-ant-', 'sk-', 'sk_live_', 'rk_test_',
+    'ghp_', 'github_pat_', 'glpat-', 'hf_', 'AIza', 'AKIA', 'xoxb-', 'npm_',
+    '-----BEGIN PRIVATE KEY-----', '-----BEGIN PGP PRIVATE KEY BLOCK-----\n', 'Bearer ', 'Bearer a',
+    'Authorization: ', 'Authorization: Basic ', 'Authorization:"', '://u:', 'x://u:p', '://',
+    '--token ', '--token "', "--token '", '-a-', 'password ', 'machine m login l password ', 'machine ',
+    '_authToken ', 'api_key="', "api_key='", 'api_key=\\"', 'api_key=', 'key:\\"', 'password:"a ', '\\',
+  ];
+  for (const start of starts) {
+    it(`handles 1 MB of ${JSON.stringify(start)} in under 200 ms`, () => {
+      const input = start.repeat(Math.ceil(MB / start.length));
+      const began = performance.now();
+      redactSecrets(input);
+      expect(performance.now() - began).toBeLessThan(200);
+    });
+  }
+});

@@ -79,26 +79,61 @@ const TOKEN_RULES: TokenRule[] = [
     accept: m => /\d/.test(m),
   },
   { kind: 'npm_token', pattern: /npm_[A-Za-z0-9]{36,}/g, inWord: /[A-Za-z0-9_]/ },
-  {
-    // The leading \b lets a segment scan start only at the beginning of a
-    // token run, so each run is scanned once.
-    kind: 'jwt',
-    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])/g,
-  },
 ];
+
+// A JWT is found in two steps. JWT_RUN consumes a whole run of token and dot
+// characters in one pass, so a dot-free run full of `-eyJ` is scanned once
+// instead of once per occurrence. JWT_AT then tries only the `eyJ` positions
+// that start a token: each try reads at most three dot-separated segments.
+const JWT_RUN = /eyJ[A-Za-z0-9_.-]*/g;
+const JWT_AT = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/y;
+const TOKEN_CHAR = /[A-Za-z0-9_-]/;
+
+function redactJwts(text: string): string {
+  return text.replace(JWT_RUN, (run: string, offset: number) => {
+    if (!run.includes('.')) return run;
+    let out = '';
+    let copied = 0;
+    let at = 0;
+    while (at !== -1) {
+      const before = at === 0 ? text[offset - 1] : run[at - 1];
+      if (before === undefined || !TOKEN_CHAR.test(before)) {
+        JWT_AT.lastIndex = at;
+        const jwt = JWT_AT.exec(run);
+        if (jwt) {
+          out += run.slice(copied, at) + marker('jwt');
+          copied = at + jwt[0].length;
+          at = run.indexOf('eyJ', copied);
+          continue;
+        }
+      }
+      at = run.indexOf('eyJ', at + 3);
+    }
+    return out + run.slice(copied);
+  });
+}
 
 const looksLikeToken = (token: string) => /\d/.test(token) || token.length >= 20;
 
 const BEARER = /\b(Bearer[ \t]+)([A-Za-z0-9._~+/-]{8,}=*)/g;
 
 const AUTHORIZATION =
-  /\b(Authorization\\?["']?[ \t]*[:=][ \t]*\\?["']?(?:(?:Basic|Token|Digest)[ \t]+)?)([A-Za-z0-9._~+/-]{8,}=*)/gi;
+  /\b(Authorization\\?["']?[ \t]*[:=][ \t]*\\?["']?)(?:(Basic|Token|Digest|Negotiate|NTLM)([ \t]+))?([A-Za-z0-9._~+/-]{8,}=*)/gi;
+
+// Without a scheme, an Authorization value must look opaque: a config flag
+// such as `authorization: enabled_for_users_2024` has digits too.
+const looksLikeOpaqueToken = (token: string) =>
+  token.length >= 16 && /\d/.test(token) && /[A-Za-z]/.test(token) && !token.includes('_');
 
 const CONNECTION_PASSWORD = /:\/\/([^\s:/@"'<>]{0,256}:)([^\s/@"'<>]+)(?=@)/g;
 
 const FLAG = /-(-?[A-Za-z][A-Za-z0-9_-]{0,63}[ \t]+)(?:"((?:[^"\\\r\n]|\\.)*)"|'([^'\r\n]*)'|([^\s"'`;&|()<>\\-][^\s"'`;&|()<>]*))/g;
 
-const NETRC_PASSWORD = /\b(password|passwd)([ \t]+)([^\s"'`;&|()<>\\-][^\s"'`;&|()<>]*)/g;
+// Applies only to a netrc entry with a login, on one line or several, so prose
+// such as `password manager2` is left alone.
+const NETRC_ENTRY = /\b(?:machine\s+\S+|default)((?:\s+(?:login|account|port)\s+\S+)+)\s+password\s+(\S+)/g;
+
+const NPM_AUTH = /(_auth(?:Token)?|_password)([ \t]+)([^\s"'`;&|()<>\\][^\s"'`;&|()<>]*)/g;
 
 // Matches from the name's secret suffix so the scan skips to candidates; the
 // rest of the name is read backward in the callback. Group 1: suffix. Group 2:
@@ -135,6 +170,7 @@ function secretNameKind(name: string): SecretKind | null {
   const suffix = match[1];
   const lower = suffix.toLowerCase();
   if (lower === 'password' || lower === 'passwd') return 'password';
+  if (lower === 'pass') return /(?:^|[_.-])pass$/i.test(name) ? 'password' : null;
   const kind: SecretKind = lower === 'pass' ? 'password' : lower === 'key_base' ? 'key' : (lower as 'key' | 'token' | 'secret');
   const before = name.slice(0, -suffix.length);
   if (kind === 'key' && (before === '' || NON_SECRET_KEY_PREFIX.test(before))) return null;
@@ -142,7 +178,7 @@ function secretNameKind(name: string): SecretKind | null {
   if (before === '' || /[_.-]$/.test(before)) return kind;
   const camel = suffix[0] === suffix[0].toUpperCase() && suffix.slice(1) === suffix.slice(1).toLowerCase();
   if (camel && /[A-Za-z0-9]$/.test(before)) return kind;
-  if (lower !== 'pass' && GLUED_PREFIX.test(before)) return kind;
+  if (GLUED_PREFIX.test(before)) return kind;
   return null;
 }
 
@@ -168,6 +204,18 @@ const FILE_PATH = /\/.*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 const SECRET_WORD = /pass|key|token|secret/i;
 
 /**
+ * A quoted value of three or more plain words that reads like a sentence, such
+ * as `"Forgot your login details?"`, is a UI label. A passphrase made only of
+ * lowercase words, or one with digits or symbols, is not.
+ */
+function looksLikeLabel(value: string): boolean {
+  const text = value.trim();
+  if (text.split(/\s+/).length < 3) return false;
+  if (!/^[A-Za-z\s]+$/.test(text.replace(/[.?!,:;'"()-]+/g, ''))) return false;
+  return /^[A-Z]/.test(text) || /[.?!:]$/.test(text);
+}
+
+/**
  * Decides whether a value assigned to a secret-named field is a real secret.
  * A bare value is held to a stricter bar than a quoted one: in source code a
  * bare value is usually an identifier, not a literal. A quoted value with
@@ -177,7 +225,10 @@ function isSecretValue(value: string, kind: SecretKind, quoted: boolean): boolea
   if (value.length === 0 || value.startsWith(MARKER_PREFIX)) return false;
   if (PLACEHOLDERS.some(p => p.test(value))) return false;
   if (NON_SECRET_WORDS.has(value.toLowerCase())) return false;
-  if (/\s/.test(value)) return quoted && !/[\r\n]/.test(value) && !SECRET_WORD.test(value) && value.length >= 8;
+  if (/\s/.test(value)) {
+    if (!quoted || /[\r\n]/.test(value) || SECRET_WORD.test(value) || value.length < 8) return false;
+    return !looksLikeLabel(value);
+  }
   if (DOTTED_IDENTIFIER.test(value) || PATH.test(value) || FILE_PATH.test(value)) return false;
   if (kind === 'password') {
     if (value.length < 4) return false;
@@ -217,9 +268,26 @@ function redactFlags(text: string): string {
   });
 }
 
-/** Replaces every recognized secret in `text` with `[REDACTED:<kind>]`. Idempotent. */
+const MAX_PASSES = 3;
+
+/**
+ * Replaces every recognized secret in `text` with `[REDACTED:<kind>]`.
+ * A redaction can expose a new candidate for a rule that already ran, so the
+ * rules repeat until the text stops changing, which makes the result
+ * idempotent.
+ */
 export function redactSecrets(text: string): string {
   if (typeof text !== 'string' || text.length < 8) return text;
+  let out = text;
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const next = redactOnce(out);
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+function redactOnce(text: string): string {
   let out = text;
   for (const rule of TOKEN_RULES) {
     const source = out;
@@ -229,21 +297,30 @@ export function redactSecrets(text: string): string {
       return !rule.accept || rule.accept(m) ? marker(rule.kind) : m;
     });
   }
+  out = redactJwts(out);
   out = out.replace(BEARER, (m, scheme: string, token: string) =>
     looksLikeToken(token) ? `${scheme}${marker('bearer_token')}` : m,
   );
-  out = out.replace(AUTHORIZATION, (m, prefix: string, token: string) =>
-    looksLikeToken(token) ? `${prefix}${marker('authorization')}` : m,
-  );
+  out = out.replace(AUTHORIZATION, (m, prefix: string, scheme: string | undefined, space: string | undefined, token: string) => {
+    const secret = scheme ? looksLikeToken(token) : looksLikeOpaqueToken(token);
+    return secret ? `${prefix}${scheme ?? ''}${space ?? ''}${marker('authorization')}` : m;
+  });
   out = out.replace(CONNECTION_PASSWORD, (m, user: string, password: string, offset: number, source: string) =>
     offset > 0 && /[A-Za-z0-9]/.test(source[offset - 1]) && isSecretValue(password, 'password', true)
       ? `://${user}${marker('password')}`
       : m,
   );
   out = redactFlags(out);
-  out = out.replace(NETRC_PASSWORD, (m, word: string, space: string, value: string) =>
-    isSecretValue(value, 'password', false) ? `${word}${space}${marker('password')}` : m,
+  out = out.replace(NETRC_ENTRY, (m, fields: string, password: string) =>
+    /\blogin\s/.test(fields) && isSecretValue(password, 'password', true)
+      ? `${m.slice(0, m.length - password.length)}${marker('password')}`
+      : m,
   );
+  out = out.replace(NPM_AUTH, (m, name: string, space: string, value: string, offset: number, source: string) => {
+    if (offset > 0 && /[A-Za-z0-9]/.test(source[offset - 1])) return m;
+    const kind: SecretKind = name === '_password' ? 'password' : 'token';
+    return isSecretValue(value, kind, false) ? `${name}${space}${marker(kind)}` : m;
+  });
   return redactAssignments(out);
 }
 

@@ -114,9 +114,9 @@ postgres://app_user:[REDACTED:password]@db.internal:5432/app
 MemSmith recognizes these patterns:
 
 - Provider keys and tokens: Anthropic (`sk-ant-`), OpenAI (`sk-`, `sk-proj-`), Stripe (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab (`glpat-`), Hugging Face (`hf_`), Google API keys (`AIza`), AWS access key IDs (`AKIA`, `ASIA`), Slack (`xoxb-`, `xoxp-`, and the other `xox` types), and npm (`npm_`).
-- Bearer tokens, `Authorization` header values (`Bearer`, `Basic`, `token`), and JSON Web Tokens (JWTs).
+- Bearer tokens, `Authorization` header values (`Bearer`, `Basic`, `token`, `Negotiate`), and JSON Web Tokens (JWTs).
 - PEM and PGP private key blocks.
-- Passwords in connection strings, such as `scheme://user:password@host`, and `password` entries in `.netrc` files.
+- Passwords in connection strings, such as `scheme://user:password@host`, `password` entries in `.netrc` files, and npm `_authToken` values.
 - Values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, or `PASS`, and `SECRET_KEY_BASE`. MemSmith redacts these in env form (`NAME=value`, `export NAME=value`), JSON (including escaped JSON), YAML, and command-line flags (`--api-key value`, `--password value`). It keeps the name and redacts only the value, including quoted passphrases that contain spaces.
 
 To keep useful memory intact, MemSmith doesn't redact these values:
@@ -124,7 +124,7 @@ To keep useful memory intact, MemSmith doesn't redact these values:
 - Values that are too short or too plain to be a key, such as words without digits under a key or token name.
 - Placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
 - Code references such as `process.env.API_KEY`, file paths such as `certs/server.key`, and type names such as `string`.
-- Quoted text that names its own field, such as the label `"password": "Enter your password"`.
+- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels of three or more plain words that read like a sentence, such as `"forgotPassword": "Forgot your login details?"`. A passphrase of lowercase words, or one with digits or symbols, is still redacted.
 - Names where the word is an identifier rather than a credential, such as a bare `key`, `idempotencyKey`, `PUBLIC_KEY`, `nextToken`, `pageToken`, and `max_tokens`.
 
 Redaction is pattern-based, so a secret in a format that MemSmith doesn't recognize is stored as captured. To keep such a secret out of memory, wrap it in `<private>` tags.
