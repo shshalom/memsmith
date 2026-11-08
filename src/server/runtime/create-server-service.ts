@@ -15,13 +15,12 @@ import {
   listProjectTargets, sweepAllProjects,
 } from './multi-project-recovery.js';
 import {
-  DEFAULT_DRAIN_BATCH, type DrainableJob, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
-  requeueDrainedJobs, requeueOrphanedJobs, resolveQueueConcurrency,
+  DEFAULT_DRAIN_BATCH, type DrainableJob, type RequeueTarget, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
+  requeueDrainedJobs, requeueOrphanedJobs, resolveQueueConcurrency, screenJobs,
 } from './generation-drain.js';
 import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
-import { assertServerGenerationJobPayload } from '../jobs/types.js';
-import { projectDatabaseName } from './resolve-project-database.js';
-import { runContinuousDrain } from './continuous-drain.js';
+import { classifyJobRoute } from './job-routing.js';
+import { DEFAULT_REFILL_THRESHOLD, runContinuousDrain } from './continuous-drain.js';
 import { runRetrySweep } from './retry-sweep.js';
 import { backfillEmbeddings, loadUnembeddedRows } from './embedding-backfill.js';
 import { InlineServerQueueManager } from './InlineServerQueueManager.js';
@@ -339,7 +338,7 @@ export async function createServerService(
         // Never blocks boot; the next start retries.
       }
       const resolveQueue = (kind: 'event' | 'summary') => {
-        const mgr = queueManager as { getQueue?: (k: string) => { add: (id: string, p: unknown) => Promise<void> } };
+        const mgr = queueManager as { getQueue?: (k: string) => RequeueTarget & { getRecoveryWaitingCount?: () => number } };
         try { return mgr.getQueue ? mgr.getQueue(kind) : null; } catch { return null; }
       };
 
@@ -415,7 +414,14 @@ export async function createServerService(
       // Refills only when the queue is LOW: handing a slow local model the whole
       // backlog at once would mean a shutdown strands all of it, which is the
       // original bug at a larger scale.
+      const routing = {
+        basePool: pool,
+        baseProjectId: localDevProjectId,
+        getPool: poolRegistry ? poolRegistry.registry.getPool.bind(poolRegistry.registry) as never : null,
+      };
+      const classify = (p: PostgresPool) => (job: DrainableJob) => classifyJobRoute(p, job, routing);
       let totalRequeued = 0;
+      let firstBatch = true;
       const bootDrain = runContinuousDrain({
         batchSize: DEFAULT_DRAIN_BATCH,
         // Depth of the RECOVERY lane, not the live lane.
@@ -443,31 +449,22 @@ export async function createServerService(
         sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
         isClosed: () => false,
         loadBatch: async (limit: number) => {
-          const jobs = await loadQueuedJobsForDrain(pool, { batchSize: limit });
-          if (jobs.length === 0) return 0;
+          const loaded = await loadQueuedJobsForDrain(pool, { batchSize: limit, respectBackoff: !firstBatch });
+          firstBatch = false;
+          if (loaded.length === 0) return 0;
+          const jobs = await screenJobs(pool, loaded, classify(pool));
           const result = await requeueDrainedJobs(jobs, { resolveQueue });
           totalRequeued += result.requeued;
           // Log every batch: the entire failure mode here was silence — 6,958
           // jobs stranded for two weeks with nothing reporting it.
           logger.info('SYSTEM', 'generation backlog drain', {
-            found: jobs.length, requeued: result.requeued, skipped: result.skipped, totalRequeued,
+            found: loaded.length, requeued: result.requeued, skipped: result.skipped, totalRequeued,
           });
           // Report loaded rows, not just successfully requeued ones, so a batch
           // that could not be published still advances and cannot loop forever.
-          return jobs.length;
+          return loaded.length;
         },
       });
-
-      const isRunnableIn = async (p: PostgresPool, job: DrainableJob): Promise<boolean> => {
-        let payload;
-        try { payload = assertServerGenerationJobPayload(job.payload); } catch { return false; }
-        if (payload.generation_job_id !== job.id) return false;
-        if (!poolRegistry || payload.project_id === localDevProjectId) return p === pool;
-        const target = await poolRegistry.registry.getPool(
-          projectDatabaseName(payload.project_id), { teamId: payload.team_id, projectId: payload.project_id },
-        );
-        return target === p;
-      };
 
       const retrySweep = runRetrySweep<PostgresPool>({
         listPools: async () => {
@@ -487,7 +484,14 @@ export async function createServerService(
           const retried = jobs.length === 0
             ? 0
             : (await requeueDrainedJobs(jobs, { resolveQueue })).requeued;
-          return retried + await requeueOrphanedJobs(p, { resolveQueue, isRunnable: (job) => isRunnableIn(p, job) });
+          return retried + await requeueOrphanedJobs(p, {
+            resolveQueue,
+            classify: classify(p),
+            recoveryDepth: () => {
+              try { return resolveQueue('event')?.getRecoveryWaitingCount?.() ?? 0; } catch { return 0; }
+            },
+            maxRecoveryDepth: DEFAULT_REFILL_THRESHOLD,
+          });
         },
         sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
         isClosed: () => false,

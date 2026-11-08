@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { InlineServerQueue } from '../../../src/server/runtime/InlineServerQueue.js';
-import { requeueOrphanedJobs, requeueDrainedJobs, claimQueuedBacklog } from '../../../src/server/runtime/generation-drain.js';
+import { requeueOrphanedJobs, requeueDrainedJobs, claimQueuedBacklog, screenJobs, loadQueuedJobsForDrain } from '../../../src/server/runtime/generation-drain.js';
 import { runRetrySweep } from '../../../src/server/runtime/retry-sweep.js';
 import { runContinuousDrain } from '../../../src/server/runtime/continuous-drain.js';
 
@@ -101,7 +101,7 @@ describe('requeueOrphanedJobs', () => {
       return original(text, values);
     };
 
-    const requeued = await requeueOrphanedJobs(pool, { ...deps, isRunnable: async (j) => j.id !== 'bad' });
+    const requeued = await requeueOrphanedJobs(pool, { ...deps, classify: async (j) => (j.id === 'bad' ? 'unrunnable' : 'runnable') });
     await tick();
 
     expect(requeued).toBe(1);
@@ -188,5 +188,68 @@ describe('runContinuousDrain', () => {
       maxIterations: 4,
     });
     expect(sleeps).toEqual([5_000, 5_000, 5_000, 5_000]);
+  });
+});
+
+describe('accepted counts', () => {
+  it('counts only jobs the queue accepted', async () => {
+    const queue = new InlineServerQueue<object>('event', 1);
+    await queue.addRecovery('dup', {});
+    const job = (id: string) => ({
+      id, jobType: 'observation', projectId: 'p', teamId: 't', agentEventId: null, sourceType: null,
+      sourceId: null, serverSessionId: null, payload: {}, bullmqJobId: id,
+    });
+    const result = await requeueDrainedJobs([job('dup'), job('fresh')], { resolveQueue: () => queue });
+    expect(result).toEqual({ requeued: 1, skipped: 1 });
+  });
+});
+
+describe('requeueOrphanedJobs depth gate', () => {
+  const deps = (depth: number) => ({
+    resolveQueue: () => new InlineServerQueue<object>('event', 1),
+    recoveryDepth: () => depth,
+    maxRecoveryDepth: 50,
+  });
+
+  it('skips the claim while the recovery lane is deeper than the threshold', async () => {
+    const pool = fakeProjectPool([{ id: 'a', leased: false }]);
+    expect(await requeueOrphanedJobs(pool, deps(51))).toBe(0);
+    expect(pool.rows[0]!.leased).toBe(false);
+  });
+
+  it('claims at the threshold', async () => {
+    const pool = fakeProjectPool([{ id: 'a', leased: false }]);
+    expect(await requeueOrphanedJobs(pool, deps(50))).toBe(1);
+    expect(pool.rows[0]!.leased).toBe(true);
+  });
+});
+
+describe('screenJobs', () => {
+  it('keeps the lease on a job whose route is unknown: neither failed nor returned', async () => {
+    const queries: string[] = [];
+    const pool = { query: async (t: string) => { queries.push(t); return { rows: [] }; } };
+    const job = (id: string) => ({
+      id, jobType: 'observation', projectId: 'p', teamId: 't', agentEventId: null, sourceType: null,
+      sourceId: null, serverSessionId: null, payload: {}, bullmqJobId: id,
+    });
+    const kept = await screenJobs(pool, [job('ok'), job('bad'), job('unsure'), job('throws')], async (j) => {
+      if (j.id === 'throws') throw new Error('boom');
+      return j.id === 'ok' ? 'runnable' : j.id === 'bad' ? 'unrunnable' : 'unknown';
+    });
+    expect(kept.map((j) => j.id)).toEqual(['ok']);
+    expect(queries).toHaveLength(1);
+  });
+});
+
+describe('loadQueuedJobsForDrain backoff', () => {
+  const sqlFor = async (respectBackoff?: boolean) => {
+    let sql = '';
+    await loadQueuedJobsForDrain({ query: async (t) => { sql = t; return { rows: [] }; } }, { respectBackoff });
+    return sql;
+  };
+
+  it('honors next_attempt_at only when asked', async () => {
+    expect(await sqlFor()).not.toContain('next_attempt_at');
+    expect(await sqlFor(true)).toContain('(next_attempt_at IS NULL OR next_attempt_at <= now())');
   });
 });

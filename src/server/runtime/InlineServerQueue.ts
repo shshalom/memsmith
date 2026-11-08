@@ -48,12 +48,13 @@ export class InlineServerQueue<TPayload extends object = object> {
 
   constructor(readonly name: string, private readonly concurrency: number = 1) {}
 
-  async add(jobId: string, payload: TPayload): Promise<void> {
+  async add(jobId: string, payload: TPayload): Promise<boolean> {
     if (this.closed) throw new Error(`InlineServerQueue ${this.name} is closed`);
-    if (this.inFlight.has(jobId)) return;
+    if (this.inFlight.has(jobId)) return false;
     this.inFlight.add(jobId);
     this.waiting.push({ id: jobId, data: payload, attemptsMade: 0 });
     queueMicrotask(() => this.drain());
+    return true;
   }
 
   /**
@@ -63,12 +64,13 @@ export class InlineServerQueue<TPayload extends object = object> {
    * every call site: a caller that does not know it is doing recovery gets
    * foreground priority, which is the safe default.
    */
-  async addRecovery(jobId: string, payload: TPayload): Promise<void> {
+  async addRecovery(jobId: string, payload: TPayload): Promise<boolean> {
     if (this.closed) throw new Error(`InlineServerQueue ${this.name} is closed`);
-    if (this.inFlight.has(jobId)) return;
+    if (this.inFlight.has(jobId)) return false;
     this.inFlight.add(jobId);
     this.waitingRecovery.push({ id: jobId, data: payload, attemptsMade: 0 });
     queueMicrotask(() => this.drain());
+    return true;
   }
 
   /**

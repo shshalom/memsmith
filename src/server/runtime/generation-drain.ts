@@ -167,7 +167,7 @@ export async function claimQueuedBacklog(
  */
 export async function loadQueuedJobsForDrain(
   pool: DrainQueryable,
-  opts: { batchSize?: number } = {},
+  opts: { batchSize?: number; respectBackoff?: boolean } = {},
 ): Promise<DrainableJob[]> {
   const batchSize = opts.batchSize ?? DEFAULT_DRAIN_BATCH;
   try {
@@ -195,7 +195,9 @@ export async function loadQueuedJobsForDrain(
               source_type, source_id, server_session_id, payload, bullmq_job_id
          FROM observation_generation_jobs
         WHERE status = 'queued'
-          AND attempts < max_attempts
+          AND attempts < max_attempts${opts.respectBackoff
+            ? '\n          AND (next_attempt_at IS NULL OR next_attempt_at <= now())'
+            : ''}
         ORDER BY created_at ASC
         LIMIT $1`,
       [batchSize],
@@ -315,7 +317,8 @@ export async function reclaimTransientFailures(
 
 /** Minimal shape of the queue a drained job is published back into. */
 export interface RequeueTarget {
-  add: (jobId: string, payload: unknown) => Promise<void>;
+  /** Resolves `false` when the queue already holds the job id. */
+  add: (jobId: string, payload: unknown) => Promise<void | boolean>;
   /**
    * Enqueue at BACKGROUND priority, when the queue supports lanes.
    *
@@ -323,7 +326,7 @@ export interface RequeueTarget {
    * from backlog replay. BullMQ deployments run recovery on separate workers, so
    * they fall back to `add` with no loss.
    */
-  addRecovery?: (jobId: string, payload: unknown) => Promise<void>;
+  addRecovery?: (jobId: string, payload: unknown) => Promise<void | boolean>;
 }
 
 export interface RequeueDeps {
@@ -369,8 +372,8 @@ export async function requeueDrainedJobs(
       // split; when it is absent the old behaviour applies, which is correct for
       // a multi-process deployment where recovery runs on its own workers anyway.
       const enqueue = queue.addRecovery ?? queue.add;
-      await enqueue.call(queue, job.bullmqJobId ?? job.id, job.payload);
-      requeued += 1;
+      const accepted = await enqueue.call(queue, job.bullmqJobId ?? job.id, job.payload);
+      if (accepted === false) skipped += 1; else requeued += 1;
     } catch {
       // One bad job must not cost the rest of the backlog.
       skipped += 1;
@@ -409,26 +412,43 @@ export async function failUnrunnableJobs(pool: DrainQueryable, ids: string[], re
 }
 
 /**
+ * Keep the jobs the worker would run from `pool`. Unrunnable jobs are failed so
+ * no sweep claims them again; jobs whose route is unknown are left as they are.
+ */
+export async function screenJobs(
+  pool: DrainQueryable,
+  jobs: DrainableJob[],
+  classify: (job: DrainableJob) => Promise<'runnable' | 'unrunnable' | 'unknown'>,
+): Promise<DrainableJob[]> {
+  const runnable: DrainableJob[] = [];
+  const rejected: string[] = [];
+  for (const job of jobs) {
+    const route = await classify(job).catch(() => 'unknown' as const);
+    if (route === 'runnable') runnable.push(job);
+    else if (route === 'unrunnable') rejected.push(job.id);
+  }
+  await failUnrunnableJobs(pool, rejected, 'payload invalid or routed to another database');
+  return runnable;
+}
+
+/**
  * Put orphaned jobs from one pool onto the queue, at most one batch per call, so
- * a large backlog drains over successive calls. `isRunnable` rejects jobs the
- * worker would refuse or resolve to another database; those are failed instead
- * of requeued.
+ * a large backlog drains over successive calls. Does nothing while the recovery
+ * lane is deeper than `maxRecoveryDepth`: that backlog is already in memory.
  */
 export async function requeueOrphanedJobs(
   pool: DrainQueryable,
-  deps: RequeueDeps & { isRunnable?: (job: DrainableJob) => Promise<boolean> },
+  deps: RequeueDeps & {
+    classify?: (job: DrainableJob) => Promise<'runnable' | 'unrunnable' | 'unknown'>;
+    recoveryDepth?: () => number;
+    maxRecoveryDepth?: number;
+  },
   opts: { batchSize?: number } = {},
 ): Promise<number> {
+  if (deps.recoveryDepth && deps.recoveryDepth() > (deps.maxRecoveryDepth ?? 50)) return 0;
   const claimed = await claimQueuedBacklog(pool, opts);
   if (claimed.length === 0) return 0;
-  const jobs: DrainableJob[] = [];
-  const rejected: string[] = [];
-  for (const job of claimed) {
-    let ok = true;
-    try { ok = deps.isRunnable ? await deps.isRunnable(job) : true; } catch { ok = true; }
-    if (ok) jobs.push(job); else rejected.push(job.id);
-  }
-  await failUnrunnableJobs(pool, rejected, 'payload invalid or routed to another database');
+  const jobs = deps.classify ? await screenJobs(pool, claimed, deps.classify) : claimed;
   if (jobs.length === 0) return 0;
   return (await requeueDrainedJobs(jobs, deps)).requeued;
 }
