@@ -5,7 +5,7 @@ import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
 import { LOCAL_OWNER_USER_ID } from '../../server/identity/providers/local-provider.js';
-import { ensureLocalTeamId, readLocalTeamId } from './local-team.js';
+import { ensureLocalTeamId } from './local-team.js';
 import {
   findGitRoot,
   MARKER_RELATIVE_PATH,
@@ -323,6 +323,7 @@ export async function ensureProjectIdentity(
   pool: QueryablePool,
   cwd: string,
   store?: CredentialStore,
+  options: { localTeamId?: () => string } = {},
 ): Promise<EnsuredProjectIdentity> {
   const root = resolveProjectRoot(cwd);
   const existing = readMarkerAt(root);
@@ -343,7 +344,7 @@ export async function ensureProjectIdentity(
     // the marker does not name.
     const candidate: ProjectMarker = adopted
       ? { ...adopted, note: MARKER_NOTE }
-      : { teamId: ensureLocalTeamId(), projectId: randomUUID(), note: MARKER_NOTE };
+      : { teamId: (options.localTeamId ?? ensureLocalTeamId)(), projectId: randomUUID(), note: MARKER_NOTE };
     const won = createMarkerIfAbsent(root, candidate);
     teamId = won.teamId;
     projectId = won.projectId;
@@ -428,24 +429,16 @@ async function insertApiKeyHash(
  * The INSERT is issued directly on the pool rather than through
  * PostgresAuthRepository.createApiKey so we can avoid the RETURNING clause
  * (which would fail on a fake/fresh pool) and the assertProjectOwnership guard
- * (which would throw before the projects row exists). The key row is anchored
- * to projectId, and postgres-auth never lets it reach another project.
- *
- * Projects in the machine's local team share a team but not a key: each gets
- * its own, cached per project. One shared key scoped every later project to the
- * first one, so their memory was written into and read from that project.
+ * (which would throw before the projects row exists). The key is scoped to the
+ * team; projectId is accepted for context/logging only.
  */
 export async function ensureBaseKey(
   pool: QueryablePool,
   teamId: string,
   projectId: string,
   store: CredentialStore = new CredentialStore(),
-  options: { perProject?: boolean } = {},
 ): Promise<string> {
-  const perProject = (options.perProject ?? teamId === readLocalTeamId())
-    && typeof store.resolveKeyForProject === 'function'
-    && typeof store.storeProjectKeyIfAbsent === 'function';
-  const cached = perProject ? store.resolveKeyForProject(teamId, projectId) : store.resolveKeyForTeam(teamId);
+  const cached = store.resolveKeyForTeam(teamId);
   if (cached) {
     const keyHash = hashApiKey(cached);
     const existing = await pool.query(
@@ -486,11 +479,9 @@ export async function ensureBaseKey(
   // hand-rolled stub, or an alternate backing such as Secrets Manager that has
   // not implemented check-and-set yet). Those callers keep the old racy
   // behaviour rather than crashing on a missing method.
-  const adopted = perProject
-    ? store.storeProjectKeyIfAbsent(teamId, projectId, candidate)
-    : typeof store.storeKeyIfAbsent === 'function'
-      ? store.storeKeyIfAbsent(teamId, candidate)
-      : (store.storeKeyForTeam(teamId, candidate), candidate);
+  const adopted = typeof store.storeKeyIfAbsent === 'function'
+    ? store.storeKeyIfAbsent(teamId, candidate)
+    : (store.storeKeyForTeam(teamId, candidate), candidate);
 
   // Persist the hash of the key we actually adopted, never the candidate we
   // discarded — inserting the loser is what created the orphan rows.

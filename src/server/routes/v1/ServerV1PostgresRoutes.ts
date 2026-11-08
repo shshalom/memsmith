@@ -2180,7 +2180,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           //
           // The destination key remains the AUTHORIZATION for the copy; it is simply not
           // the project's identity.
-          const projectKey = credStore.resolveKeyFor({ teamId: input.teamId, projectId: input.projectId });
+          const projectKey = credStore.resolveKeyForTeam(input.teamId);
           if (!projectKey) {
             // Flipping without a resolvable key strands the project in server mode with
             // no credential — every hook then fails missing_api_key and silently drops

@@ -23,9 +23,6 @@ export interface ViewerProjectScopeDeps {
   requestedProjectId?: string | undefined;
   // Team of the project the server booted from; null in team/server mode.
   serverTeamId: string | null;
-  /** Project the server booted from; picks its own key when its team has several. */
-  serverProjectId?: string | null;
-  resolveKeyForServerProject?: (teamId: string, projectId: string) => string | null;
   lookupTeamForProject: (projectId: string) => Promise<string | null>;
   resolveKeyForTeam: (teamId: string) => string | null;
   /**
@@ -47,10 +44,7 @@ export interface ViewerProjectScopeDeps {
 }
 
 export async function resolveViewerKeyForRequest(deps: ViewerProjectScopeDeps): Promise<string | null> {
-  const ownKey = deps.serverTeamId && deps.serverProjectId && deps.resolveKeyForServerProject
-    ? deps.resolveKeyForServerProject(deps.serverTeamId, deps.serverProjectId)
-    : null;
-  const fallback = ownKey ?? (deps.serverTeamId ? deps.resolveKeyForTeam(deps.serverTeamId) : null);
+  const fallback = deps.serverTeamId ? deps.resolveKeyForTeam(deps.serverTeamId) : null;
 
   const requested = deps.requestedProjectId?.trim();
   if (!requested) return fallback;

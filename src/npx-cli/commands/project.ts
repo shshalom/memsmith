@@ -280,8 +280,11 @@ async function fetchProjects(): Promise<ServerProject[] | null> {
     return null;
   }
   const store = new CredentialStore();
-  const keys = store.listKeys();
-  for (const key of keys) {
+  const local = readLocalTeamId();
+  const teams = store.listTeamIdsWithKeys().sort((a, b) => Number(b === local) - Number(a === local));
+  for (const teamId of teams) {
+    const key = store.resolveKeyForTeam(teamId);
+    if (!key) continue;
     try {
       const res = await fetch(`${baseUrl}/v1/projects`, {
         headers: { Authorization: `Bearer ${key}` },

@@ -152,7 +152,7 @@ export function buildServerContext(options: BuildServerContextOptions = {}): Ser
   if (!apiKey) {
     if (projectMarker) {
       const store = options.credentialStore ?? new CredentialStore();
-      const resolved = store.resolveKeyFor(projectMarker);
+      const resolved = store.resolveKeyForTeam(projectMarker.teamId);
       if (resolved) {
         apiKey = resolved;
         if (!projectId) projectId = projectMarker.projectId;

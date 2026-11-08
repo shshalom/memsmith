@@ -34,7 +34,7 @@ export function resolveFolderProject(folder: string, options: ResolveFolderProje
   const ctx = buildServerContext({ cwd: folder, credentialStore: store });
   if (ctx) return { kind: 'resolved', ctx };
   if (!marker) return { kind: 'no_project', folder };
-  if (!store.resolveKeyFor(marker)) {
+  if (!store.resolveKeyForTeam(marker.teamId)) {
     return { kind: 'no_key', folder, projectId: marker.projectId, team: marker.runtime === 'server' };
   }
   return { kind: 'unconfigured', folder };
@@ -67,7 +67,7 @@ function resolvePinnedMarker(folder: string, marker: ProjectMarker, store: Crede
 
   const settingsKeyFits = settingsProject === marker.projectId
     || (marker.serverUrl !== undefined && settingsUrl !== '' && sameUrl(marker.serverUrl, settingsUrl));
-  const apiKey = store.resolveKeyFor(marker) ?? (settingsKey && settingsKeyFits ? settingsKey : null);
+  const apiKey = store.resolveKeyForTeam(marker.teamId) ?? (settingsKey && settingsKeyFits ? settingsKey : null);
   if (!apiKey) return { kind: 'no_key', folder, projectId: marker.projectId, team: isTeam };
   if (isTeam && !marker.serverUrl) return { kind: 'no_team_server', folder, projectId: marker.projectId };
 

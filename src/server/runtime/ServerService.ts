@@ -470,8 +470,6 @@ export class ServerService {
           return resolveViewerKeyForRequest({
             requestedProjectId,
             serverTeamId: localTeamId,
-            serverProjectId: this.graph.localDevProjectId ?? null,
-            resolveKeyForServerProject: (teamId: string, projectId: string) => store.resolveKeyForProject(teamId, projectId),
             lookupTeamForProject: async (projectId: string) => {
               const r = await this.graph.postgres.pool.query(
                 'SELECT team_id FROM projects WHERE id = $1', [projectId],
@@ -495,8 +493,9 @@ export class ServerService {
                 (r.rows as Array<{ key_hash?: string }>).map(x => x.key_hash).filter(Boolean) as string[],
               );
               if (!hashes.size) return null;
-              for (const plaintext of store.listKeys()) {
-                if (hashes.has(hashApiKey(plaintext))) return plaintext;
+              for (const teamId of store.listTeamIdsWithKeys()) {
+                const plaintext = store.resolveKeyForTeam(teamId);
+                if (plaintext && hashes.has(hashApiKey(plaintext))) return plaintext;
               }
               return null;
             },

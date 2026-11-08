@@ -5,8 +5,6 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { ensureProjectIdentity, readProjectMarker } from '../../../src/services/identity/project-identity.js';
 import { ensureLocalTeamId, readLocalTeamId } from '../../../src/services/identity/local-team.js';
-import { CredentialStore } from '../../../src/services/identity/credential-store.js';
-import { hashApiKey } from '../../../src/services/hooks/server-bootstrap.js';
 
 // A folder with no marker used to get a brand-new project under a brand-new
 // random team, cut off from every other project on the machine.
@@ -87,57 +85,5 @@ describe('the created-project report', () => {
     expect(first.created).toEqual({ root: folder, name: 'fresh' });
     const second = await ensureProjectIdentity(fakePool as never, folder);
     expect(second.created).toBeUndefined();
-  });
-});
-
-describe('keys for projects in the local team', () => {
-  // postgres-auth never lets a project-scoped key reach another project, so a
-  // key shared by the team scoped every later project to the first one.
-  function recordingPool() {
-    const keyRows: Array<{ hash: string; teamId: string; projectId: string }> = [];
-    return {
-      keyRows,
-      query: async (sql: string, params: unknown[] = []) => {
-        if (sql.includes('INSERT INTO api_keys')) {
-          keyRows.push({ hash: String(params[1]), teamId: String(params[2]), projectId: String(params[3]) });
-        }
-        if (sql.startsWith('SELECT 1 FROM api_keys')) {
-          const hit = keyRows.some((r) => r.hash === params[0] && r.teamId === params[1]);
-          return { rows: hit ? [{}] : [], rowCount: hit ? 1 : 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      },
-    };
-  }
-
-  it('gives each project its own key, anchored to that project', async () => {
-    const pool = recordingPool();
-    const store = new CredentialStore(join(base, 'credentials.json'));
-    mkdirSync(join(base, 'alpha'));
-    mkdirSync(join(base, 'beta'));
-    const alpha = await ensureProjectIdentity(pool as never, join(base, 'alpha'), store);
-    const beta = await ensureProjectIdentity(pool as never, join(base, 'beta'), store);
-    const alphaKey = store.resolveKeyFor(alpha)!;
-    const betaKey = store.resolveKeyFor(beta)!;
-    expect(alphaKey).toBeTruthy();
-    expect(betaKey).toBeTruthy();
-    expect(alphaKey).not.toBe(betaKey);
-    expect(pool.keyRows.find((r) => r.hash === hashApiKey(alphaKey))?.projectId).toBe(alpha.projectId);
-    expect(pool.keyRows.find((r) => r.hash === hashApiKey(betaKey))?.projectId).toBe(beta.projectId);
-
-    await ensureProjectIdentity(pool as never, join(base, 'alpha'), store);
-    expect(store.resolveKeyFor(alpha)).toBe(alphaKey);
-    expect(pool.keyRows.length).toBe(2);
-  });
-
-  it('switches a joined project to its new team key and leaves the rest alone', () => {
-    const store = new CredentialStore(join(base, 'credentials.json'));
-    store.storeProjectKeyIfAbsent('t-local', 'p-a', 'key-a');
-    store.storeProjectKeyIfAbsent('t-local', 'p-b', 'key-b');
-    store.storeKeyForTeam('t-joined', 'key-team');
-    expect(store.resolveKeyFor({ teamId: 't-joined', projectId: 'p-a' })).toBe('key-team');
-    expect(store.resolveKeyFor({ teamId: 't-local', projectId: 'p-b' })).toBe('key-b');
-    expect(store.listTeamIdsWithKeys().sort()).toEqual(['t-joined', 't-local']);
-    expect(store.listKeys().sort()).toEqual(['key-a', 'key-b', 'key-team']);
   });
 });

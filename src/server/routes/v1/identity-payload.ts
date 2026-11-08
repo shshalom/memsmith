@@ -40,7 +40,7 @@ export function buildIdentityPayload(
   store: CredentialStore,
   opts: { reveal: boolean; role?: string | null; runtime?: 'local' | 'team' },
 ): IdentityPayload {
-  const key = store.resolveKeyFor(ids);
+  const key = store.resolveKeyForTeam(ids.teamId);
   const role = opts.role ?? null;
   const payload: IdentityPayload = {
     teamId: ids.teamId,
