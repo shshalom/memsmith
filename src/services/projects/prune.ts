@@ -129,6 +129,7 @@ export async function planPrune(inv: ProjectInventory, census: Census): Promise<
 }
 
 const DUMP_CONNECT_WAIT_MS = 5000;
+const REOPEN_TIMEOUT_MS = 10_000;
 
 // Resolves once pg_dump is connected or finished; rejects if it already failed.
 async function waitForDumpConnection(db: ProjectsDb, name: string, dumping: Promise<unknown>): Promise<void> {
@@ -157,15 +158,38 @@ async function dumpBlockRecountDrop(deps: PruneDeps, candidate: PruneCandidate, 
   const holder = await db.pool(name).connect();
   let blocked = false;
   let released = false;
-  const reopen = () => db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`);
+  const timeoutMs = deps.reopenTimeoutMs ?? REOPEN_TIMEOUT_MS;
+  const reopen = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer after ${timeoutMs / 1000} seconds`)), timeoutMs); }),
+      ]);
+    } catch (error) {
+      // A database the drop already removed has nothing left to reopen.
+      const exists = await db.base.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]).then((r) => r.rows.length > 0, () => true);
+      if (exists) throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const interrupts = deps.interrupts ?? processInterrupts;
   // Interrupted while the database refuses connections: let them back in
   // before exiting, or the database stays closed after this process is gone.
+  // A second interrupt exits without waiting.
+  let exiting = false;
   const handlers = (['SIGINT', 'SIGTERM'] as const).map((signal) => {
+    const code = signal === 'SIGINT' ? 130 : 143;
     const handler = () => {
+      if (exiting) {
+        interrupts.exit(code);
+        return;
+      }
+      exiting = true;
       void reopen()
         .catch((error) => console.error(`MemSmith could not let connections back into ${name}: ${error instanceof Error ? error.message : String(error)}. Run \`memsmith doctor --fix\`.`))
-        .finally(() => interrupts.exit(signal === 'SIGINT' ? 130 : 143));
+        .finally(() => interrupts.exit(code));
     };
     return { signal, handler };
   });
@@ -224,11 +248,25 @@ const processInterrupts: InterruptHooks = {
   exit: (code) => process.exit(code),
 };
 
-/** Re-opens project databases an interrupted prune left closed to connections. */
-export async function reopenLockedDatabases(db: ProjectsDb): Promise<string[]> {
-  const locked = await db.lockedDatabases();
-  for (const name of locked) await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`);
-  return locked;
+/**
+ * Re-opens project databases an interrupted prune left closed to connections.
+ * A running prune closes the database it drops, so this waits for none and
+ * changes nothing while one holds the maintenance lock.
+ */
+export async function reopenLockedDatabases(db: ProjectsDb): Promise<{ busy: true } | { busy: false; reopened: string[] }> {
+  const result = await db.tryMaintenanceLock(async () => {
+    const locked = await db.lockedDatabases();
+    for (const name of locked) await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`);
+    return locked;
+  });
+  return result.locked ? { busy: false, reopened: result.value } : { busy: true };
+}
+
+/** The `memsmith doctor --fix` repair: reopens locked databases, or fails while a merge or prune is running. */
+export async function unlockLockedDatabases(db: ProjectsDb): Promise<string[]> {
+  const result = await reopenLockedDatabases(db);
+  if (result.busy) throw new Error('a merge or prune is running. Run `memsmith doctor --fix` again when it finishes');
+  return result.reopened;
 }
 
 export interface PruneDeps {
@@ -239,6 +277,7 @@ export interface PruneDeps {
   /** Called after a team row is deleted, so this machine forgets its key. */
   forgetTeamKey: (teamId: string) => void;
   interrupts?: InterruptHooks;
+  reopenTimeoutMs?: number;
 }
 
 export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<PruneOutcome[]> {

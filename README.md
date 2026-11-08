@@ -78,7 +78,7 @@ by a port derived from your user ID.
 | `memsmith restart` | Restarts the server. Accepts `--timeout <s>` (default 300 seconds). |
 | `memsmith status` | Shows the server's state and version, and the project of the current folder. Exits 1 when the server is not running. |
 | `memsmith doctor` | Checks Bun, uv, the plugin install, the server, whether the generation provider can create memories, and whether a subfolder marker names a different project. |
-| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model. |
+| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model, and opens a project database that an interrupted prune left closed to connections. |
 | `memsmith update` | Updates the CLI, the plugin, and the server to the latest version and keeps your settings. |
 | `memsmith search <query>` | Searches the current project's memory and prints a ranked index. Accepts `--limit <n>` (default 10, maximum 25). |
 | `memsmith get <id> [<id>...]` | Prints the full records for up to 10 observation ids from `memsmith search`. |

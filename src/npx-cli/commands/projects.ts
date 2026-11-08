@@ -145,9 +145,13 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
       d.err('MemSmith cannot tell which database holds your projects, because the server has not recorded it. Run `memsmith start` first, then prune again.');
       return 1;
     }
-    const reopened = await reopenLockedDatabases(db);
-    for (const name of reopened) d.out(`Let connections back into ${name}, which an interrupted prune left closed.`);
-    if (reopened.length > 0) inv = await reload();
+    const reopen = await reopenLockedDatabases(db);
+    if (reopen.busy) {
+      d.err('MemSmith changed nothing: a merge or prune is running. Try again when it finishes.');
+      return 1;
+    }
+    for (const name of reopen.reopened) d.out(`Let connections back into ${name}, which an interrupted prune left closed.`);
+    if (reopen.reopened.length > 0) inv = await reload();
     const plan = await planPrune(inv, (name, owner) => db.census(name, owner));
     for (const k of plan.kept) d.out(`Keeping ${k.entry.name}: ${k.reason}.`);
     if (plan.candidates.length === 0) {

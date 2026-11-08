@@ -567,9 +567,9 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
     ollama: (action) => repairOllama(action, state.generation),
     unlockDatabases: async () => {
       const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
-      const { reopenLockedDatabases } = await import('../../services/projects/prune.js');
+      const { unlockLockedDatabases } = await import('../../services/projects/prune.js');
       const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
-      try { await reopenLockedDatabases(db); } finally { await db.close(); }
+      try { await unlockLockedDatabases(db); } finally { await db.close(); }
     },
     out: (line) => console.log(styleText('cyan', `  → ${line}`)),
   });

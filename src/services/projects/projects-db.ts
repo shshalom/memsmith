@@ -105,12 +105,19 @@ export class ProjectsDb {
 
   /** Runs `fn` while holding a session advisory lock, so two merges or prunes never overlap. */
   async withMaintenanceLock<T>(fn: () => Promise<T>): Promise<T> {
+    const result = await this.tryMaintenanceLock(fn);
+    if (!result.locked) throw new Error('another memsmith merge or prune is running. Try again when it finishes.');
+    return result.value;
+  }
+
+  /** Runs `fn` under the maintenance lock, or reports that another merge or prune holds it. */
+  async tryMaintenanceLock<T>(fn: () => Promise<T>): Promise<{ locked: true; value: T } | { locked: false }> {
     const client = await this.base.connect();
     try {
       const got = await client.query('SELECT pg_try_advisory_lock(hashtext($1)) AS locked', [MAINTENANCE_LOCK]);
-      if (!got.rows[0]?.locked) throw new Error('another memsmith merge or prune is running. Try again when it finishes.');
+      if (!got.rows[0]?.locked) return { locked: false };
       try {
-        return await fn();
+        return { locked: true, value: await fn() };
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [MAINTENANCE_LOCK]).catch(() => {});
       }

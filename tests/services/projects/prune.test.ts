@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { CredentialStore } from '../../../src/services/identity/credential-store.js';
 import { runProjectsCommand, type ProjectsCommandDeps } from '../../../src/npx-cli/commands/projects.js';
-import { planPrune, executePrune } from '../../../src/services/projects/prune.js';
+import { planPrune, executePrune, unlockLockedDatabases } from '../../../src/services/projects/prune.js';
 import type { ProjectEntry, ProjectInventory, RecordStats } from '../../../src/services/projects/inventory.js';
 import type { DatabaseCensus } from '../../../src/services/projects/projects-db.js';
 
@@ -94,7 +94,11 @@ describe('planPrune', () => {
   });
 });
 
-function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: DatabaseCensus | null; locked?: string[]; failReopen?: boolean } = {}) {
+function fakeDb(opts: {
+  known?: boolean; failDumpFor?: string; recount?: DatabaseCensus | null; locked?: string[]; failReopen?: boolean;
+  lockHeld?: boolean; hangReopen?: boolean; dropFailsAfterDropping?: boolean;
+} = {}) {
+  let dropped = false;
   const statements: string[] = [];
   let censusCalls = 0;
   let released = 0;
@@ -106,6 +110,7 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
     release: async () => {},
     close: async () => {},
     withMaintenanceLock: async <T>(fn: () => Promise<T>) => fn(),
+    tryMaintenanceLock: async <T>(fn: () => Promise<T>) => (opts.lockHeld ? { locked: false as const } : { locked: true as const, value: await fn() }),
     lockedDatabases: async () => opts.locked ?? [],
     // The first count plans the prune; any later one is the recheck before the drop.
     census: async (_name: string, _owner: unknown, conn?: unknown) => {
@@ -119,6 +124,13 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
         const statement = sql.replace(/\s+/g, ' ').trim();
         if (!statement.startsWith('SELECT 1 FROM pg_stat_activity')) statements.push(statement);
         if (opts.failReopen && statement.endsWith('ALLOW_CONNECTIONS true')) throw new Error('server closed the connection');
+        if (statement.endsWith('ALLOW_CONNECTIONS true') && dropped) throw new Error('database does not exist');
+        if (opts.hangReopen && statement.endsWith('ALLOW_CONNECTIONS true')) return new Promise(() => {});
+        if (statement.startsWith('DROP DATABASE') && opts.dropFailsAfterDropping) {
+          dropped = true;
+          throw new Error('connection terminated');
+        }
+        if (statement.startsWith('SELECT 1 FROM pg_database')) return { rows: dropped ? [] : [{ '?column?': 1 }], rowCount: 0 };
         return { rows: statement.startsWith('SELECT 1 FROM pg_stat_activity') ? [{ '?column?': 1 }] : [], rowCount: sql.startsWith('DELETE FROM teams') ? 1 : 0 };
       },
     },
@@ -251,6 +263,78 @@ describe('memsmith projects --prune --yes', () => {
     expect(fake.statements.at(-1)).toBe(`ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS true`);
     expect(fake.statements).not.toContain(`DROP DATABASE IF EXISTS "${msp(EMPTY)}" WITH (FORCE)`);
     releaseDump();
+  });
+
+  it('changes nothing when a merge or prune is running', async () => {
+    const fake = fakeDb({ locked: [msp(KEEP)], lockHeld: true });
+    const out: string[] = [];
+    expect(await runProjectsCommand(['--prune'], deps(fake, out, []))).toBe(1);
+    expect(out.join('\n')).toContain('a merge or prune is running');
+    expect(fake.statements).toEqual([]);
+  });
+
+  it('doctor\'s unlock reopens databases only while no merge or prune is running', async () => {
+    const busy = fakeDb({ locked: [msp(KEEP)], lockHeld: true });
+    await expect(unlockLockedDatabases(busy.db as never)).rejects.toThrow('a merge or prune is running');
+    expect(busy.statements).toEqual([]);
+    const idle = fakeDb({ locked: [msp(KEEP)] });
+    expect(await unlockLockedDatabases(idle.db as never)).toEqual([msp(KEEP)]);
+    expect(idle.statements).toEqual([`ALTER DATABASE "${msp(KEEP)}" WITH ALLOW_CONNECTIONS true`]);
+  });
+
+  async function interruptedPrune(fake: ReturnType<typeof fakeDb>, reopenTimeoutMs?: number) {
+    const handlers = new Map<string, () => void>();
+    const exits: number[] = [];
+    const errors: string[] = [];
+    const candidate = { entry: entry({}), reason: 'empty' as const, dropDatabase: msp(EMPTY), deleteProject: false };
+    const originalError = console.error;
+    console.error = (line: string) => { errors.push(String(line)); };
+    void executePrune({
+      db: fake.db as never,
+      dump: () => new Promise(() => {}),
+      backupDir: join(dir, 'b'), now: () => new Date(), forgetTeamKey: () => {},
+      ...(reopenTimeoutMs === undefined ? {} : { reopenTimeoutMs }),
+      interrupts: {
+        on: (signal, fn) => { handlers.set(signal, fn); },
+        off: (signal) => { handlers.delete(signal); },
+        exit: (code) => { exits.push(code); },
+      },
+    }, { candidates: [candidate], kept: [], databaseOwners: new Map([[msp(EMPTY), [EMPTY]]]) });
+    for (let i = 0; i < 100 && !handlers.has('SIGINT'); i++) await new Promise((r) => setTimeout(r, 5));
+    return { handlers, exits, errors, restore: () => { console.error = originalError; } };
+  }
+
+  it('exits at once on a second interrupt while letting connections back in', async () => {
+    const run = await interruptedPrune(fakeDb({ hangReopen: true }));
+    try {
+      run.handlers.get('SIGINT')!();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(run.exits).toEqual([]);
+      run.handlers.get('SIGINT')!();
+      expect(run.exits).toEqual([130]);
+    } finally {
+      run.restore();
+    }
+  });
+
+  it('stops waiting to let connections back in after a timeout, and says how to fix it', async () => {
+    const run = await interruptedPrune(fakeDb({ hangReopen: true }), 30);
+    try {
+      run.handlers.get('SIGTERM')!();
+      for (let i = 0; i < 100 && run.exits.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+      expect(run.exits).toEqual([143]);
+      expect(run.errors.join('\n')).toContain('memsmith doctor --fix');
+    } finally {
+      run.restore();
+    }
+  });
+
+  it('does not send you to doctor --fix for a database the drop already removed', async () => {
+    const fake = fakeDb({ dropFailsAfterDropping: true });
+    const out: string[] = [];
+    expect(await runProjectsCommand(['--prune', '--yes'], deps(fake, out, []))).toBe(1);
+    expect(out.join('\n')).toContain('connection terminated');
+    expect(out.join('\n')).not.toContain('doctor --fix');
   });
 
   it('refuses to prune when the account database is a guess', async () => {
