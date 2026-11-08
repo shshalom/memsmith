@@ -57,6 +57,8 @@ function sandbox(mode: 'hard' | 'soft' = 'hard') {
     MEMSMITH_DATA_DIR: dataDir,
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     DO_NOT_TRACK: '1',
+    MEMSMITH_SERVER_DATABASE_URL: process.env.MEMSMITH_SERVER_DATABASE_URL ?? '',
+    MEMSMITH_LOCAL_PG_PORT: process.env.MEMSMITH_LOCAL_PG_PORT ?? '',
     ...settings,
   };
   return { env, cwd, transcript };

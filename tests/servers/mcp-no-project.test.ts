@@ -38,7 +38,7 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
 
   async function connect(cwd: string, dataDir: string): Promise<Client> {
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([k, v]) => !k.startsWith('MEMSMITH_') && !k.startsWith('CLAUDE_') && v !== undefined),
+      Object.entries(process.env).filter(([k, v]) => (!k.startsWith('MEMSMITH_') || k === 'MEMSMITH_SERVER_DATABASE_URL' || k === 'MEMSMITH_LOCAL_PG_PORT') && !k.startsWith('CLAUDE_') && v !== undefined),
     ) as Record<string, string>;
     const client = new Client({ name: 'test', version: '0.0.0' });
     await client.connect(new StdioClientTransport({
