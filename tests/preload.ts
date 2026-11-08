@@ -21,6 +21,26 @@ if (!process.env.MEMSMITH_DATA_DIR) {
 }
 
 /**
+ * Database tripwire: no test may reach the developer's real embedded Postgres.
+ * A temp MEMSMITH_DATA_DIR does not isolate it. The session-init and context
+ * hooks mint a project identity through resolveLocalBaseDatabaseUrl, which uses
+ * MEMSMITH_SERVER_DATABASE_URL or else 127.0.0.1:MEMSMITH_LOCAL_PG_PORT
+ * (default 55433, the dogfood database). One hook-process test that ran those
+ * hooks left seven projects, teams, and API keys in it. Both variables point at
+ * a closed port unless the run sets them; spawned hooks and servers inherit
+ * them through process.env. Opt-in integration tests set their own values
+ * inside the test, which overrides these.
+ */
+const UNREACHABLE_DATABASE_URL = 'postgres://memsmith:unreachable@127.0.0.1:1/memsmith_test_guard';
+const UNREACHABLE_PG_PORT = '1';
+if (!process.env.MEMSMITH_SERVER_DATABASE_URL) {
+  process.env.MEMSMITH_SERVER_DATABASE_URL = UNREACHABLE_DATABASE_URL;
+}
+if (!process.env.MEMSMITH_LOCAL_PG_PORT) {
+  process.env.MEMSMITH_LOCAL_PG_PORT = UNREACHABLE_PG_PORT;
+}
+
+/**
  * Global posthog-node mock, registered via bunfig.toml [test].preload BEFORE
  * any test file or src module loads. It must be global, not per-file:
  *
