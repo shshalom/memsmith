@@ -49,7 +49,7 @@ describe('MCP tools and the session actor', () => {
       MEMSMITH_SERVER_PROJECT_ID: 'proj-1',
     }));
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([k, v]) => !k.startsWith('MEMSMITH_') && v !== undefined),
+      Object.entries(process.env).filter(([k, v]) => (!k.startsWith('MEMSMITH_') || k === 'MEMSMITH_SERVER_DATABASE_URL' || k === 'MEMSMITH_LOCAL_PG_PORT') && v !== undefined),
     ) as Record<string, string>;
     const connect = async (actor: string) => {
       const c = new Client({ name: 'test', version: '0.0.0' });
