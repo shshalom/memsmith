@@ -98,6 +98,30 @@ The `<private>` tag filters content from storage and memory:
 - Session summaries (generated from non-private observations only)
 - Claude's responses (not captured by memsmith)
 
+## Secret redaction
+
+MemSmith redacts known secret patterns from everything it captures, so you don't need `<private>` tags to keep a key that a command prints out of memory. Redaction runs in the hook before an event is sent to the server or written to the local spool, and runs again on the server before the event is stored or sent to a generation provider. The server pass also covers events from older hook clients and direct `observation_add` and `note_add` writes.
+
+Each secret value is replaced with a marker that names its kind, and the surrounding text is kept:
+
+```
+ANTHROPIC_API_KEY=[REDACTED:anthropic_key]
+Authorization: Bearer [REDACTED:bearer_token]
+{"db_password": "[REDACTED:password]"}
+```
+
+MemSmith recognizes these patterns:
+
+- Anthropic keys (`sk-ant-`), OpenAI keys (`sk-`, `sk-proj-`), Google API keys (`AIza`), npm tokens (`npm_`), and Slack tokens (`xoxb-`, `xoxp-`, and the other `xox` types).
+- GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`).
+- AWS access key IDs (`AKIA`, `ASIA`).
+- Bearer tokens, JSON Web Tokens (JWTs), and PEM private key blocks.
+- Values assigned to a name that ends in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASSWD`, in env (`NAME=value`, `export NAME=value`), JSON, and YAML form. The name is kept and only the value is redacted. This covers `aws_secret_access_key`.
+
+To keep useful memory intact, MemSmith leaves these values alone: ordinary words, git SHAs, UUIDs, file paths, code references such as `process.env.API_KEY`, values of identifier names such as `idempotencyKey` and `PUBLIC_KEY`, and placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
+
+Redaction is pattern-based. To keep a secret that doesn't match one of these patterns out of memory, wrap it in `<private>` tags.
+
 ## Examples
 
 ### Example 1: API Keys

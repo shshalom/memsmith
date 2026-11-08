@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- Capture redacts known secret patterns, such as Anthropic, OpenAI, GitHub, Google, AWS, Slack, and npm keys, bearer tokens, JWTs, private keys, and `*_KEY=`, `*_TOKEN=`, `*_SECRET=`, and `*_PASSWORD=` values, before an event is spooled, stored, or sent to a generation provider. Each value becomes a marker such as `[REDACTED:anthropic_key]`, and the surrounding text is kept. The server applies the same redaction, so events from older hook clients and direct `observation_add` and `note_add` writes are covered too.
+
 ## [13.13.2] - 2026-11-08
 
 ### Fixed
