@@ -93,6 +93,7 @@ export class SessionsObservationsAdapter implements RouteHandler {
       ? [resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.pool,
         })]
       : [];
 

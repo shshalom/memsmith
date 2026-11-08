@@ -307,6 +307,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       ? [resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.pool,
         })]
       : [];
     const writeAuth: RequestHandler[] = [baseWrite, ...dbRouting, ...writeGuards];

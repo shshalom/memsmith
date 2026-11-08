@@ -117,3 +117,51 @@ describe('resolveRequestDatabase', () => {
     expect(req.databasePool).toBeUndefined();
   });
 });
+
+describe('resolveRequestDatabase for a merged project', () => {
+  const account = (projects: Record<string, { team: string; mergedInto?: string }>) => ({
+    query: async (_sql: string, values?: unknown[]) => {
+      const p = projects[String(values?.[0])];
+      return { rows: p ? [{ team_id: p.team, merged_into: p.mergedInto ?? null }] : [] };
+    },
+  });
+
+  it('routes a request for the archived project to the project it was merged into', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
+    });
+    const req: any = { authContext: { projectId: 'old', teamId: 't-old' }, query: { projectId: 'old' }, body: { projectId: 'old', content: 'x' } };
+    const res = mockRes();
+    let nexted = false;
+    await middleware(req, res, () => { nexted = true; });
+    expect(nexted).toBe(true);
+    expect(calls[0].databaseName).toBe(projectDatabaseName('new'));
+    expect(req.authContext).toMatchObject({ projectId: 'new', teamId: 't-new' });
+    expect(req.body.projectId).toBe('new');
+    expect(req.query.projectId).toBe('new');
+  });
+
+  it('refuses a request when the merges form a cycle', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), accountPool: account({ a: { team: 't', mergedInto: 'b' }, b: { team: 't', mergedInto: 'a' } }),
+    });
+    const req: any = { authContext: { projectId: 'a', teamId: 't' }, query: {}, body: {} };
+    const res = mockRes();
+    let nexted = false;
+    await middleware(req, res, () => { nexted = true; });
+    expect(nexted).toBe(false);
+    expect(res.statusCode).toBe(409);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('leaves an active project untouched', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, { ...opts(), accountPool: account({ p: { team: 't' } }) });
+    const req: any = { authContext: { projectId: 'p', teamId: 't' }, query: {}, body: { projectId: 'p' } };
+    await middleware(req, mockRes(), () => {});
+    expect(calls[0].databaseName).toBe(projectDatabaseName('p'));
+    expect(req.authContext.projectId).toBe('p');
+  });
+});

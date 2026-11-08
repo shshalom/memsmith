@@ -63,6 +63,7 @@ export class SessionsSummarizeAdapter implements RouteHandler {
       ? [resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.pool,
         })]
       : [];
 

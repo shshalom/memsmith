@@ -216,6 +216,7 @@ export class DashboardRoutes implements RouteHandler {
       ? [readAuth, resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.db,
         })]
       : [readAuth];
     const resolveDataDb = this.options.poolRegistry
