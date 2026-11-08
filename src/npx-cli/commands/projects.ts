@@ -4,6 +4,7 @@ import { canonicalPath, defaultResolutionEnv, resolveProjectLocation, type Resol
 import { readFlatSettings } from '../../shared/flat-settings.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { normalizeRuntimeFlag } from './server-runtime-setup.js';
+import { DEFAULT_DRAIN_BATCH } from '../../server/runtime/generation-drain.js';
 import { backupsDir, pgDumpWith, type DumpDatabase } from '../../services/projects/backup.js';
 import { COPY_TABLES, type CopyReport } from '../../services/projects/copy-project.js';
 import { loadInventory, type ProjectEntry, type ProjectInventory } from '../../services/projects/inventory.js';
@@ -244,11 +245,8 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
     try {
       const result = await executeMerge({ db, dump: d.dump, backupDir: d.backupDir, now: d.now }, decision);
       d.out(`Backed up ${from.databaseName} to ${result.backupFile}.`);
-      if (result.movedJobs > 0) {
-        d.out(`Moved ${plural(result.movedJobs, 'queued or running generation job')} to ${into.name}.`);
-        // The running server picks up queued jobs in a project database only at startup.
-        d.out('Run `memsmith restart` to process the moved jobs.');
-      }
+      if (result.movedJobs > 0) d.out(`Moved ${plural(result.movedJobs, 'queued or running generation job')} to ${into.name}.`);
+      for (const line of movedJobsAdvice(result.movedJobs)) d.out(line);
       for (const [table, cols] of Object.entries(result.report.droppedColumns)) {
         d.err(`Warning: the target's ${table} table has no ${cols.join(', ')} column, so those values were not copied.`);
       }
@@ -264,6 +262,20 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
       return 1;
     }
   }) as Promise<number>;
+}
+
+// The running server requeues queued jobs in a project database only at
+// startup, and at most this many per database each time.
+const STARTUP_REQUEUE_LIMIT = DEFAULT_DRAIN_BATCH;
+
+export function movedJobsAdvice(moved: number): string[] {
+  if (moved <= 0) return [];
+  const lines = ['Run `memsmith restart` to process the moved jobs.'];
+  if (moved > STARTUP_REQUEUE_LIMIT) {
+    const restarts = Math.ceil(moved / STARTUP_REQUEUE_LIMIT);
+    lines.push(`Each restart picks up at most ${STARTUP_REQUEUE_LIMIT} queued jobs per project, so for ${moved} moved jobs, restart ${restarts} times, letting the jobs finish between restarts.`);
+  }
+  return lines;
 }
 
 const RERUN = 'Run the same memsmith merge command again; it copies only what the target does not have yet.';
