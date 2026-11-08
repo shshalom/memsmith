@@ -186,6 +186,16 @@ describe('status', () => {
     expect(text).toContain('13.10.2');
     expect(text).toContain('http://127.0.0.1:38900');
   });
+
+  it('shows the project of the current folder, running or not', async () => {
+    const project = () => 'MemSmith (p-1), marker in ~/Workspace';
+    const running = deps({ health: [ready], project });
+    await runLifecycle('status', [], running.d);
+    expect(running.calls.out).toContain('  Project:   MemSmith (p-1), marker in ~/Workspace');
+    const stopped = deps({ project });
+    await runLifecycle('status', [], stopped.d);
+    expect(stopped.calls.out).toContain('  Project:   MemSmith (p-1), marker in ~/Workspace');
+  });
 });
 
 describe('server address from settings.json', () => {

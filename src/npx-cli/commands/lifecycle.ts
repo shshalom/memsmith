@@ -10,6 +10,7 @@ import { EmbeddedPostgresManager } from '../../server/runtime/EmbeddedPostgresMa
 import { selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { isPluginInstalled, marketplaceDirectory, installedPluginVersion } from '../utils/paths.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
+import { projectSummary } from './project.js';
 
 export type LifecycleCommand = 'start' | 'stop' | 'restart' | 'status';
 
@@ -28,6 +29,8 @@ export interface LifecycleDeps {
   pluginVersion(): string;
   serverUrl(): string;
   logPath(): string;
+  /** One-line summary of the current folder's project, for `status`. */
+  project?(): string;
   sleep(ms: number): Promise<void>;
   now(): number;
   out(line: string): void;
@@ -141,9 +144,11 @@ async function status(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAdd
 function printStatus(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddress>, health: HealthResult): number {
   const runtime = d.runtime();
   const pgLine = runtime === 'local' ? `  Postgres:  ${d.postgresRunning() ? 'running' : 'stopped'}` : null;
+  const projectLine = d.project ? `  Project:   ${d.project()}` : null;
   if (!health.reachable) {
     d.out('Server is not running');
     if (pgLine) d.out(pgLine);
+    if (projectLine) d.out(projectLine);
     return 1;
   }
   d.out(health.initialized ? 'Server is running' : 'Server is starting');
@@ -153,6 +158,7 @@ function printStatus(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddr
   d.out(`  Version:   ${health.version ?? 'unknown'} (plugin ${d.pluginVersion()})`);
   d.out(`  Dashboard: ${addr.baseUrl}`);
   if (pgLine) d.out(pgLine);
+  if (projectLine) d.out(projectLine);
   return 0;
 }
 
@@ -282,6 +288,13 @@ export function defaultLifecycleDeps(urlSource: ServerUrlSource = {}): Lifecycle
     pluginVersion: () => installedPluginVersion(),
     serverUrl: () => resolveServerUrl(urlSource),
     logPath: () => join(paths.logsDir(), `memsmith-${new Date().toISOString().slice(0, 10)}.log`),
+    project: () => {
+      try {
+        return projectSummary(process.env.MEMSMITH_PROJECT_CWD || process.cwd());
+      } catch (error) {
+        return `unknown (${error instanceof Error ? error.message : String(error)})`;
+      }
+    },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
     out: (line) => console.log(line),

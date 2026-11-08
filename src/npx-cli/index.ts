@@ -41,6 +41,8 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
 ${styleText('bold', 'Memory Commands')} (run from a project folder; need the server running):
   ${styleText('cyan', 'memsmith search <query> [--limit <n>]')}   Search this project's memory
   ${styleText('cyan', 'memsmith get <id> [<id>...]')}       Show full observations by id
+  ${styleText('cyan', 'memsmith project')}                  Show which project this folder uses, and why
+  ${styleText('cyan', 'memsmith link [<id>|<name>|<path>] [--new] [--force]')}   Pin this folder to a project
 
 ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed plugin):
   ${styleText('cyan', 'memsmith start [--timeout <s>]')}    Start the local server and wait until it is ready
@@ -210,6 +212,16 @@ async function main(): Promise<void> {
     case 'get': {
       const { runMemoryGet } = await import('./commands/memory.js');
       process.exit(await runMemoryGet(args.slice(1)));
+    }
+
+    case 'project': {
+      const { runProjectCommand } = await import('./commands/project.js');
+      process.exit(await runProjectCommand(args.slice(1)));
+    }
+
+    case 'link': {
+      const { runLinkCommand } = await import('./commands/project.js');
+      process.exit(await runLinkCommand(args.slice(1)));
     }
 
     case 'adopt':
