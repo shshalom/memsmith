@@ -34,6 +34,7 @@ import {
   type SelectedRuntime,
   type ServerRuntimeContext,
 } from '../services/hooks/runtime-selector.js';
+import { readProjectMarker } from '../services/identity/project-identity.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
 import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
 import {
@@ -77,13 +78,9 @@ interface ServerAvailable extends ServerToolContext {
 
 type ServerResolution = ServerAvailable | ServerUnavailable;
 
-function resolveServerToolContext(): ServerResolution {
-  // Task 8: both 'local' and 'server' reach the engine over HTTP.
-  // In 'local' mode the embedded PG server runs in-process and
-  // MEMSMITH_SERVER_URL points at it — so the same buildServerContext()
-  // path works for both.  There is no worker fallback for either runtime.
-  const runtime: SelectedRuntime = selectRuntime();
-  const ctx = buildServerContext();
+function resolveServerToolContext(cwd?: string): ServerResolution {
+  const runtime: SelectedRuntime = selectRuntime(cwd);
+  const ctx = buildServerContext(cwd !== undefined ? { cwd } : {});
   if (!ctx) {
     return {
       runtime,
@@ -94,7 +91,33 @@ function resolveServerToolContext(): ServerResolution {
   return { ...ctx, available: true };
 }
 
+class NoProjectError extends Error {}
+
+// The MCP process keeps the folder Claude Code launched it in, so an agent that
+// works in another checkout must pass that checkout as `cwd`.
+function resolveProjectFolder(cwd: unknown): string {
+  if (typeof cwd === 'string' && cwd.trim().length > 0) return resolve(cwd.trim());
+  return process.env.MEMSMITH_PROJECT_CWD || process.cwd();
+}
+
+function requireProjectForReadTool(toolName: string, cwd: unknown): ServerAvailable {
+  const folder = resolveProjectFolder(cwd);
+  const resolution = resolveServerToolContext(folder);
+  if (resolution.available) return resolution;
+  if (!readProjectMarker(folder)) {
+    throw new NoProjectError(
+      `No MemSmith project found for ${folder}. Memory was not searched; this is not an empty result.\n`
+      + 'To search memory, pass the folder of a project where MemSmith has recorded a Claude Code session as "cwd", '
+      + 'or start the session from that folder.',
+    );
+  }
+  throw new ServerClientError('missing_api_key', `${toolName}: ${resolution.reason}`);
+}
+
 function formatToolError(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {
+  if (error instanceof NoProjectError) {
+    return { content: [{ type: 'text' as const, text: error.message }], isError: true as const };
+  }
   if (isServerClientError(error)) {
     return {
       content: [{
@@ -127,10 +150,6 @@ function formatTextResult(text: string): { content: Array<{ type: 'text'; text: 
 }
 
 function requireServerForObservationTool(toolName: string): ServerAvailable {
-  // Task 8: resolveServerToolContext() never returns null — both 'local' and
-  // 'server' use the server-context path.  A missing/incomplete configuration
-  // produces a ServerUnavailable result (available: false) which surfaces the
-  // existing "requires a running runtime" style error below.
   const resolution = resolveServerToolContext();
   if (!resolution.available) {
     throw new ServerClientError('missing_api_key', `${toolName}: ${resolution.reason}`);
@@ -237,13 +256,14 @@ const handleObservationRecordEvent = wrapHandler('observation_record_event', asy
 
 interface ObservationSearchArgs {
   projectId?: string;
+  cwd?: string;
   query: string;
   limit?: number;
   platformSource?: string | null;
 }
 
 const handleObservationSearch = wrapHandler('observation_search', async (args: ObservationSearchArgs) => {
-  const ctx = requireServerForObservationTool('observation_search');
+  const ctx = requireProjectForReadTool('observation_search', args?.cwd);
   if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
     throw new Error('observation_search: "query" is required');
   }
@@ -260,6 +280,7 @@ const handleObservationSearch = wrapHandler('observation_search', async (args: O
 
 interface ObservationGetArgs {
   projectId?: string;
+  cwd?: string;
   ids: string[] | string;
 }
 
@@ -272,7 +293,7 @@ function normalizeIdsArg(raw: unknown): string[] {
 }
 
 const handleObservationGet = wrapHandler('observation_get', async (args: ObservationGetArgs) => {
-  const ctx = requireServerForObservationTool('observation_get');
+  const ctx = requireProjectForReadTool('observation_get', args?.cwd);
   const ids = normalizeIdsArg(args?.ids);
   if (ids.length === 0) {
     throw new Error('observation_get: "ids" is required (ids from observation_search)');
@@ -287,13 +308,14 @@ const handleObservationGet = wrapHandler('observation_get', async (args: Observa
 
 interface ObservationContextArgs {
   projectId?: string;
+  cwd?: string;
   query: string;
   limit?: number;
   platformSource?: string | null;
 }
 
 const handleObservationContext = wrapHandler('observation_context', async (args: ObservationContextArgs) => {
-  const ctx = requireServerForObservationTool('observation_context');
+  const ctx = requireProjectForReadTool('observation_context', args?.cwd);
   if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
     throw new Error('observation_context: "query" is required');
   }
@@ -499,11 +521,12 @@ when you need context without browsing: \`observation_context(query="...", limit
   },
   {
     name: 'observation_search',
-    description: 'Search memory for past work, decisions, and rationale. Returns a ranked index (id, date, type, title, snippet), not full records; fetch the relevant ids with observation_get. Params: query (required), limit (default 10, max 25), projectId, platformSource.',
+    description: 'Search memory for past work, decisions, and rationale. Returns a ranked index (id, date, type, title, snippet), not full records; fetch the relevant ids with observation_get. Params: query (required), limit (default 10, max 25), projectId, platformSource, cwd.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
+        cwd: { type: 'string', description: 'Absolute path of the folder you are working in. Pass it when it differs from the folder the session started in.' },
         query: { type: 'string', description: 'Search query (required)' },
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
         limit: { type: 'number', description: 'Max results (default 10, max 25)' },
@@ -515,11 +538,12 @@ when you need context without browsing: \`observation_context(query="...", limit
   },
   {
     name: 'observation_get',
-    description: 'Fetch full observation records by id, using ids from observation_search. Returns the full body plus why, files, and rejected alternatives. Params: ids (required, max 10), projectId.',
+    description: 'Fetch full observation records by id, using ids from observation_search. Returns the full body plus why, files, and rejected alternatives. Params: ids (required, max 10), projectId, cwd.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
+        cwd: { type: 'string', description: 'Absolute path of the folder you are working in. Pass it when it differs from the folder the session started in.' },
         ids: { type: 'array', items: { type: 'string' }, description: 'Observation ids from observation_search (max 10)' },
       },
       required: ['ids'],
@@ -529,11 +553,12 @@ when you need context without browsing: \`observation_context(query="...", limit
   },
   {
     name: 'observation_context',
-    description: 'Get the full bodies of the top few observations for a query in one call, capped in size. Prefer observation_search plus observation_get when you need to choose what to read. Params: query (required), limit (default 5, max 10), projectId, platformSource.',
+    description: 'Get the full bodies of the top few observations for a query in one call, capped in size. Prefer observation_search plus observation_get when you need to choose what to read. Params: query (required), limit (default 5, max 10), projectId, platformSource, cwd.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
+        cwd: { type: 'string', description: 'Absolute path of the folder you are working in. Pass it when it differs from the folder the session started in.' },
         query: { type: 'string', description: 'Search query (required)' },
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
         limit: { type: 'number', description: 'Max observations (default 5, max 10)' },
