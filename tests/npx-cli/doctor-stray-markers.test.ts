@@ -39,7 +39,7 @@ describe('strayMarkerCheck', () => {
     expect(notes).toContain(join(root, 'packages', 'cli'));
     expect(notes).toContain('12 records');
     expect(notes).toContain('memsmith merge p-cli p-root');
-    expect(notes).toContain(`memsmith link (run in ${join(root, 'packages', 'cli')})`);
+    expect(notes).not.toContain('memsmith link');
     expect(notes).toContain('own repository');
   });
 });

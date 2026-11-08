@@ -222,7 +222,7 @@ export interface StrayReport {
   records: number | null;
 }
 
-export function scanStrayMarkers(roots: string[], records: Map<string, number>): StrayReport[] {
+export function scanStrayMarkers(roots: string[], records: Map<string, number | null>): StrayReport[] {
   const reports: StrayReport[] = [];
   for (const root of roots) {
     const rootMarker = readMarkerAt(root);
@@ -247,9 +247,8 @@ export function strayMarkerCheck(strays: StrayReport[]): CheckResult {
     const records = s.records === null ? 'unknown records' : `${s.records} records`;
     notes.push(`${s.dir} links to project ${s.projectId} (${records}), inside ${s.root} (project ${s.rootProjectId}).`);
     notes.push(`  To fold it in: memsmith merge ${s.projectId} ${s.rootProjectId}`);
-    notes.push(`  Then: memsmith link (run in ${s.dir})`);
   }
-  notes.push('A nested folder that is its own repository is a project of its own, and doctor does not report it.');
+  notes.push('memsmith merge links the nested folder to the root project. A nested folder that is its own repository is a project of its own, and doctor does not report it.');
   notes.push('Doctor never changes markers, even with --fix.');
   return {
     name: 'Stray markers',
@@ -265,10 +264,10 @@ async function probeStrayMarkers(): Promise<StrayReport[]> {
   const cwdRoots = loc.markerFound ? [loc.root] : [];
   const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
   const { loadInventory, recordTotal } = await import('../../services/projects/inventory.js');
-  const db = openLocalProjectsDb();
+  const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
   try {
     const inv = await loadInventory(db.inventorySource(), { extraRoots: cwdRoots });
-    const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, recordTotal(p.counts)]));
+    const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, p.counts ? recordTotal(p.counts) : null]));
     const roots = [...new Set([...inv.projects.flatMap((p) => p.folders), ...cwdRoots])];
     return scanStrayMarkers(roots, records);
   } catch {
