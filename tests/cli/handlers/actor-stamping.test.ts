@@ -58,7 +58,8 @@ beforeEach(() => {
   events = [];
   spooled = [];
   previousActor = process.env.MEMSMITH_ACTOR;
-  delete process.env.MEMSMITH_ACTOR;
+  // Empty opts out of the settings default, which hook-settings caches per process.
+  process.env.MEMSMITH_ACTOR = '';
   loggerSpies = (['info', 'debug', 'warn', 'error', 'dataIn'] as const).map((level) =>
     spyOn(logger, level).mockImplementation(() => {}));
   mock.module('../../../src/cli/handlers/capture-spool.js', () => ({

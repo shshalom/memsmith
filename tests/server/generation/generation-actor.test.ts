@@ -89,12 +89,12 @@ describe('generated observations carry the actors of their source events', () =>
     expect(metadata.actors).toEqual(['reviewer']);
   });
 
-  it('a summary over events from several actors lists them all and sets no single actor', async () => {
-    const session = await new PostgresServerSessionsRepository(client).create({ projectId, teamId, externalSessionId: 'ext-1' });
-    for (const actor of ['reviewer', 'Explore', 'reviewer', undefined]) {
+  async function summarize(actors: Array<string | undefined>): Promise<Record<string, unknown>> {
+    const session = await new PostgresServerSessionsRepository(client).create({ projectId, teamId, externalSessionId: `ext-${Math.random()}` });
+    for (const [i, actor] of actors.entries()) {
       await storage.agentEvents.create({
         projectId, teamId, serverSessionId: session.id, sourceAdapter: 'hook', eventType: 'tool_use',
-        payload: { tool_name: 'Read', n: Math.random(), ...(actor ? { actor } : {}) }, occurredAt: new Date(),
+        payload: { tool_name: 'Read', n: i, ...(actor ? { actor } : {}) }, occurredAt: new Date(Date.now() + i),
       });
     }
     const job = await storage.observationGenerationJobs.create({
@@ -105,8 +105,21 @@ describe('generated observations carry the actors of their source events', () =>
       kind: 'summary', source_type: 'session_summary', source_id: session.id, generation_job_id: job.id, server_session_id: session.id,
     }));
     const [metadata] = await observationMetadata();
+    return metadata;
+  }
+
+  it('a summary over events from several actors lists them all and sets no single actor', async () => {
+    const metadata = await summarize(['reviewer', 'Explore', 'reviewer']);
     expect(metadata).not.toHaveProperty('actor');
+    expect(metadata).not.toHaveProperty('unattributed');
     expect(metadata.actors).toEqual(['reviewer', 'Explore']);
+  });
+
+  it('does not credit a mostly unattributed summary to the few named events', async () => {
+    const metadata = await summarize([...Array.from({ length: 200 }, () => undefined), 'Explore', 'Explore', 'Explore']);
+    expect(metadata).not.toHaveProperty('actor');
+    expect(metadata.actors).toEqual(['Explore']);
+    expect(metadata.unattributed).toBe(true);
   });
 
   it('an observation from an event without an actor gets no actor keys', async () => {

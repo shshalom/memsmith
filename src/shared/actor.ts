@@ -1,5 +1,4 @@
-import { SettingsDefaultsManager } from './SettingsDefaultsManager.js';
-import { USER_SETTINGS_PATH } from './paths.js';
+import { loadFromFileOnce } from './hook-settings.js';
 import { logger } from '../utils/logger.js';
 
 export const ACTOR_MAX_CHARS = 64;
@@ -8,8 +7,10 @@ export type ActorParse =
   | { ok: true; actor: string | null }
   | { ok: false; reason: string };
 
+// Control characters forge lines, line separators and bidi controls disguise or
+// reorder the name, and the middle dot separates fields in the index line.
 // eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+const FORBIDDEN_CHARS = /[\u0000-\u001f\u007f-\u009f\u00b7\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
 
 export function parseActor(raw: unknown): ActorParse {
   if (raw === undefined || raw === null) return { ok: true, actor: null };
@@ -19,7 +20,9 @@ export function parseActor(raw: unknown): ActorParse {
   if (actor.length > ACTOR_MAX_CHARS) {
     return { ok: false, reason: `the actor must be at most ${ACTOR_MAX_CHARS} characters (got ${actor.length})` };
   }
-  if (CONTROL_CHARS.test(actor)) return { ok: false, reason: 'the actor must not contain control characters' };
+  if (FORBIDDEN_CHARS.test(actor)) {
+    return { ok: false, reason: 'the actor must not contain control, line-separator, or bidi characters, or a middle dot (·)' };
+  }
   return { ok: true, actor };
 }
 
@@ -30,12 +33,13 @@ export interface ActorSource {
 
 export const defaultActorSource: ActorSource = {
   env: () => process.env.MEMSMITH_ACTOR,
-  setting: () => SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH, false).MEMSMITH_ACTOR,
+  setting: () => loadFromFileOnce().MEMSMITH_ACTOR,
 };
 
+// A set but empty MEMSMITH_ACTOR opts the session out of the settings default.
 function configuredActorRaw(source: ActorSource): unknown {
   const env = source.env();
-  if (env !== undefined && env.trim().length > 0) return env;
+  if (env !== undefined) return env;
   try {
     return source.setting();
   } catch {
@@ -59,7 +63,7 @@ export function resolveActor(
 ): string | null {
   const configured = configuredActor(source);
   if (!configured.ok) {
-    logger.warn('HOOK', `MEMSMITH_ACTOR ignored: ${configured.reason}`);
+    warnInvalidOnce(configured.reason);
   } else if (configured.actor) {
     return configured.actor;
   }
@@ -68,6 +72,14 @@ export function resolveActor(
     if (fallback.ok) return fallback.actor;
   }
   return null;
+}
+
+const warned = new Set<string>();
+
+function warnInvalidOnce(reason: string): void {
+  if (warned.has(reason)) return;
+  warned.add(reason);
+  logger.warn('HOOK', `MEMSMITH_ACTOR ignored: ${reason}`);
 }
 
 export function actorField(actor: string | null | undefined): { actor?: string } {
@@ -85,15 +97,21 @@ export function actorsOf(record: { metadata?: unknown } | null | undefined): str
 
 /**
  * Metadata for a record derived from several captures. `actors` lists every
- * distinct actor; `actor` is set only when exactly one took part.
+ * distinct named actor. `actor` is set only when one actor wrote every source;
+ * when some sources have no actor, `unattributed` says so instead.
  */
-export function derivedActorMetadata(actors: Iterable<unknown>): { actor?: string; actors?: string[] } {
+export function derivedActorMetadata(
+  actors: Iterable<unknown>,
+): { actor?: string; actors?: string[]; unattributed?: true } {
   const distinct: string[] = [];
+  let unattributed = false;
   for (const raw of actors) {
     const parsed = parseActor(raw);
-    if (parsed.ok && parsed.actor && !distinct.includes(parsed.actor)) distinct.push(parsed.actor);
+    if (!parsed.ok || !parsed.actor) unattributed = true;
+    else if (!distinct.includes(parsed.actor)) distinct.push(parsed.actor);
   }
   if (distinct.length === 0) return {};
+  if (unattributed) return { actors: distinct, unattributed: true };
   if (distinct.length === 1) return { actor: distinct[0], actors: distinct };
   return { actors: distinct };
 }

@@ -94,7 +94,6 @@ export interface ProcessGeneratedResponseInput {
   sourceAdapter?: string | null;
   // Provider tokens this job spent (from the generate() result), for cost metering.
   tokensUsed?: number;
-  // The actor of each source event the provider saw, in event order.
   sourceActors?: unknown[];
   // Task 13 — optional resolver so team overrides for qualityFloor are honored.
   // When absent the env-default qualityFloorEnv() is used as before.
