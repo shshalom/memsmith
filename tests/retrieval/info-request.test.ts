@@ -166,6 +166,14 @@ describe('classifyPrompt — automated messages are not the user asking', () => 
     expect(classifyPrompt('```\n<task-notification><status>completed\n```\nwhy did we drop sqlite?')).toBe('info-request');
   });
 
+  it('keeps the question after a notification whose result has a truncated code fence', () => {
+    expect(classifyPrompt('<task-notification><result>\n```\ncode cut off</result></task-notification>\nwhy did we drop sqlite?')).toBe('info-request');
+  });
+
+  it('does not leak a notification whose result opens a code fence after user text', () => {
+    expect(classifyPrompt('fix the lint <task-notification><result>\n```\nwe decided to keep the history</result></task-notification>')).toBe('task');
+  });
+
   it('treats a tag that only starts with an automated name as user text', () => {
     expect(classifyPrompt('<task-notification-extra>why did we drop sqlite?</task-notification-extra>')).toBe('info-request');
   });

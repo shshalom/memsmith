@@ -464,6 +464,15 @@ describe('stripAutomatedContent', () => {
     expect(stripAutomatedContent(prompt)).toBe('fix it');
   });
 
+  it('strips an automated block with a long attribute', () => {
+    expect(stripAutomatedContent(`<task-notification id="${'a'.repeat(300)}">we decided</task-notification> fix it`)).toBe('fix it');
+  });
+
+  it('ignores a code fence that opens inside an automated block', () => {
+    const prompt = '<task-notification><result>\n```\ncode cut off</result></task-notification>\nwhy did we drop sqlite?';
+    expect(stripAutomatedContent(prompt)).toBe('why did we drop sqlite?');
+  });
+
   it('leaves tags inside a code fence untouched', () => {
     const prompt = '```\n<bash-stdout>ok</bash-stdout>\n```\nwhy?';
     expect(stripAutomatedContent(prompt)).toBe(prompt);
@@ -487,6 +496,8 @@ describe('stripAutomatedContent', () => {
     ['unclosed openers in prose', 'x <task-notification>'.repeat(50_000)],
     ['nested openers', '<task-notification>'.repeat(50_000)],
     ['tags between code fences', '```\n<bash-input>x\n```\n'.repeat(60_000)],
+    ['openers whose attributes end at the last character', '<bash-input '.repeat(90_000) + '>'],
+    ['fences inside one long block', '<task-notification>' + '```\nx\n'.repeat(150_000) + '</task-notification>'],
     ['unclosed openers inside the last of many blocks',
       '<bash-input>x</bash-input>'.repeat(20_000) + '<task-notification>' + '<bash-stdout>'.repeat(40_000) + '</task-notification>'],
     ['unclosed openers between closed blocks', 'q <bash-stdout> <bash-input>x</bash-input> '.repeat(25_000)],
@@ -498,6 +509,12 @@ describe('stripAutomatedContent', () => {
     });
   }
 
+  it('keeps stripMemoryTags fast on ~1 MB of openers whose attributes end at the last character', () => {
+    const t = performance.now();
+    stripMemoryTags('<private '.repeat(110_000) + '>');
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+
   it('keeps stripMemoryTags fast on ~1 MB of openers with unterminated attributes', () => {
     const t = performance.now();
     stripMemoryTags('<private '.repeat(110_000));
@@ -507,10 +524,7 @@ describe('stripAutomatedContent', () => {
 
 describe('stripTags matches the regex it replaced', () => {
   const NAMES = ['private', 'memsmith-context', 'system_instruction', 'system-instruction', 'persisted-output', 'system-reminder'];
-  const references = {
-    'unbounded attributes (origin/main)': new RegExp(`<(${NAMES.join('|')})\\b[^>]*>[\\s\\S]*?</\\1>`, 'g'),
-    'bounded attributes': new RegExp(`<(${NAMES.join('|')})\\b[^>]{0,256}>[\\s\\S]*?</\\1>`, 'g'),
-  };
+  const ORIGINAL = new RegExp(`<(${NAMES.join('|')})\\b[^>]*>[\\s\\S]*?</\\1>`, 'g');
   const reference = (re: RegExp, input: string) => {
     const counts: Record<string, number> = Object.fromEntries(NAMES.map(n => [n, 0]));
     const stripped = input.replace(re, (_, name: string) => { counts[name] += 1; return ''; });
@@ -540,22 +554,29 @@ describe('stripTags matches the regex it replaced', () => {
     `<private ${'a'.repeat(300)}>long attribute</private> keep`,
     '</private> orphan close <private>x</private>',
     '<private>x</private',
+    `<private ${'a'.repeat(300)}>SECRET</private> ok`,
+    `<private\n${'x'.repeat(260)}>SECRET</private>`,
+    '<private a="<b>">SECRET</private> ok',
+    '<private <system-reminder>x</system-reminder> y</private> z',
+    '<private no closing angle bracket anywhere',
   ];
 
   let seed = 7;
   const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed % n; };
   const PIECES = ['<private>', '</private>', '<system-reminder>', '</system-reminder>', '<private a="1">', '<memsmith-context>',
-    '</memsmith-context>', 'text ', '\r\n', '<', '>', '</', '<private-x>', '<persisted-output>', '</persisted-output>'];
+    '</memsmith-context>', 'text ', '\r\n', '<', '>', '</', '<private-x>', '<persisted-output>', '</persisted-output>',
+    `<private ${'a'.repeat(300)}`, `<system-reminder\n${'b'.repeat(400)}`, 'x'.repeat(280)];
   const RANDOM = Array.from({ length: 500 }, () => Array.from({ length: 1 + rand(14) }, () => PIECES[rand(PIECES.length)]).join(''));
 
-  for (const [label, re] of Object.entries(references)) {
-    it(`gives the same output and counts as the ${label} regex on ${FIXED.length + RANDOM.length} inputs`, () => {
-      for (const input of [...FIXED, ...RANDOM]) {
-        if (label.startsWith('unbounded') && /[^>]{257}/.test(input) && input.includes('<')) continue;
-        expect({ input, ...stripTags(input) }).toEqual({ input, ...reference(re, input) });
-      }
-    });
-  }
+  it(`gives the same output and counts as the origin/main regex on ${FIXED.length + RANDOM.length} inputs`, () => {
+    for (const input of [...FIXED, ...RANDOM]) {
+      expect({ input, ...stripTags(input) }).toEqual({ input, ...reference(ORIGINAL, input) });
+    }
+  });
+
+  it('strips a private block whose opener has a long attribute', () => {
+    expect(stripMemoryTags(`<private ${'a'.repeat(300)}>SECRET</private> ok`)).toBe('ok');
+  });
 
   // The lazy regex rescanned to the end of the input for every unclosed opener.
   it('stays fast on ~1 MB of unclosed openers', () => {

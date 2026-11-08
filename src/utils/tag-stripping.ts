@@ -11,7 +11,7 @@ const TAG_NAMES = [
 ] as const;
 type TagName = (typeof TAG_NAMES)[number];
 
-const OPENER_REGEX = new RegExp(`<(${TAG_NAMES.join('|')})\\b[^>]{0,256}>`, 'g');
+const OPENER_NAME_REGEX = new RegExp(`<(${TAG_NAMES.join('|')})\\b`, 'g');
 
 export const SYSTEM_REMINDER_REGEX = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 
@@ -22,18 +22,22 @@ export function stripTags(input: string): { stripped: string; counts: Record<Tag
     TAG_NAMES.map(name => [name, 0])
   ) as Record<TagName, number>;
 
-  // Same output as replacing /<(tags)\b[^>]{0,256}>[\s\S]*?<\/\1>/g, in
-  // linear time: the regex rescanned to the end for every unclosed opener. A tag
-  // with no close after one opener has none after any later opener either.
+  // Same output as replacing /<(tags)\b[^>]*>[\s\S]*?<\/\1>/g, in linear
+  // time: the regex rescanned to the end for every opener without a close, and
+  // for every opener whose `>` lay far ahead. An opener ends at the next `>`;
+  // a tag with no close after one opener has none after any later opener.
   const unclosable = new Set<TagName>();
-  const opener = new RegExp(OPENER_REGEX);
+  const opener = new RegExp(OPENER_NAME_REGEX);
+  let nextGt = -1;
   let total = 0;
   let kept = 0;
   let stripped = '';
   let m: RegExpExecArray | null;
   while ((m = opener.exec(input)) !== null) {
     const name = m[1] as TagName;
-    const close = unclosable.has(name) ? -1 : input.indexOf(`</${name}>`, opener.lastIndex);
+    if (nextGt < opener.lastIndex) nextGt = input.indexOf('>', opener.lastIndex);
+    if (nextGt < 0) break;
+    const close = unclosable.has(name) ? -1 : input.indexOf(`</${name}>`, nextGt + 1);
     if (close < 0) {
       unclosable.add(name);
       opener.lastIndex = m.index + 1;
@@ -99,24 +103,13 @@ const AUTOMATED_TAGS = [
 ] as const;
 
 const AUTOMATED_TAG_TOKEN = new RegExp(
-  `<(/?)(${AUTOMATED_TAGS.join('|')})(?=[\\s/>])[^<>]{0,256}>`,
+  `<(/?)(${AUTOMATED_TAGS.join('|')})(?=[\\s/>])[^<>]*>`,
   'gi',
 );
 
 const CODE_FENCE_LINE = /^[ \t]*(```|~~~)/gm;
 
 interface Span { start: number; end: number }
-
-function codeFences(text: string): Span[] {
-  const fences: Span[] = [];
-  let open = -1;
-  for (const m of text.matchAll(CODE_FENCE_LINE)) {
-    if (open < 0) open = m.index;
-    else { fences.push({ start: open, end: m.index + m[0].length }); open = -1; }
-  }
-  if (open >= 0) fences.push({ start: open, end: text.length });
-  return fences;
-}
 
 function mergeSpans(spans: Span[]): Span[] {
   spans.sort((a, b) => a.start - b.start);
@@ -159,27 +152,33 @@ function outside(text: string, spans: Span[], to = text.length): string {
  * means that block quoted the tag, so the block extends to it; any other stray
  * closing tag is dropped. An unclosed opener runs to the end only when nothing
  * but automated blocks precedes it; elsewhere it is the user naming the tag.
- * Tags inside code fences are the user's.
+ * Tags inside a code fence the user opened are the user's.
  */
 export function stripAutomatedContent(prompt: string): string {
   if (!prompt) return '';
-  const fences = codeFences(prompt);
-  let fence = 0;
+  const fenceLines = [...prompt.matchAll(CODE_FENCE_LINE)].map(f => f.index);
+  let nextFence = 0;
+  let inFence = false;
+  let openCount = 0;
 
   const removed: Span[] = [];
   const stacks = new Map<string, Span[]>();
   const lastOuter = new Map<string, Span>();
   for (const m of prompt.matchAll(AUTOMATED_TAG_TOKEN)) {
-    while (fence < fences.length && fences[fence].end <= m.index) fence++;
-    if (fence < fences.length && fences[fence].start <= m.index) continue;
+    // A fence line inside an open block belongs to that block's payload.
+    for (; nextFence < fenceLines.length && fenceLines[nextFence] < m.index; nextFence++) {
+      if (inFence || openCount === 0) inFence = !inFence;
+    }
+    if (inFence) continue;
     const token = { start: m.index, end: m.index + m[0].length };
     const name = m[2].toLowerCase();
     const stack = stacks.get(name) ?? [];
     stacks.set(name, stack);
-    if (m[1] !== '/') { stack.push(token); continue; }
+    if (m[1] !== '/') { stack.push(token); openCount++; continue; }
     const opener = stack.pop();
     const outer = lastOuter.get(name);
     if (opener) {
+      openCount--;
       const span = { start: opener.start, end: token.end };
       removed.push(span);
       if (stack.length === 0) lastOuter.set(name, span);
