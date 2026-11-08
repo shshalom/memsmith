@@ -44,7 +44,8 @@ export function claimFolderNotice(folder: string, projectId: string, dataDir: st
     writeFileSync(temp, JSON.stringify(record, null, 2), 'utf-8');
     renameSync(temp, path);
   } catch {
-    // Unrecorded: the notice may show once more, which beats never showing it.
+    // Without a record every later prompt would repeat it, so stay quiet.
+    return false;
   }
   return true;
 }

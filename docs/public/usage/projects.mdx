@@ -24,7 +24,7 @@ MemSmith compares folders after it resolves symbolic links, and it ignores lette
 
 ### Git worktrees
 
-MemSmith reads the worktree's `.git` file and the git directory to find the main checkout, and doesn't run `git`. When the main checkout has no project yet, MemSmith creates the project at the main checkout, so every worktree of a repository shares it. If MemSmith can't confirm where the main checkout is, for example in a repository created with `git init --separate-git-dir`, the worktree keeps its own project. A submodule is always its own project.
+MemSmith reads the worktree's `.git` file and the repository's git directory to find the main checkout, and doesn't run `git`. The main checkout is the folder whose `.git` folder is the repository's git directory, or the folder that `core.worktree` names in the repository's git config. When the main checkout has no project yet, MemSmith creates the project at the main checkout, so every worktree of a repository shares it. If neither rule names the main checkout, for example in a repository created with `git init --separate-git-dir` and no `core.worktree`, the worktree keeps its own project. A submodule is always its own project.
 
 ## Notices
 
@@ -58,7 +58,7 @@ The project name comes from the running server. When the server isn't running, M
 
 ## Pin a folder to a project
 
-`memsmith link` writes a marker at the folder's git root, or in the folder itself outside git. Inside git, it also adds `.memsmith/*` to `.git/info/exclude`, once. It doesn't change `.gitignore`. If `.git/info/exclude` already has a `.memsmith` entry, MemSmith leaves it alone.
+`memsmith link` writes a marker at the folder's git root, or in the folder itself outside git. Inside git, it also adds `.memsmith/*` to `.git/info/exclude`, once. It doesn't change `.gitignore`. If `.git/info/exclude` already excludes the `.memsmith` folder itself, MemSmith changes that line to `.memsmith/*`, because git can't re-include a file inside an excluded folder, and a later Go Team convert re-includes `.memsmith/project.json`.
 
 | Command | Result |
 | --- | --- |
@@ -74,4 +74,4 @@ After it writes the marker, `memsmith link` registers the project with the local
 
 ## Converting a shared marker
 
-Go Team convert refuses a project whose marker is above the git repositories that use it, because converting it would move every one of those repositories to the team. To convert one repository, run `memsmith link --new` in it, and then convert that project.
+Go Team convert refuses a project whose marker is above the git repositories that use it, because converting it would move every one of those repositories to the team. To convert one repository, run `memsmith link --new` in it, and then convert that project. Convert checks only git repositories up to three folder levels below the marker, using the search roots in your settings file at the time of the convert. It doesn't check folders outside git that use the marker.

@@ -117,23 +117,49 @@ describe('a worktree next to its main checkout inside a workspace', () => {
   });
 });
 
+describe('a main checkout in an unusual state', () => {
+  it('is still shared when its first tracked file has an unstaged delete', () => {
+    marker(main, 'p-main');
+    rmSync(join(main, 'src', 'a.txt'));
+    expect(readProjectMarker(worktree, env())?.projectId).toBe('p-main');
+  });
+
+  it('is still shared with a version 4 index', () => {
+    marker(main, 'p-main');
+    git(main, 'update-index', '--index-version', '4');
+    expect(readProjectMarker(worktree, env())?.projectId).toBe('p-main');
+  });
+});
+
 describe('a main checkout with a separate git dir', () => {
-  // `git init --separate-git-dir=store/.git` makes the common dir's parent the
-  // storage folder, not the checkout; git itself lists that folder as the main
-  // worktree. Sharing a project found there would be sharing the wrong one.
-  it('is not guessed; the worktree keeps its own project root', () => {
-    const store = join(base, 'store');
-    const checkout = join(base, 'checkout');
-    const wt = join(base, 'sep-wt');
+  // The common dir records no path back to a checkout created with
+  // `git init --separate-git-dir`, so guessing would share the wrong project.
+  let store: string;
+  let checkout: string;
+  let sepWorktree: string;
+
+  beforeEach(() => {
+    store = join(base, 'store');
+    checkout = join(base, 'checkout');
+    sepWorktree = join(base, 'sep-wt');
     mkdirSync(store);
-    execFileSync('git', ['init', '-q', `--separate-git-dir=${join(store, '.git')}`, checkout], { stdio: 'ignore' });
+    execFileSync('git', ['init', '-q', `--separate-git-dir=${join(store, 'repo.git')}`, checkout], { stdio: 'ignore' });
     writeFileSync(join(checkout, 'a.txt'), 'a');
     git(checkout, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'add', '.');
     git(checkout, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'commit', '-qm', 'init');
-    git(checkout, 'worktree', 'add', '-q', wt, '-b', 'sep');
+    git(checkout, 'worktree', 'add', '-q', sepWorktree, '-b', 'sep');
+    marker(checkout, 'p-checkout');
     marker(store, 'p-store');
-    expect(resolveProjectRoot(wt, env())).toBe(wt);
-    expect(readProjectMarker(wt, env())).toBeNull();
+  });
+
+  it('is not guessed: the worktree keeps its own project root', () => {
+    expect(resolveProjectRoot(sepWorktree, env())).toBe(sepWorktree);
+    expect(readProjectMarker(sepWorktree, env())).toBeNull();
+  });
+
+  it('is shared when core.worktree names it', () => {
+    execFileSync('git', ['config', '--file', join(store, 'repo.git', 'config'), 'core.worktree', checkout], { stdio: 'ignore' });
+    expect(readProjectMarker(sepWorktree, env())?.projectId).toBe('p-checkout');
   });
 });
 

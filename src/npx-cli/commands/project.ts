@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { CredentialStore } from '../../services/identity/credential-store.js';
 import {
@@ -47,7 +47,7 @@ export interface ProjectCommandDeps {
 // an excluded directory, so only the glob form lets a later Go Team convert's
 // `!.memsmith/project.json` share the marker.
 const EXCLUDE_ENTRY = '.memsmith/*';
-const EXISTING_EXCLUDES = new Set(['.memsmith', '.memsmith/', '.memsmith/*', '/.memsmith', '/.memsmith/', '/.memsmith/*']);
+const DIRECTORY_EXCLUDE = /^(\/?)\.memsmith\/?$/;
 
 function tilde(path: string, home: string): string {
   if (samePath(path, home)) return '~';
@@ -219,7 +219,15 @@ function excludeMarker(gitRoot: string): void {
   const path = gitInfoExcludePath(gitRoot);
   if (!path) return;
   const current = existsSync(path) ? readFileSync(path, 'utf-8') : '';
-  if (current.split(/\r?\n/).some((l) => EXISTING_EXCLUDES.has(l.trim()))) return;
+  const lines = current.split(/\r?\n/);
+  if (lines.some((l) => l.trim() === EXCLUDE_ENTRY || l.trim() === `/${EXCLUDE_ENTRY}`)) return;
+  if (lines.some((l) => DIRECTORY_EXCLUDE.test(l.trim()))) {
+    const rewritten = lines.map((l) => (DIRECTORY_EXCLUDE.test(l.trim())
+      ? l.trim().replace(DIRECTORY_EXCLUDE, (_m, slash: string) => `${slash}${EXCLUDE_ENTRY}`)
+      : l));
+    writeFileSync(path, rewritten.join('\n'), 'utf-8');
+    return;
+  }
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `${current && !current.endsWith('\n') ? '\n' : ''}${EXCLUDE_ENTRY}\n`, 'utf-8');
 }

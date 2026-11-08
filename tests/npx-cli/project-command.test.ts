@@ -162,10 +162,10 @@ describe('memsmith link', () => {
     expect(lines[0]).toStartWith('# git ls-files');
     expect(existsSync(join(repo, '.gitignore'))).toBe(false);
 
-    for (const entry of ['.memsmith', '.memsmith/']) {
-      writeFileSync(join(repo, '.git', 'info', 'exclude'), `${entry}\n`);
+    for (const [entry, expected] of [['.memsmith', '.memsmith/*'], ['.memsmith/', '.memsmith/*'], ['/.memsmith/', '/.memsmith/*'], ['/.memsmith/*', '/.memsmith/*']]) {
+      writeFileSync(join(repo, '.git', 'info', 'exclude'), `# keep\n  build/\n${entry}\n`);
       await runLinkCommand([], deps(repo).d);
-      expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf-8')).toBe(`${entry}\n`);
+      expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf-8')).toBe(`# keep\n  build/\n${expected}\n`);
     }
   });
 
@@ -179,6 +179,18 @@ describe('memsmith link', () => {
     expect(ignored('.memsmith/project.json')).toBe(true);
     writeFileSync(join(real, '.gitignore'), '!.memsmith/project.json\n');
     expect(ignored('.memsmith/project.json')).toBe(false);
+  });
+
+  it('turns an existing directory exclude into one a convert can re-include', async () => {
+    const real = join(home, 'real-dir-exclude');
+    mkdirSync(real);
+    git(real, 'init', '-q');
+    writeFileSync(join(real, '.git', 'info', 'exclude'), '.memsmith/\n');
+    writeFileSync(join(real, '.gitignore'), '!.memsmith/project.json\n');
+    const ignored = (path: string) => spawnSync('git', ['check-ignore', '-q', path], { cwd: real }).status === 0;
+    await runLinkCommand([], deps(real).d);
+    expect(ignored('.memsmith/project.json')).toBe(false);
+    expect(ignored('.memsmith/other.json')).toBe(true);
   });
 
   it('links to a project id the server knows', async () => {

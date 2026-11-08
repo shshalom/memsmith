@@ -6,6 +6,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { convertRefusalForMarkerDir } from '../../../src/server/convert/marker-scope-guard.js';
 import { registerConvertRoutes } from '../../../src/server/routes/v1/ConvertRoutes.js';
+import { freshResolutionEnv } from '../../../src/services/identity/project-location.js';
 
 // A marker above several repositories (reached through a search root) belongs
 // to all of them. Converting it flipped every one of those repositories to the
@@ -41,6 +42,20 @@ describe('convert of a marker above the git root', () => {
 
   it('is allowed when no search root makes the repositories use it', () => {
     expect(convertRefusalForMarkerDir(ws, { home: join(ws, 'not-home'), searchRoots: [] })).toBeNull();
+  });
+
+  it('reads the search roots from the settings file at convert time', () => {
+    const settings = join(ws, 'settings.json');
+    const saved = process.env.MEMSMITH_PROJECT_SEARCH_ROOTS;
+    delete process.env.MEMSMITH_PROJECT_SEARCH_ROOTS;
+    try {
+      writeFileSync(settings, JSON.stringify({ MEMSMITH_PROJECT_SEARCH_ROOTS: '' }));
+      expect(convertRefusalForMarkerDir(ws, freshResolutionEnv(settings))).toBeNull();
+      writeFileSync(settings, JSON.stringify({ MEMSMITH_PROJECT_SEARCH_ROOTS: ws }));
+      expect(convertRefusalForMarkerDir(ws, freshResolutionEnv(settings))).toContain('memsmith link --new');
+    } finally {
+      if (saved !== undefined) process.env.MEMSMITH_PROJECT_SEARCH_ROOTS = saved;
+    }
   });
 
   it('is allowed for a marker at a git root', () => {

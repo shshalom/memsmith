@@ -80,6 +80,16 @@ describe('the borrowed-project notice', () => {
     expect(projectNoticeFor(join(base, 'wt'), null, { env, dataDir })).toBeNull();
   });
 
+  it('stays quiet rather than repeating when the record cannot be written', () => {
+    const ws = join(base, 'ws');
+    mkdirSync(join(ws, 'api', '.git'), { recursive: true });
+    marker(ws, 'p-ws');
+    const unwritable = join(base, 'not-a-dir');
+    writeFileSync(unwritable, 'file');
+    const env = { home: notHome(), searchRoots: [ws] };
+    expect(projectNoticeFor(join(ws, 'api'), null, { env, dataDir: unwritable })).toBeNull();
+  });
+
   it('stays silent for a folder that has its own marker', () => {
     const repo = join(base, 'own');
     mkdirSync(join(repo, '.git'), { recursive: true });

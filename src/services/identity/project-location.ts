@@ -3,10 +3,12 @@
 // Hooks run this on every session start and tool call, so it reads files only
 // and never spawns git (tests/services/identity/project-worktree.test.ts).
 
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { homedir } from 'os';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'path';
+import { dirname, isAbsolute, join, resolve, sep } from 'path';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { readFlatSettings } from '../../shared/flat-settings.js';
+import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 
 export const MARKER_RELATIVE_PATH = '.memsmith/project.json';
 export const SEARCH_ROOTS_SETTING = 'MEMSMITH_PROJECT_SEARCH_ROOTS' as const;
@@ -91,6 +93,22 @@ export function parseSearchRoots(raw: string, home: string): { roots: string[]; 
   return { roots, ignored };
 }
 
+/** Reads the settings file now, for long-lived processes whose cached settings may be stale. */
+export function freshResolutionEnv(settingsPath: string = USER_SETTINGS_PATH): ResolutionEnv {
+  const home = canonicalPath(homedir());
+  let raw = process.env[SEARCH_ROOTS_SETTING];
+  if (raw === undefined) {
+    try {
+      const value = readFlatSettings(settingsPath)?.[SEARCH_ROOTS_SETTING];
+      raw = typeof value === 'string' ? value : '';
+    } catch {
+      raw = '';
+    }
+  }
+  const { roots, ignored } = parseSearchRoots(raw, home);
+  return { home, searchRoots: roots, ignoredSearchRoots: ignored };
+}
+
 export function defaultResolutionEnv(): ResolutionEnv {
   const home = canonicalPath(homedir());
   const raw = process.env[SEARCH_ROOTS_SETTING] ?? loadFromFileOnce().MEMSMITH_PROJECT_SEARCH_ROOTS ?? '';
@@ -142,63 +160,29 @@ function isDirectory(path: string): boolean {
   }
 }
 
-function configuredWorktree(common: string): string | null {
+function readGitConfig(common: string): string {
   try {
-    const config = readFileSync(join(common, 'config'), 'utf-8');
-    const match = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(config);
-    return match ? canonicalPath(resolve(common, match[1])) : null;
+    return readFileSync(join(common, 'config'), 'utf-8');
   } catch {
-    return null;
+    return '';
   }
 }
 
-// The first path the main worktree's index tracks, read straight from
-// <common>/index (format: "DIRC", version, entry count, then entries of 40 stat
-// bytes, the object hash, 2 flag bytes, and a NUL-terminated path).
-function firstIndexedPath(common: string): string | null {
-  let fd: number | null = null;
-  try {
-    let hashLength = 20;
-    try {
-      if (/^\s*objectformat\s*=\s*sha256\s*$/im.test(readFileSync(join(common, 'config'), 'utf-8'))) hashLength = 32;
-    } catch { /* no config: SHA-1 */ }
-    fd = openSync(join(common, 'index'), 'r');
-    const buffer = Buffer.alloc(4096);
-    const length = readSync(fd, buffer, 0, buffer.length, 0);
-    if (length < 12 || buffer.toString('latin1', 0, 4) !== 'DIRC' || buffer.readUInt32BE(8) === 0) return null;
-    const start = 12 + 40 + hashLength + 2;
-    const end = buffer.indexOf(0, start);
-    if (end <= start || end > length) return null;
-    return buffer.toString('utf-8', start, end);
-  } catch {
-    return null;
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
-}
-
-// The common git dir records no path back to its main checkout. Its parent is
-// the checkout in the default layout, but with `git init --separate-git-dir`
-// it is only the storage folder (git itself lists that folder as the main
-// worktree). So the parent counts only if it holds a file the main index
-// tracks; when that cannot be shown, the worktree keeps its own project.
+// The common git dir records no path back to its main checkout. In the default
+// layout the checkout is its parent, whose `.git` is the common dir itself.
+// Otherwise only `core.worktree` names it; with `git init --separate-git-dir`
+// and no core.worktree there is no reliable answer, so the worktree keeps its
+// own project.
 function checkoutForCommonDir(common: string): string | null {
-  const tracked = firstIndexedPath(common);
-  if (!tracked) return null;
-  const holdsTracked = (dir: string) => {
-    try {
-      lstatSync(join(dir, tracked));
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const fromConfig = configuredWorktree(common);
-  if (fromConfig && holdsTracked(fromConfig)) return fromConfig;
-  if (basename(common) !== '.git') return null;
+  const config = readGitConfig(common);
+  const bare = /^\s*bare\s*=\s*true\s*$/im.test(config);
   const parent = dirname(common);
-  if (!isDirectory(join(parent, '.git')) || !samePath(canonicalPath(join(parent, '.git')), common)) return null;
-  return holdsTracked(parent) ? parent : null;
+  if (!bare && isDirectory(join(parent, '.git')) && samePath(canonicalPath(join(parent, '.git')), common)) return parent;
+  const configured = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(config)?.[1];
+  if (!configured) return null;
+  const worktree = canonicalPath(resolve(common, configured));
+  const pointsBack = linkedGitDir(worktree) === common || samePath(canonicalPath(join(worktree, '.git')), common);
+  return pointsBack ? worktree : null;
 }
 
 // Only a linked worktree's private git dir has a `commondir` file; a

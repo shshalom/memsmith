@@ -10,6 +10,7 @@ import { join } from 'path';
 import {
   canonicalPath,
   findGitRoot,
+  freshResolutionEnv,
   MARKER_RELATIVE_PATH,
   resolveProjectLocation,
   samePath,
@@ -21,7 +22,7 @@ const SCAN_MAX_DIRS = 2000;
 const SCAN_SKIP = new Set(['node_modules', 'Pods', 'DerivedData', 'build', 'dist', 'vendor', 'target']);
 
 /** Git repositories below `markerDir` that resolve to its marker. */
-export function reposUsingAncestorMarker(markerPath: string, env?: ResolutionEnv): string[] {
+export function reposUsingAncestorMarker(markerPath: string, env: ResolutionEnv = freshResolutionEnv()): string[] {
   const markerDir = canonicalPath(markerPath);
   if (findGitRoot(markerDir) !== null) return [];
   const repos: string[] = [];
