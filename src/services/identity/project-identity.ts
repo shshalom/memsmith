@@ -56,10 +56,10 @@ const NESTED_SCAN_MAX_DEPTH = 3;
 const NESTED_SCAN_MAX_DIRS = 2000;
 const NESTED_SCAN_SKIP = new Set(['node_modules', 'Pods', 'DerivedData', 'build', 'dist', 'vendor', 'target']);
 
-// Markers minted by sessions started in subfolders of this repo. Bounded, run
-// only when a root identity is about to be minted, and never crosses into a
-// nested work tree or submodule, which is a project of its own.
-function findNestedMarkerDirs(root: string): string[] {
+// Markers minted by sessions started in subfolders of this repo. Bounded, and
+// never crosses into a nested work tree or submodule, which is a project of
+// its own.
+export function findNestedMarkerDirs(root: string): string[] {
   const found: string[] = [];
   let visited = 0;
   const walk = (dir: string, depth: number) => {

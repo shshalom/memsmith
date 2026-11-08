@@ -15,6 +15,9 @@ import { readServerPidFile, removeServerState } from '../../server/runtime/serve
 import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
 import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
+import { readMarkerAt } from '../../services/identity/project-identity.js';
+import { resolveProjectLocation } from '../../services/identity/project-location.js';
+import { findStrayMarkers } from '../../services/projects/stray-markers.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 import {
   generationSettingsFromServer,
@@ -51,6 +54,8 @@ interface CheckResult {
   detail: string;
   /** When false, a 'fail' does not affect the overall exit code. */
   required: boolean;
+  /** Lines printed under the check. */
+  notes?: string[];
 }
 
 function probeVersion(bin: string): string | null {
@@ -205,6 +210,72 @@ export interface DoctorProbes {
   isPortInUse(host: string, port: number): Promise<boolean>;
   dataDir(): string;
   generation(serverReachable: boolean): Promise<GenerationStatus>;
+  strayMarkers?(): Promise<StrayReport[]>;
+}
+
+export interface StrayReport {
+  dir: string;
+  root: string;
+  rootProjectId: string;
+  projectId: string;
+  /** Null when the local database could not be read. */
+  records: number | null;
+}
+
+export function scanStrayMarkers(roots: string[], records: Map<string, number>): StrayReport[] {
+  const reports: StrayReport[] = [];
+  for (const root of roots) {
+    const rootMarker = readMarkerAt(root);
+    if (!rootMarker) continue;
+    for (const stray of findStrayMarkers(root, rootMarker.projectId)) {
+      if (reports.some((r) => r.dir === stray.dir)) continue;
+      reports.push({
+        dir: stray.dir, root, rootProjectId: rootMarker.projectId, projectId: stray.marker.projectId,
+        records: records.get(stray.marker.projectId) ?? null,
+      });
+    }
+  }
+  return reports;
+}
+
+export function strayMarkerCheck(strays: StrayReport[]): CheckResult {
+  if (strays.length === 0) {
+    return { name: 'Stray markers', status: 'ok', detail: 'no subfolder links to a different project', required: false };
+  }
+  const notes: string[] = [];
+  for (const s of strays) {
+    const records = s.records === null ? 'unknown records' : `${s.records} records`;
+    notes.push(`${s.dir} links to project ${s.projectId} (${records}), inside ${s.root} (project ${s.rootProjectId}).`);
+    notes.push(`  To fold it in: memsmith merge ${s.projectId} ${s.rootProjectId}`);
+    notes.push(`  Then: memsmith link (run in ${s.dir})`);
+  }
+  notes.push('A nested folder that is its own repository is a project of its own, and doctor does not report it.');
+  notes.push('Doctor never changes markers, even with --fix.');
+  return {
+    name: 'Stray markers',
+    status: 'warn',
+    detail: `${strays.length} subfolder${strays.length === 1 ? '' : 's'} link${strays.length === 1 ? 's' : ''} to a different project`,
+    required: false,
+    notes,
+  };
+}
+
+async function probeStrayMarkers(): Promise<StrayReport[]> {
+  const loc = resolveProjectLocation(process.env.MEMSMITH_PROJECT_CWD || process.cwd());
+  const cwdRoots = loc.markerFound ? [loc.root] : [];
+  const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
+  const { loadInventory, recordTotal } = await import('../../services/projects/inventory.js');
+  const db = openLocalProjectsDb();
+  try {
+    const inv = await loadInventory(db.inventorySource(), { extraRoots: cwdRoots });
+    const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, recordTotal(p.counts)]));
+    const roots = [...new Set([...inv.projects.flatMap((p) => p.folders), ...cwdRoots])];
+    return scanStrayMarkers(roots, records);
+  } catch {
+    return scanStrayMarkers(cwdRoots, new Map());
+  } finally {
+    await db.close();
+  }
 }
 
 /**
@@ -269,6 +340,7 @@ const defaultProbes: DoctorProbes = {
   isPortInUse,
   dataDir: resolveDataDir,
   generation: probeGeneration,
+  strayMarkers: probeStrayMarkers,
 };
 
 export async function collectChecks(
@@ -341,6 +413,8 @@ export async function collectChecks(
   const generation = await probes.generation(health.reachable && !address.remote);
   checks.push(generationCheck(generation, address.remote));
 
+  if (probes.strayMarkers && !address.remote) checks.push(strayMarkerCheck(await probes.strayMarkers()));
+
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');
   if (existsSync(lastErrorPath)) {
@@ -382,6 +456,7 @@ function printChecks(checks: CheckResult[]): void {
   console.log(styleText('bold', '\nmemsmith doctor\n'));
   for (const c of checks) {
     console.log(`  ${icon(c.status)} ${c.name.padEnd(22)} ${styleText('dim', c.detail)}`);
+    for (const note of c.notes ?? []) console.log(`      ${note}`);
   }
 }
 
