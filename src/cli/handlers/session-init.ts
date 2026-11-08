@@ -17,6 +17,7 @@ import {
 import { isServerClientError } from '../../services/hooks/server-client.js';
 import { isIncognito, bumpTurn } from '../incognito.js';
 import { handleIncognitoCommand } from './incognito-command.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 type MintedIdentity = { projectId?: string; created?: { root: string; name: string } } | null;
 
@@ -63,6 +64,7 @@ export function buildSessionMetadata(project: string, prompt: string): { project
 
 export const sessionInitHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('capture')) return { continue: true, suppressOutput: true };
     const { sessionId, prompt: rawPrompt } = input;
     const cwd = input.cwd ?? process.cwd();  
 

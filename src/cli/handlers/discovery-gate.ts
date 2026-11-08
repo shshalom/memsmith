@@ -8,6 +8,7 @@ import { getProjectContext } from '../../utils/project-name.js';
 import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
 import { fetchTeamMemory as realFetchTeamMemory } from '../../server/retrieval/team-inject-client.js';
 import { buildInjectionBlock } from '../../server/retrieval/inject.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 export interface DiscoveryGateDeps {
   fetchTeamMemory(input: { serverUrl: string; apiKey: string; projectId: string; teamId: string; query: string; limit?: number }): Promise<Array<{ id: string; content: string; metadata: Record<string, unknown> }>>;
@@ -33,7 +34,7 @@ export async function buildDiscoveryContext(
 export const discoveryGateHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const empty: HookResult = { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: '' }, exitCode: HOOK_EXIT_CODES.SUCCESS };
-    if (!input.toolName) return empty;
+    if (!input.toolName || !isFeatureEnabled('discovery-context')) return empty;
     const settings = loadFromFileOnce();
     const context = getProjectContext(input.cwd || process.cwd());
     const additionalContext = await buildDiscoveryContext(

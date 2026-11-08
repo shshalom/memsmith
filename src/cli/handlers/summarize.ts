@@ -12,6 +12,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import type { ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 async function summarizeViaServer(
   runtime: ServerRuntimeContext,
@@ -51,6 +52,7 @@ async function summarizeViaServer(
 
 export const summarizeHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('summary')) return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     if (input.cwd && !shouldTrackProject(input.cwd)) {
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }

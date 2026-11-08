@@ -22,6 +22,7 @@ import {
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
 import { INJECTED_DIRECTIVES, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
+import { isFeatureEnabled, writesAllowed, READ_ONLY_SESSION_NOTICE } from '../../shared/feature-switches.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -256,6 +257,9 @@ async function fetchSessionStartContextViaMcp(args: {
 
 export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    if (!isFeatureEnabled('context')) {
+      return { continue: true, suppressOutput: true, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '' } };
+    }
     const cwd = input.cwd ?? process.cwd();
     const context = dependencies.getProjectContext(cwd);
 
@@ -386,6 +390,7 @@ export const contextHandler: EventHandler = {
     // they are static standing instructions and must be present unconditionally
     // (even on empty projects).
     additionalContext = `${INJECTED_DIRECTIVES}\n\n${additionalContext}`;
+    if (!writesAllowed()) additionalContext = `${READ_ONLY_SESSION_NOTICE}\n\n${additionalContext}`;
 
     let coloredTimeline = '';
     if (showTerminalOutput) {

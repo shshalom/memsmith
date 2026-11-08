@@ -16,6 +16,7 @@ import { resolveRuntimeContext, type RuntimeContext } from '../../services/hooks
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { summarizeHandler } from './summarize.js';
+import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 export interface AnswerGateDeps {
   loadSettings: () => Record<string, string>;
@@ -32,6 +33,7 @@ const defaultDeps: AnswerGateDeps = {
 };
 
 function shouldBlock(input: NormalizedHookInput, deps: AnswerGateDeps, gate: AnswerGateStore): boolean {
+  if (!isFeatureEnabled('answer-gate')) return false;
   if (input.stopHookActive === true) return false;
   if (input.agentId) return false;
   if (!gate.isUnsatisfied()) return false;

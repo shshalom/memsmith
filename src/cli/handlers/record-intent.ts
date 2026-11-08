@@ -7,8 +7,19 @@ import { logger } from '../../utils/logger.js';
 import { isRecordIntent } from '../../services/retrieval/record-intent-detect.js';
 import { RecordArmedStore } from '../../services/retrieval/record-armed-store.js';
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
+import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
+
+const READ_ONLY_RECORD: HookResult = {
+  continue: true,
+  suppressOutput: false,
+  systemMessage: 'MemSmith is in read-only mode for this session (MEMSMITH_MODE=read), so this request is not saved to memory.',
+  hookSpecificOutput: {
+    hookEventName: 'UserPromptSubmit',
+    additionalContext: 'MemSmith memory is read-only in this session (MEMSMITH_MODE=read). Do not call note_add or observation_add for this request; they refuse. Tell the user that nothing was recorded to memory because this session is read-only.',
+  },
+};
 
 export function stripRecordIntentPrompt(prompt: string): string {
   return stripMemoryTags(prompt);
@@ -36,8 +47,9 @@ export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps):
   return {
     async execute(input: NormalizedHookInput): Promise<HookResult> {
       const prompt = (input.prompt ?? '').trim();
-      if (!prompt) return CONTINUE;
+      if (!prompt || !isFeatureEnabled('record-intent')) return CONTINUE;
       const armed = isRecordIntent(prompt);
+      if (!writesAllowed()) return armed ? READ_ONLY_RECORD : CONTINUE;
       try {
         deps.armedStore(input.sessionId).write({
           armed,

@@ -184,3 +184,19 @@ describe('promptInjectionHandler — directive reflects the mode', () => {
     expect(soft.hookSpecificOutput?.additionalContext ?? '').not.toContain('Hard mode');
   });
 });
+
+describe('promptInjectionHandler — read-only mode', () => {
+  it('still directs the agent to memory but records no memory gap', async () => {
+    const previous = process.env.MEMSMITH_MODE;
+    process.env.MEMSMITH_MODE = 'read';
+    try {
+      const { handler, rt } = setup({}, { observations: [] });
+      const res = await run(handler, 'why did we switch the queue engine to inline?');
+      expect(res.hookSpecificOutput?.additionalContext).toContain('observation_search');
+      expect(rt.added).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.MEMSMITH_MODE;
+      else process.env.MEMSMITH_MODE = previous;
+    }
+  });
+});
