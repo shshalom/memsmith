@@ -82,24 +82,77 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_MODE` | `code` | Mode profile that controls observation types and language. See [Modes & languages](/modes). |
 | `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
 | `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
 | `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
 
-### Mode examples
+## Read-only mode and hook switches
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_MODE` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. `write` captures and writes as usual. MemSmith treats the older mode profile values, such as `code` and `code--es`, as `write`. For any other value, MemSmith logs a warning and uses `write`. |
+| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs one warning for each unknown name and ignores it. |
+
+An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty environment variable also wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+
+### Read-only mode
+
+In read-only mode, MemSmith does the following:
+
+- Skips every capture hook: prompts, tool use, file edits, the end-of-turn summary, and transcript capture. Nothing goes to the server, and nothing goes to the local capture spool.
+- Refuses `note_add`, `observation_add`, and `observation_record_event` with this error: `MemSmith is in read-only mode for this session (MEMSMITH_MODE=read). Nothing was saved.`
+- Answers a request such as "remember that..." with a notice that memory is read-only, instead of saving it.
+- Adds a read-only notice to the session-start context, so the agent knows not to try to write.
+- Keeps reading: session-start context, `observation_search`, `observation_get`, `observation_context`, the memory-first gate, and the answer gate work as usual, unless you turn them off with `MEMSMITH_HOOKS_DISABLED`.
+
+The mode belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
+
+For example, a coordinator agent records what the team learns, and the worker agents that it launches only read. Start the coordinator as usual, and start each worker with `MEMSMITH_MODE=read`:
+
+```bash
+# Coordinator: reads and writes memory.
+claude
+
+# Worker: reads memory, records nothing.
+MEMSMITH_MODE=read claude
+```
+
+To make read-only the default and let one session write, set the default in `settings.json` and override it for that session:
 
 ```json
 {
-  "MEMSMITH_MODE": "code--es"
+  "MEMSMITH_MODE": "read"
 }
 ```
 
-```json
-{
-  "MEMSMITH_MODE": "code--chill"
-}
+```bash
+MEMSMITH_MODE=write claude
 ```
+
+### Hook features
+
+Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the hook's neutral result right away, so the tool call, prompt, or turn continues as if MemSmith were not there.
+
+| Feature | Hook | What turning it off skips |
+|---------|------|---------------------------|
+| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. |
+| `summary` | `Stop` | Only the end-of-turn summary. |
+| `context` | `SessionStart` | Session-start context injection. |
+| `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. |
+| `record-intent` | `UserPromptSubmit`, `PreToolUse` | The record-intent backstop, which saves a "remember this" request when the agent doesn't, and the rewrite that marks an `observation_add` call from that turn as a user note. |
+| `answer-gate` | `Stop` | The answer gate, which in hard enforcement mode holds back an answer about past work until the agent has searched memory. The end-of-turn summary still runs. |
+| `memory-first-gate` | `PreToolUse` | The memory-first gate on `Grep`, `Glob`, `Read`, `Bash`, and `WebSearch`. Calls to the memory tools still count as a memory search for the answer gate. |
+| `discovery-context` | `PreToolUse` | Team-memory injection before the tools listed in `MEMSMITH_GATE_TOOLS`. |
+| `file-context` | `PreToolUse` | The file-context hook on `Read`. |
+| `subagent-directive` | `PreToolUse` | The memory directives that MemSmith adds when the agent starts a subagent. |
+
+For example, to turn off session-start context and the answer gate for one session, run the following command:
+
+```bash
+MEMSMITH_HOOKS_DISABLED=context,answer-gate claude
+```
+
+To check the effective mode and the turned-off features, run `memsmith doctor`. It also lists any names that it doesn't know. `memsmith status` shows the mode when it is `read`.
 
 ## Context injection
 

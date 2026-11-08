@@ -5,7 +5,7 @@ description: "Configure MemSmith behavior and language with the Mode System"
 
 # Modes & Languages
 
-MemSmith uses a **mode system** to control what it records and which language it writes in. You can switch modes without reinstalling the plugin.
+MemSmith uses a **mode system** to control what it records and which language it writes in.
 
 ## What is a mode?
 
@@ -18,19 +18,9 @@ A mode is a configuration profile that defines the following:
 
 ## Configuration
 
-To set the active mode, set `MEMSMITH_MODE` in `~/.memsmith/settings.json`:
+The server loads the `code` mode for every generation job. No setting selects another mode yet.
 
-```json
-{
-  "MEMSMITH_MODE": "code--es"
-}
-```
-
-You can also set it as an environment variable:
-
-```bash
-export MEMSMITH_MODE="code--fr"
-```
+`MEMSMITH_MODE` used to select the mode. It now sets whether a session can write memory. For more information, see [Read-only mode and hook switches](/configuration#read-only-mode-and-hook-switches). MemSmith reads an older mode value, such as `code--es`, as `write`.
 
 ## Available Modes
 
