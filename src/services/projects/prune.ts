@@ -131,17 +131,16 @@ const DUMP_CONNECT_WAIT_MS = 5000;
 
 // Resolves once pg_dump is connected or finished; rejects if it already failed.
 async function waitForDumpConnection(db: ProjectsDb, name: string, dumping: Promise<unknown>): Promise<void> {
-  let state: 'running' | 'done' | 'failed' = 'running';
-  let failure: unknown;
-  void dumping.then(() => { state = 'done'; }, (error) => { state = 'failed'; failure = error; });
+  const dump: { state: 'running' | 'done' | 'failed'; failure?: unknown } = { state: 'running' };
+  void dumping.then(() => { dump.state = 'done'; }, (error) => { dump.state = 'failed'; dump.failure = error; });
   await Promise.resolve();
   const deadline = Date.now() + DUMP_CONNECT_WAIT_MS;
-  while (state === 'running' && Date.now() < deadline) {
+  while (dump.state === 'running' && Date.now() < deadline) {
     const r = await db.base.query(`SELECT 1 FROM pg_stat_activity WHERE datname = $1 AND application_name = 'pg_dump'`, [name]);
     if (r.rows.length > 0) break;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  if (state === 'failed') throw failure;
+  if (dump.state === 'failed') throw dump.failure;
 }
 
 /**
