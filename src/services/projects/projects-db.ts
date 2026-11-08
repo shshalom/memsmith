@@ -5,7 +5,7 @@
 // the queue. Listing and merging span every project database, including
 // databases no projects row names, which no per-project HTTP route can reach.
 import pg from 'pg';
-import { readRecordedAccountDatabase, resolveLocalBaseDatabaseUrl } from '../identity/local-base-dsn.js';
+import { readRecordedAccountDatabase, readRecordedBaseProjectId, resolveLocalBaseDatabaseUrl } from '../identity/local-base-dsn.js';
 import type { InventorySource, ProjectRow, RecordStats } from './inventory.js';
 
 export interface Queryable {
@@ -62,6 +62,7 @@ function quoteIdent(name: string): string {
 export class ProjectsDb {
   readonly accountDatabase: string;
   readonly base: PoolLike;
+  baseProjectId: string | null = null;
   private readonly pools = new Map<string, PoolLike>();
 
   constructor(
@@ -281,6 +282,7 @@ export class ProjectsDb {
   inventorySource(): InventorySource {
     return {
       accountDatabase: this.accountDatabase,
+      baseProjectId: this.baseProjectId,
       listProjects: () => this.listProjects(),
       listDatabases: () => this.listDatabases(),
       recordStats: (db, projectId) => this.recordStats(db, projectId),
@@ -295,9 +297,11 @@ export function openLocalProjectsDb(
   const recorded = readRecordedAccountDatabase();
   const known = Boolean(env.MEMSMITH_SERVER_DATABASE_URL?.trim()) || recorded !== null;
   const timeout = opts.connectTimeoutMs ?? 5000;
-  return new ProjectsDb(
+  const db = new ProjectsDb(
     resolveLocalBaseDatabaseUrl(env, () => recorded),
     known,
     (cs) => new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: timeout }) as unknown as PoolLike,
   );
+  db.baseProjectId = readRecordedBaseProjectId();
+  return db;
 }

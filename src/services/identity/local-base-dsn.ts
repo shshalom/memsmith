@@ -41,6 +41,17 @@ export function readRecordedAccountDatabase(runtimeStatePath: string = paths.ser
   }
 }
 
+/** The project the running server reads from its account database, as the server recorded it. */
+export function readRecordedBaseProjectId(runtimeStatePath: string = paths.serverRuntime()): string | null {
+  try {
+    if (!existsSync(runtimeStatePath)) return null;
+    const id = (JSON.parse(readFileSync(runtimeStatePath, 'utf-8')) as { baseProjectId?: unknown }).baseProjectId;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveLocalBaseDatabaseUrl(
   env: NodeJS.ProcessEnv = process.env,
   readAccountDatabase: () => string | null = readRecordedAccountDatabase,

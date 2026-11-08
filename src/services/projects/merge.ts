@@ -13,6 +13,7 @@ import {
   type ProjectInventory,
 } from './inventory.js';
 import type { ProjectsDb, Queryable } from './projects-db.js';
+import { projectDatabaseName } from '../../server/runtime/resolve-project-database.js';
 
 export interface RefContext {
   cwd: string;
@@ -74,6 +75,19 @@ export function decideMerge(inv: ProjectInventory, from: ProjectEntry, into: Pro
   }
   if (from.databaseName === into.databaseName) {
     return refuse(`${from.name} and ${into.name} keep their records in the same database (${from.databaseName}), which memsmith merge does not support.`);
+  }
+  // The server reads a project from msp_<id>, except the project it starts
+  // in, which it reads from the account database. Records merged anywhere
+  // else, and the jobs moved with them, would never be found.
+  const servedFrom = projectDatabaseName(into.projectId!);
+  if (into.databaseName !== servedFrom) {
+    const startProject = into.databaseName === inv.accountDatabase ? inv.baseProjectId : undefined;
+    if (startProject === null) {
+      return refuse(`${into.name} keeps its records in ${into.databaseName}, and MemSmith can't tell whether the server reads ${into.name} from there. Run \`memsmith restart\`, then merge again.`);
+    }
+    if (startProject !== into.projectId) {
+      return refuse(`${into.name} keeps its records in ${into.databaseName}, but the server reads ${into.name} from ${servedFrom}, so merged records would not be found. Merge ${into.name} into another project instead.`);
+    }
   }
   const earlier = mergedIntoChain(inv, from.projectId!);
   const chainTeam = earlier.find((p) => p.teamMarkerFolders.length > 0);

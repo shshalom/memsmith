@@ -105,6 +105,7 @@ Without `--yes`, `memsmith merge` changes nothing. It shows how many sessions, e
 - The source was merged, or is being merged, into a different project.
 - Either project has no database.
 - The two projects keep their records in the same database.
+- The target keeps its records in a database the server doesn't read it from. The server reads each project from its own `msp_` database, except the project it starts in, which it reads from the account database. If the target is in the account database and the server hasn't recorded which project it starts in, run `memsmith restart`, and then merge again.
 - The server hasn't recorded which database holds your projects, for example after `memsmith stop`. Run `memsmith start` first.
 - Another merge or prune is running.
 

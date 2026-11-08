@@ -7,7 +7,7 @@ import type { ProjectEntry, ProjectInventory } from '../../../src/services/proje
 
 function entry(o: Partial<ProjectEntry> & { projectId: string; name: string }): ProjectEntry {
   return {
-    teamId: `t-${o.projectId}`, team: 'local', runtime: 'local', folders: [], recordedPath: null, databaseName: `msp_${o.projectId}`,
+    teamId: `t-${o.projectId}`, team: 'local', runtime: 'local', folders: [], recordedPath: null, databaseName: `msp_${o.projectId.replace(/-/g, '')}`,
     counts: null, lastActivity: null, flags: [], teamMarkerFolders: [], ...o,
   };
 }
@@ -32,6 +32,18 @@ describe('decideMerge', () => {
     expect(decideMerge(root, team).refusal).toContain('shared is a team project');
     const markerOnly = entry({ projectId: 'p-m', name: 'm', teamMarkerFolders: ['/w/m'] });
     expect(decideMerge(markerOnly, root).refusal).toContain('team project');
+  });
+
+  it('refuses a target the server would read from another database', () => {
+    const legacy = entry({ projectId: 'p-legacy', name: 'legacy', databaseName: 'postgres' });
+    const inv = (baseProjectId: string | null): ProjectInventory => ({ ...inventoryOf([nested, legacy]), baseProjectId });
+    const refused = decide(inv('p-root'), nested, legacy).refusal;
+    expect(refused).toContain('legacy keeps its records in postgres');
+    expect(refused).toContain('msp_plegacy');
+    expect(decide(inv('p-legacy'), nested, legacy).refusal).toBeNull();
+    expect(decide(inv(null), nested, legacy).refusal).toContain('memsmith restart');
+    const stampedElsewhere = entry({ projectId: 'p-odd', name: 'odd', databaseName: 'msp_someoneelse' });
+    expect(decide(inv('p-root'), nested, stampedElsewhere).refusal).toContain('odd keeps its records in msp_someoneelse');
   });
 
   it('refuses a source merged elsewhere but allows re-running the same merge', () => {

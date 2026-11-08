@@ -27,6 +27,8 @@ export interface RecordStats {
 
 export interface InventorySource {
   accountDatabase: string;
+  /** The project the running server reads from the account database, when the server recorded it. */
+  baseProjectId?: string | null;
   listProjects(): Promise<ProjectRow[]>;
   listDatabases(): Promise<string[]>;
   /** Rows for `projectId` in `databaseName`, or every row when `projectId` is null. Null when unreadable. */
@@ -68,6 +70,7 @@ export interface ProjectEntry {
 
 export interface ProjectInventory {
   accountDatabase: string;
+  baseProjectId?: string | null;
   projects: ProjectEntry[];
   strays: StrayMarker[];
   /** Scanned folders where a bound cut the marker scan short. */
@@ -224,7 +227,7 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
     });
   }
 
-  return { accountDatabase: src.accountDatabase, projects, strays, incompleteScans };
+  return { accountDatabase: src.accountDatabase, baseProjectId: src.baseProjectId ?? null, projects, strays, incompleteScans };
 }
 
 /** Projects whose merges lead, possibly through other merges, into `projectId`. */
