@@ -11,7 +11,7 @@ const ROW = {
   createdAtEpoch: Date.UTC(2026, 10, 5),
 };
 
-function fake(opts: { context?: boolean; search?: () => Promise<unknown>; get?: () => Promise<unknown> } = {}) {
+function fake(opts: { context?: boolean; diagnose?: MemoryCommandDeps['diagnose']; search?: () => Promise<unknown>; get?: () => Promise<unknown> } = {}) {
   const calls: Array<{ method: string; input: Record<string, unknown> }> = [];
   const outs: string[] = [];
   const errs: string[] = [];
@@ -34,6 +34,7 @@ function fake(opts: { context?: boolean; search?: () => Promise<unknown>; get?: 
     },
     out: (l) => { outs.push(l); },
     err: (l) => { errs.push(l); },
+    ...(opts.diagnose ? { diagnose: opts.diagnose } : {}),
   };
   return { deps, calls, outs, errs, resolvedCwds };
 }
@@ -93,8 +94,30 @@ describe('memsmith search', () => {
     const f = fake({ context: false });
     expect(await runMemorySearch(['login'], f.deps)).toBe(1);
     const err = f.errs.join('\n');
-    expect(err).toContain('/work/repo/sub');
+    expect(err).toContain('No MemSmith project found for /work/repo/sub. Memory was not searched; this is not an empty result.');
+    expect(err).toContain('where MemSmith has recorded a session');
     expect(err).not.toContain('not configured');
+  });
+
+  it('says the settings are incomplete when the folder has a usable project marker', async () => {
+    const f = fake({ context: false, diagnose: (cwd) => ({ kind: 'unconfigured', folder: cwd }) });
+    expect(await runMemorySearch(['login'], f.deps)).toBe(1);
+    const err = f.errs.join('\n');
+    expect(err).toContain('The folder /work/repo/sub has a MemSmith project, but the MemSmith server settings are incomplete. Memory was not searched; this is not an empty result.');
+    expect(err).toContain('npx memsmith install');
+    expect(err).not.toContain('No MemSmith project found');
+  });
+
+  it("says the folder's team isn't joined rather than that it has no project", async () => {
+    const f = fake({
+      context: false,
+      diagnose: (cwd) => ({ kind: 'no_key', folder: cwd, projectId: 'proj-team', team: true }),
+    });
+    expect(await runMemorySearch(['login'], f.deps)).toBe(1);
+    const err = f.errs.join('\n');
+    expect(err).toContain("The folder /work/repo/sub belongs to MemSmith project proj-team in a team this machine hasn't joined. Memory was not searched; this is not an empty result.");
+    expect(err).toContain('choose Join');
+    expect(err).not.toContain('No MemSmith project found');
   });
 
   it('tells you to start the server when it is unreachable', async () => {
