@@ -12,3 +12,8 @@ export function markLocalRuntime(): void {
 export function isLocalRuntime(): boolean {
   return localRuntime;
 }
+
+/** Tests only: undoes markLocalRuntime so later test files see a default process. */
+export function resetLocalRuntimeForTests(): void {
+  localRuntime = false;
+}

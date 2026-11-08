@@ -30,6 +30,7 @@ if (OPT_IN) {
   const pools: Pool[] = [];
 
   afterAll(async () => {
+    (await import('../../../src/server/runtime/runtime-kind.js')).resetLocalRuntimeForTests();
     if (service) await service.stop().catch(() => {});
     for (const p of pools) await p.end().catch(() => {});
     if (manager) await manager.stop().catch(() => {});
