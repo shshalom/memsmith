@@ -346,6 +346,7 @@ export const contextHandler: EventHandler = {
       // design and upserts teams/projects on every call — its own doc says a
       // "fresh DB / cloned repo self-heals" — so calling it unconditionally
       // costs an existing project one upsert and gives a clone the row it needs.
+      // A read-only session must not create or register a project.
       const registered = writesAllowed() ? await dependencies.mintProjectIdentity(cwd) : null;
       dashboardProjectId = registered?.projectId ?? marker?.projectId;
       noticeLine = await dependencies.projectNotice(cwd, registered);
@@ -386,9 +387,8 @@ export const contextHandler: EventHandler = {
       if (banner) additionalContext = `${banner}\n\n${additionalContext}`;
     } catch { /* recognition is additive; never break the session for it */ }
 
-    // Always prepend the injected directives (memory-first + record-intent) —
-    // they are static standing instructions and must be present unconditionally
-    // (even on empty projects).
+    // Always prepend the standing directives: they must be present even on
+    // empty projects.
     additionalContext = `${standingDirectives(writesAllowed())}\n\n${additionalContext}`;
 
     let coloredTimeline = '';

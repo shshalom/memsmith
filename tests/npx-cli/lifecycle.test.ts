@@ -303,7 +303,7 @@ describe('status memory access line', () => {
 });
 
 describe('status access line from the real settings', () => {
-  it('reports read access from the environment and nothing for write', () => {
+  it('reports read access from settings.json or the environment, and nothing for write', () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-status-access-')));
     try {
       const settingsPath = join(dir, 'settings.json');

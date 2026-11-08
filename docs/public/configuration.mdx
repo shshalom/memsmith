@@ -149,7 +149,7 @@ Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the h
 
 | Feature | Hook | What turning it off skips |
 |---------|------|---------------------------|
-| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. The `/incognito` command, the incognito reminder, and pending team joins keep working. |
+| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. The `/incognito` command, the incognito reminder, and pending team joins keep working, and MemSmith still creates and registers the folder's project and its marker. To stop that too, use `MEMSMITH_ACCESS=read`. |
 | `summary` | `Stop` | Only the end-of-turn summary. |
 | `context` | `SessionStart` | Session-start context injection. |
 | `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. This hook also marks the request that the answer gate waits for, so turning it off also stops the answer gate from holding back an answer. |

@@ -61,9 +61,10 @@ describe('session-init with capture turned off', () => {
     expect(res.hookSpecificOutput?.additionalContext).toContain('still incognito');
   });
 
-  it('still claims a pending team join but starts no session', async () => {
+  it('still creates the project and claims a pending team join, but starts no session', async () => {
     const calls = harness({ MEMSMITH_HOOKS_DISABLED: 'capture' });
     await run('si-capture-off-3', 'list the files');
+    expect(calls.mints).toBe(1);
     expect(calls.claims).toBe(1);
     expect(calls.starts).toBe(0);
   });

@@ -54,6 +54,14 @@ describe('resolveFeatureSwitches', () => {
     expect(writesAllowed(s)).toBe(true);
   });
 
+  it('never reads the MEMSMITH_MODE observation profile as access', () => {
+    // MEMSMITH_MODE ("code") is in every settings.json, and an earlier rename of
+    // the access switch already corrupted a neighbouring key in the docs.
+    const fromFile: Record<string, string> = { MEMSMITH_MODE: 'read' };
+    expect(resolveFeatureSwitches(fromFile, { MEMSMITH_MODE: 'read' }).access).toBe('write');
+    expect(resolveFeatureSwitches({}, { MEMSMITH_MODE: 'ro' }).accessSource).toBe('default');
+  });
+
   it('accepts the common spellings of read-only', () => {
     for (const value of ['read', 'READ', 'readonly', 'Read-Only', 'ro', ' ro ']) {
       const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: value });

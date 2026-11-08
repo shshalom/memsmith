@@ -8,8 +8,8 @@ import { standingDirectives } from '../../services/retrieval/directive.js';
 import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 /** PreToolUse:Agent — when the parent spawns a sub-agent (Task/Agent tool),
- *  inject the combined directives (memory-first + record-intent) so they ride
- *  into the sub-agent's task framing (sub-agents get no SessionStart).
+ *  inject the standing directives so they ride into the sub-agent's task
+ *  framing (sub-agents get no SessionStart).
  *  Never blocks the spawn. */
 export const agentDirectiveHandler: EventHandler = {
   async execute(_input: NormalizedHookInput): Promise<HookResult> {
