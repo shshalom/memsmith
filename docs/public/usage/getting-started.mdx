@@ -53,11 +53,62 @@ memsmith search "start at login"     # Ranked index of matching observations; ad
 memsmith get <id> [<id>...]          # Full records for up to 10 ids from the index
 ```
 
-The commands search the project that the current folder belongs to. In a git repository, they also work from any subfolder.
+The commands search the project that the current folder belongs to. In a git repository, they also work from any subfolder. To use another folder's project, set `MEMSMITH_PROJECT_CWD` to that folder.
+
+`memsmith search` accepts these options anywhere on the line:
+
+- `--actor <name>`: return only records written by that actor. With no query, it lists the actor's most recent records. For how actors are set, see [Actor tags](/configuration#actor-tags).
+- `--limit <n>`: return up to `n` results. The default is 10 and the maximum is 25.
+- `--json`: print JSON instead of text.
+
+To search for text that starts with `--`, put `--` before it: `memsmith search -- --force flag`. Every word after `--` is part of the query.
+
+### JSON output
+
+With `--json`, the memory commands print one JSON object to stdout. `memsmith search --json` prints this shape:
+
+```json
+{
+  "project": { "id": "proj-1", "folder": "/work/repo" },
+  "query": "start at login",
+  "actor": null,
+  "results": [
+    {
+      "id": "obs-1",
+      "date": "2026-11-05",
+      "type": "decision",
+      "title": "Start-at-login design",
+      "snippet": "One-shot login entry with no supervision.",
+      "actor": "reviewer",
+      "actors": ["reviewer"],
+      "supersededBy": null
+    }
+  ]
+}
+```
+
+`actor` in a result is `null` when the record has no single actor, and `actors` is empty when it has none. `memsmith get --json` prints `project`, `results`, and `notFound`. Each result is the full record: `id`, `date`, `type`, `kind`, `lifecycleState`, `title`, `content`, `actor`, `actors`, `supersededBy`, `createdAtEpoch`, `updatedAtEpoch`, and `metadata`. `memsmith get` exits 1 when none of the ids exist.
+
+When a command fails with `--json`, it prints the error to stdout and exits 1:
+
+```json
+{ "error": { "code": "server_unreachable", "message": "The MemSmith server is not reachable. Start it with: memsmith start" } }
+```
+
+The error codes are `usage`, `invalid_actor`, `no_project`, `read_only`, `server_unreachable`, `server_timeout`, `auth_failed`, and `request_failed`.
 
 ## Record a note
 
 When you ask Claude to remember, record, or note something, it saves a user note with the `note_add` tool. Notes appear in the dashboard's notes panel and rank ahead of ambient observations in search.
+
+To save a note from a terminal, run `memsmith note` from a project folder:
+
+```bash
+memsmith note "Deploys freeze on Fridays"
+git log -1 --format=%B | memsmith note -    # Read the note from stdin
+```
+
+`memsmith note` saves the same kind of user note as `note_add`, for the project of the current folder or of `MEMSMITH_PROJECT_CWD`. It stamps the note with `MEMSMITH_ACTOR` when that is set. When `MEMSMITH_MODE` is `read`, it refuses and saves nothing. It exits 0 when the note is saved and 1 otherwise. With `--json`, it prints `{ "project": {...}, "note": { "id", "content", "actor", "createdAtEpoch" } }`.
 
 ## Open the dashboard
 

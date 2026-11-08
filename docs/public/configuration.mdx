@@ -86,6 +86,26 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 | `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
 | `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
 | `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
+| `MEMSMITH_ACTOR` | empty | Name that MemSmith stamps on every event, observation, and note that the session captures, so you can filter memory by who wrote it. See [Actor tags](#actor-tags). |
+
+### Actor tags
+
+An actor tag records which agent or role wrote a memory. To tag a session, set `MEMSMITH_ACTOR` in the environment before you start it:
+
+```bash
+MEMSMITH_ACTOR=reviewer claude
+```
+
+The environment variable overrides `MEMSMITH_ACTOR` in `settings.json`, so the setting works as a default for every session. MemSmith trims the name. A name longer than 64 characters or with control characters is ignored, and `memsmith note` refuses to save with it.
+
+When neither sets an actor, an event from a Claude Code subagent takes the subagent type, such as `code-reviewer`, as its actor. Events from the main session then have no actor.
+
+MemSmith stores the actor in the record's metadata:
+
+- A captured event, a note, or a directly added observation has `actor`.
+- An observation generated from events has `actors`, which lists every distinct actor of its source events. It also has `actor` when exactly one actor took part.
+
+To filter by actor, pass `actor` to the `observation_search` and `observation_context` MCP tools, pass `--actor <name>` to `memsmith search`, or send `actor` in a `POST /v1/search` or `POST /v1/context` request. The filter is an exact, case-sensitive match on `actor` or membership in `actors`. Records saved before actor tags existed have no actor, so an actor filter excludes them.
 
 ### Mode examples
 

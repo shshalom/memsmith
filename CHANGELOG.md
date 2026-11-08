@@ -8,6 +8,12 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- Actor tags. Set `MEMSMITH_ACTOR` in a session's environment, or as a default in `settings.json`, and MemSmith stamps that name on every event, observation, and note the session captures. Without it, an event from a Claude Code subagent takes the subagent type as its actor. An observation generated from events lists their actors in `actors`, and also has `actor` when only one took part. `observation_search`, `observation_context`, `memsmith search --actor <name>`, and `POST /v1/search` and `/v1/context` filter by actor, and the search index and full records show it. Records saved before this release have no actor, so an actor filter excludes them.
+- `memsmith note "<text>"` saves a user note for the current folder's project, the same as the `note_add` tool. It reads the text from stdin when you pass `-`, honors `MEMSMITH_PROJECT_CWD` and `MEMSMITH_ACTOR`, and refuses to save when `MEMSMITH_MODE` is `read`.
+- `--json` for `memsmith search`, `memsmith get`, and `memsmith note` prints one JSON object to stdout, and prints errors as `{ "error": { "code", "message" } }` with exit code 1. The memory commands also accept `--` to end options, so a query can start with `--`.
+
 ## [13.15.0] - 2026-11-08
 
 ### Added
