@@ -211,6 +211,7 @@ export interface DoctorProbes {
   dataDir(): string;
   generation(serverReachable: boolean): Promise<GenerationStatus>;
   strayMarkers?(): Promise<StrayReport[]>;
+  unfinishedMerges?(): Promise<UnfinishedMerge[]>;
 }
 
 export interface StrayReport {
@@ -259,22 +260,53 @@ export function strayMarkerCheck(strays: StrayReport[]): CheckResult {
   };
 }
 
-async function probeStrayMarkers(): Promise<StrayReport[]> {
-  const loc = resolveProjectLocation(process.env.MEMSMITH_PROJECT_CWD || process.cwd());
-  const cwdRoots = loc.markerFound ? [loc.root] : [];
-  const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
-  const { loadInventory, recordTotal } = await import('../../services/projects/inventory.js');
-  const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
-  try {
-    const inv = await loadInventory(db.inventorySource(), { extraRoots: cwdRoots });
-    const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, p.counts ? recordTotal(p.counts) : null]));
-    const roots = [...new Set([...inv.projects.flatMap((p) => p.folders), ...cwdRoots])];
-    return scanStrayMarkers(roots, records);
-  } catch {
-    return scanStrayMarkers(cwdRoots, new Map());
-  } finally {
-    await db.close();
+export interface UnfinishedMerge {
+  projectId: string;
+  name: string;
+  mergingInto: string;
+}
+
+export function unfinishedMergeCheck(merges: UnfinishedMerge[]): CheckResult {
+  if (merges.length === 0) return { name: 'Unfinished merges', status: 'ok', detail: 'no merge was left in progress', required: false };
+  const notes: string[] = [];
+  for (const m of merges) {
+    notes.push(`${m.name} (${m.projectId}) is still marked as merging into ${m.mergingInto}, so search leaves it out.`);
+    notes.push(`  To finish the merge: memsmith merge ${m.projectId} ${m.mergingInto} --yes`);
   }
+  return {
+    name: 'Unfinished merges',
+    status: 'warn',
+    detail: `${merges.length} merge${merges.length === 1 ? '' : 's'} did not finish`,
+    required: false,
+    notes,
+  };
+}
+
+// One database read serves both project checks in a doctor pass.
+let projectHealth: Promise<{ strays: StrayReport[]; merges: UnfinishedMerge[] }> | null = null;
+
+function probeProjectHealth(): Promise<{ strays: StrayReport[]; merges: UnfinishedMerge[] }> {
+  projectHealth ??= (async () => {
+    const loc = resolveProjectLocation(process.env.MEMSMITH_PROJECT_CWD || process.cwd());
+    const cwdRoots = loc.markerFound ? [loc.root] : [];
+    const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
+    const { loadInventory, recordTotal } = await import('../../services/projects/inventory.js');
+    const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
+    try {
+      const inv = await loadInventory(db.inventorySource(), { extraRoots: cwdRoots });
+      const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, p.counts ? recordTotal(p.counts) : null]));
+      const roots = [...new Set([...inv.projects.flatMap((p) => p.folders), ...cwdRoots])];
+      const merges = inv.projects
+        .filter((p) => p.projectId && p.mergingInto && !p.mergedInto)
+        .map((p) => ({ projectId: p.projectId!, name: p.name, mergingInto: p.mergingInto! }));
+      return { strays: scanStrayMarkers(roots, records), merges };
+    } catch {
+      return { strays: scanStrayMarkers(cwdRoots, new Map()), merges: [] };
+    } finally {
+      await db.close();
+    }
+  })();
+  return projectHealth;
 }
 
 /**
@@ -339,7 +371,9 @@ const defaultProbes: DoctorProbes = {
   isPortInUse,
   dataDir: resolveDataDir,
   generation: probeGeneration,
-  strayMarkers: probeStrayMarkers,
+  // collectChecks asks for strays first, so each doctor pass reads afresh.
+  strayMarkers: async () => { projectHealth = null; return (await probeProjectHealth()).strays; },
+  unfinishedMerges: async () => (await probeProjectHealth()).merges,
 };
 
 export async function collectChecks(
@@ -413,6 +447,7 @@ export async function collectChecks(
   checks.push(generationCheck(generation, address.remote));
 
   if (probes.strayMarkers && !address.remote) checks.push(strayMarkerCheck(await probes.strayMarkers()));
+  if (probes.unfinishedMerges && !address.remote) checks.push(unfinishedMergeCheck(await probes.unfinishedMerges()));
 
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');

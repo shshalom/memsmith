@@ -8,6 +8,7 @@ import {
   planRepairs,
   scanStrayMarkers,
   strayMarkerCheck,
+  unfinishedMergeCheck,
   type DoctorProbes,
 } from '../../src/npx-cli/commands/doctor.js';
 
@@ -76,5 +77,30 @@ describe('doctor --fix and stray markers', () => {
       lifecycle: async (c) => { ran.push(c); return 0; }, ollama: async () => true, out: () => {},
     });
     expect(readFileSync(path, 'utf-8')).toBe(before);
+  });
+});
+
+describe('unfinishedMergeCheck', () => {
+  it('passes when no merge is left in progress', () => {
+    expect(unfinishedMergeCheck([])).toMatchObject({ name: 'Unfinished merges', status: 'ok', required: false });
+  });
+
+  it('names each project stuck in merging and the command that finishes it', () => {
+    const check = unfinishedMergeCheck([{ projectId: 'p-cli', name: 'cli', mergingInto: 'p-root' }]);
+    expect(check.status).toBe('warn');
+    expect(check.notes!.join('\n')).toContain('cli (p-cli)');
+    expect(check.notes!.join('\n')).toContain('memsmith merge p-cli p-root --yes');
+  });
+
+  it('is part of the doctor report', async () => {
+    const probes: DoctorProbes = {
+      probeVersion: () => '1.0.0', isPluginInstalled: () => true, marketplaceDirectory: () => root,
+      installedPluginVersion: () => '13.15.0', probeServerHealth: async () => ({ reachable: true, version: '13.15.0' }),
+      readServerPidFile: () => null, verifyPidFileOwnership: () => true, isPortInUse: async () => true,
+      dataDir: () => root, generation: async () => ({ provider: 'claude', missingCredential: null }),
+      unfinishedMerges: async () => [{ projectId: 'p-cli', name: 'cli', mergingInto: 'p-root' }],
+    };
+    const { checks } = await collectChecks(false, false, { env: {} }, probes);
+    expect(checks.find((c) => c.name === 'Unfinished merges')?.status).toBe('warn');
   });
 });
