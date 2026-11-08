@@ -19,8 +19,9 @@ async function run(cmd: string[], env: Record<string, string | undefined>) {
 }
 
 async function preloadedEnv(env: Record<string, string | undefined>) {
-  const { stdout } = await run([process.execPath, 'test', './tests/fixtures/db-guard/print-database-env.ts'], env);
-  const line = stdout.split('\n').find((l) => l.startsWith('DB_GUARD_ENV '))!;
+  const { stdout, stderr, code } = await run([process.execPath, 'test', './tests/fixtures/db-guard/print-database-env.ts'], env);
+  const line = stdout.split('\n').find((l) => l.startsWith('DB_GUARD_ENV '));
+  if (!line) throw new Error(`print-database-env.ts printed no DB_GUARD_ENV line (exit ${code}):\n${stderr}`);
   const [url, port, binaries] = JSON.parse(line.slice('DB_GUARD_ENV '.length)) as [string, string, string];
   return { url, port, binaries };
 }
@@ -47,15 +48,28 @@ describe('test preload database guard', () => {
     expect(new URL(stdout).host).not.toBe(REAL_LOCAL_PG);
   });
 
-  it('overrides a developer shell that points the tests at the real local Postgres', async () => {
-    const shell = await preloadedEnv({
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      MEMSMITH_SERVER_DATABASE_URL: 'postgres://memsmith:memsmith-local@localhost:55433/postgres',
-      MEMSMITH_LOCAL_PG_PORT: '55433',
+  for (const dsn of [
+    'postgres://memsmith:memsmith-local@localhost:55433/postgres',
+    'postgresql://memsmith:memsmith-local@0.0.0.0:55433/postgres',
+    'host=127.0.0.1 port=55433 dbname=postgres user=memsmith',
+    "host='localhost' port = 55433 dbname=postgres",
+  ]) {
+    it(`overrides a developer shell that points the tests at the real local Postgres: ${dsn}`, async () => {
+      const shell = await preloadedEnv({
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        MEMSMITH_SERVER_DATABASE_URL: dsn,
+        MEMSMITH_LOCAL_PG_PORT: '55433',
+      });
+      expect(shell.url).not.toContain('55433');
+      expect(shell.port).not.toBe('55433');
     });
-    expect(new URL(shell.url).port).not.toBe('55433');
-    expect(shell.port).not.toBe('55433');
+  }
+
+  it('keeps a key=value DSN that names another database', async () => {
+    const chosen = 'host=127.0.0.1 port=55499 dbname=ci';
+    const shell = await preloadedEnv({ PATH: process.env.PATH, HOME: process.env.HOME, MEMSMITH_SERVER_DATABASE_URL: chosen });
+    expect(shell.url).toBe(chosen);
   });
 
   it('keeps a database the run chose on purpose', async () => {

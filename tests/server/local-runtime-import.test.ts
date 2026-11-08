@@ -18,6 +18,7 @@ describe('startLocalRuntime import hook', () => {
     const order: string[] = [];
     await startLocalRuntime({
       manager: fakeManager('postgres://x:y@127.0.0.1:55491/postgres'),
+      resolveDatabaseUrl: async (c) => c,
       runImport: async () => { order.push('import'); },
       startService: async () => { order.push('service'); },
     });
@@ -28,6 +29,7 @@ describe('startLocalRuntime import hook', () => {
     const order: string[] = [];
     await startLocalRuntime({
       manager: fakeManager('postgres://x:y@127.0.0.1:55491/postgres'),
+      resolveDatabaseUrl: async (c) => c,
       runImport: async () => { throw new Error('import boom'); },
       startService: async () => { order.push('service'); },
     });

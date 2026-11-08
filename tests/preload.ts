@@ -37,14 +37,31 @@ const UNREACHABLE_DATABASE_URL = 'postgres://memsmith:unreachable@127.0.0.1:1/me
 const UNREACHABLE_PG_PORT = '1';
 const REAL_LOCAL_PG_PORT = '55433';
 
-function namesRealLocalPostgres(url: string | undefined): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.port === REAL_LOCAL_PG_PORT && ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(parsed.hostname);
-  } catch {
-    return false;
+// An empty host or a socket directory means a local connection too.
+function isLocalHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return h === '' || h.startsWith('/') || ['127.0.0.1', 'localhost', '::1', '[::1]', '0.0.0.0'].includes(h);
+}
+
+// Accepts both connection-string forms libpq takes: a postgres:// URL and
+// key=value pairs such as `host=127.0.0.1 port=55433`.
+function namesRealLocalPostgres(dsn: string | undefined): boolean {
+  const value = (dsn ?? '').trim();
+  if (!value) return false;
+  if (/^postgres(ql)?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      const port = parsed.port || parsed.searchParams.get('port') || '';
+      return port === REAL_LOCAL_PG_PORT && isLocalHost(parsed.searchParams.get('host') ?? parsed.hostname);
+    } catch {
+      return false;
+    }
   }
+  const pairs = new Map<string, string>();
+  for (const m of value.matchAll(/(\w+)\s*=\s*('(?:[^'\\]|\\.)*'|\S+)/g)) {
+    pairs.set(m[1].toLowerCase(), m[2].replace(/^'(.*)'$/, '$1'));
+  }
+  return pairs.get('port') === REAL_LOCAL_PG_PORT && isLocalHost(pairs.get('host') ?? pairs.get('hostaddr') ?? '');
 }
 
 function guardDatabaseEnv(): string[] {
