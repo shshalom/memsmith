@@ -56,7 +56,7 @@ describe('ensureProjectIdentity', () => {
     const first = await ensureProjectIdentity(pool1, cwd);
     const pool2 = fakePool();
     const second = await ensureProjectIdentity(pool2, cwd);
-    expect(second).toEqual(first); // same ids, recognized from marker
+    expect(second).toEqual({ teamId: first.teamId, projectId: first.projectId }); // same ids, recognized from marker
   });
 
   it('re-upserts PG rows from marker when marker present (clone case)', async () => {

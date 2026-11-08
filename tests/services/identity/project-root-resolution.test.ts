@@ -72,7 +72,7 @@ describe('ensureProjectIdentity from a subfolder', () => {
     expect(existsSync(join(repo, '.memsmith', 'project.json'))).toBe(true);
     expect(existsSync(join(repo, 'ios', '.memsmith'))).toBe(false);
     const fromRoot = await ensureProjectIdentity(fakePool as any, repo);
-    expect(fromRoot).toEqual(fromIos);
+    expect(fromRoot).toEqual({ teamId: fromIos.teamId, projectId: fromIos.projectId });
   });
 
   it('adopts the only existing subfolder identity and leaves a single marker', async () => {

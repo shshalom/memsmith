@@ -17,7 +17,7 @@
 // Extracted rather than copied because the DSN step below is load-bearing and
 // must not fork between two call sites.
 
-interface MintedIds { teamId: string; projectId: string }
+interface MintedIds { teamId: string; projectId: string; created?: { root: string; name: string } }
 
 export interface EnsureIdentityDeps {
   /**

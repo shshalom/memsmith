@@ -1,13 +1,19 @@
 import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'fs';
-import { homedir } from 'os';
-import { basename, dirname, join, resolve } from 'path';
+import { basename, dirname, join } from 'path';
 import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
 import { LOCAL_OWNER_USER_ID } from '../../server/identity/providers/local-provider.js';
+import { ensureLocalTeamId } from './local-team.js';
+import {
+  findGitRoot,
+  MARKER_RELATIVE_PATH,
+  resolveProjectLocation,
+  type ResolutionEnv,
+} from './project-location.js';
 
-export const MARKER_RELATIVE_PATH = '.memsmith/project.json';
+export { MARKER_RELATIVE_PATH };
 
 // A local base key both captures (writes) and recalls (reads), so it needs the
 // full read+write memory scopes — HOOK_API_KEY_SCOPES alone (no memories:read)
@@ -37,40 +43,14 @@ const MARKER_NOTE =
 // rowCount is number | null to match pg.QueryResult (pg returns null for non-SELECT statements).
 interface QueryablePool { query(text: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>; }
 
-// The nearest enclosing git work tree (a `.git` directory, or a `.git` file for
-// worktrees and submodules). A home directory that is itself a repo (dotfiles)
-// is not a project root: it would fold every non-git project under it into one.
-function findGitRoot(start: string): string | null {
-  const home = resolve(homedir());
-  let dir = start;
-  for (;;) {
-    if (dir === home) return null;
-    if (existsSync(join(dir, '.git'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
 /**
- * The directory that owns this project's identity marker: the nearest marker
- * between `cwd` and the git root, else the git root, else (outside git) `cwd`.
- * Sessions started anywhere in a repo must resolve to one identity, or each
- * subfolder gets its own team, database, and memory.
+ * The directory that owns this project's identity marker. See
+ * resolveProjectLocation for the rules. Sessions started anywhere in one
+ * project must resolve to one identity, or each folder gets its own team,
+ * database, and memory.
  */
-export function resolveProjectRoot(cwd: string): string {
-  const start = resolve(cwd);
-  const gitRoot = findGitRoot(start);
-  const stop = gitRoot ?? start;
-  let dir = start;
-  for (;;) {
-    if (existsSync(join(dir, MARKER_RELATIVE_PATH))) return dir;
-    if (dir === stop) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return stop;
+export function resolveProjectRoot(cwd: string, env?: ResolutionEnv): string {
+  return resolveProjectLocation(cwd, env).root;
 }
 
 const NESTED_SCAN_MAX_DEPTH = 3;
@@ -131,11 +111,11 @@ function retireNestedMarker(dir: string, adopted: ProjectMarker): void {
   }
 }
 
-function readMarker(cwd: string): ProjectMarker | null {
-  return readMarkerAt(resolveProjectRoot(cwd));
+function readMarker(cwd: string, env?: ResolutionEnv): ProjectMarker | null {
+  return readMarkerAt(resolveProjectRoot(cwd, env));
 }
 
-function readMarkerAt(root: string): ProjectMarker | null {
+export function readMarkerAt(root: string): ProjectMarker | null {
   const p = join(root, MARKER_RELATIVE_PATH);
   if (!existsSync(p)) return null;
   try {
@@ -160,9 +140,8 @@ function readMarkerAt(root: string): ProjectMarker | null {
   }
 }
 
-// Public reader (the internal readMarker stays private; expose a stable read for other modules).
-export function readProjectMarker(cwd: string): ProjectMarker | null {
-  return readMarker(cwd);
+export function readProjectMarker(cwd: string, env?: ResolutionEnv): ProjectMarker | null {
+  return readMarker(cwd, env);
 }
 
 // Merge runtime fields into an EXISTING marker. Requires the identity marker to
@@ -210,7 +189,11 @@ export function writeProjectDatabaseName(cwd: string, databaseName: string): voi
 }
 
 function writeMarker(cwd: string, marker: ProjectMarker): void {
-  const p = join(resolveProjectRoot(cwd), MARKER_RELATIVE_PATH);
+  writeMarkerAt(resolveProjectRoot(cwd), marker);
+}
+
+export function writeMarkerAt(root: string, marker: ProjectMarker): void {
+  const p = join(root, MARKER_RELATIVE_PATH);
   const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
@@ -315,9 +298,16 @@ export async function upsertTeamAndProject(
   );
 }
 
+export interface EnsuredProjectIdentity {
+  teamId: string;
+  projectId: string;
+  /** Set only for the call that created the project. */
+  created?: { root: string; name: string };
+}
+
 /**
  * Resolve the current project's durable identity. Recognizes an existing
- * committed marker; otherwise mints uuids + a marker. Always (idempotently)
+ * committed marker; otherwise mints a project id in the machine's local team. Always (idempotently)
  * upserts the PG teams/projects rows so a fresh DB / cloned repo self-heals.
  *
  * When a `store` is provided, this ALSO guarantees a resolvable base key for
@@ -333,11 +323,13 @@ export async function ensureProjectIdentity(
   pool: QueryablePool,
   cwd: string,
   store?: CredentialStore,
-): Promise<{ teamId: string; projectId: string }> {
+  options: { localTeamId?: () => string } = {},
+): Promise<EnsuredProjectIdentity> {
   const root = resolveProjectRoot(cwd);
   const existing = readMarkerAt(root);
   let teamId: string;
   let projectId: string;
+  let created: EnsuredProjectIdentity['created'];
   if (existing) {
     teamId = existing.teamId;
     projectId = existing.projectId;
@@ -352,7 +344,7 @@ export async function ensureProjectIdentity(
     // the marker does not name.
     const candidate: ProjectMarker = adopted
       ? { ...adopted, note: MARKER_NOTE }
-      : { teamId: randomUUID(), projectId: randomUUID(), note: MARKER_NOTE };
+      : { teamId: (options.localTeamId ?? ensureLocalTeamId)(), projectId: randomUUID(), note: MARKER_NOTE };
     const won = createMarkerIfAbsent(root, candidate);
     teamId = won.teamId;
     projectId = won.projectId;
@@ -362,6 +354,7 @@ export async function ensureProjectIdentity(
       retireNestedMarker(adoptable.dir, adoptable.marker);
       logger.info('IDENTITY', 'adopted subfolder identity for the repo root', { teamId, projectId, root, from: adoptable.dir });
     } else {
+      created = { root, name: basename(root) || projectId };
       logger.info('IDENTITY', 'minted project identity', { teamId, projectId, root });
     }
   }
@@ -394,7 +387,7 @@ export async function ensureProjectIdentity(
     // it returns the cached key (repairing DB drift if needed) or mints one.
     await ensureBaseKey(pool, teamId, projectId, store);
   }
-  return { teamId, projectId };
+  return created ? { teamId, projectId, created } : { teamId, projectId };
 }
 
 /** Insert (or idempotently re-insert) an api_key hash row. Used by both the
