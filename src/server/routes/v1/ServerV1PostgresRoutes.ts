@@ -52,6 +52,7 @@ import { boostUserDirected } from './user-note-boost.js';
 import { scoreSubmittedObservation, meetsFloor, isExemptUserNote } from './ingest-quality.js';
 import { classifyAndComposeRecordIntent } from './record-intent.js';
 import { stripMemoryTags } from '../../../utils/tag-stripping.js';
+import { redactSecrets, redactSecretsDeep } from '../../../shared/secret-redaction.js';
 import { providerComplete } from '../../generation/provider-complete.js';
 import type { GenerationProviderHolder } from '../../generation/GenerationProviderHolder.js';
 import { stampAttribution } from './attribution.js';
@@ -1138,10 +1139,15 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         metadata: z.record(z.string(), z.unknown()).optional(),
         idempotencyKey: z.string().min(1).optional(),
       }),
-      async (req, res, body) => {
+      async (req, res, rawBody) => {
         const teamId = this.requireTeamId(req, res);
         if (!teamId) return;
-        if (!this.ensureProjectAllowed(req, res, body.projectId)) return;
+        if (!this.ensureProjectAllowed(req, res, rawBody.projectId)) return;
+        const body = {
+          ...rawBody,
+          content: redactSecrets(rawBody.content),
+          ...(rawBody.metadata !== undefined ? { metadata: redactSecretsDeep(rawBody.metadata) } : {}),
+        };
         // Local generation moved the quality bar here — see spec §5. Score is
         // ALWAYS computed server-side; a client-supplied value is ignored.
         // EXEMPTION: note_add (buildUserNoteRequest) posts kind='user_note' +
@@ -1228,10 +1234,11 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             teamId,
             projectId,
           };
-          // Strip <private> before classify so the LLM classifier, the
-          // idempotency hash, and the stored content all receive stripped text
-          // (moderation invariant: private content never reaches the LLM or DB).
-          const prompt = stripMemoryTags(body.prompt);
+          // Strip <private> and redact secrets before classify so the LLM
+          // classifier, the idempotency hash, and the stored content all receive
+          // scrubbed text (invariant: private content and secrets never reach
+          // the LLM or DB).
+          const prompt = redactSecrets(stripMemoryTags(body.prompt));
           const result = await classifyAndComposeRecordIntent(prompt, deps);
           if (result.recorded && result.id) {
             try {

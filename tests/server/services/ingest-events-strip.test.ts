@@ -64,3 +64,27 @@ describe('IngestEventsService server-side private strip', () => {
     expect(JSON.stringify(captured.payload)).toContain('ok');
   });
 });
+
+describe('IngestEventsService server-side secret redaction', () => {
+  const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+  const event = {
+    projectId: 'p1', teamId: 't1', sourceAdapter: 'hook',
+    eventType: 'tool_use', occurredAt: Date.now(),
+    payload: { tool_input: { command: 'cat .env' }, tool_response: { stdout: `ANTHROPIC_API_KEY=${fakeKey}` } },
+  };
+  const redacted = { tool_input: { command: 'cat .env' }, tool_response: { stdout: 'ANTHROPIC_API_KEY=[REDACTED:anthropic_key]' } };
+
+  it('ingestOne redacts secrets before persisting, for clients that did not redact', async () => {
+    const captured: { payload?: unknown } = {};
+    const service = new IngestEventsService({ pool: makeCapturingPool(captured) as never, resolveEventQueue: () => null });
+    await service.ingestOne(event as never, { generate: false });
+    expect(captured.payload).toEqual(redacted);
+  });
+
+  it('ingestBatch redacts secrets before persisting', async () => {
+    const captured: { payload?: unknown } = {};
+    const service = new IngestEventsService({ pool: makeCapturingPool(captured) as never, resolveEventQueue: () => null });
+    await service.ingestBatch([event as never], { generate: false });
+    expect(captured.payload).toEqual(redacted);
+  });
+});

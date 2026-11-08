@@ -16,3 +16,11 @@ describe('sessions/start metadata private strip', () => {
     expect(scrubEventPayload(metadata)).toEqual({ project: 'MemSmith', prompt: 'plain prompt' });
   });
 });
+
+describe('sessions/start metadata secret redaction', () => {
+  it('redacts a secret in the raw prompt the client sends as metadata', () => {
+    const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+    expect(scrubEventPayload({ project: 'MemSmith', prompt: `why does ${fakeKey} fail?` }))
+      .toEqual({ project: 'MemSmith', prompt: 'why does [REDACTED:anthropic_key] fail?' });
+  });
+});
