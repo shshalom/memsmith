@@ -18,13 +18,21 @@ import { isServerClientError } from '../../services/hooks/server-client.js';
 import { isIncognito, bumpTurn } from '../incognito.js';
 import { handleIncognitoCommand } from './incognito-command.js';
 
-async function defaultMintProjectIdentity(cwd: string): Promise<{ created?: { root: string; name: string } } | null> {
+type MintedIdentity = { projectId?: string; created?: { root: string; name: string } } | null;
+
+async function defaultMintProjectIdentity(cwd: string): Promise<MintedIdentity> {
   const { ensureProjectIdentityForHook, realEnsureIdentityDeps } = await import('./ensure-identity.js');
   return ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
 }
 
+async function defaultProjectNotice(cwd: string, minted: MintedIdentity): Promise<string | null> {
+  const { projectNoticeFor } = await import('../../services/identity/project-notices.js');
+  return projectNoticeFor(cwd, minted);
+}
+
 const defaultDependencies = {
   mintProjectIdentity: defaultMintProjectIdentity,
+  projectNotice: defaultProjectNotice,
   resolveRuntimeContext: defaultResolveRuntimeContext,
   logServerFallback: defaultLogServerFallback,
   shouldTrackProject: defaultShouldTrackProject,
@@ -129,13 +137,9 @@ export const sessionInitHandler: EventHandler = {
     // MEMSMITH_SERVER_DATABASE_URL from the server) and must not fork between the
     // two call sites. Idempotent, so running in both places is a no-op the second
     // time.
-    let createdNotice: string | null = null;
+    let noticeLine: string | null = null;
     try {
-      const minted = await dependencies.mintProjectIdentity(cwd);
-      if (minted?.created) {
-        const { createdProjectNotice } = await import('./ensure-identity.js');
-        createdNotice = createdProjectNotice(minted.created);
-      }
+      noticeLine = await dependencies.projectNotice(cwd, await dependencies.mintProjectIdentity(cwd));
     } catch (err) {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
@@ -166,7 +170,7 @@ export const sessionInitHandler: EventHandler = {
       const store = new CredentialStore();
       await claimPendingTeamJoin(cwd, {
         readProjectMarker: (c) => readProjectMarker(c) as any,
-        resolveKeyForTeam: (teamId, projectId) => (projectId ? store.resolveKeyFor({ teamId, projectId }) : store.resolveKeyForTeam(teamId)),
+        resolveKeyForTeam: (teamId) => store.resolveKeyForTeam(teamId),
         // The LOCAL base-account pool, already open above for identity minting.
         // The note lives here, not on the destination: putting it on the remote is
         // circular, since reaching the remote needs the URL the note carries.
@@ -182,11 +186,11 @@ export const sessionInitHandler: EventHandler = {
       logger.warn('IDENTITY', 'pending team join not applied (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
 
-    const withNotice = (result: HookResult): HookResult => (createdNotice
+    const withNotice = (result: HookResult): HookResult => (noticeLine
       ? {
         ...result,
         suppressOutput: false,
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: createdNotice },
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: noticeLine },
       }
       : result);
 

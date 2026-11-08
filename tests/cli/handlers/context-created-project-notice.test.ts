@@ -32,9 +32,18 @@ async function contextFor(mint: () => Promise<unknown>): Promise<string> {
 describe('SessionStart created-project notice', () => {
   it('names the project and its root on the session that created it', async () => {
     const text = await contextFor(async () => ({ teamId: 't', projectId: 'p', created: { root: '/work/fresh', name: 'fresh' } }));
-    expect(text).toContain('MemSmith created project fresh for /work/fresh in your local team.');
+    expect(text).toContain('MemSmith created project fresh for /work/fresh.');
     expect(text).toContain('`memsmith project`');
     expect(text).toContain('`memsmith link`');
+  });
+
+  it('carries the borrowed-project notice when the folder uses a project from above it', async () => {
+    setContextDependenciesForTesting({
+      ...deps(async () => ({ teamId: 't', projectId: 'p' })),
+      projectNotice: async () => 'MemSmith is using project ws from /work for this folder.',
+    } as never);
+    const result = await contextHandler.execute({ sessionId: 's', cwd, platform: 'claude', hookEvent: 'SessionStart' } as never);
+    expect(JSON.stringify(result)).toContain('MemSmith is using project ws from /work for this folder.');
   });
 
   it('stays silent on a session that found an existing project', async () => {

@@ -25,7 +25,19 @@ describe('UserPromptSubmit created-project notice', () => {
     const result = await run();
     expect(result.suppressOutput).toBe(false);
     expect(result.hookSpecificOutput?.additionalContext)
-      .toBe('MemSmith created project fresh for /work/fresh in your local team. Run `memsmith project` to check it, or `memsmith link` to use a different project.');
+      .toBe('MemSmith created project fresh for /work/fresh. Run `memsmith project` to check it, or `memsmith link` to use a different project.');
+  });
+
+  it('carries the borrowed-project notice on the first prompt that sees it', async () => {
+    setSessionInitDependenciesForTesting({
+      mintProjectIdentity: (async () => ({ teamId: 't', projectId: 'p' })) as never,
+      projectNotice: async () => 'MemSmith is using project ws from /work for this folder.',
+      resolveRuntimeContext: () => ({ runtime: 'local' as const, reason: 'server_context_unavailable' as const }),
+      shouldTrackProject: () => true,
+      logServerFallback: () => {},
+    });
+    const result = await run();
+    expect(result.hookSpecificOutput?.additionalContext).toBe('MemSmith is using project ws from /work for this folder.');
   });
 
   it('stays silent when the project already existed', async () => {

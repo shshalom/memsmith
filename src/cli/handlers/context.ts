@@ -22,7 +22,6 @@ import {
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
 import { INJECTED_DIRECTIVES, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
-import { createdProjectNotice } from './ensure-identity.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -79,6 +78,14 @@ async function defaultMintProjectIdentity(
 // Team-runtime projects generate on the team server, so a missing local Ollama
 // is not a fault there. Local projects read the provider the server resolved,
 // which includes a provider chosen in the dashboard.
+async function defaultProjectNotice(
+  cwd: string,
+  minted: { projectId?: string; created?: { root: string; name: string } } | null,
+): Promise<string | null> {
+  const { projectNoticeFor } = await import('../../services/identity/project-notices.js');
+  return projectNoticeFor(cwd, minted);
+}
+
 async function defaultCheckGenerationReadiness(
   settings: object,
   cwd: string,
@@ -153,6 +160,7 @@ const defaultDependencies = {
   getProjectContext: defaultGetProjectContext,
   loadFromFileOnce: defaultLoadFromFileOnce,
   mintProjectIdentity: defaultMintProjectIdentity,
+  projectNotice: defaultProjectNotice,
   checkGenerationReadiness: defaultCheckGenerationReadiness,
   checkServerVersion: defaultCheckServerVersion,
   checkSetup: defaultCheckSetup,
@@ -315,7 +323,7 @@ export const contextHandler: EventHandler = {
     // on every session start is safe and an existing project pays only a marker
     // read.
     let dashboardProjectId: string | undefined;
-    let createdNotice: string | null = null;
+    let noticeLine: string | null = null;
     try {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
       const marker = readProjectMarker(cwd);
@@ -336,13 +344,13 @@ export const contextHandler: EventHandler = {
       // costs an existing project one upsert and gives a clone the row it needs.
       const registered = await dependencies.mintProjectIdentity(cwd);
       dashboardProjectId = registered?.projectId ?? marker?.projectId;
-      if (registered?.created) createdNotice = createdProjectNotice(registered.created);
+      noticeLine = await dependencies.projectNotice(cwd, registered);
     } catch { /* unscoped link is a fine fallback */ }
     const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;
-    if (createdNotice) additionalContext = `${createdNotice}\n${additionalContext}`;
+    if (noticeLine) additionalContext = `${noticeLine}\n${additionalContext}`;
 
     // RECOGNISE a team project this machine has not joined.
     //
