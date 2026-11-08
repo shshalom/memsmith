@@ -9,6 +9,7 @@ import { frameAnswerFromMemoryDirective, frameUnavailableNotice } from '../../se
 import { resolveRuntimeContext, type RuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
+import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 
@@ -67,16 +68,17 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
         // Memory is consulted when the agent needs information (the standing
         // directive plus the tool-intent gate), so only a clear question about
         // past work gets anything here. Other prompts cost no search at all.
-        if (classifyPrompt(prompt) !== 'info-request') return CONTINUE;
+        const ask = stripAutomatedContent(stripMemoryTags(prompt));
+        if (classifyPrompt(ask) !== 'info-request') return CONTINUE;
         const runtime = deps.resolveRuntime();
         const broker = new RetrievalBroker(
           { runtime, settings, sessionId: input.sessionId, nowIso: new Date().toISOString() },
           base ? new SessionTopicStore(input.sessionId, base) : undefined,
         );
-        const probe = await broker.probe(prompt);
+        const probe = await broker.probe(ask);
         if (probe.unavailable) return inject(frameUnavailableNotice());
-        if (probe.isGap) await persistGap(runtime, prompt);
-        gate.beginTurn({ pending: true, topic: topicKey(prompt) });
+        if (probe.isGap) await persistGap(runtime, ask);
+        gate.beginTurn({ pending: true, topic: topicKey(ask) });
         return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
       } catch (err) {
         logger.warn('HOOK', 'prompt-injection failed; continuing without it', { error: err instanceof Error ? err.message : String(err) });

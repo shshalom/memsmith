@@ -1,6 +1,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
-import { stripMemoryTags, isInternalProtocolPayload } from '../../src/utils/tag-stripping.js';
+import { stripMemoryTags, stripTags, isInternalProtocolPayload, stripAutomatedContent } from '../../src/utils/tag-stripping.js';
 import { logger } from '../../src/utils/logger.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
@@ -446,5 +446,180 @@ after`;
       const text = '<task-notification>a</task-notification><task-notification>b</task-notification>';
       expect(isInternalProtocolPayload(text)).toBe(false);
     });
+  });
+});
+
+describe('stripAutomatedContent', () => {
+  it('drops an orphan closing tag and keeps the text around it', () => {
+    expect(stripAutomatedContent('</system-reminder>why did we pin the port?')).toBe('why did we pin the port?');
+  });
+
+  it('strips a notification whose result quotes the same tag, through its outer close', () => {
+    const prompt = '<task-notification><result>log: <task-notification>x</task-notification> then more</result></task-notification>\nfix it';
+    expect(stripAutomatedContent(prompt)).toBe('fix it');
+  });
+
+  it('strips a notification whose result quotes only the closing tag, through its real close', () => {
+    const prompt = '<task-notification><result>log: </task-notification> then we decided</result></task-notification>\nfix it';
+    expect(stripAutomatedContent(prompt)).toBe('fix it');
+  });
+
+  it('strips an automated block with a long attribute', () => {
+    expect(stripAutomatedContent(`<task-notification id="${'a'.repeat(300)}">we decided</task-notification> fix it`)).toBe('fix it');
+  });
+
+  it('ignores a code fence that opens inside an automated block', () => {
+    const prompt = '<task-notification><result>\n```\ncode cut off</result></task-notification>\nwhy did we drop sqlite?';
+    expect(stripAutomatedContent(prompt)).toBe('why did we drop sqlite?');
+  });
+
+  it('leaves tags inside a code fence untouched', () => {
+    const prompt = '```\n<bash-stdout>ok</bash-stdout>\n```\nwhy?';
+    expect(stripAutomatedContent(prompt)).toBe(prompt);
+  });
+
+  it('keeps the rest of the prompt after an unclosed tag in prose', () => {
+    expect(stripAutomatedContent('I saw <bash-stdout> in the log. Why?')).toBe('I saw <bash-stdout> in the log. Why?');
+  });
+
+  it('strips to the end from an unclosed tag at the start of the prompt', () => {
+    expect(stripAutomatedContent('  <task-notification><result>cut off')).toBe('');
+  });
+
+  it('strips to the end from an unclosed tag at the start even when a closed block follows', () => {
+    expect(stripAutomatedContent('<task-notification><result>cut off <system-reminder>r</system-reminder> rest')).toBe('');
+  });
+
+  const FENCE = '```';
+  for (const [name, prompt, expected] of [
+    ['a fenced quoted close inside a notification',
+      `<task-notification><result>Fix:\n${FENCE}ts\nconst N = "</task-notification>";\n${FENCE}\nwe decided to keep the history</result></task-notification>`, ''],
+    ['an inline fence and quoted close inside a notification',
+      `<task-notification><result>${FENCE}\n</task-notification>\n${FENCE}\nwe decided to keep the history</result></task-notification>`, ''],
+    ['a quoted open and close pair inside a notification',
+      '<task-notification><result>log: <task-notification>x</task-notification> then more</result></task-notification>\nfix it', 'fix it'],
+    ['a quoted close only inside a notification',
+      '<task-notification><result>log: </task-notification> then we decided</result></task-notification>\nfix it', 'fix it'],
+    ['a truncated fence inside a notification',
+      `<task-notification><result>\n${FENCE}\ncode cut off</result></task-notification>\nwhy did we drop sqlite?`, 'why did we drop sqlite?'],
+    ['a fence inside a notification after user text',
+      `fix the lint <task-notification><result>\n${FENCE}\nwe decided to keep the history</result></task-notification>`, 'fix the lint'],
+    ['a closed pair inside a user fence',
+      `${FENCE}\n<bash-stdout>ok</bash-stdout>\n${FENCE}\nwhy?`, `${FENCE}\n<bash-stdout>ok</bash-stdout>\n${FENCE}\nwhy?`],
+    ['a truncated tag inside a user fence',
+      `${FENCE}\n<task-notification><status>completed\n${FENCE}\nwhy did we drop sqlite?`, `${FENCE}\n<task-notification><status>completed\n${FENCE}\nwhy did we drop sqlite?`],
+    ['an orphan close inside a user fence',
+      `${FENCE}\n</system-reminder>\n${FENCE}\nwhy?`, `${FENCE}\n</system-reminder>\n${FENCE}\nwhy?`],
+    ['a user fence after an unclosed opener in prose',
+      `I saw <bash-stdout> in logs:\n${FENCE}\n<bash-stdout>x</bash-stdout>\n${FENCE}`, `I saw <bash-stdout> in logs:\n${FENCE}\n<bash-stdout>x</bash-stdout>\n${FENCE}`],
+    ['a notification after a user fence',
+      `${FENCE}\ncode\n${FENCE}\n<task-notification>we decided</task-notification>`, `${FENCE}\ncode\n${FENCE}`],
+  ] as const) {
+    it(`handles ${name}`, () => {
+      expect(stripAutomatedContent(prompt)).toBe(expected);
+    });
+  }
+
+  // Unbounded attribute scanning made these inputs take tens of seconds at 1 MB.
+  for (const [name, input] of [
+    ['openers with unterminated attributes', '<bash-input '.repeat(90_000)],
+    ['unclosed openers in prose', 'x <task-notification>'.repeat(50_000)],
+    ['nested openers', '<task-notification>'.repeat(50_000)],
+    ['tags between code fences', '```\n<bash-input>x\n```\n'.repeat(60_000)],
+    ['openers whose attributes end at the last character', '<bash-input '.repeat(90_000) + '>'],
+    ['closed pairs inside user fences', '```\n<bash-stdout>x</bash-stdout>\n```\n'.repeat(30_000)],
+    ['notifications quoting fenced closes', '<task-notification>\n```\n"</task-notification>"\n```\n</task-notification>\n'.repeat(15_000)],
+    ['fences inside one long block', '<task-notification>' + '```\nx\n'.repeat(150_000) + '</task-notification>'],
+    ['unclosed openers inside the last of many blocks',
+      '<bash-input>x</bash-input>'.repeat(20_000) + '<task-notification>' + '<bash-stdout>'.repeat(40_000) + '</task-notification>'],
+    ['unclosed openers between closed blocks', 'q <bash-stdout> <bash-input>x</bash-input> '.repeat(25_000)],
+  ] as const) {
+    it(`stays fast on ~1 MB of ${name}`, () => {
+      const t = performance.now();
+      stripAutomatedContent(input);
+      expect(performance.now() - t).toBeLessThan(2000);
+    });
+  }
+
+  it('keeps stripMemoryTags fast on ~1 MB of openers whose attributes end at the last character', () => {
+    const t = performance.now();
+    stripMemoryTags('<private '.repeat(110_000) + '>');
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+
+  it('keeps stripMemoryTags fast on ~1 MB of openers with unterminated attributes', () => {
+    const t = performance.now();
+    stripMemoryTags('<private '.repeat(110_000));
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+});
+
+describe('stripTags matches the regex it replaced', () => {
+  const NAMES = ['private', 'memsmith-context', 'system_instruction', 'system-instruction', 'persisted-output', 'system-reminder'];
+  const ORIGINAL = new RegExp(`<(${NAMES.join('|')})\\b[^>]*>[\\s\\S]*?</\\1>`, 'g');
+  const reference = (re: RegExp, input: string) => {
+    const counts: Record<string, number> = Object.fromEntries(NAMES.map(n => [n, 0]));
+    const stripped = input.replace(re, (_, name: string) => { counts[name] += 1; return ''; });
+    return { stripped: stripped.trim(), counts };
+  };
+
+  const FIXED = [
+    '',
+    'plain text with no tags',
+    '<private>secret</private>',
+    'before <private>secret</private> after',
+    '<private>a</private><private>b</private>',
+    '<private><private>nested</private> tail</private> end',
+    '<private attr="x" data-y=\'1\'>secret</private> keep',
+    '<private-notes>x</private> keep',
+    '<privatex>x</privatex> keep',
+    '<PRIVATE>upper</PRIVATE> keep',
+    '<private>unclosed at the end',
+    'start <private>unclosed in the middle <system-reminder>r</system-reminder> tail',
+    '<private>one</private> <private>unclosed after a closed one',
+    '<system-reminder>r</system-reminder>\r\n<private>line\r\nbreaks</private>\r\nkeep',
+    '<memsmith-context>a</memsmith-context><system_instruction>b</system_instruction><system-instruction>c</system-instruction>',
+    '<persisted-output>x</persisted-output> <private>y</ private> z',
+    '<private>a</system-reminder> b</private>',
+    '<private <private>x</private>',
+    '<private\n>multiline opener</private> keep',
+    `<private ${'a'.repeat(300)}>long attribute</private> keep`,
+    '</private> orphan close <private>x</private>',
+    '<private>x</private',
+    `<private ${'a'.repeat(300)}>SECRET</private> ok`,
+    `<private\n${'x'.repeat(260)}>SECRET</private>`,
+    '<private a="<b>">SECRET</private> ok',
+    '<private <system-reminder>x</system-reminder> y</private> z',
+    '<private no closing angle bracket anywhere',
+  ];
+
+  let seed = 7;
+  const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed % n; };
+  const PIECES = ['<private>', '</private>', '<system-reminder>', '</system-reminder>', '<private a="1">', '<memsmith-context>',
+    '</memsmith-context>', 'text ', '\r\n', '<', '>', '</', '<private-x>', '<persisted-output>', '</persisted-output>',
+    `<private ${'a'.repeat(300)}`, `<system-reminder\n${'b'.repeat(400)}`, 'x'.repeat(280)];
+  const RANDOM = Array.from({ length: 500 }, () => Array.from({ length: 1 + rand(14) }, () => PIECES[rand(PIECES.length)]).join(''));
+
+  it(`gives the same output and counts as the origin/main regex on ${FIXED.length + RANDOM.length} inputs`, () => {
+    for (const input of [...FIXED, ...RANDOM]) {
+      expect({ input, ...stripTags(input) }).toEqual({ input, ...reference(ORIGINAL, input) });
+    }
+  });
+
+  it('strips a private block whose opener has a long attribute', () => {
+    expect(stripMemoryTags(`<private ${'a'.repeat(300)}>SECRET</private> ok`)).toBe('ok');
+  });
+
+  // The lazy regex rescanned to the end of the input for every unclosed opener.
+  it('stays fast on ~1 MB of unclosed openers', () => {
+    const t = performance.now();
+    stripMemoryTags('<private>'.repeat(115_000));
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+
+  it('stays fast on ~1 MB of unclosed openers of every tag', () => {
+    const t = performance.now();
+    stripMemoryTags(NAMES.map(n => `<${n}>`).join(' ').repeat(9_000));
+    expect(performance.now() - t).toBeLessThan(2000);
   });
 });

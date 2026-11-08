@@ -4,13 +4,17 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createPromptInjectionHandler } from '../../../src/cli/handlers/prompt-injection.js';
 import { AnswerGateStore } from '../../../src/services/retrieval/answer-gate-store.js';
+import { createAnswerGateHandler } from '../../../src/cli/handlers/answer-gate.js';
+import { topicKey } from '../../../src/services/retrieval/topic-key.js';
 
 const MEMORY_BODY = 'We chose the inline queue because BullMQ needed Redis on every laptop';
 
 function serverRuntime(opts: { throws?: boolean; observations?: Array<{ id: string; content: string }> } = {}) {
   const calls: string[] = [];
+  const added: string[] = [];
   return {
     calls,
+    added,
     runtime: {
       runtime: 'server' as const,
       projectId: 'p1',
@@ -22,7 +26,7 @@ function serverRuntime(opts: { throws?: boolean; observations?: Array<{ id: stri
           const observations = opts.observations ?? [{ id: 'o1', content: MEMORY_BODY }];
           return { observations, context: '' };
         },
-        addObservation: async () => ({}),
+        addObservation: async (input: { content: string }) => { added.push(input.content); return {}; },
       } as any,
     },
   };
@@ -92,6 +96,74 @@ describe('promptInjectionHandler — everything that is not a past-work question
     await run(handler, 'why did we switch the queue engine to inline?');
     await run(handler, 'fix the failing queue engine test');
     expect(new AnswerGateStore('s1', base).isUnsatisfied()).toBe(false);
+  });
+});
+
+const TASK_NOTIFICATION = '<task-notification><task-id>x</task-id><status>completed</status>'
+  + '<summary>Agent "Review" finished</summary>'
+  + '<result>Earlier we decided to keep the previous design. Why did the old cache fail?</result>'
+  + '</task-notification>';
+
+describe('promptInjectionHandler — automated messages', () => {
+  for (const [name, prompt] of [
+    ['A task notification', TASK_NOTIFICATION],
+    ['An IDE selection', '<ide_selection>The user selected: // we decided to keep the history of the queue</ide_selection>'],
+  ] as const) {
+    it(`${name} alone costs no search, injects nothing, and arms no gate`, async () => {
+      const { handler, base, rt } = setup();
+      const res = await run(handler, prompt);
+      expect(rt.calls).toEqual([]);
+      expect(res.hookSpecificOutput).toBeUndefined();
+      expect(new AnswerGateStore('s1', base).isUnsatisfied()).toBe(false);
+    });
+  }
+
+  it('arms the gate for a question that arrives with a notification and searches only the question', async () => {
+    const { handler, base, rt } = setup();
+    await run(handler, `${TASK_NOTIFICATION}\nwhy did we switch the queue engine to inline?`);
+    expect(new AnswerGateStore('s1', base).isUnsatisfied()).toBe(true);
+    expect(rt.calls.join(' ')).not.toContain('task-notification');
+    expect(rt.calls.join(' ')).not.toContain('old cache');
+  });
+
+  it('keys the gate topic on the question, not the notification', async () => {
+    const { handler, base } = setup();
+    await run(handler, `${TASK_NOTIFICATION}\nwhy did we switch the queue engine to inline?`);
+    expect(new AnswerGateStore('s1', base).read()?.topic).toBe(topicKey('why did we switch the queue engine to inline?'));
+  });
+
+  it('records a memory gap with the question, not the notification', async () => {
+    const { handler, rt } = setup({}, { observations: [] });
+    await run(handler, `${TASK_NOTIFICATION}\nwhy did we switch the queue engine to inline?`);
+    expect(rt.added).toHaveLength(1);
+    expect(rt.added[0]).toContain('why did we switch the queue engine to inline?');
+    expect(rt.added[0]).not.toContain('task-notification');
+  });
+
+  it('keeps private content out of the search and the memory gap', async () => {
+    const { handler, rt } = setup({}, { observations: [] });
+    await run(handler, `<private>token-4417</private> ${TASK_NOTIFICATION}\nwhy did we switch the queue engine to inline?`);
+    expect(rt.calls.length).toBeGreaterThan(0);
+    expect(rt.calls.join(' ')).not.toContain('token-4417');
+    expect(rt.added.join(' ')).not.toContain('token-4417');
+  });
+
+  it('a run of notification-only turns after a blocked question never blocks Stop again', async () => {
+    const { handler, base } = setup();
+    const stopHandler = createAnswerGateHandler({
+      loadSettings: () => ({ MEMSMITH_RETRIEVAL_ENFORCEMENT: 'hard' }),
+      resolveRuntime: () => ({ runtime: 'server', projectId: 'p1', serverBaseUrl: 'http://fake', client: {} } as any),
+      sessionBaseDir: base,
+      summarize: { async execute() { return { continue: true, suppressOutput: true }; } },
+    });
+    const stop = () => stopHandler.execute({ sessionId: 's1', cwd: '/tmp', transcriptPath: '/tmp/t.jsonl' } as any);
+
+    await run(handler, 'why did we switch the queue engine to inline?');
+    expect((await stop()).decision).toBe('block');
+    for (let i = 0; i < 3; i++) {
+      await run(handler, TASK_NOTIFICATION);
+      expect((await stop()).decision).toBeUndefined();
+    }
   });
 });
 

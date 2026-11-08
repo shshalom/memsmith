@@ -14,6 +14,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
   - The memory tools (`observation_search`, `observation_get`, `observation_context`, `note_add`, `observation_add`, `observation_record_event`, and `observation_generation_status`) accept an optional `cwd` argument with the absolute path of the folder you work in. They use that folder's project with that project's own key and server, even when your settings name a different project, and an explicit `projectId` still takes precedence. The tools never send your settings key to a project that it doesn't belong to.
   - When the folder has no MemSmith project, the tools say `No MemSmith project found for <folder>. Memory was not searched; this is not an empty result.` When the folder belongs to a team that this machine hasn't joined, they say so and tell you how to join. A relative or missing `cwd` returns an error.
   - `memsmith search` and `memsmith get` print the same messages.
+- The Stop answer gate no longer blocks your turn on task notifications, system reminders, teammate messages, IDE file and selection notices, or shell and command output. MemSmith now classifies a prompt, searches memory, and records a memory gap using only your own text, so a run of automated messages can't re-arm the gate each turn. A question you send alongside a notification still gets the gate, and a tag you name in prose or inside a code fence stays part of your question.
 
 ## [13.13.2] - 2026-11-08
 

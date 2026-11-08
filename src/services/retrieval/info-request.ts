@@ -8,7 +8,7 @@
 // directive) and the tool-intent gate when it reaches out. Pure and
 // deterministic; never throws.
 
-import { stripMemoryTags } from '../../utils/tag-stripping.js';
+import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
 
 export type PromptKind = 'info-request' | 'conversation' | 'task';
 
@@ -108,7 +108,7 @@ function hasPastWorkSignal(t: string): boolean {
 }
 
 function normalize(prompt: string): string {
-  return stripMemoryTags(prompt)
+  return stripAutomatedContent(stripMemoryTags(prompt))
     .toLowerCase()
     .replace(/[‘’]/g, "'")
     .replace(/\s+/g, ' ')
