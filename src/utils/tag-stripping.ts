@@ -146,39 +146,43 @@ function outside(text: string, spans: Span[], to = text.length): string {
   return pos < to ? out + text.slice(pos, to) : out;
 }
 
+/** Fence spans over text outside `blocks`; an unclosed fence runs to the end. */
+function userFences(text: string, blocks: Span[]): Span[] {
+  const fences: Span[] = [];
+  let open = -1;
+  for (const m of text.matchAll(CODE_FENCE_LINE)) {
+    if (insideAny(blocks, m.index)) continue;
+    if (open < 0) open = m.index;
+    else { fences.push({ start: open, end: m.index + m[0].length }); open = -1; }
+  }
+  if (open >= 0) fences.push({ start: open, end: text.length });
+  return fences;
+}
+
 /**
- * Removes automated blocks, matched outermost-first so a block that quotes its
- * own tag is removed whole. A stray closing tag after a block of the same name
- * means that block quoted the tag, so the block extends to it; any other stray
- * closing tag is dropped. An unclosed opener runs to the end only when nothing
- * but automated blocks precedes it; elsewhere it is the user naming the tag.
- * Tags inside a code fence the user opened are the user's.
+ * Removes automated blocks in two passes. Pass 1 pairs tags outermost-first and
+ * ignores fences, because a block's payload can quote its own tag inside one. A
+ * stray closing tag after a block of the same name means that block quoted the
+ * tag, so the block extends to it; any other stray closing tag is dropped. Pass 2
+ * finds fences in the text left outside every block and keeps any block that
+ * starts inside one: the user quoted it. An unclosed opener runs to the end only
+ * when nothing but automated blocks precedes it; elsewhere it is the user naming
+ * the tag.
  */
 export function stripAutomatedContent(prompt: string): string {
   if (!prompt) return '';
-  const fenceLines = [...prompt.matchAll(CODE_FENCE_LINE)].map(f => f.index);
-  let nextFence = 0;
-  let inFence = false;
-  let openCount = 0;
-
   const removed: Span[] = [];
   const stacks = new Map<string, Span[]>();
   const lastOuter = new Map<string, Span>();
   for (const m of prompt.matchAll(AUTOMATED_TAG_TOKEN)) {
-    // A fence line inside an open block belongs to that block's payload.
-    for (; nextFence < fenceLines.length && fenceLines[nextFence] < m.index; nextFence++) {
-      if (inFence || openCount === 0) inFence = !inFence;
-    }
-    if (inFence) continue;
     const token = { start: m.index, end: m.index + m[0].length };
     const name = m[2].toLowerCase();
     const stack = stacks.get(name) ?? [];
     stacks.set(name, stack);
-    if (m[1] !== '/') { stack.push(token); openCount++; continue; }
+    if (m[1] !== '/') { stack.push(token); continue; }
     const opener = stack.pop();
     const outer = lastOuter.get(name);
     if (opener) {
-      openCount--;
       const span = { start: opener.start, end: token.end };
       removed.push(span);
       if (stack.length === 0) lastOuter.set(name, span);
@@ -188,17 +192,19 @@ export function stripAutomatedContent(prompt: string): string {
       removed.push(token);
     }
   }
-  const merged = mergeSpans(removed);
+  const candidates = mergeSpans(removed);
+  const fences = userFences(prompt, candidates);
+  const blocks = candidates.filter(b => !insideAny(fences, b.start));
 
   let firstUnclosed = Infinity;
   for (const stack of stacks.values()) {
     for (const token of stack) {
-      if (token.start < firstUnclosed && !insideAny(merged, token.start)) {
+      if (token.start < firstUnclosed && !insideAny(blocks, token.start)) {
         firstUnclosed = token.start;
         break;
       }
     }
   }
-  if (firstUnclosed !== Infinity && !outside(prompt, merged, firstUnclosed).trim()) return '';
-  return outside(prompt, merged).trim();
+  if (firstUnclosed !== Infinity && !outside(prompt, blocks, firstUnclosed).trim()) return '';
+  return outside(prompt, blocks).trim();
 }

@@ -174,6 +174,11 @@ describe('classifyPrompt — automated messages are not the user asking', () => 
     expect(classifyPrompt('fix the lint <task-notification><result>\n```\nwe decided to keep the history</result></task-notification>')).toBe('task');
   });
 
+  it('does not leak a notification that quotes its closing tag inside a code fence', () => {
+    expect(classifyPrompt('<task-notification><result>Fix:\n```ts\nconst N = "</task-notification>";\n```\n'
+      + 'we decided to keep the history</result></task-notification>')).not.toBe('info-request');
+  });
+
   it('treats a tag that only starts with an automated name as user text', () => {
     expect(classifyPrompt('<task-notification-extra>why did we drop sqlite?</task-notification-extra>')).toBe('info-request');
   });

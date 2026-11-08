@@ -490,6 +490,36 @@ describe('stripAutomatedContent', () => {
     expect(stripAutomatedContent('<task-notification><result>cut off <system-reminder>r</system-reminder> rest')).toBe('');
   });
 
+  const FENCE = '```';
+  for (const [name, prompt, expected] of [
+    ['a fenced quoted close inside a notification',
+      `<task-notification><result>Fix:\n${FENCE}ts\nconst N = "</task-notification>";\n${FENCE}\nwe decided to keep the history</result></task-notification>`, ''],
+    ['an inline fence and quoted close inside a notification',
+      `<task-notification><result>${FENCE}\n</task-notification>\n${FENCE}\nwe decided to keep the history</result></task-notification>`, ''],
+    ['a quoted open and close pair inside a notification',
+      '<task-notification><result>log: <task-notification>x</task-notification> then more</result></task-notification>\nfix it', 'fix it'],
+    ['a quoted close only inside a notification',
+      '<task-notification><result>log: </task-notification> then we decided</result></task-notification>\nfix it', 'fix it'],
+    ['a truncated fence inside a notification',
+      `<task-notification><result>\n${FENCE}\ncode cut off</result></task-notification>\nwhy did we drop sqlite?`, 'why did we drop sqlite?'],
+    ['a fence inside a notification after user text',
+      `fix the lint <task-notification><result>\n${FENCE}\nwe decided to keep the history</result></task-notification>`, 'fix the lint'],
+    ['a closed pair inside a user fence',
+      `${FENCE}\n<bash-stdout>ok</bash-stdout>\n${FENCE}\nwhy?`, `${FENCE}\n<bash-stdout>ok</bash-stdout>\n${FENCE}\nwhy?`],
+    ['a truncated tag inside a user fence',
+      `${FENCE}\n<task-notification><status>completed\n${FENCE}\nwhy did we drop sqlite?`, `${FENCE}\n<task-notification><status>completed\n${FENCE}\nwhy did we drop sqlite?`],
+    ['an orphan close inside a user fence',
+      `${FENCE}\n</system-reminder>\n${FENCE}\nwhy?`, `${FENCE}\n</system-reminder>\n${FENCE}\nwhy?`],
+    ['a user fence after an unclosed opener in prose',
+      `I saw <bash-stdout> in logs:\n${FENCE}\n<bash-stdout>x</bash-stdout>\n${FENCE}`, `I saw <bash-stdout> in logs:\n${FENCE}\n<bash-stdout>x</bash-stdout>\n${FENCE}`],
+    ['a notification after a user fence',
+      `${FENCE}\ncode\n${FENCE}\n<task-notification>we decided</task-notification>`, `${FENCE}\ncode\n${FENCE}`],
+  ] as const) {
+    it(`handles ${name}`, () => {
+      expect(stripAutomatedContent(prompt)).toBe(expected);
+    });
+  }
+
   // Unbounded attribute scanning made these inputs take tens of seconds at 1 MB.
   for (const [name, input] of [
     ['openers with unterminated attributes', '<bash-input '.repeat(90_000)],
@@ -497,6 +527,8 @@ describe('stripAutomatedContent', () => {
     ['nested openers', '<task-notification>'.repeat(50_000)],
     ['tags between code fences', '```\n<bash-input>x\n```\n'.repeat(60_000)],
     ['openers whose attributes end at the last character', '<bash-input '.repeat(90_000) + '>'],
+    ['closed pairs inside user fences', '```\n<bash-stdout>x</bash-stdout>\n```\n'.repeat(30_000)],
+    ['notifications quoting fenced closes', '<task-notification>\n```\n"</task-notification>"\n```\n</task-notification>\n'.repeat(15_000)],
     ['fences inside one long block', '<task-notification>' + '```\nx\n'.repeat(150_000) + '</task-notification>'],
     ['unclosed openers inside the last of many blocks',
       '<bash-input>x</bash-input>'.repeat(20_000) + '<task-notification>' + '<bash-stdout>'.repeat(40_000) + '</task-notification>'],
