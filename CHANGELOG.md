@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- `memsmith update` updates a global `memsmith` command installed with `npm install -g`. Before, it updated the plugin and the server but left the global command on the old version, so commands added since then, such as `memsmith autostart`, failed with `Unknown command`. If npm can't write to its global folder, the update still finishes and prints the command to run.
+
 ## [13.13.1] - 2026-11-06
 
 ### Added
