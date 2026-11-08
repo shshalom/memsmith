@@ -20,6 +20,8 @@ export interface RecordStats {
   notes: number;
   events: number;
   sessions: number;
+  /** Generation jobs waiting to run. */
+  queuedJobs: number;
   lastActivity: string | null;
 }
 

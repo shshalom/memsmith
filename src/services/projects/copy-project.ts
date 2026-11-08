@@ -182,6 +182,7 @@ export async function copyProject(
   // observation. A moved job can run in the target before the source's result
   // for the same job arrives, and both must not be kept.
   const targetJobStatus = new Map<string, string>();
+  const sourceJobStatus = new Map<string, string>();
   const targetGenerated = new Set<string>();
   const noteTargetJobs = async (ids: string[]) => {
     const unknown = [...new Set(ids)].filter((id) => id && !targetJobStatus.has(id));
@@ -304,7 +305,10 @@ export async function copyProject(
   }
   const bullmqTaken = new Set<string>();
   for await (const page of keyPages('observation_generation_jobs')) {
-    for (const j of page) if (j.status !== 'completed') activeJobIds.push(String(j.id));
+    for (const j of page) {
+      sourceJobStatus.set(String(j.id), String(j.status));
+      if (j.status !== 'completed') activeJobIds.push(String(j.id));
+    }
     const holders = await lookupColumn(target, 'observation_generation_jobs', 'idempotency_key', page.map((j) => j.idempotency_key));
     for (const id of (await lookupColumn(target, 'observation_generation_jobs', 'bullmq_job_id', page.map((j) => j.bullmq_job_id))).keys()) bullmqTaken.add(id);
     await noteTargetJobs(page.flatMap((j) => [String(j.id), ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(String(j.id), i + 1))]));
@@ -330,16 +334,26 @@ export async function copyProject(
     }
   }
   for await (const page of keyPages('observations')) {
-    const jobOf = (o: Row) => (o.created_by_job_id == null ? undefined : decisions.observation_generation_jobs.get(String(o.created_by_job_id)));
-    await noteTargetJobs(page.map((o) => jobOf(o)?.target ?? ''));
+    const candidates = (jobId: string) => [jobId, ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(jobId, i + 1))];
+    await noteTargetJobs(page.flatMap((o) => (o.created_by_job_id == null ? [] : candidates(String(o.created_by_job_id)))));
     await decide('observations', page, sameProjectRow, (r) => {
       const dup = (r.generation_key && keyedObs.get(`g\u0000${r.generation_key}`)) || (r.idempotency_key && keyedObs.get(`i\u0000${r.idempotency_key}`));
       return dup && dup !== r.id ? dup : undefined;
     }, (o) => {
-      // The target already ran this job itself; keep its output, not the source's.
-      const job = jobOf(o);
-      if (!job || job.action !== 'skip' || !job.target) return false;
-      return targetJobStatus.get(job.target) === 'completed' || targetGenerated.has(job.target);
+      // One job, one result. A source observation comes along only when its
+      // job's result is the source's: the job is copied as completed, or its
+      // queued target copy is being completed from the source. Otherwise the
+      // target's copy owns the job (it ran, or will run), including a source
+      // job cancelled while its observation was still committing.
+      if (o.created_by_job_id == null) return false;
+      const jobId = String(o.created_by_job_id);
+      const job = decisions.observation_generation_jobs.get(jobId);
+      if (job) {
+        if (job.action === 'update') return false;
+        if (job.action === 'copy') return sourceJobStatus.get(jobId) !== 'completed';
+        return true;
+      }
+      return candidates(jobId).some((id) => Boolean(targetJobStatus.get(id)));
     });
   }
 

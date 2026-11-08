@@ -105,6 +105,10 @@ if (OPT_IN) {
       process.env.MEMSMITH_LOCAL_DEV_TEAM_ID = teamB;
       process.env.MEMSMITH_LOCAL_DEV_PROJECT_ID = randomUUID();
       process.env.MEMSMITH_SERVER_PORT = String(HTTP_TEST_PORT);
+      // This test stands in for the local runtime, which is what permits
+      // routing an archived project's requests into another team.
+      const { markLocalRuntime } = await import('../../../src/server/runtime/runtime-kind.js');
+      markLocalRuntime();
       service = await createServerService({ pool: base as never, authMode: 'local-dev', bootstrapSchema: true, generationDisabled: true });
       await service.start();
       const http = `http://127.0.0.1:${service.getRuntimeState().port}`;
@@ -229,8 +233,10 @@ if (OPT_IN) {
 
       // Merge.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
-      // A running server requeues project-database jobs only at startup.
-      expect(out).toContain('Run `memsmith restart` to process the moved jobs.');
+      expect(out.join('\n')).toContain('If `memsmith projects` still shows queued generation jobs for app after a few minutes, run `memsmith restart`.');
+      expect(await run(() => runProjectsCommand(['--json'], deps))).toBe(0);
+      const afterMerge = JSON.parse(out.join('\n')) as { projects: Array<{ projectId: string | null; counts: { queuedJobs: number } | null }> };
+      expect(afterMerge.projects.find((p) => p.projectId === B)?.counts?.queuedJobs).toBe(1);
       const backups = readdirSync(backupDir).sort((x, y) => statSync(join(backupDir, y)).mtimeMs - statSync(join(backupDir, x)).mtimeMs);
       expect(backups).toHaveLength(2);
       expect(backups[0]).toStartWith(`merge-${A}-`);
@@ -304,7 +310,7 @@ if (OPT_IN) {
 
       // A second run copies nothing new.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
-      expect(out).not.toContain('Run `memsmith restart` to process the moved jobs.');
+      expect(out.join('\n')).not.toContain('run `memsmith restart`');
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length);
 
       // Rows changed or added in the source after a copy reach the target on the next pass.
@@ -329,6 +335,8 @@ if (OPT_IN) {
       expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [j2])).rows.map((r) => r.id)).toEqual([o5]);
       await b.query('DELETE FROM observations WHERE id = $1', [o5]);
 
+      // The test server runs with generation disabled, so no target job ever
+      // runs on its own: every target completion below is written by the test.
       // With a sweep that runs moved jobs, the target's copy can finish on its
       // own before the source's result arrives. Both generated the job; the
       // target keeps its own observation and the source's is not copied.
@@ -346,6 +354,21 @@ if (OPT_IN) {
       expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [j7])).rows.map((r) => r.id)).toEqual([oTarget]);
       expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j7])).rows[0].status).toBe('completed');
       await b.query('DELETE FROM observations WHERE id = $1', [oTarget]);
+
+      // A source job that was still committing its observation when the merge
+      // cancelled it: the source row says cancelled, but the observation
+      // landed. The target's queued copy owns the job, so the observation is
+      // not copied and the target generates the job once.
+      const j8 = randomUUID();
+      const o8 = randomUUID();
+      await a.query(`INSERT INTO observation_generation_jobs (id, project_id, team_id, agent_event_id, source_type, source_id, job_type, status, idempotency_key, payload)
+        VALUES ($1, $2, $3, $4, 'agent_event', $4, 'observation-late', 'processing', $5, '{}')`, [j8, A, teamA, e2, `job-${j8}`]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await a.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j8])).rows[0].status).toBe('cancelled');
+      await a.query(`INSERT INTO observations (id, project_id, team_id, content, created_by_job_id) VALUES ($1, $2, $3, 'committed after the cancel', $4)`, [o8, A, teamA, j8]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT count(*)::int AS n FROM observations WHERE id = $1', [o8])).rows[0].n).toBe(0);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j8])).rows[0].status).toBe('queued');
 
       // E shares B's team; once merged and archived, a team-wide read must not return its rows twice.
       expect(await run(() => runMergeCommand([E, B, '--yes'], deps))).toBe(0);

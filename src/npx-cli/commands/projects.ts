@@ -10,7 +10,7 @@ import { COPY_TABLES, type CopyReport } from '../../services/projects/copy-proje
 import { loadInventory, type ProjectEntry, type ProjectInventory } from '../../services/projects/inventory.js';
 import { decideMerge, executeMerge, MergeStageError, previewMerge, resolveProjectRef } from '../../services/projects/merge.js';
 import { openLocalProjectsDb, type ProjectsDb } from '../../services/projects/projects-db.js';
-import { executePrune, planPrune } from '../../services/projects/prune.js';
+import { executePrune, planPrune, reopenLockedDatabases } from '../../services/projects/prune.js';
 
 export interface ProjectsCommandDeps {
   cwd: string;
@@ -48,7 +48,7 @@ function shellQuote(value: string): string {
 
 async function withInventory<T>(
   d: ProjectsCommandDeps,
-  fn: (db: ProjectsDb, inv: ProjectInventory) => Promise<T>,
+  fn: (db: ProjectsDb, inv: ProjectInventory, reload: () => Promise<ProjectInventory>) => Promise<T>,
 ): Promise<T | number> {
   if (d.runtime() === 'server') {
     d.err('This command works with the local runtime only. Your MemSmith install uses a team server.');
@@ -57,19 +57,20 @@ async function withInventory<T>(
   const db = d.openDb();
   try {
     let inv: ProjectInventory;
+    const loc = resolveProjectLocation(d.cwd, d.env);
+    const load = () => loadInventory(db.inventorySource(), {
+      extraRoots: loc.markerFound ? [loc.root] : [],
+      scanRoots: d.env.searchRoots,
+      hasKeyForTeam: d.hasKeyForTeam,
+    });
     try {
-      const loc = resolveProjectLocation(d.cwd, d.env);
-      inv = await loadInventory(db.inventorySource(), {
-        extraRoots: loc.markerFound ? [loc.root] : [],
-        scanRoots: d.env.searchRoots,
-        hasKeyForTeam: d.hasKeyForTeam,
-      });
+      inv = await load();
     } catch (error) {
       d.err(`MemSmith could not read the local database: ${error instanceof Error ? error.message : String(error)}`);
       d.err('Start MemSmith with: memsmith start');
       return 1;
     }
-    return await fn(db, inv);
+    return await fn(db, inv, load);
   } finally {
     await db.close();
   }
@@ -78,7 +79,8 @@ async function withInventory<T>(
 function describeRecords(p: ProjectEntry): string {
   if (!p.counts) return p.databaseName ? 'unreadable' : 'none';
   const c = p.counts;
-  return `${plural(c.observations, 'observation')}, ${plural(c.notes, 'note')}, ${plural(c.events, 'event')}`;
+  const queued = c.queuedJobs > 0 ? `, ${plural(c.queuedJobs, 'queued generation job')}` : '';
+  return `${plural(c.observations, 'observation')}, ${plural(c.notes, 'note')}, ${plural(c.events, 'event')}${queued}`;
 }
 
 function describeFlags(p: ProjectEntry): string[] {
@@ -137,11 +139,15 @@ export async function runProjectsCommand(args: string[], d: ProjectsCommandDeps 
 }
 
 async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
-  return withInventory(d, async (db, inv) => {
+  return withInventory(d, async (db, loaded, reload) => {
+    let inv = loaded;
     if (!db.accountDatabaseKnown) {
       d.err('MemSmith cannot tell which database holds your projects, because the server has not recorded it. Run `memsmith start` first, then prune again.');
       return 1;
     }
+    const reopened = await reopenLockedDatabases(db);
+    for (const name of reopened) d.out(`Let connections back into ${name}, which an interrupted prune left closed.`);
+    if (reopened.length > 0) inv = await reload();
     const plan = await planPrune(inv, (name, owner) => db.census(name, owner));
     for (const k of plan.kept) d.out(`Keeping ${k.entry.name}: ${k.reason}.`);
     if (plan.candidates.length === 0) {
@@ -170,7 +176,7 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
     for (const o of outcomes) {
       if (o.error) {
         failed += 1;
-        d.err(`Could not prune ${o.candidate.entry.name}: ${o.error}. ${o.droppedDatabase ? 'Its database was dropped, but its project record stays.' : 'Nothing was removed for it.'}`);
+        d.err(`Could not prune ${o.candidate.entry.name}: ${o.error}. ${o.droppedDatabase ? 'Its database was dropped, but its project record stays.' : 'Nothing was removed for it.'}${o.backupFiles.length > 0 ? ` Backup: ${o.backupFiles.join(', ')}` : ''}`);
       } else {
         d.out(`Pruned ${o.candidate.entry.name}.${o.backupFiles.length > 0 ? ` Backup: ${o.backupFiles.join(', ')}` : ''}`);
       }
@@ -246,7 +252,7 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
       const result = await executeMerge({ db, dump: d.dump, backupDir: d.backupDir, now: d.now }, decision);
       d.out(`Backed up ${from.databaseName} to ${result.backupFile}.`);
       if (result.movedJobs > 0) d.out(`Moved ${plural(result.movedJobs, 'queued or running generation job')} to ${into.name}.`);
-      for (const line of movedJobsAdvice(result.movedJobs)) d.out(line);
+      for (const line of movedJobsAdvice(result.movedJobs, into.name)) d.out(line);
       for (const [table, cols] of Object.entries(result.report.droppedColumns)) {
         d.err(`Warning: the target's ${table} table has no ${cols.join(', ')} column, so those values were not copied.`);
       }
@@ -264,16 +270,17 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
   }) as Promise<number>;
 }
 
-// The running server requeues queued jobs in a project database only at
-// startup, and at most this many per database each time.
+// A server that sweeps project queues runs moved jobs on its own; an older one
+// requeues them only at startup, at most this many per database each time.
+// The advice holds for both.
 const STARTUP_REQUEUE_LIMIT = DEFAULT_DRAIN_BATCH;
 
-export function movedJobsAdvice(moved: number): string[] {
+export function movedJobsAdvice(moved: number, intoName: string): string[] {
   if (moved <= 0) return [];
-  const lines = ['Run `memsmith restart` to process the moved jobs.'];
+  const lines = [`If \`memsmith projects\` still shows queued generation jobs for ${intoName} after a few minutes, run \`memsmith restart\`.`];
   if (moved > STARTUP_REQUEUE_LIMIT) {
     const restarts = Math.ceil(moved / STARTUP_REQUEUE_LIMIT);
-    lines.push(`Each restart picks up at most ${STARTUP_REQUEUE_LIMIT} queued jobs per project, so for ${moved} moved jobs, restart ${restarts} times, letting the jobs finish between restarts.`);
+    lines.push(`A restart picks up at most ${STARTUP_REQUEUE_LIMIT} queued jobs per project, so restart again, letting the jobs finish between restarts, until \`memsmith projects\` shows none queued: about ${restarts} restarts for ${moved} jobs.`);
   }
   return lines;
 }
@@ -294,8 +301,7 @@ export function mergeFailure(error: unknown, from: ProjectEntry, into: ProjectEn
       lines.push(RERUN);
       break;
     case 'cancel-jobs':
-      lines.push(`${into.name} has every row, including ${from.name}'s queued jobs. Some of those jobs may still be queued in ${from.name} too, and ${from.name} is marked as merging, so search leaves it out.`);
-      lines.push(RERUN);
+      lines.push(`${into.name} has every row, including ${from.name}'s queued jobs, which it may already be processing. Some of those jobs may still be queued in ${from.name} as well; running the same memsmith merge command again cancels them there. ${from.name} is marked as merging, so search leaves it out.`);
       break;
     case 'archive':
       lines.push(`${into.name} has every row, and ${from.name} is marked as merging, so search leaves it out. ${from.name} is not archived yet.`);
