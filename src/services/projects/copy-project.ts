@@ -68,6 +68,7 @@ const PAGE = 500;
 const INSERT_BATCH = 200;
 const MAX_DERIVED = 5;
 const UPDATABLE = new Set<CopyTable>(['server_sessions', 'observations']);
+const TARGET_GAVE_UP = new Set(['failed', 'cancelled']);
 const COPIED_JOB_STATUSES = ['completed', 'queued', 'processing'];
 export const PROVENANCE_TABLE = 'memsmith_merge_provenance';
 const us = (col: string) => `(extract(epoch FROM ${col}) * 1000000)::bigint::text`;
@@ -184,11 +185,17 @@ export async function copyProject(
   const targetJobStatus = new Map<string, string>();
   const sourceJobStatus = new Map<string, string>();
   const targetGenerated = new Set<string>();
+  const sourceGenerated = new Set<string>();
+  const completeFromSource = new Set<string>();
+  const adoptedJobs = new Map<string, string>();
   const noteTargetJobs = async (ids: string[]) => {
     const unknown = [...new Set(ids)].filter((id) => id && !targetJobStatus.has(id));
     if (unknown.length === 0) return;
+    // A target worker persists a job's result while holding this row lock, so
+    // the merge waits for it and then reads the worker's result.
     for (const r of (await target.query(
-      'SELECT id, status FROM observation_generation_jobs WHERE project_id = $1 AND id = ANY($2::text[])', [scope.intoProjectId, unknown],
+      `SELECT id, status FROM observation_generation_jobs WHERE project_id = $1 AND id = ANY($2::text[])${write ? ' ORDER BY id FOR UPDATE' : ''}`,
+      [scope.intoProjectId, unknown],
     )).rows) targetJobStatus.set(String(r.id), String(r.status));
     for (const r of (await target.query(
       'SELECT DISTINCT created_by_job_id AS id FROM observations WHERE project_id = $1 AND created_by_job_id = ANY($2::text[])', [scope.intoProjectId, unknown],
@@ -221,12 +228,16 @@ export async function copyProject(
         return true;
       }
       if (!sameRow(existing, row)) return false;
-      // A job copied as queued that the source then completed must not run
-      // again in the target: its observation arrives with this copy. Unless
-      // the target copy already wrote one, in which case the target's stands.
-      const finishedInSource = table === 'observation_generation_jobs' && row.status === 'completed'
-        && (existing.status === 'queued' || existing.status === 'processing')
-        && !targetGenerated.has(String(existing.id));
+      // A moved job has one result. When the target's copy wrote none and
+      // the source produced one, the source's result completes the target's
+      // copy: a queued copy must not run again, and a failed or cancelled
+      // copy never will.
+      const finishedInSource = table === 'observation_generation_jobs'
+        && !targetGenerated.has(String(existing.id))
+        && (row.status === 'completed'
+          ? existing.status !== 'completed'
+          : TARGET_GAVE_UP.has(String(existing.status)) && sourceGenerated.has(String(row.id)));
+      if (finishedInSource) completeFromSource.add(String(row.id));
       const update = finishedInSource || (UPDATABLE.has(table) && newer(row.updated_us, existing.updated_us));
       map.set(row.id, { target: id, action: update ? 'update' : 'skip' });
       if (update) counts[table].updated += 1;
@@ -309,6 +320,10 @@ export async function copyProject(
       sourceJobStatus.set(String(j.id), String(j.status));
       if (j.status !== 'completed') activeJobIds.push(String(j.id));
     }
+    for (const r of (await source.query(
+      'SELECT DISTINCT created_by_job_id AS id FROM observations WHERE project_id = $1 AND created_by_job_id = ANY($2::text[])',
+      [scope.fromProjectId, page.map((j) => String(j.id))],
+    )).rows) sourceGenerated.add(String(r.id));
     const holders = await lookupColumn(target, 'observation_generation_jobs', 'idempotency_key', page.map((j) => j.idempotency_key));
     for (const id of (await lookupColumn(target, 'observation_generation_jobs', 'bullmq_job_id', page.map((j) => j.bullmq_job_id))).keys()) bullmqTaken.add(id);
     await noteTargetJobs(page.flatMap((j) => [String(j.id), ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(String(j.id), i + 1))]));
@@ -353,9 +368,18 @@ export async function copyProject(
         if (job.action === 'copy') return sourceJobStatus.get(jobId) !== 'completed';
         return true;
       }
-      return candidates(jobId).some((id) => Boolean(targetJobStatus.get(id)));
+      // The source job is no longer moved (it was cancelled after an earlier
+      // pass copied it). Its target copy owns the job unless that copy gave
+      // up without output; then the source's observation is the result.
+      const held = candidates(jobId).filter((id) => Boolean(targetJobStatus.get(id)));
+      if (held.length === 0) return false;
+      if (held.some((id) => targetGenerated.has(id) || !TARGET_GAVE_UP.has(targetJobStatus.get(id)!))) return true;
+      adoptedJobs.set(jobId, held[held.length - 1]);
+      return false;
     });
   }
+
+  counts.observation_generation_jobs.updated += new Set(adoptedJobs.values()).size;
 
   const written = (table: CopyTable, id: unknown) => {
     const d = id == null ? undefined : decisions[table].get(String(id));
@@ -416,7 +440,15 @@ export async function copyProject(
       out.source_id = jobSourceId(row);
       if (renamedKeys.observation_generation_jobs.has(row.id)) out.idempotency_key = `${row.idempotency_key}${suffixBase}`;
       if (row.bullmq_job_id && bullmqTaken.has(String(row.bullmq_job_id))) out.bullmq_job_id = null;
-      if (row.status !== 'completed') {
+      if (completeFromSource.has(String(row.id))) {
+        out.status = 'completed';
+        out.completed_at = row.completed_at ?? new Date().toISOString();
+        out.failed_at = null;
+        out.cancelled_at = null;
+        out.last_error = null;
+        out.locked_at = null;
+        out.locked_by = null;
+      } else if (row.status !== 'completed') {
         out.status = 'queued';
         out.locked_at = null;
         out.locked_by = null;
@@ -437,7 +469,8 @@ export async function copyProject(
       }
     } else if (table === 'observations') {
       out.server_session_id = mapId('server_sessions', row.server_session_id);
-      out.created_by_job_id = mapId('observation_generation_jobs', row.created_by_job_id);
+      out.created_by_job_id = mapId('observation_generation_jobs', row.created_by_job_id)
+        ?? (row.created_by_job_id == null ? null : adoptedJobs.get(String(row.created_by_job_id)) ?? null);
       if (row.supersedes != null) supersedes.set(targetId, String(row.supersedes));
       out.supersedes = null;
     } else if (table === 'observation_sources') {
@@ -501,6 +534,17 @@ export async function copyProject(
       }
     }
     counts[table].copy = inserted;
+  }
+
+  const adopted = [...new Set(adoptedJobs.values())];
+  if (adopted.length > 0) {
+    await target.query(
+      `UPDATE observation_generation_jobs
+          SET status = 'completed', completed_at = now(), failed_at = NULL, cancelled_at = NULL,
+              last_error = NULL, locked_at = NULL, locked_by = NULL, updated_at = now()
+        WHERE project_id = $1 AND id = ANY($2::text[])`,
+      [scope.intoProjectId, adopted],
+    );
   }
 
   const links = [...supersedes.entries()]
