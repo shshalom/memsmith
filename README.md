@@ -85,8 +85,8 @@ by a port derived from your user ID.
 | `memsmith project` | Shows the project that the current folder uses, its team and runtime, and why the folder resolves to it. |
 | `memsmith link [<target>]` | Pins the current folder to a project by writing a marker at its git root. The target is a project id, a project name, or a path (containing `/` or starting with `.` or `~`); with no target, it pins the project that the folder resolves to now. Accepts `--new` for a fresh project and `--force` to replace a marker that points elsewhere. |
 | `memsmith projects` | Lists every local project with its team, runtime, folders, record counts, last activity, and flags. Accepts `--json`. |
-| `memsmith projects --prune` | Shows the orphan databases and the empty or merged projects that MemSmith can remove. Add `--yes` to back them up and remove them. |
-| `memsmith merge <from> <into>` | Shows what folding one local project into another would copy. Add `--yes` to back up the source and merge. |
+| `memsmith projects --prune` | Shows the orphan databases, empty projects, and merged-project databases that MemSmith can remove, and what it keeps and why. Add `--yes` to back them up and remove them. |
+| `memsmith merge <from> <into>` | Shows what folding one local project into another would copy. Add `--yes` to back up the source and merge. Running it again finishes a merge that stopped. |
 
 Without a global install, prefix each command with `npx`, for example
 `npx memsmith status`.

@@ -10,16 +10,20 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Added
 
-- `memsmith projects` lists every project that the local server knows: its name and id, team, runtime, folders, record counts, last activity, and the flags `empty`, `missing-db`, `orphan-db`, `stray`, and `archived`. `--json` prints the list as JSON.
-- `memsmith merge <from> <into>` folds one local project's records into another. Without `--yes`, it shows what it would copy and the command to run. With `--yes`, it backs up the source database to `~/.memsmith/backups`, cancels the source's queued generation jobs, copies its sessions, events, observations, notes, and embeddings in one transaction, archives the source without dropping its database, and links the source's known folders to the target. It refuses team projects.
-- `memsmith projects --prune [--yes]` removes orphan databases and empty or merged projects, after a `pg_dump` backup of each database. It never removes a project that has records unless `memsmith merge` archived it. It removes the key of each team it deletes, and asks you to run `memsmith restart` after it drops a database.
+- `memsmith projects` lists every project that the local server knows: its name and id, team, runtime, folders, record counts, last activity, and the flags `empty`, `missing-db`, `orphan-db`, `stray`, `merging`, and `archived`. `--json` prints the list as JSON.
+- `memsmith merge <from> <into>` folds one local project's records into another. Without `--yes`, it shows what it would copy and the command to run. With `--yes`, it backs up the source database to `~/.memsmith/backups`, copies its sessions, events, generation jobs, observations, notes, and embeddings in one transaction, moves its queued jobs to the target, archives the source without dropping its database, and links the source's known folders to the target. It refuses team projects, two projects that share a database, and a source already merged elsewhere. A failed step says what finished, and running the command again finishes the merge.
+- `memsmith projects --prune [--yes]` removes orphan databases, empty projects, and the databases of merged projects. It counts every row in every table first, keeps anything it can't count or that holds account rows, records of another project, or rows newer than the merge, and backs up each database and each deleted project record. It refuses to run until the server has recorded which database holds your projects. It removes the key of each team it deletes, and asks you to run `memsmith restart` after it drops a database.
 - A folder that still links to a project archived by `memsmith merge` keeps working: the server routes its captures and reads to the project it was merged into, and the next session start rewrites the folder's local marker to name that project.
-- `memsmith doctor` reports subfolder markers that name a different project, with the nested project's record count and the commands that fold it in. It never changes them, even with `--fix`.
+- `memsmith doctor` reports subfolder markers that name a different project, with the nested project's record count and the command that folds it in. It never changes them, even with `--fix`.
+
+### Changed
+
+- A folder outside every `MEMSMITH_PROJECT_SEARCH_ROOTS` entry now resolves as if no search roots were set: a folder outside git uses a marker above it, up to just below your home folder. Before, setting any search root turned that off everywhere outside the roots, so such a folder could now resolve to a different project than before.
+- MemSmith writes `.memsmith/project.json` to a temporary file and renames it into place, so a hook never reads half a marker.
 
 ### Fixed
 
-- Search, recall, and the dashboard project list leave out a project archived by `memsmith merge`, so a team-wide read doesn't return its records twice.
-- A folder outside every `MEMSMITH_PROJECT_SEARCH_ROOTS` entry now resolves as if no search roots were set. Before, setting any search root stopped a folder outside git, and outside the roots, from finding a marker above it below your home folder.
+- Search, recall, and the dashboard project list leave out a project archived by `memsmith merge`, or being merged, so a team-wide read doesn't return its records twice.
 
 ## [13.15.0] - 2026-11-08
 
