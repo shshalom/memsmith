@@ -45,6 +45,11 @@ const SESSION_START_RECENT_LIMIT = 10;
 const MIN_SESSION_OBSERVATIONS = 1;
 const MAX_SESSION_OBSERVATIONS = 50;
 
+export function createdProjectNotice(created: { root: string; name: string }): string {
+  return `MemSmith created project ${created.name} for ${created.root} in your local team. `
+    + 'Run `memsmith project` to check it, or `memsmith link` to use a different project.';
+}
+
 export function resolveSessionStartLimit(raw: string | undefined | null): number {
   const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
   if (!Number.isFinite(parsed)) return SESSION_START_RECENT_LIMIT;
@@ -67,7 +72,9 @@ export function resolveSessionStartLimit(raw: string | undefined | null): number
  * process.env at call time, and other suites mutate the same variable, so the
  * outcome depends on file ordering. The seam has to be the mint itself.
  */
-async function defaultMintProjectIdentity(cwd: string): Promise<{ teamId: string; projectId: string } | null> {
+async function defaultMintProjectIdentity(
+  cwd: string,
+): Promise<{ teamId: string; projectId: string; created?: { root: string; name: string } } | null> {
   const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
     await import('./ensure-identity.js');
   return ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
@@ -312,6 +319,7 @@ export const contextHandler: EventHandler = {
     // on every session start is safe and an existing project pays only a marker
     // read.
     let dashboardProjectId: string | undefined;
+    let createdNotice: string | null = null;
     try {
       const { readProjectMarker } = await import('../../services/identity/project-identity.js');
       const marker = readProjectMarker(cwd);
@@ -332,11 +340,13 @@ export const contextHandler: EventHandler = {
       // costs an existing project one upsert and gives a clone the row it needs.
       const registered = await dependencies.mintProjectIdentity(cwd);
       dashboardProjectId = registered?.projectId ?? marker?.projectId;
+      if (registered?.created) createdNotice = createdProjectNotice(registered.created);
     } catch { /* unscoped link is a fine fallback */ }
     const dashboardLine = `📊 MemSmith dashboard: ${resolveDashboardUrl(dashboardProjectId)}`;
     additionalContext = additionalContext
       ? `${dashboardLine}\n\n${additionalContext}`
       : dashboardLine;
+    if (createdNotice) additionalContext = `${createdNotice}\n${additionalContext}`;
 
     // RECOGNISE a team project this machine has not joined.
     //
