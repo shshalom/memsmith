@@ -68,6 +68,14 @@ To confirm that the configured provider can generate, run `memsmith doctor`. Whe
 | `MEMSMITH_DATA_DIR` | `~/.memsmith` | Root directory for settings, logs, and the embedded Postgres data. |
 | `MEMSMITH_LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
 
+## Projects
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_PROJECT_SEARCH_ROOTS` | empty | Comma-separated absolute folders, such as `~/Workspace,/opt/code`. MemSmith expands `~` and ignores relative entries. Inside a search root, MemSmith looks for a project marker from the session folder up to and including the search root, across git repositories. When the setting is empty, your home folder is the search root, but a marker directly in your home folder never counts. |
+
+For the full resolution rules, see [Projects](/usage/projects).
+
 The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_LOCAL_PG_PORT` environment variable.
 
 ## Capture

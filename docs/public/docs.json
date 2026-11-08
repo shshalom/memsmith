@@ -41,7 +41,8 @@
           "usage/claude-desktop",
           "usage/private-tags",
           "usage/export-import",
-          "usage/folder-context"
+          "usage/folder-context",
+          "usage/projects"
         ]
       },
       {

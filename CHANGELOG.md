@@ -8,6 +8,19 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- `memsmith project` shows the project that the current folder uses: the project root, the project id and name, the team, the runtime, and why the folder resolves there, such as `marker in ~/Workspace (search root ~/Workspace)` or `main worktree ~/Workspace/MemSmith`. `memsmith status` adds a `Project:` line for the current folder.
+- `memsmith link [<target>]` pins the current folder to a project. It writes `.memsmith/project.json` at the git root, or in the current folder outside git, and adds `.memsmith/` to `.git/info/exclude`. With no target, it pins the project that the folder resolves to now. The target can be a project id, a project name, or the path of another folder. `--new` creates a fresh project in your local team. `memsmith link` refuses to replace a marker that points to another project unless you pass `--force`, and it never turns a team project local.
+- The `MEMSMITH_PROJECT_SEARCH_ROOTS` setting lists folders, such as `~/Workspace`, where MemSmith looks for a project marker above the git root.
+
+### Changed
+
+- A session now uses the nearest project marker above its folder, past the git root, up to a configured search root. Without search roots, MemSmith searches up to your home folder but never uses a marker directly in it. Folders outside these scopes, such as `/tmp/scratch`, resolve as before. A workspace with one marker at `~/Workspace` is now one project instead of one project per repository.
+- A linked git worktree uses the project of its main checkout. When the main checkout has no project yet, MemSmith creates it at the main checkout, so every worktree of a repository shares one project.
+- MemSmith creates every new local project in one local team for this machine, instead of a new random team for each project. Existing projects keep their teams.
+- When a session creates a project, the session-start context says so, names the project and its folder, and points to `memsmith project` and `memsmith link`.
+
 ## [13.14.1] - 2026-11-08
 
 ### Fixed
