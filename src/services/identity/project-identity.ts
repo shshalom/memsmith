@@ -5,7 +5,6 @@ import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
 import { LOCAL_OWNER_USER_ID } from '../../server/identity/providers/local-provider.js';
-import { ensureLocalTeamId } from './local-team.js';
 import {
   findGitRoot,
   MARKER_RELATIVE_PATH,
@@ -36,7 +35,7 @@ export interface ProjectMarker {
   databaseName?: string;
 }
 
-const MARKER_NOTE =
+export const MARKER_NOTE =
   'Non-secret MemSmith identity pointer. The access credential lives in ~/.memsmith, never here.';
 
 // Minimal shape of the pg pool we use. The real pool satisfies this.
@@ -307,7 +306,7 @@ export interface EnsuredProjectIdentity {
 
 /**
  * Resolve the current project's durable identity. Recognizes an existing
- * committed marker; otherwise mints a project id in the machine's local team. Always (idempotently)
+ * committed marker; otherwise mints uuids + a marker. Always (idempotently)
  * upserts the PG teams/projects rows so a fresh DB / cloned repo self-heals.
  *
  * When a `store` is provided, this ALSO guarantees a resolvable base key for
@@ -323,7 +322,6 @@ export async function ensureProjectIdentity(
   pool: QueryablePool,
   cwd: string,
   store?: CredentialStore,
-  options: { localTeamId?: () => string } = {},
 ): Promise<EnsuredProjectIdentity> {
   const root = resolveProjectRoot(cwd);
   const existing = readMarkerAt(root);
@@ -344,7 +342,7 @@ export async function ensureProjectIdentity(
     // the marker does not name.
     const candidate: ProjectMarker = adopted
       ? { ...adopted, note: MARKER_NOTE }
-      : { teamId: (options.localTeamId ?? ensureLocalTeamId)(), projectId: randomUUID(), note: MARKER_NOTE };
+      : { teamId: randomUUID(), projectId: randomUUID(), note: MARKER_NOTE };
     const won = createMarkerIfAbsent(root, candidate);
     teamId = won.teamId;
     projectId = won.projectId;

@@ -83,6 +83,60 @@ describe('linked git worktrees', () => {
   });
 });
 
+describe('a worktree next to its main checkout inside a workspace', () => {
+  // ws/.memsmith=WS, ws/main/.memsmith=MAIN, ws/wt is a worktree of main. The
+  // worktree walked up to ws before it ever looked at its main checkout.
+  let ws: string;
+  let wsMain: string;
+  let wsWorktree: string;
+
+  beforeEach(() => {
+    ws = join(base, 'ws');
+    wsMain = join(ws, 'main');
+    wsWorktree = join(ws, 'wt');
+    mkdirSync(wsMain, { recursive: true });
+    writeFileSync(join(wsMain, 'a.txt'), 'a');
+    git(wsMain, 'init', '-q');
+    git(wsMain, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'add', '.');
+    git(wsMain, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'commit', '-qm', 'init');
+    git(wsMain, 'worktree', 'add', '-q', wsWorktree, '-b', 'wt');
+    marker(ws, 'p-ws');
+    marker(wsMain, 'p-main');
+  });
+
+  it('uses the main checkout with no search roots', () => {
+    expect(readProjectMarker(wsWorktree, { home: join(base, 'not-home'), searchRoots: [] })?.projectId).toBe('p-main');
+  });
+
+  it('uses the main checkout when the workspace is a search root', () => {
+    expect(readProjectMarker(wsWorktree, { home: join(base, 'not-home'), searchRoots: [ws] })?.projectId).toBe('p-main');
+  });
+
+  it('uses the main checkout when the folder is under home', () => {
+    expect(readProjectMarker(wsWorktree, { home: base, searchRoots: [] })?.projectId).toBe('p-main');
+  });
+});
+
+describe('a main checkout with a separate git dir', () => {
+  // `git init --separate-git-dir=store/.git` makes the common dir's parent the
+  // storage folder, not the checkout; git itself lists that folder as the main
+  // worktree. Sharing a project found there would be sharing the wrong one.
+  it('is not guessed; the worktree keeps its own project root', () => {
+    const store = join(base, 'store');
+    const checkout = join(base, 'checkout');
+    const wt = join(base, 'sep-wt');
+    mkdirSync(store);
+    execFileSync('git', ['init', '-q', `--separate-git-dir=${join(store, '.git')}`, checkout], { stdio: 'ignore' });
+    writeFileSync(join(checkout, 'a.txt'), 'a');
+    git(checkout, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'add', '.');
+    git(checkout, '-c', 'user.email=a@example.com', '-c', 'user.name=a', 'commit', '-qm', 'init');
+    git(checkout, 'worktree', 'add', '-q', wt, '-b', 'sep');
+    marker(store, 'p-store');
+    expect(resolveProjectRoot(wt, env())).toBe(wt);
+    expect(readProjectMarker(wt, env())).toBeNull();
+  });
+});
+
 describe('submodules', () => {
   it('are not treated as worktrees of the superproject', () => {
     marker(main, 'p-main');

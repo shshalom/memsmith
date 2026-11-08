@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { defaultLifecycleDeps, resolveServerAddress, runLifecycle, type HealthResult, type LifecycleDeps } from '../../src/npx-cli/commands/lifecycle.js';
@@ -195,6 +195,26 @@ describe('status', () => {
     const stopped = deps({ project });
     await runLifecycle('status', [], stopped.d);
     expect(stopped.calls.out).toContain('  Project:   MemSmith (p-1), marker in ~/Workspace');
+  });
+});
+
+describe('status project line from the real resolver', () => {
+  it('reports the marker of the folder status runs in', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-status-')));
+    const saved = process.env.MEMSMITH_PROJECT_CWD;
+    try {
+      mkdirSync(join(dir, '.memsmith'));
+      writeFileSync(join(dir, '.memsmith', 'project.json'), JSON.stringify({ teamId: 't-status', projectId: 'p-status' }));
+      process.env.MEMSMITH_PROJECT_CWD = dir;
+      const real = defaultLifecycleDeps({ env: {} });
+      const { d, calls } = deps({ project: real.project });
+      await runLifecycle('status', [], d);
+      expect(calls.out.find((l) => l.startsWith('  Project:'))).toContain('(p-status), marker in');
+    } finally {
+      if (saved === undefined) delete process.env.MEMSMITH_PROJECT_CWD;
+      else process.env.MEMSMITH_PROJECT_CWD = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

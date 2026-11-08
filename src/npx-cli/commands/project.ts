@@ -1,18 +1,20 @@
 import { randomUUID } from 'crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { CredentialStore } from '../../services/identity/credential-store.js';
-import { ensureLocalTeamId, readLocalTeamId } from '../../services/identity/local-team.js';
 import {
+  MARKER_NOTE,
   readMarkerAt,
   writeMarkerAt,
   type ProjectMarker,
 } from '../../services/identity/project-identity.js';
 import {
+  canonicalPath,
   defaultResolutionEnv,
   findGitRoot,
   gitInfoExcludePath,
   resolveProjectLocation,
+  samePath,
   type ProjectLocation,
   type ResolutionEnv,
 } from '../../services/identity/project-location.js';
@@ -29,8 +31,7 @@ export interface ServerProject {
 export interface ProjectCommandDeps {
   cwd: string;
   env: ResolutionEnv;
-  localTeamId: () => string | null;
-  ensureLocalTeamId: () => string;
+  newTeamId: () => string;
   newProjectId: () => string;
   hasKeyForTeam: (teamId: string) => boolean;
   runtime: (cwd: string) => 'local' | 'server';
@@ -42,20 +43,22 @@ export interface ProjectCommandDeps {
   err: (line: string) => void;
 }
 
-const MARKER_NOTE =
-  'Non-secret MemSmith identity pointer. The access credential lives in ~/.memsmith, never here.';
-const EXCLUDE_ENTRY = '.memsmith/';
+// `.memsmith/*` rather than `.memsmith/`: git cannot re-include a file inside
+// an excluded directory, so only the glob form lets a later Go Team convert's
+// `!.memsmith/project.json` share the marker.
+const EXCLUDE_ENTRY = '.memsmith/*';
+const EXISTING_EXCLUDES = new Set(['.memsmith', '.memsmith/', '.memsmith/*', '/.memsmith', '/.memsmith/', '/.memsmith/*']);
 
 function tilde(path: string, home: string): string {
-  if (path === home) return '~';
+  if (samePath(path, home)) return '~';
   const rel = relative(home, path);
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? `~/${rel}` : path;
 }
 
 function markerReason(loc: ProjectLocation, home: string): string {
   const where = `marker in ${tilde(loc.root, home)}`;
-  if (loc.root === loc.gitRoot) return `${where} (git root)`;
-  if (loc.root === loc.folder) return `${where} (this folder)`;
+  if (loc.gitRoot && samePath(loc.root, loc.gitRoot)) return `${where} (git root)`;
+  if (samePath(loc.root, loc.folder)) return `${where} (this folder)`;
   if (loc.boundary.kind === 'search-root') return `${where} (search root ${tilde(loc.boundary.dir, home)})`;
   if (loc.boundary.kind === 'home') return `${where} (searched up to your home folder)`;
   return where;
@@ -64,22 +67,20 @@ function markerReason(loc: ProjectLocation, home: string): string {
 export function resolutionReason(loc: ProjectLocation, home: string): string {
   if (loc.reason === 'main-worktree' && loc.mainWorktree && loc.main) {
     const main = tilde(loc.mainWorktree, home);
-    if (!loc.markerFound) return `no project yet: a session here will create one in your local team (main worktree ${main})`;
-    return loc.main.root === loc.mainWorktree ? `main worktree ${main}` : `main worktree ${main}, ${markerReason(loc.main, home)}`;
+    if (!loc.markerFound) return `no project yet: a session here will create one (main worktree ${main})`;
+    return samePath(loc.main.root, loc.mainWorktree) ? `main worktree ${main}` : `main worktree ${main}, ${markerReason(loc.main, home)}`;
   }
   if (!loc.markerFound) {
-    return `no project yet: a session here will create one in your local team (${loc.gitRoot ? 'git root' : 'this folder'})`;
+    return `no project yet: a session here will create one (${loc.gitRoot ? 'git root' : 'this folder'})`;
   }
   return markerReason(loc, home);
 }
 
-function teamLabel(marker: ProjectMarker, d: Pick<ProjectCommandDeps, 'localTeamId' | 'hasKeyForTeam'>): string {
-  if (marker.runtime === 'server') {
-    return d.hasKeyForTeam(marker.teamId)
-      ? `joined team at ${marker.serverUrl ?? 'an unknown server'}`
-      : 'a team this machine has not joined; open the dashboard and choose Join';
-  }
-  return marker.teamId === d.localTeamId() ? 'your local team' : 'a local team of its own';
+function teamLabel(marker: ProjectMarker, d: Pick<ProjectCommandDeps, 'hasKeyForTeam'>): string {
+  if (marker.runtime !== 'server') return 'local';
+  return d.hasKeyForTeam(marker.teamId)
+    ? `joined team at ${marker.serverUrl ?? 'an unknown server'}`
+    : 'a team this machine has not joined; open the dashboard and choose Join';
 }
 
 function line(label: string, value: string): string {
@@ -89,8 +90,8 @@ function line(label: string, value: string): string {
 export function projectSummary(cwd: string, env: ResolutionEnv = defaultResolutionEnv()): string {
   const loc = resolveProjectLocation(cwd, env);
   const marker = loc.markerFound ? readMarkerAt(loc.root) : null;
-  if (!marker) return 'none yet; a session here creates one in your local team';
-  return `${basename(loc.root)} (${marker.projectId}), ${resolutionReason(loc, resolve(env.home))}`;
+  if (!marker) return 'none yet; a session here creates one';
+  return `${basename(loc.root)} (${marker.projectId}), ${resolutionReason(loc, canonicalPath(env.home))}`;
 }
 
 export async function runProjectCommand(args: string[], d: ProjectCommandDeps = defaultProjectCommandDeps()): Promise<number> {
@@ -103,7 +104,10 @@ export async function runProjectCommand(args: string[], d: ProjectCommandDeps = 
     d.err('Usage: memsmith project');
     return 1;
   }
-  const home = resolve(d.env.home);
+  const home = canonicalPath(d.env.home);
+  for (const ignored of d.env.ignoredSearchRoots ?? []) {
+    d.err(`Ignored search root ${ignored.entry}: ${ignored.reason}.`);
+  }
   const loc = resolveProjectLocation(d.cwd, d.env);
   const marker = loc.markerFound ? readMarkerAt(loc.root) : null;
   d.out(line('Folder:', loc.folder));
@@ -117,6 +121,9 @@ export async function runProjectCommand(args: string[], d: ProjectCommandDeps = 
   }
   d.out(line('Runtime:', d.runtime(loc.folder)));
   d.out(line('Resolved by:', resolutionReason(loc, home)));
+  d.out(line('Search roots:', d.env.searchRoots.length > 0
+    ? d.env.searchRoots.map((root) => tilde(root, home)).join(', ')
+    : `none (outside git, a folder searches up to just below ${tilde(home, home)})`));
   return 0;
 }
 
@@ -133,19 +140,21 @@ function copyMarker(source: ProjectMarker): ProjectMarker {
   };
 }
 
-function looksLikePath(target: string, folder: string): boolean {
-  if (/^(\.{1,2}|~)(\/|$)/.test(target) || isAbsolute(target)) return true;
-  try {
-    return statSync(resolve(folder, target)).isDirectory();
-  } catch {
-    return false;
-  }
+function looksLikePath(target: string): boolean {
+  return target.startsWith('.') || target.startsWith('~') || target.includes('/') || target.includes('\\');
 }
 
 function expandPath(target: string, folder: string, home: string): string {
   if (target === '~') return home;
   if (target.startsWith('~/')) return join(home, target.slice(2));
   return resolve(folder, target);
+}
+
+function sameLink(a: ProjectMarker, b: ProjectMarker): boolean {
+  return a.projectId === b.projectId
+    && a.teamId === b.teamId
+    && (a.runtime ?? 'local') === (b.runtime ?? 'local')
+    && (a.serverUrl ?? '') === (b.serverUrl ?? '');
 }
 
 type TargetChoice = { marker: ProjectMarker; created: boolean } | { error: string[] };
@@ -185,9 +194,8 @@ async function pickTarget(
   folder: string,
   d: ProjectCommandDeps,
 ): Promise<TargetChoice> {
-  const home = resolve(d.env.home);
   const create = (): TargetChoice => ({
-    marker: { teamId: d.ensureLocalTeamId(), projectId: d.newProjectId(), note: MARKER_NOTE },
+    marker: { teamId: d.newTeamId(), projectId: d.newProjectId(), note: MARKER_NOTE },
     created: true,
   });
   if (fresh) return create();
@@ -196,8 +204,8 @@ async function pickTarget(
     const marker = loc.markerFound ? readMarkerAt(loc.root) : null;
     return marker ? { marker: copyMarker(marker), created: false } : create();
   }
-  if (!looksLikePath(target, folder)) return pickByIdOrName(target, d);
-  const path = expandPath(target, folder, home);
+  if (!looksLikePath(target)) return pickByIdOrName(target, d);
+  const path = expandPath(target, folder, canonicalPath(d.env.home));
   if (!existsSync(path)) return { error: [`The folder ${path} does not exist.`] };
   const loc = resolveProjectLocation(path, d.env);
   const marker = loc.markerFound ? readMarkerAt(loc.root) : null;
@@ -211,7 +219,7 @@ function excludeMarker(gitRoot: string): void {
   const path = gitInfoExcludePath(gitRoot);
   if (!path) return;
   const current = existsSync(path) ? readFileSync(path, 'utf-8') : '';
-  if (current.split(/\r?\n/).some((l) => l.trim() === EXCLUDE_ENTRY || l.trim() === '/.memsmith/')) return;
+  if (current.split(/\r?\n/).some((l) => EXISTING_EXCLUDES.has(l.trim()))) return;
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `${current && !current.endsWith('\n') ? '\n' : ''}${EXCLUDE_ENTRY}\n`, 'utf-8');
 }
@@ -231,9 +239,15 @@ export async function runLinkCommand(args: string[], d: ProjectCommandDeps = def
     return 1;
   }
 
-  const folder = resolve(d.cwd);
-  const gitRoot = findGitRoot(folder, resolve(d.env.home));
+  const home = canonicalPath(d.env.home);
+  const folder = canonicalPath(d.cwd);
+  const gitRoot = findGitRoot(folder, home);
   const root = gitRoot ?? folder;
+  if (samePath(root, home)) {
+    d.err('MemSmith does not link your home folder itself, because its marker would claim every folder below it.');
+    d.err('To link a project, run memsmith link in that project\'s folder.');
+    return 1;
+  }
   const picked = await pickTarget(positional[0], fresh, folder, d);
   if ('error' in picked) {
     for (const l of picked.error) d.err(l);
@@ -241,11 +255,11 @@ export async function runLinkCommand(args: string[], d: ProjectCommandDeps = def
   }
   const { marker, created } = picked;
   const existing = readMarkerAt(root);
-  const same = existing !== null && existing.projectId === marker.projectId && existing.teamId === marker.teamId;
+  const same = existing !== null && sameLink(existing, marker);
 
   if (existing && !same) {
-    const change = `${root} links to project ${existing.projectId} (team ${existing.teamId}). `
-      + `Linking changes it to project ${marker.projectId} (team ${marker.teamId}).`;
+    const describe = (m: ProjectMarker) => `project ${m.projectId} (team ${m.teamId}, ${m.runtime === 'server' ? `team server ${m.serverUrl ?? 'unknown'}` : 'local'})`;
+    const change = `${root} links to ${describe(existing)}. Linking changes it to ${describe(marker)}.`;
     if (existing.runtime === 'server' && marker.runtime !== 'server') {
       d.err(change);
       d.err('That folder belongs to a team project, and MemSmith never turns a team project local. Nothing changed.');
@@ -263,7 +277,7 @@ export async function runLinkCommand(args: string[], d: ProjectCommandDeps = def
 
   const name = basename(root);
   if (same) d.out(`${root} already links to project ${marker.projectId}.`);
-  else if (created) d.out(`Created project ${name} (${marker.projectId}) in your local team and linked ${root} to it.`);
+  else if (created) d.out(`MemSmith created project ${name} (${marker.projectId}) and linked ${root} to it.`);
   else d.out(`Linked ${root} to project ${marker.projectId} (team ${marker.teamId}).`);
 
   if (!(await d.register(root))) {
@@ -280,9 +294,7 @@ async function fetchProjects(): Promise<ServerProject[] | null> {
     return null;
   }
   const store = new CredentialStore();
-  const local = readLocalTeamId();
-  const teams = store.listTeamIdsWithKeys().sort((a, b) => Number(b === local) - Number(a === local));
-  for (const teamId of teams) {
+  for (const teamId of store.listTeamIdsWithKeys()) {
     const key = store.resolveKeyForTeam(teamId);
     if (!key) continue;
     try {
@@ -311,8 +323,7 @@ export function defaultProjectCommandDeps(): ProjectCommandDeps {
   return {
     cwd: process.env.MEMSMITH_PROJECT_CWD || process.cwd(),
     env: defaultResolutionEnv(),
-    localTeamId: () => readLocalTeamId(),
-    ensureLocalTeamId: () => ensureLocalTeamId(),
+    newTeamId: () => randomUUID(),
     newProjectId: () => randomUUID(),
     hasKeyForTeam: (teamId) => Boolean(store.resolveKeyForTeam(teamId)),
     runtime: (cwd) => selectRuntime(cwd),
