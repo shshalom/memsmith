@@ -25,6 +25,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 ### Fixed
 
 - The documentation no longer claims that `MEMSMITH_MODE` selects a mode profile. The server always loads the `code` profile and ignores the setting.
+- Queued generation jobs that no running loop picked up now get processed without a server restart. Previously, a job whose publish returned `queued_only`, a project backlog of more than 500 jobs at boot, and jobs moved by `memsmith merge` stayed queued until the next restart. The server now checks the base database and every project database every 30 seconds. Each check loads up to 500 jobs per database and skips a job that is already waiting or running, so a large backlog drains over successive checks. The check marks a job as failed if its payload is invalid or belongs to another database, so it doesn't return every few minutes. Session-summary jobs that the server replays now go to the summary queue.
 
 ## [13.15.0] - 2026-11-08
 

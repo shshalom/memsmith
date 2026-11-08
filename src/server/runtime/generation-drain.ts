@@ -15,6 +15,8 @@
 // deleted, which is exactly why replaying it recovers the lot.
 
 export const DEFAULT_DRAIN_BATCH = 500;
+/** Stored `job_type` of a session-summary job (EndSessionService). */
+export const SUMMARY_JOB_TYPE = 'observation_generate_session_summary';
 export const DEFAULT_QUEUE_CONCURRENCY = 1;
 export const MAX_QUEUE_CONCURRENCY = 16;
 
@@ -106,6 +108,51 @@ export async function claimDueRetries(
   }
 }
 
+/** Minimum age before a first-attempt job counts as orphaned. */
+export const BACKLOG_MIN_AGE_SECONDS = 60;
+
+/**
+ * Claim `queued` jobs that no live loop will poll: a publish that returned
+ * `queued_only`, a project backlog beyond one boot batch, or a job moved in by
+ * `memsmith merge` or reclaimed with no `next_attempt_at`. Retries that carry a
+ * `next_attempt_at` belong to `claimDueRetries`.
+ *
+ * The lease keeps one sweep from reclaiming a job on every tick; the queue
+ * dedupes by job id if the job is still in memory. The minimum age skips a job
+ * that was just committed and is about to be published. Never throws.
+ */
+export async function claimQueuedBacklog(
+  pool: DrainQueryable,
+  opts: { batchSize?: number; leaseMinutes?: number; minAgeSeconds?: number } = {},
+): Promise<DrainableJob[]> {
+  try {
+    const result = await pool.query(
+      `UPDATE observation_generation_jobs
+          SET next_attempt_at = now() + make_interval(mins => $2::int), updated_at = now()
+        WHERE id IN (
+          SELECT id FROM observation_generation_jobs
+           WHERE status = 'queued'
+             AND attempts < max_attempts
+             AND (attempts = 0 OR next_attempt_at IS NULL)
+             AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+             AND created_at <= now() - make_interval(secs => $3::int)
+           ORDER BY created_at ASC
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED)
+        RETURNING id, job_type, project_id, team_id, agent_event_id,
+                  source_type, source_id, server_session_id, payload, bullmq_job_id`,
+      [
+        opts.batchSize ?? DEFAULT_DRAIN_BATCH,
+        opts.leaseMinutes ?? RETRY_LEASE_MINUTES,
+        opts.minAgeSeconds ?? BACKLOG_MIN_AGE_SECONDS,
+      ],
+    );
+    return result.rows.map(toJob).filter((j): j is DrainableJob => j !== null);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Load queued generation jobs so a restart no longer abandons them.
  *
@@ -120,7 +167,7 @@ export async function claimDueRetries(
  */
 export async function loadQueuedJobsForDrain(
   pool: DrainQueryable,
-  opts: { batchSize?: number } = {},
+  opts: { batchSize?: number; respectBackoff?: boolean } = {},
 ): Promise<DrainableJob[]> {
   const batchSize = opts.batchSize ?? DEFAULT_DRAIN_BATCH;
   try {
@@ -148,7 +195,9 @@ export async function loadQueuedJobsForDrain(
               source_type, source_id, server_session_id, payload, bullmq_job_id
          FROM observation_generation_jobs
         WHERE status = 'queued'
-          AND attempts < max_attempts
+          AND attempts < max_attempts${opts.respectBackoff
+            ? '\n          AND (next_attempt_at IS NULL OR next_attempt_at <= now())'
+            : ''}
         ORDER BY created_at ASC
         LIMIT $1`,
       [batchSize],
@@ -268,7 +317,8 @@ export async function reclaimTransientFailures(
 
 /** Minimal shape of the queue a drained job is published back into. */
 export interface RequeueTarget {
-  add: (jobId: string, payload: unknown) => Promise<void>;
+  /** Resolves `false` when the queue already holds the job id. */
+  add: (jobId: string, payload: unknown) => Promise<void | boolean>;
   /**
    * Enqueue at BACKGROUND priority, when the queue supports lanes.
    *
@@ -276,7 +326,7 @@ export interface RequeueTarget {
    * from backlog replay. BullMQ deployments run recovery on separate workers, so
    * they fall back to `add` with no loss.
    */
-  addRecovery?: (jobId: string, payload: unknown) => Promise<void>;
+  addRecovery?: (jobId: string, payload: unknown) => Promise<void | boolean>;
 }
 
 export interface RequeueDeps {
@@ -308,7 +358,7 @@ export async function requeueDrainedJobs(
   for (const job of jobs) {
     try {
       // 'summary' jobs go to the summary lane; everything else is an event job.
-      const kind = job.jobType === 'summary' ? 'summary' : 'event';
+      const kind = job.jobType === 'summary' || job.jobType === SUMMARY_JOB_TYPE ? 'summary' : 'event';
       const queue = deps.resolveQueue(kind);
       // No queue (disabled adapter) or no payload to replay → leave it queued.
       if (!queue || job.payload == null) { skipped += 1; continue; }
@@ -322,8 +372,8 @@ export async function requeueDrainedJobs(
       // split; when it is absent the old behaviour applies, which is correct for
       // a multi-process deployment where recovery runs on its own workers anyway.
       const enqueue = queue.addRecovery ?? queue.add;
-      await enqueue.call(queue, job.bullmqJobId ?? job.id, job.payload);
-      requeued += 1;
+      const accepted = await enqueue.call(queue, job.bullmqJobId ?? job.id, job.payload);
+      if (accepted === false) skipped += 1; else requeued += 1;
     } catch {
       // One bad job must not cost the rest of the backlog.
       skipped += 1;
@@ -341,4 +391,64 @@ export function resolveQueueConcurrency(env: Record<string, string | undefined>)
   if (parsed < 1) return 1;
   if (parsed > MAX_QUEUE_CONCURRENCY) return MAX_QUEUE_CONCURRENCY;
   return parsed;
+}
+
+/**
+ * Fail queued jobs that can never run, so a sweep stops claiming them. A row the
+ * worker rejects or no-ops stays `queued`, and its lease would expire and bring
+ * it back every few minutes forever.
+ */
+export async function failUnrunnableJobs(pool: DrainQueryable, ids: string[], reason: string): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    await pool.query(
+      `UPDATE observation_generation_jobs
+          SET status = 'failed', failed_at = now(), locked_at = NULL, locked_by = NULL,
+              next_attempt_at = NULL, last_error = $2::jsonb, updated_at = now()
+        WHERE id = ANY($1::text[]) AND status = 'queued'`,
+      [ids, JSON.stringify({ reason, classification: 'unrunnable_backlog' })],
+    );
+  } catch { /* the next sweep retries */ }
+}
+
+/**
+ * Keep the jobs the worker would run from `pool`. Unrunnable jobs are failed so
+ * no sweep claims them again; jobs whose route is unknown are left as they are.
+ */
+export async function screenJobs(
+  pool: DrainQueryable,
+  jobs: DrainableJob[],
+  classify: (job: DrainableJob) => Promise<'runnable' | 'unrunnable' | 'unknown'>,
+): Promise<DrainableJob[]> {
+  const runnable: DrainableJob[] = [];
+  const rejected: string[] = [];
+  for (const job of jobs) {
+    const route = await classify(job).catch(() => 'unknown' as const);
+    if (route === 'runnable') runnable.push(job);
+    else if (route === 'unrunnable') rejected.push(job.id);
+  }
+  await failUnrunnableJobs(pool, rejected, 'payload invalid or routed to another database');
+  return runnable;
+}
+
+/**
+ * Put orphaned jobs from one pool onto the queue, at most one batch per call, so
+ * a large backlog drains over successive calls. Does nothing while the recovery
+ * lane is deeper than `maxRecoveryDepth`: that backlog is already in memory.
+ */
+export async function requeueOrphanedJobs(
+  pool: DrainQueryable,
+  deps: RequeueDeps & {
+    classify?: (job: DrainableJob) => Promise<'runnable' | 'unrunnable' | 'unknown'>;
+    recoveryDepth?: () => number;
+    maxRecoveryDepth?: number;
+  },
+  opts: { batchSize?: number } = {},
+): Promise<number> {
+  if (deps.recoveryDepth && deps.recoveryDepth() > (deps.maxRecoveryDepth ?? 50)) return 0;
+  const claimed = await claimQueuedBacklog(pool, opts);
+  if (claimed.length === 0) return 0;
+  const jobs = deps.classify ? await screenJobs(pool, claimed, deps.classify) : claimed;
+  if (jobs.length === 0) return 0;
+  return (await requeueDrainedJobs(jobs, deps)).requeued;
 }
