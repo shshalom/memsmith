@@ -17,7 +17,7 @@ export interface MemoryCommandDeps {
 
 export function defaultMemoryCommandDeps(): MemoryCommandDeps {
   return {
-    cwd: process.cwd(),
+    cwd: process.env.MEMSMITH_PROJECT_CWD || process.cwd(),
     resolveContext: (cwd) => buildServerContext({ cwd }),
     out: (line) => console.log(line),
     err: (line) => console.error(line),

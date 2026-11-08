@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-import { runMemoryGet, runMemorySearch, type MemoryCommandDeps } from '../../src/npx-cli/commands/memory.js';
+import { afterEach, describe, expect, it } from 'bun:test';
+import { defaultMemoryCommandDeps, runMemoryGet, runMemorySearch, type MemoryCommandDeps } from '../../src/npx-cli/commands/memory.js';
 import { ServerClientError } from '../../src/services/hooks/server-client.js';
 
 const ROW = {
@@ -107,6 +107,29 @@ describe('memsmith search', () => {
     const f = fake({ search: async () => { throw new ServerClientError('http_error', 'HTTP 401', { status: 401 }); } });
     expect(await runMemorySearch(['login'], f.deps)).toBe(1);
     expect(f.errs.join('\n')).toContain('authentication');
+  });
+});
+
+// Reported 2026-11-08: from /tmp with MEMSMITH_PROJECT_CWD set, the CLI still
+// found no project, because it always used process.cwd().
+describe('project folder for the memory commands', () => {
+  const saved = process.env.MEMSMITH_PROJECT_CWD;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MEMSMITH_PROJECT_CWD;
+    else process.env.MEMSMITH_PROJECT_CWD = saved;
+  });
+
+  it('uses MEMSMITH_PROJECT_CWD when it is set', () => {
+    process.env.MEMSMITH_PROJECT_CWD = '/work/pinned-project';
+    expect(defaultMemoryCommandDeps().cwd).toBe('/work/pinned-project');
+  });
+
+  it('uses the current folder when MEMSMITH_PROJECT_CWD is unset or empty', () => {
+    for (const value of [undefined, '']) {
+      if (value === undefined) delete process.env.MEMSMITH_PROJECT_CWD;
+      else process.env.MEMSMITH_PROJECT_CWD = value;
+      expect(defaultMemoryCommandDeps().cwd).toBe(process.cwd());
+    }
   });
 });
 
