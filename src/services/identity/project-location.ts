@@ -229,9 +229,9 @@ function walk(from: string, last: string, skipHome: string | null): string | nul
  * 2. A linked worktree with no marker of its own uses its main checkout's
  *    project, before anything above it is considered.
  * 3. Inside a configured search root, the walk continues above the git root,
- *    up to and including the search root. With no search roots configured, a
- *    folder outside git walks up to just below the home folder. Nothing else
- *    crosses a git root.
+ *    up to and including the search root. Outside every search root, a folder
+ *    outside git walks up to just below the home folder. Nothing else crosses
+ *    a git root.
  * 4. Otherwise the project root is the git root, or the folder outside git.
  */
 export function resolveProjectLocation(cwd: string, env: ResolutionEnv = defaultResolutionEnv()): ProjectLocation {
@@ -262,7 +262,7 @@ export function resolveProjectLocation(cwd: string, env: ResolutionEnv = default
   let boundary: WalkBoundary | null = null;
   if (searchRoot) {
     if (!samePath(ownRoot, searchRoot) && isWithin(ownRoot, searchRoot)) boundary = { kind: 'search-root', dir: searchRoot };
-  } else if (env.searchRoots.length === 0 && !gitRoot && !samePath(folder, home) && isWithin(folder, home)) {
+  } else if (!gitRoot && !samePath(folder, home) && isWithin(folder, home)) {
     boundary = { kind: 'home', dir: home };
   }
   if (boundary && above !== ownRoot) {

@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- A folder outside every `MEMSMITH_PROJECT_SEARCH_ROOTS` entry now resolves as if no search roots were set. Before, setting any search root stopped a folder outside git, and outside the roots, from finding a marker above it below your home folder.
+
 ## [13.15.0] - 2026-11-08
 
 ### Added

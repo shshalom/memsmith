@@ -15,8 +15,8 @@ When a session starts, MemSmith looks for a marker in this order. The nearest ma
 2. **The main checkout of a worktree.** If the folder is in a linked git worktree that has no marker, MemSmith uses the project of the main checkout, before it looks anywhere above the worktree.
 3. **Above the repository, only where you allow it.**
    - **Inside a search root.** If the folder is inside a folder listed in `MEMSMITH_PROJECT_SEARCH_ROOTS`, MemSmith checks each parent above the git root, up to and including the search root. It never looks above the search root. When search roots overlap, the innermost one applies.
-   - **Outside git, with no search roots configured.** MemSmith checks each parent up to your home folder, but never a marker directly in your home folder, because that marker would claim every project on the machine.
-   - **Everywhere else**, including a repository with no search roots configured, nothing above the git root counts. For example, `/tmp/scratch` never uses a marker in `/tmp`.
+   - **Outside git and outside every search root.** MemSmith checks each parent up to your home folder, but never a marker directly in your home folder, because that marker would claim every project on the machine.
+   - **Everywhere else**, including a repository outside every search root, nothing above the git root counts. A search root affects only the folders inside it. For example, `/tmp/scratch` never uses a marker in `/tmp`.
 
 If MemSmith finds no marker, the project root is the git root, or the session folder outside git. A new project, in a team of its own, is created there.
 
