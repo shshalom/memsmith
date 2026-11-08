@@ -75,6 +75,7 @@ export function planPrune(inv: ProjectInventory): PrunePlan {
 export interface PruneOutcome {
   candidate: PruneCandidate;
   backupFile: string | null;
+  droppedDatabase: boolean;
   error: string | null;
 }
 
@@ -83,12 +84,15 @@ export interface PruneDeps {
   dump: DumpDatabase;
   backupDir: string;
   now: () => Date;
+  /** Called after a team row is deleted, so this machine forgets its key. */
+  forgetTeamKey: (teamId: string) => void;
 }
 
 export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<PruneOutcome[]> {
   const outcomes: PruneOutcome[] = [];
   for (const candidate of plan.candidates) {
     let backupFile: string | null = null;
+    let droppedDatabase = false;
     try {
       const name = candidate.dropDatabase;
       if (name) {
@@ -99,17 +103,19 @@ export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<Pr
         await deps.dump(deps.db.urlFor(name), backupFile);
         await deps.db.release(name);
         await deps.db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+        droppedDatabase = true;
       }
       if (candidate.deleteProject && candidate.entry.projectId) {
         await deps.db.base.query('DELETE FROM projects WHERE id = $1', [candidate.entry.projectId]);
-        await deps.db.base.query(
+        const team = await deps.db.base.query(
           'DELETE FROM teams WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM projects WHERE team_id = $1)',
           [candidate.entry.teamId],
         );
+        if ((team.rowCount ?? 0) > 0 && candidate.entry.teamId) deps.forgetTeamKey(candidate.entry.teamId);
       }
-      outcomes.push({ candidate, backupFile, error: null });
+      outcomes.push({ candidate, backupFile, droppedDatabase, error: null });
     } catch (error) {
-      outcomes.push({ candidate, backupFile, error: error instanceof Error ? error.message : String(error) });
+      outcomes.push({ candidate, backupFile, droppedDatabase, error: error instanceof Error ? error.message : String(error) });
     }
   }
   return outcomes;

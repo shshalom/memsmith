@@ -94,6 +94,16 @@ export class CredentialStore {
     });
   }
 
+  removeKeyForTeam(teamId: string): void {
+    if (!existsSync(this.path)) return;
+    this.withLock(() => {
+      const file = this.read();
+      if (!(teamId in file.keys)) return;
+      delete file.keys[teamId];
+      this.writeAtomic(file);
+    });
+  }
+
   /**
    * Store `key` only if this team has no key yet; otherwise return the existing
    * one. The check and the write happen under the same lock.

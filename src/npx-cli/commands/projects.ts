@@ -17,6 +17,7 @@ export interface ProjectsCommandDeps {
   runtime: () => string;
   openDb: () => ProjectsDb;
   hasKeyForTeam: (teamId: string) => boolean;
+  forgetTeamKey: (teamId: string) => void;
   dump: DumpDatabase;
   backupDir: string;
   now: () => Date;
@@ -153,7 +154,7 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
       d.out('To remove them, run: memsmith projects --prune --yes');
       return 0;
     }
-    const outcomes = await executePrune({ db, dump: d.dump, backupDir: d.backupDir, now: d.now }, plan);
+    const outcomes = await executePrune({ db, dump: d.dump, backupDir: d.backupDir, now: d.now, forgetTeamKey: d.forgetTeamKey }, plan);
     let failed = 0;
     for (const o of outcomes) {
       if (o.error) {
@@ -163,6 +164,7 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
         d.out(`Pruned ${o.candidate.entry.name}.${o.backupFile ? ` Backup: ${o.backupFile}` : ''}`);
       }
     }
+    if (outcomes.some((o) => o.droppedDatabase)) d.out('Run `memsmith restart` to release connections to dropped databases.');
     return failed > 0 ? 1 : 0;
   }) as Promise<number>;
 }
@@ -265,6 +267,7 @@ export function defaultProjectsCommandDeps(): ProjectsCommandDeps {
     runtime: readRuntimeSetting,
     openDb: () => openLocalProjectsDb(),
     hasKeyForTeam: (teamId) => Boolean(store.resolveKeyForTeam(teamId)),
+    forgetTeamKey: (teamId) => store.removeKeyForTeam(teamId),
     dump: pgDumpWith(),
     backupDir: backupsDir(),
     now: () => new Date(),

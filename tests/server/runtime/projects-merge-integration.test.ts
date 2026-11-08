@@ -69,7 +69,8 @@ if (OPT_IN) {
         port: PG_PORT,
       });
       const { connectionString } = await manager.start();
-      expect(connectionString).toContain(String(PG_PORT));
+      expect(connectionString).toContain(`:${PG_PORT}/`);
+      expect(connectionString).not.toContain(':55433');
       const pool = (db: string) => {
         const u = new URL(connectionString);
         u.pathname = `/${db}`;
@@ -95,6 +96,7 @@ if (OPT_IN) {
       marker(folderT, teamA, T, { runtime: 'server', serverUrl: 'https://team.example.com' });
 
       process.env.MEMSMITH_SERVER_DATABASE_URL = connectionString;
+      expect(process.env.MEMSMITH_SERVER_DATABASE_URL).not.toContain(':55433');
       process.env.MEMSMITH_AUTH_MODE = 'local-dev';
       process.env.MEMSMITH_ALLOW_LOCAL_DEV_BYPASS = '1';
       process.env.MEMSMITH_GENERATION_DISABLED = '1';
@@ -154,12 +156,14 @@ if (OPT_IN) {
       const backupDir = join(DATA_DIR, 'backups');
       const out: string[] = [];
       const err: string[] = [];
+      const forgotten: string[] = [];
       const deps = {
         cwd: rootB,
         env: { home, searchRoots: [] },
         runtime: () => 'local',
         openDb: () => new ProjectsDb(connectionString),
         hasKeyForTeam: () => true,
+        forgetTeamKey: (teamId: string) => forgotten.push(teamId),
         dump: pgDumpWith(join(binaries, 'bin', 'pg_dump')),
         backupDir,
         now: () => new Date(),
@@ -231,6 +235,18 @@ if (OPT_IN) {
       expect(found.map((o) => o.id)).toContain(o1);
       expect(found.every((o) => o.projectId === B)).toBe(true);
 
+      // A hook that still sends the archived project's id is routed to the target.
+      const late = await postJson(http, '/v1/memories', { projectId: A, kind: 'user_note', metadata: { userDirected: true }, content: 'Observation in project A after the merge' });
+      expect(late.status).toBe(201);
+      const lateBody = await late.json() as { memory: { id: string; projectId: string } };
+      expect(lateBody.memory.projectId).toBe(B);
+      expect((await b.query('SELECT project_id, team_id FROM observations WHERE id = $1', [lateBody.memory.id])).rows[0]).toEqual({ project_id: B, team_id: teamB });
+      expect((await a.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(4);
+      const viaOld = await postJson(http, '/v1/search', { projectId: A, query: 'zebra' });
+      expect(viaOld.status).toBe(200);
+      expect((await viaOld.json() as { observations: Array<{ id: string }> }).observations.map((o) => o.id)).toContain(o1);
+      await b.query('DELETE FROM observations WHERE id = $1', [lateBody.memory.id]);
+
       // A second run copies nothing new.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length);
@@ -252,6 +268,8 @@ if (OPT_IN) {
 
       for (const p of pools) if (p !== base && p !== b) await p.end().catch(() => {});
       expect(await run(() => runProjectsCommand(['--prune', '--yes'], deps))).toBe(0);
+      expect(out).toContain('Run `memsmith restart` to release connections to dropped databases.');
+      expect(forgotten).toEqual([]);
       const remaining = (await base.query('SELECT id FROM projects ORDER BY id')).rows.map((r) => r.id);
       expect(remaining.sort()).toEqual([B, T].sort());
       const dbNames = (await base.query("SELECT datname FROM pg_database WHERE datname LIKE 'msp_%'")).rows.map((r) => r.datname);

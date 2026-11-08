@@ -106,6 +106,8 @@ Without `--yes`, `memsmith merge` changes nothing. It shows how many sessions, e
 
 Search, recall, and the dashboard show the merged records right away, because they read the target project's database, and the embeddings are copied with the records.
 
+A folder that still links to the archived project keeps working. The server routes its captures, searches, and dashboard reads to the project it was merged into, following a chain of up to eight merges, and refuses the request when the merges form a cycle. The next time a session starts in that folder, MemSmith rewrites the folder's marker to name the target project, unless the marker belongs to a team project.
+
 You can run the same merge again. It copies only rows that the target doesn't have yet.
 
 ## Prune projects
@@ -116,7 +118,7 @@ To see which projects and databases MemSmith can remove, run `memsmith projects 
 - Empty projects, and projects without a database.
 - Projects archived by `memsmith merge`.
 
-Before it drops a database, MemSmith backs it up with `pg_dump` to `~/.memsmith/backups/prune-<database>-<time>.sql`, readable only by you. If the backup fails, MemSmith keeps that database and project. MemSmith never removes a project that has records unless `memsmith merge` archived it, a team project, a project that a folder still links to, or a database that holds records but that no project names. `memsmith projects --prune` lists each project it keeps and why.
+Before it drops a database, MemSmith backs it up with `pg_dump` to `~/.memsmith/backups/prune-<database>-<time>.sql`, readable only by you. If the backup fails, MemSmith keeps that database and project. When MemSmith removes a project's team, it also removes that team's key from `~/.memsmith`. After it drops a database, it asks you to run `memsmith restart`, so the server releases its connections to the dropped database. MemSmith never removes a project that has records unless `memsmith merge` archived it, a team project, a project that a folder still links to, or a database that holds records but that no project names. `memsmith projects --prune` lists each project it keeps and why.
 
 ## Find stray markers
 
