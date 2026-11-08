@@ -329,6 +329,24 @@ if (OPT_IN) {
       expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [j2])).rows.map((r) => r.id)).toEqual([o5]);
       await b.query('DELETE FROM observations WHERE id = $1', [o5]);
 
+      // With a sweep that runs moved jobs, the target's copy can finish on its
+      // own before the source's result arrives. Both generated the job; the
+      // target keeps its own observation and the source's is not copied.
+      const j7 = randomUUID();
+      const [oTarget, o7] = [randomUUID(), randomUUID()];
+      await a.query(`INSERT INTO observation_generation_jobs (id, project_id, team_id, agent_event_id, source_type, source_id, job_type, status, idempotency_key, payload)
+        VALUES ($1, $2, $3, $4, 'agent_event', $4, 'observation-extra', 'queued', $5, '{}')`, [j7, A, teamA, e2, `job-${j7}`]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j7])).rows[0].status).toBe('queued');
+      await b.query(`UPDATE observation_generation_jobs SET status = 'completed', completed_at = now() WHERE id = $1`, [j7]);
+      await b.query(`INSERT INTO observations (id, project_id, team_id, content, created_by_job_id) VALUES ($1, $2, $3, 'generated in the target', $4)`, [oTarget, B, teamB, j7]);
+      await a.query(`UPDATE observation_generation_jobs SET status = 'completed', completed_at = now(), cancelled_at = NULL, updated_at = now() WHERE id = $1`, [j7]);
+      await a.query(`INSERT INTO observations (id, project_id, team_id, content, created_by_job_id) VALUES ($1, $2, $3, 'generated in the source', $4)`, [o7, A, teamA, j7]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [j7])).rows.map((r) => r.id)).toEqual([oTarget]);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j7])).rows[0].status).toBe('completed');
+      await b.query('DELETE FROM observations WHERE id = $1', [oTarget]);
+
       // E shares B's team; once merged and archived, a team-wide read must not return its rows twice.
       expect(await run(() => runMergeCommand([E, B, '--yes'], deps))).toBe(0);
       const browse = await postJson(http, '/v1/search', { projectId: B, query: '' , limit: 100 });

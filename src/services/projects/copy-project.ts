@@ -117,7 +117,7 @@ const KEY_COLUMNS: Record<CopyTable, string> = {
   server_sessions: `x.id, ${us('x.created_at')} AS created_us, ${us('x.updated_at')} AS updated_us, x.idempotency_key, x.external_session_id, x.platform_source`,
   agent_events: `x.id, ${us('x.created_at')} AS created_us, x.idempotency_key`,
   observation_generation_jobs: `x.id, ${us('x.created_at')} AS created_us, x.status, x.idempotency_key, x.bullmq_job_id, x.source_type, x.source_id, x.job_type`,
-  observations: `x.id, ${us('x.created_at')} AS created_us, ${us('x.updated_at')} AS updated_us, x.generation_key, x.idempotency_key`,
+  observations: `x.id, ${us('x.created_at')} AS created_us, ${us('x.updated_at')} AS updated_us, x.generation_key, x.idempotency_key, x.created_by_job_id`,
   observation_sources: `x.id, ${us('x.created_at')} AS created_us, x.observation_id, x.source_id`,
   observation_generation_job_events: `x.id, ${us('x.created_at')} AS created_us, x.generation_job_id`,
 };
@@ -174,8 +174,26 @@ export async function copyProject(
   const supersedes = new Map<string, string>();
   const activeJobIds: string[] = [];
 
+  // A row skipped because the target produced its own version has no target id.
   const mapId = (table: CopyTable, id: unknown): string | null =>
-    id == null ? null : decisions[table].get(String(id))?.target ?? null;
+    id == null ? null : decisions[table].get(String(id))?.target || null;
+
+  // Target jobs that already ran: their status, and whether they wrote an
+  // observation. A moved job can run in the target before the source's result
+  // for the same job arrives, and both must not be kept.
+  const targetJobStatus = new Map<string, string>();
+  const targetGenerated = new Set<string>();
+  const noteTargetJobs = async (ids: string[]) => {
+    const unknown = [...new Set(ids)].filter((id) => id && !targetJobStatus.has(id));
+    if (unknown.length === 0) return;
+    for (const r of (await target.query(
+      'SELECT id, status FROM observation_generation_jobs WHERE project_id = $1 AND id = ANY($2::text[])', [scope.intoProjectId, unknown],
+    )).rows) targetJobStatus.set(String(r.id), String(r.status));
+    for (const r of (await target.query(
+      'SELECT DISTINCT created_by_job_id AS id FROM observations WHERE project_id = $1 AND created_by_job_id = ANY($2::text[])', [scope.intoProjectId, unknown],
+    )).rows) targetGenerated.add(String(r.id));
+    for (const id of unknown) if (!targetJobStatus.has(id)) targetJobStatus.set(id, '');
+  };
 
   // Decides one page of rows. `duplicateOf` returns the target row's id when
   // the target holds this row under a unique key.
@@ -184,12 +202,18 @@ export async function copyProject(
     rows: Row[],
     sameRow: (existing: Row, row: Row) => boolean,
     duplicateOf: (row: Row) => string | undefined = () => undefined,
+    excluded: (row: Row) => boolean = () => false,
   ): Promise<void> {
     const map = decisions[table];
     let pending: Row[] = [];
     const existingById = await targetById(target, table, rows.map((r) => String(r.id)));
     const settle = (row: Row, id: string, existing: Row | undefined, renamed: boolean) => {
       if (!existing) {
+        if (excluded(row)) {
+          map.set(row.id, { target: '', action: 'skip' });
+          counts[table].alreadyThere += 1;
+          return true;
+        }
         map.set(row.id, { target: id, action: 'copy' });
         counts[table].copy += 1;
         if (renamed) counts[table].renamed += 1;
@@ -197,9 +221,11 @@ export async function copyProject(
       }
       if (!sameRow(existing, row)) return false;
       // A job copied as queued that the source then completed must not run
-      // again in the target: its observation arrives with this copy.
+      // again in the target: its observation arrives with this copy. Unless
+      // the target copy already wrote one, in which case the target's stands.
       const finishedInSource = table === 'observation_generation_jobs' && row.status === 'completed'
-        && (existing.status === 'queued' || existing.status === 'processing');
+        && (existing.status === 'queued' || existing.status === 'processing')
+        && !targetGenerated.has(String(existing.id));
       const update = finishedInSource || (UPDATABLE.has(table) && newer(row.updated_us, existing.updated_us));
       map.set(row.id, { target: id, action: update ? 'update' : 'skip' });
       if (update) counts[table].updated += 1;
@@ -261,23 +287,6 @@ export async function copyProject(
     });
   }
 
-  const keyedObs = new Map<string, string>();
-  for await (const page of pages(target,
-    `SELECT x.id, x.generation_key, x.idempotency_key FROM observations x
-      WHERE x.project_id = $1 AND x.team_id = $2 AND (x.generation_key IS NOT NULL OR x.idempotency_key IS NOT NULL)`,
-    [scope.intoProjectId, scope.intoTeamId])) {
-    for (const o of page) {
-      if (o.generation_key) keyedObs.set(`g\u0000${o.generation_key}`, o.id);
-      if (o.idempotency_key) keyedObs.set(`i\u0000${o.idempotency_key}`, o.id);
-    }
-  }
-  for await (const page of keyPages('observations')) {
-    await decide('observations', page, sameProjectRow, (r) => {
-      const dup = (r.generation_key && keyedObs.get(`g\u0000${r.generation_key}`)) || (r.idempotency_key && keyedObs.get(`i\u0000${r.idempotency_key}`));
-      return dup && dup !== r.id ? dup : undefined;
-    });
-  }
-
   const finished = await source.query(
     `SELECT count(*)::int AS n FROM observation_generation_jobs WHERE project_id = $1 AND status NOT IN ('completed', 'queued', 'processing')`,
     [scope.fromProjectId],
@@ -298,6 +307,7 @@ export async function copyProject(
     for (const j of page) if (j.status !== 'completed') activeJobIds.push(String(j.id));
     const holders = await lookupColumn(target, 'observation_generation_jobs', 'idempotency_key', page.map((j) => j.idempotency_key));
     for (const id of (await lookupColumn(target, 'observation_generation_jobs', 'bullmq_job_id', page.map((j) => j.bullmq_job_id))).keys()) bullmqTaken.add(id);
+    await noteTargetJobs(page.flatMap((j) => [String(j.id), ...Array.from({ length: MAX_DERIVED }, (_, i) => derived(String(j.id), i + 1))]));
     await decide('observation_generation_jobs', page, sameProjectRow, (j) => {
       const scoped = jobScopes.get(`${j.source_type}\u0000${jobSourceId(j)}\u0000${j.job_type}`);
       if (scoped !== undefined && scoped !== j.id) return scoped;
@@ -306,6 +316,30 @@ export async function copyProject(
       if (inTarget(holder)) return String(holder.id);
       renamedKeys.observation_generation_jobs.add(j.id);
       return undefined;
+    });
+  }
+
+  const keyedObs = new Map<string, string>();
+  for await (const page of pages(target,
+    `SELECT x.id, x.generation_key, x.idempotency_key FROM observations x
+      WHERE x.project_id = $1 AND x.team_id = $2 AND (x.generation_key IS NOT NULL OR x.idempotency_key IS NOT NULL)`,
+    [scope.intoProjectId, scope.intoTeamId])) {
+    for (const o of page) {
+      if (o.generation_key) keyedObs.set(`g\u0000${o.generation_key}`, o.id);
+      if (o.idempotency_key) keyedObs.set(`i\u0000${o.idempotency_key}`, o.id);
+    }
+  }
+  for await (const page of keyPages('observations')) {
+    const jobOf = (o: Row) => (o.created_by_job_id == null ? undefined : decisions.observation_generation_jobs.get(String(o.created_by_job_id)));
+    await noteTargetJobs(page.map((o) => jobOf(o)?.target ?? ''));
+    await decide('observations', page, sameProjectRow, (r) => {
+      const dup = (r.generation_key && keyedObs.get(`g\u0000${r.generation_key}`)) || (r.idempotency_key && keyedObs.get(`i\u0000${r.idempotency_key}`));
+      return dup && dup !== r.id ? dup : undefined;
+    }, (o) => {
+      // The target already ran this job itself; keep its output, not the source's.
+      const job = jobOf(o);
+      if (!job || job.action !== 'skip' || !job.target) return false;
+      return targetJobStatus.get(job.target) === 'completed' || targetGenerated.has(job.target);
     });
   }
 
