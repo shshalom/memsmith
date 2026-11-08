@@ -74,6 +74,8 @@ export interface ConvertRoutesDeps {
     teamId: string;
     projectId: string;
   }) => Promise<ConvertResult>;
+  /** A reason to refuse converting this project before anything is copied, or null. */
+  convertRefusal?: (projectId: string) => Promise<string | null>;
   /**
    * Join an EXISTING team workspace — the other half of Go Team.
    *
@@ -161,6 +163,12 @@ export function registerConvertRoutes(app: import('express').Application, deps: 
       res.status(400).json({
         error: 'no project scope on this credential — cannot determine which project to convert',
       });
+      return;
+    }
+
+    const refusal = deps.convertRefusal ? await deps.convertRefusal(projectId) : null;
+    if (refusal) {
+      res.status(409).json({ error: refusal });
       return;
     }
 

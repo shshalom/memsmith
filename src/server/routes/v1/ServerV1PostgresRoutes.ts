@@ -2133,6 +2133,13 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       applyFix: (url, fix) => fix === 'pgvector'
         ? applyPgvectorFix(url, makeRealProbeDeps())
         : Promise.resolve({ ok: false, error: `unknown fix: ${fix}` }),
+      convertRefusal: async (projectId) => {
+        const row = await this.options.pool.query('SELECT metadata FROM projects WHERE id = $1', [projectId]);
+        const path = (row.rows[0] as { metadata?: Record<string, unknown> | null } | undefined)?.metadata?.[PROJECT_PATH_KEY];
+        if (typeof path !== 'string' || !path.trim()) return null;
+        const { convertRefusalForMarkerDir } = await import('../../convert/marker-scope-guard.js');
+        return convertRefusalForMarkerDir(path);
+      },
       convert: async (input) => {
         // HTTPS DESTINATION: no pool to the remote at all.
         //
