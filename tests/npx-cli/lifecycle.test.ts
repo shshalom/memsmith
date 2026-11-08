@@ -283,3 +283,21 @@ describe('--timeout validation', () => {
     });
   }
 });
+
+describe('status memory mode line', () => {
+  it('shows a non-default mode whether or not the server is running', async () => {
+    const memoryMode = () => 'read (MEMSMITH_MODE in the environment)';
+    const running = deps({ health: [ready], memoryMode });
+    await runLifecycle('status', [], running.d);
+    expect(running.calls.out).toContain('  Mode:      read (MEMSMITH_MODE in the environment)');
+    const stopped = deps({ memoryMode });
+    await runLifecycle('status', [], stopped.d);
+    expect(stopped.calls.out).toContain('  Mode:      read (MEMSMITH_MODE in the environment)');
+  });
+
+  it('prints no mode line in write mode', async () => {
+    const { d, calls } = deps({ health: [ready], memoryMode: () => null });
+    await runLifecycle('status', [], d);
+    expect(calls.out.some((l) => l.startsWith('  Mode:'))).toBe(false);
+  });
+});

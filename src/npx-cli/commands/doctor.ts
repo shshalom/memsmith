@@ -9,7 +9,13 @@ import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { styleText } from 'node:util';
 import { isPluginInstalled, marketplaceDirectory, IS_WINDOWS } from '../utils/paths.js';
-import { resolveDataDir } from '../../shared/paths.js';
+import { resolveDataDir, USER_SETTINGS_PATH } from '../../shared/paths.js';
+import {
+  readSwitchSettings,
+  resolveFeatureSwitches,
+  switchSourceLabel,
+  type FeatureSwitches,
+} from '../../shared/feature-switches.js';
 import { connect } from 'node:net';
 import { readServerPidFile, removeServerState } from '../../server/runtime/server-state.js';
 import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
@@ -133,6 +139,30 @@ export function generationCheck(status: GenerationStatus, remote: boolean): Chec
     case 'not-installed': return result('fail', `ollama · not installed — download it from https://ollama.com/download, then run \`ollama pull ${model}\``);
     case 'unknown': return { ...result('warn', `ollama · ${origin} answered, but not like Ollama — check MEMSMITH_OLLAMA_URL`), required: false };
   }
+}
+
+export function featureSwitchChecks(s: FeatureSwitches): CheckResult[] {
+  const modeSource = s.modeSource === 'default' ? 'default' : `MEMSMITH_MODE ${switchSourceLabel(s.modeSource)}`;
+  let mode: CheckResult;
+  if (s.invalidMode !== null) {
+    mode = { name: 'Memory mode', status: 'warn', detail: `write ("${s.invalidMode}" is not read or write; using write)`, required: false };
+  } else if (s.mode === 'read') {
+    mode = { name: 'Memory mode', status: 'warn', detail: `read (${modeSource}): capture is off and memory write tools refuse`, required: false };
+  } else {
+    mode = { name: 'Memory mode', status: 'ok', detail: `write (${modeSource})`, required: false };
+  }
+
+  const parts = [s.disabled.size > 0
+    ? `${[...s.disabled].join(', ')} (MEMSMITH_HOOKS_DISABLED ${switchSourceLabel(s.disabledSource)})`
+    : 'none'];
+  if (s.unknownFeatures.length > 0) parts.push(`unknown, ignored: ${s.unknownFeatures.join(', ')}`);
+  const hooks: CheckResult = {
+    name: 'Disabled hooks',
+    status: s.disabled.size > 0 || s.unknownFeatures.length > 0 ? 'warn' : 'ok',
+    detail: parts.join('; '),
+    required: false,
+  };
+  return [mode, hooks];
 }
 
 export function planRepairs(s: DoctorState): Repair[] {
@@ -340,6 +370,10 @@ export async function collectChecks(
 
   const generation = await probes.generation(health.reachable && !address.remote);
   checks.push(generationCheck(generation, address.remote));
+  checks.push(...featureSwitchChecks(resolveFeatureSwitches(
+    readSwitchSettings(urlSource.settingsPath ?? USER_SETTINGS_PATH),
+    urlSource.env ?? process.env,
+  )));
 
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');

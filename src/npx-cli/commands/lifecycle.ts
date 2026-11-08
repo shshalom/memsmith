@@ -11,6 +11,7 @@ import { selectRuntime } from '../../services/hooks/runtime-selector.js';
 import { isPluginInstalled, marketplaceDirectory, installedPluginVersion } from '../utils/paths.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 import { projectSummary } from './project.js';
+import { memoryModeSummary, readSwitchSettings, resolveFeatureSwitches } from '../../shared/feature-switches.js';
 
 export type LifecycleCommand = 'start' | 'stop' | 'restart' | 'status';
 
@@ -31,6 +32,8 @@ export interface LifecycleDeps {
   logPath(): string;
   /** One-line summary of the current folder's project, for `status`. */
   project?(): string;
+  /** The session's memory mode when it is not the default write mode. */
+  memoryMode?(): string | null;
   sleep(ms: number): Promise<void>;
   now(): number;
   out(line: string): void;
@@ -145,10 +148,13 @@ function printStatus(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddr
   const runtime = d.runtime();
   const pgLine = runtime === 'local' ? `  Postgres:  ${d.postgresRunning() ? 'running' : 'stopped'}` : null;
   const projectLine = d.project ? `  Project:   ${d.project()}` : null;
+  const mode = d.memoryMode?.() ?? null;
+  const modeLine = mode ? `  Mode:      ${mode}` : null;
   if (!health.reachable) {
     d.out('Server is not running');
     if (pgLine) d.out(pgLine);
     if (projectLine) d.out(projectLine);
+    if (modeLine) d.out(modeLine);
     return 1;
   }
   d.out(health.initialized ? 'Server is running' : 'Server is starting');
@@ -159,6 +165,7 @@ function printStatus(d: LifecycleDeps, addr: ReturnType<typeof resolveServerAddr
   d.out(`  Dashboard: ${addr.baseUrl}`);
   if (pgLine) d.out(pgLine);
   if (projectLine) d.out(projectLine);
+  if (modeLine) d.out(modeLine);
   return 0;
 }
 
@@ -295,6 +302,7 @@ export function defaultLifecycleDeps(urlSource: ServerUrlSource = {}): Lifecycle
         return `unknown (${error instanceof Error ? error.message : String(error)})`;
       }
     },
+    memoryMode: () => memoryModeSummary(resolveFeatureSwitches(readSwitchSettings(urlSource.settingsPath), urlSource.env ?? process.env)),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
     out: (line) => console.log(line),
