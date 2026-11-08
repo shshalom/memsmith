@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.13.2] - 2026-11-08
+
 ### Fixed
 
 - `memsmith search` and `memsmith get` use the project folder in `MEMSMITH_PROJECT_CWD` when it's set, the same as the hooks. Before, they always used the current folder.
