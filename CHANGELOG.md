@@ -10,7 +10,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Added
 
-- Capture redacts known secret patterns, such as Anthropic, OpenAI, GitHub, Google, AWS, Slack, and npm keys, bearer tokens, JWTs, private keys, and `*_KEY=`, `*_TOKEN=`, `*_SECRET=`, and `*_PASSWORD=` values, before an event is spooled, stored, or sent to a generation provider. Each value becomes a marker such as `[REDACTED:anthropic_key]`, and the surrounding text is kept. The server applies the same redaction, so events from older hook clients and direct `observation_add` and `note_add` writes are covered too.
+- MemSmith redacts known secret patterns from captured content and from its own log lines. The patterns include provider keys and tokens (Anthropic, OpenAI, Stripe, GitHub, GitLab, Hugging Face, Google, AWS, Slack, and npm), bearer tokens and `Authorization` values, JWTs, private key blocks, connection-string passwords, and values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASS`. The hook redacts before it sends or spools an event, and the server redacts again before it stores an event or sends it to a generation provider, which covers older hooks and third-party clients. Each value becomes a marker such as `[REDACTED:anthropic_key]`, and MemSmith keeps the surrounding text. Memories and logs written before you update aren't redacted.
 
 ## [13.13.2] - 2026-11-08
 

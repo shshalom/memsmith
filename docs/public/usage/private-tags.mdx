@@ -100,27 +100,36 @@ The `<private>` tag filters content from storage and memory:
 
 ## Secret redaction
 
-MemSmith redacts known secret patterns from everything it captures, so you don't need `<private>` tags to keep a key that a command prints out of memory. Redaction runs in the hook before an event is sent to the server or written to the local spool, and runs again on the server before the event is stored or sent to a generation provider. The server pass also covers events from older hook clients and direct `observation_add` and `note_add` writes.
+MemSmith redacts known secret patterns from captured content, so a key that a command prints doesn't reach memory even without `<private>` tags. The hook redacts each event before it sends the event to the server or writes it to the local spool, and the MCP tools redact before they write. The server redacts again before it stores an event or sends it to a generation provider, which protects you when an older hook or a third-party client sends events. MemSmith also redacts its own log lines in `~/.memsmith/logs`.
 
-Each secret value is replaced with a marker that names its kind, and the surrounding text is kept:
+MemSmith replaces each secret value with a marker that names its kind and keeps the surrounding text:
 
 ```
 ANTHROPIC_API_KEY=[REDACTED:anthropic_key]
 Authorization: Bearer [REDACTED:bearer_token]
+postgres://app_user:[REDACTED:password]@db.internal:5432/app
 {"db_password": "[REDACTED:password]"}
 ```
 
 MemSmith recognizes these patterns:
 
-- Anthropic keys (`sk-ant-`), OpenAI keys (`sk-`, `sk-proj-`), Google API keys (`AIza`), npm tokens (`npm_`), and Slack tokens (`xoxb-`, `xoxp-`, and the other `xox` types).
-- GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`).
-- AWS access key IDs (`AKIA`, `ASIA`).
-- Bearer tokens, JSON Web Tokens (JWTs), and PEM private key blocks.
-- Values assigned to a name that ends in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASSWD`, in env (`NAME=value`, `export NAME=value`), JSON, and YAML form. The name is kept and only the value is redacted. This covers `aws_secret_access_key`.
+- Provider keys and tokens: Anthropic (`sk-ant-`), OpenAI (`sk-`, `sk-proj-`), Stripe (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab (`glpat-`), Hugging Face (`hf_`), Google API keys (`AIza`), AWS access key IDs (`AKIA`, `ASIA`), Slack (`xoxb-`, `xoxp-`, and the other `xox` types), and npm (`npm_`).
+- Bearer tokens, `Authorization` header values (`Bearer`, `Basic`, `token`), and JSON Web Tokens (JWTs).
+- PEM and PGP private key blocks.
+- Passwords in connection strings, such as `scheme://user:password@host`, and `password` entries in `.netrc` files.
+- Values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, or `PASS`, and `SECRET_KEY_BASE`. MemSmith redacts these in env form (`NAME=value`, `export NAME=value`), JSON (including escaped JSON), YAML, and command-line flags (`--api-key value`, `--password value`). It keeps the name and redacts only the value, including quoted passphrases that contain spaces.
 
-To keep useful memory intact, MemSmith leaves these values alone: ordinary words, git SHAs, UUIDs, file paths, code references such as `process.env.API_KEY`, values of identifier names such as `idempotencyKey` and `PUBLIC_KEY`, and placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
+To keep useful memory intact, MemSmith doesn't redact these values:
 
-Redaction is pattern-based. To keep a secret that doesn't match one of these patterns out of memory, wrap it in `<private>` tags.
+- Values that are too short or too plain to be a key, such as words without digits under a key or token name.
+- Placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
+- Code references such as `process.env.API_KEY`, file paths such as `certs/server.key`, and type names such as `string`.
+- Quoted text that names its own field, such as the label `"password": "Enter your password"`.
+- Names where the word is an identifier rather than a credential, such as a bare `key`, `idempotencyKey`, `PUBLIC_KEY`, `nextToken`, `pageToken`, and `max_tokens`.
+
+Redaction is pattern-based, so a secret in a format that MemSmith doesn't recognize is stored as captured. To keep such a secret out of memory, wrap it in `<private>` tags.
+
+Redaction applies to content that MemSmith captures after you update. Memories, events, and log lines that MemSmith wrote before then stay as they are.
 
 ## Examples
 
