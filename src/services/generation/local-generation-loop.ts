@@ -28,6 +28,7 @@
 // be retried.
 
 import type { ParsedObservation } from '../../sdk/parser.js';
+import { derivedActorMetadata, payloadActor } from '../../shared/actor.js';
 
 /** The minimal shape drainGenerationQueue needs from a queued entry to
  *  build a server request if generation succeeds. Queued entries are
@@ -123,8 +124,9 @@ function isQualityFloorRejection(err: unknown): boolean {
  *  the narrative is the closest analogue to the observation's body text;
  *  title is the fallback when narrative is absent so `content` is never
  *  empty. */
-function buildObservationRequest(projectId: unknown, observation: ParsedObservation): BuiltObservationRequest {
+function buildObservationRequest(event: QueuedEntry, observation: ParsedObservation): BuiltObservationRequest {
   const content = observation.narrative ?? observation.title ?? '';
+  const projectId = projectIdOf(event);
   return {
     ...(typeof projectId === 'string' ? { projectId } : {}),
     content,
@@ -135,6 +137,7 @@ function buildObservationRequest(projectId: unknown, observation: ParsedObservat
       facts: observation.facts,
       narrative: observation.narrative,
       concepts: observation.concepts,
+      ...derivedActorMetadata([payloadActor((event as { payload?: unknown } | null)?.payload)]),
     },
   };
 }
@@ -203,7 +206,7 @@ export async function drainGenerationQueue(
     // event (and everything it would generate) is retried together.
     let eventFailed = false;
     for (const observation of observations) {
-      const request = buildObservationRequest(projectIdOf(event), observation);
+      const request = buildObservationRequest(event, observation);
       try {
         await deps.post(request);
       } catch (err) {

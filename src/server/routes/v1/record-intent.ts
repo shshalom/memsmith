@@ -16,6 +16,7 @@ export interface RecordIntentDeps {
   write: (o: { projectId: string; teamId: string; kind: string; content: string; metadata: Record<string, unknown>; idempotencyKey: string; embeddingVec?: number[] | null }) => Promise<{ id: string }>;
   teamId: string;
   projectId: string;
+  actor?: string | null;
 }
 
 export async function classifyAndComposeRecordIntent(prompt: string, deps: RecordIntentDeps): Promise<{ recorded: boolean; content?: string; id?: string }> {
@@ -33,7 +34,11 @@ export async function classifyAndComposeRecordIntent(prompt: string, deps: Recor
   // guaranteed — the agent composes its own note without a prompt-derived key.
   // This fix addresses backstop-vs-itself duplication (retries / duplicate fires).
   const idempotencyKey = computeContentIdempotencyKey({ teamId: deps.teamId, projectId: deps.projectId, kind: 'user_note', content: prompt });
-  const noteReq = buildUserNoteRequest(content, { projectId: deps.projectId, idempotencyKey });
+  const noteReq = buildUserNoteRequest(content, {
+    projectId: deps.projectId,
+    idempotencyKey,
+    metadata: deps.actor ? { actor: deps.actor } : undefined,
+  });
   const written = await deps.write({
     projectId: deps.projectId,
     teamId: deps.teamId,

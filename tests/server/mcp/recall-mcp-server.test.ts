@@ -13,8 +13,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createRecallMcpServer, type RecallBackend } from '../../../src/server/mcp/recall-mcp-server.js';
 
 interface Recorded {
-  search: Array<{ projectId: string; query: string; limit: number }>;
-  context: Array<{ projectId: string; query: string; limit: number }>;
+  search: Array<{ projectId: string; query: string; limit: number; actor?: string }>;
+  context: Array<{ projectId: string; query: string; limit: number; actor?: string }>;
   recent: Array<{ projectId: string; limit: number }>;
   get: Array<{ projectId: string; ids: string[] }>;
 }
@@ -145,5 +145,28 @@ describe('createRecallMcpServer', () => {
     const res = await client.callTool({ name: 'nope', arguments: {} });
     expect(res.isError).toBe(true);
     await client.close();
+  });
+});
+
+describe('recall MCP actor filter', () => {
+  it('forwards actor on search and context, and omits it when not given', async () => {
+    const { backend, calls } = makeBackend();
+    const client = await connectClient(backend);
+    await client.callTool({ name: 'search', arguments: { projectId: 'p', query: 'q', actor: ' reviewer ' } });
+    await client.callTool({ name: 'context', arguments: { projectId: 'p', query: 'q', actor: 'Explore' } });
+    await client.callTool({ name: 'search', arguments: { projectId: 'p', query: 'q' } });
+    expect(calls.search[0].actor).toBe('reviewer');
+    expect(calls.context[0].actor).toBe('Explore');
+    expect(calls.search[1]).not.toHaveProperty('actor');
+  });
+
+  it('refuses a blank or malformed actor without querying', async () => {
+    const { backend, calls } = makeBackend();
+    const client = await connectClient(backend);
+    for (const actor of ['   ', 'bad\nactor']) {
+      const result = await client.callTool({ name: 'search', arguments: { projectId: 'p', query: 'q', actor } });
+      expect(result.isError).toBe(true);
+    }
+    expect(calls.search).toHaveLength(0);
   });
 });

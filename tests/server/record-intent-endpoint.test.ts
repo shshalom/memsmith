@@ -70,3 +70,15 @@ describe('classifyAndComposeRecordIntent', () => {
     expect(writes1[0].idempotencyKey).toBe(writes2[0].idempotencyKey);
   });
 });
+
+describe('classifyAndComposeRecordIntent actor', () => {
+  it('stamps the requesting session actor on the note it writes', async () => {
+    const writes: any[] = [];
+    await classifyAndComposeRecordIntent('remember the cache TTL is 5 minutes', {
+      complete: async () => 'RECORD: The cache TTL is 5 minutes.',
+      write: async (o: any) => { writes.push(o); return { id: 'n1' }; },
+      teamId: 't', projectId: 'p', actor: 'reviewer',
+    });
+    expect(writes[0].metadata).toEqual({ actor: 'reviewer', userDirected: true });
+  });
+});

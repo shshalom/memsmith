@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { derivedActorMetadata } from '../../shared/actor.js';
 import { parseAgentXml, type ParsedObservation, type ParsedSummary } from '../../sdk/parser.js';
 import { scoreObservation } from './quality.js';
 import { logger } from '../../utils/logger.js';
@@ -93,6 +94,7 @@ export interface ProcessGeneratedResponseInput {
   sourceAdapter?: string | null;
   // Provider tokens this job spent (from the generate() result), for cost metering.
   tokensUsed?: number;
+  sourceActors?: unknown[];
   // Task 13 — optional resolver so team overrides for qualityFloor are honored.
   // When absent the env-default qualityFloorEnv() is used as before.
   resolver?: { qualityFloor(teamId: string): Promise<number> };
@@ -402,6 +404,7 @@ async function persistGeneratedObservations(
         generationKey,
         metadata: {
           ...metadata,
+          ...derivedActorMetadata(input.sourceActors ?? []),
           provider: input.providerLabel,
           model: input.modelId ?? null,
         },

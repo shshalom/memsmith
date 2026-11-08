@@ -8,6 +8,16 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- Actor tags. Set `MEMSMITH_ACTOR` in a session's environment, or as a default in `settings.json`, and MemSmith stamps that name on the events, notes, and observations the session captures. An empty `MEMSMITH_ACTOR` opts a session out of the default. Without one, an event from a Claude Code subagent takes the subagent type as its actor. An observation generated from events lists their actors in `actors`, has `actor` only when one actor wrote every source event, and has `unattributed: true` when some source events have none. `observation_search`, `observation_context`, the hosted `/v1/mcp` `search` and `context` tools, `memsmith search --actor <name>`, and `POST /v1/search` and `/v1/context` filter by actor, and the search index and full records show it. Records saved before this release have no actor, so an actor filter excludes them. The actor is self-reported: the MCP tools replace a caller-supplied actor with the session's own, but any API key holder can set one through the API.
+- `memsmith note "<text>"` saves a user note for the current folder's project, the same as the `note_add` tool. It reads the text from stdin when you pass `-`, honors `MEMSMITH_PROJECT_CWD` and `MEMSMITH_ACTOR`, and refuses to save when `MEMSMITH_ACCESS` is `read`.
+- `--json` for `memsmith search`, `memsmith get`, and `memsmith note` prints one JSON object to stdout, and prints errors as `{ "error": { "code", "message" } }` with exit code 1.
+
+### Changed
+
+- The memory commands parse options more strictly. An unknown `--option` is now an error instead of part of the query, an option value can't be another option (`--actor --json`), and `--json` takes no value. Put `--` before a query that starts with `--`.
+
 ## [13.15.0] - 2026-11-08
 
 ### Added

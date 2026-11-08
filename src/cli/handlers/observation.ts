@@ -13,6 +13,7 @@ import { scrubEventPayload } from '../../server/services/event-payload-scrub.js'
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
 import { shouldGateTool, buildPreToolQuery } from './pre-tool-query.js';
 import { detectRediscovery } from '../../server/retrieval/rediscovery.js';
+import { actorField, resolveActor } from '../../shared/actor.js';
 
 export interface RediscoveryLogDeps {
   fetchTeamMemory(input: { serverUrl: string; apiKey: string; projectId: string; teamId: string; query: string; limit?: number }): Promise<Array<{ id: string; content: string; metadata: Record<string, unknown> }>>;
@@ -111,6 +112,7 @@ export const observationHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
+    const actor = actorField(resolveActor(input));
     const runtime = resolveRuntimeContext(cwd);
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. `runtime-selector.selectRuntime()` continues to accept the legacy
@@ -131,6 +133,7 @@ export const observationHandler: EventHandler = {
           agentId: input.agentId,
           agentType: input.agentType,
           platformSource,
+          ...actor,
         },
       };
       // Enqueue for local generation FIRST, before the POST attempt below —
@@ -193,6 +196,7 @@ export const observationHandler: EventHandler = {
         agentId: input.agentId,
         agentType: input.agentType,
         platformSource,
+        ...actor,
       },
     });
     return { continue: true, suppressOutput: true };

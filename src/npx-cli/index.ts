@@ -39,8 +39,9 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx memsmith version')}              Print version
 
 ${styleText('bold', 'Memory Commands')} (run from a project folder; need the server running):
-  ${styleText('cyan', 'memsmith search <query> [--limit <n>]')}   Search this project's memory
-  ${styleText('cyan', 'memsmith get <id> [<id>...]')}       Show full observations by id
+  ${styleText('cyan', 'memsmith search <query> [--actor <name>] [--limit <n>] [--json]')}   Search this project's memory
+  ${styleText('cyan', 'memsmith get <id> [<id>...] [--json]')}   Show full observations by id
+  ${styleText('cyan', 'memsmith note <text> [--json]')}     Save a user note for this project (- reads the text from stdin)
   ${styleText('cyan', 'memsmith project')}                  Show which project this folder uses, and why
   ${styleText('cyan', 'memsmith link [<id>|<name>|<path>] [--new] [--force]')}   Pin this folder to a project
 
@@ -212,6 +213,11 @@ async function main(): Promise<void> {
     case 'get': {
       const { runMemoryGet } = await import('./commands/memory.js');
       process.exit(await runMemoryGet(args.slice(1)));
+    }
+
+    case 'note': {
+      const { runMemoryNote } = await import('./commands/memory.js');
+      process.exit(await runMemoryNote(args.slice(1)));
     }
 
     case 'project': {

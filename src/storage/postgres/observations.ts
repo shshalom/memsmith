@@ -147,6 +147,80 @@ interface ObservationSourceRow {
   created_at: Date;
 }
 
+const iterativeScanSupport = new WeakMap<object, Promise<boolean>>();
+
+// pgvector 0.8.0 added hnsw.iterative_scan.
+function supportsIterativeScan(client: PostgresQueryable): Promise<boolean> {
+  let support = iterativeScanSupport.get(client);
+  if (!support) {
+    support = client
+      .query<{ extversion: string }>(`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)
+      .then(({ rows }) => {
+        const [major = 0, minor = 0] = (rows[0]?.extversion ?? '0').split('.').map(Number);
+        return major > 0 || minor >= 8;
+      })
+      .catch(() => {
+        iterativeScanSupport.delete(client);
+        return false;
+      });
+    iterativeScanSupport.set(client, support);
+  }
+  return support;
+}
+
+/**
+ * Run a filtered vector query so the filter cannot starve it. An HNSW scan
+ * yields only ef_search candidates before the WHERE clause runs, so a rare
+ * actor among many nearer rows would come back empty. Iterative scan keeps
+ * scanning until enough rows pass; older pgvector gets the largest ef_search.
+ */
+async function withFilteredHnswScan<T>(
+  client: PostgresQueryable,
+  run: (client: PostgresQueryable) => Promise<T>,
+): Promise<T> {
+  const setting = (await supportsIterativeScan(client))
+    ? { name: 'hnsw.iterative_scan', value: 'relaxed_order' }
+    : { name: 'hnsw.ef_search', value: '1000' };
+  // A pg.Client also has connect(); only a Pool hands out a fresh connection.
+  const pool = client as PostgresQueryable & { connect?: () => Promise<PostgresQueryable & { release: (error?: Error) => void }>; totalCount?: unknown };
+  if (typeof pool.connect === 'function' && typeof pool.totalCount === 'number') {
+    const conn = await pool.connect();
+    let broken: Error | undefined;
+    try {
+      await conn.query('BEGIN');
+      await conn.query(`SET LOCAL ${setting.name} = ${setting.value}`);
+      const result = await run(conn);
+      await conn.query('COMMIT');
+      return result;
+    } catch (error) {
+      // A connection that cannot roll back is unusable; passing the error to
+      // release() destroys it instead of returning it to the pool.
+      await conn.query('ROLLBACK').catch((rollbackError: unknown) => {
+        broken = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
+      });
+      throw error;
+    } finally {
+      conn.release(broken);
+    }
+  }
+  // A single connection may already be inside the caller's transaction, so it
+  // cannot be wrapped in one; set and reset the session value instead.
+  await client.query(`SET ${setting.name} = ${setting.value}`);
+  try {
+    return await run(client);
+  } finally {
+    await client.query(`RESET ${setting.name}`).catch(() => {});
+  }
+}
+
+// A record derived from several actors lists them in metadata.actors and has no
+// single metadata.actor, so both keys are checked.
+function actorClause(table: string, param: number): string {
+  return `($${param}::text IS NULL
+            OR ${table}.metadata->>'actor' = $${param}::text
+            OR ${table}.metadata->'actors' @> jsonb_build_array($${param}::text))`;
+}
+
 export class PostgresObservationRepository {
   constructor(private client: PostgresQueryable) {}
 
@@ -312,6 +386,7 @@ export class PostgresObservationRepository {
     // just within a recent-N window.
     obsType?: string | null;
     lifecycleState?: string | null;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const result = await this.client.query<ObservationRow>(
       `
@@ -321,6 +396,7 @@ export class PostgresObservationRepository {
           AND ($3::text IS NULL OR server_session_id = $3)
           AND ($5::text IS NULL OR obs_type = $5)
           AND ($6::text IS NULL OR lifecycle_state = $6)
+          AND ${actorClause('observations', 7)}
         ORDER BY created_at DESC
         LIMIT $4
       `,
@@ -331,6 +407,7 @@ export class PostgresObservationRepository {
         input.limit ?? 100,
         input.obsType ?? null,
         input.lifecycleState ?? null,
+        input.actor ?? null,
       ]
     );
     return result.rows.map(mapObservationRow);
@@ -345,6 +422,7 @@ export class PostgresObservationRepository {
     obsType?: string | null;
     lifecycleState?: string | null;
     userDirected?: boolean;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const platformSource = normalizePlatformSourceOrNull(input.platformSource);
     const result = await this.client.query<ObservationRow>(
@@ -378,10 +456,11 @@ export class PostgresObservationRepository {
           AND ($6::text IS NULL OR observations.obs_type = $6)
           AND ($7::text IS NULL OR observations.lifecycle_state = $7)
           AND ($8::boolean IS NOT TRUE OR observations.kind = 'user_note')
+          AND ${actorClause('observations', 9)}
         ORDER BY ts_rank(observations.content_search, websearch_to_tsquery('english', $3)) DESC, observations.updated_at DESC
         LIMIT $4
       `,
-      [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null, input.userDirected ?? null]
+      [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null, input.userDirected ?? null, input.actor ?? null]
     );
     return result.rows.map(mapObservationRow);
   }
@@ -404,9 +483,9 @@ export class PostgresObservationRepository {
    * The distance is attached to each row so callers can rank, threshold, or
    * display it. It is a response-only annotation, never persisted.
    */
-  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number; maxDistance?: number }): Promise<PostgresObservation[]> {
+  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number; maxDistance?: number; actor?: string | null }): Promise<PostgresObservation[]> {
     const qvec = '[' + (await embed(input.query)).join(',') + ']';
-    const result = await this.client.query<ObservationRow & { __distance?: unknown }>(
+    const run = (client: PostgresQueryable) => client.query<ObservationRow & { __distance?: unknown }>(
       // Schema-qualify the cosine operator via OPERATOR(public.<=>) so vector
       // search resolves even when a connection pool sets a tenant-only
       // search_path that excludes `public` (where pgvector's operators live).
@@ -421,15 +500,19 @@ export class PostgresObservationRepository {
         WHERE project_id = $1 AND team_id = $2 AND embedding_vec IS NOT NULL
           AND ($5::float8 IS NULL
                OR (embedding_vec OPERATOR(public.<=>) $3::public.vector) <= $5::float8)
+          AND ${actorClause('observations', 6)}
         ORDER BY embedding_vec OPERATOR(public.<=>) $3::public.vector
         LIMIT $4`,
-      [input.projectId, input.teamId, qvec, input.limit ?? 20, input.maxDistance ?? null]
+      [input.projectId, input.teamId, qvec, input.limit ?? 20, input.maxDistance ?? null, input.actor ?? null]
     );
-    return result.rows.map(row => {
+    const result = input.actor ? await withFilteredHnswScan(this.client, run) : await run(this.client);
+    const rows = result.rows.map(row => {
       const observation = mapObservationRow(row);
       const distance = Number(row.__distance);
       return Number.isFinite(distance) ? { ...observation, distance } : observation;
     });
+    // relaxed_order can return neighbours slightly out of order.
+    return input.actor ? rows.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity)) : rows;
   }
 
   // Run vectorSearch for each query variant and RRF-fuse the rankings into one
@@ -437,13 +520,13 @@ export class PostgresObservationRepository {
   // just vectorSearch; with expansion it lets any variant that ranks the answer
   // high pull it up in the fused order.
   private async multiVectorSearch(
-    projectId: string, teamId: string, variants: string[], limit: number,
+    projectId: string, teamId: string, variants: string[], limit: number, actor: string | null = null,
   ): Promise<PostgresObservation[]> {
     if (variants.length <= 1) {
-      return this.vectorSearch({ projectId, teamId, query: variants[0] ?? '', limit });
+      return this.vectorSearch({ projectId, teamId, query: variants[0] ?? '', limit, actor });
     }
     const perVariant = await Promise.all(
-      variants.map(q => this.vectorSearch({ projectId, teamId, query: q, limit })),
+      variants.map(q => this.vectorSearch({ projectId, teamId, query: q, limit, actor })),
     );
     const byId = new Map<string, PostgresObservation>();
     for (const list of perVariant) for (const o of list) byId.set(o.id, o);
@@ -458,6 +541,7 @@ export class PostgresObservationRepository {
     ftsWeight?: number; vecWeight?: number; rrfK?: number;
     expandQueries?: boolean; platformSource?: string | null;
     userDirected?: boolean;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const limit = input.limit ?? 5;
     const pool = 30; // retrieve deeper, fuse, then trim
@@ -483,8 +567,8 @@ export class PostgresObservationRepository {
     // /v1/search and /v1/context into a 500 even for queries with good FTS hits.
     // An empty vector arm simply contributes nothing to the RRF fusion.
     const [fts, vec] = await Promise.all([
-      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource, userDirected: input.userDirected }),
-      this.multiVectorSearch(input.projectId, input.teamId, variants, pool).catch(() => [] as PostgresObservation[]),
+      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource, userDirected: input.userDirected, actor: input.actor }),
+      this.multiVectorSearch(input.projectId, input.teamId, variants, pool, input.actor ?? null).catch(() => [] as PostgresObservation[]),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
     const fused = combineRanks([toRanked(fts), toRanked(vec)], input.rrfK, [ftsWeight, vecWeight]);

@@ -86,6 +86,49 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 | `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
 | `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
 | `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
+| `MEMSMITH_ACTOR` | empty | Name that MemSmith stamps on every event, observation, and note that the session captures, so you can filter memory by who wrote it. See [Actor tags](#actor-tags). |
+
+### Actor tags
+
+An actor tag records which agent or role wrote a memory. To tag a session, set `MEMSMITH_ACTOR` in the environment before you start it:
+
+```bash
+MEMSMITH_ACTOR=reviewer claude
+```
+
+The environment variable overrides `MEMSMITH_ACTOR` in `settings.json`, so the setting works as a default for every session. To opt one session out of the default, set the variable to an empty value: `MEMSMITH_ACTOR= claude`.
+
+MemSmith trims the name. It ignores a name that is longer than 64 characters or that contains a control character, a line or paragraph separator, a bidirectional text control, a middle dot (`·`), or a comma, and it logs one warning per process. `memsmith note` refuses to save with such a name.
+
+When no actor is configured, an event from a Claude Code subagent takes the subagent type, such as `code-reviewer`, as its actor. Events from the main session then have no actor.
+
+#### What gets an actor
+
+MemSmith stamps the actor on:
+
+- Tool-use and file-edit events that the MemSmith hooks capture, including events that wait in the local spool while the server is down.
+- The last-assistant-message event that the `Stop` hook records.
+- Notes and observations that the MCP tools write (`note_add`, `observation_add`, and `observation_record_event`), that `memsmith note` writes, and that the record-intent backstop writes.
+- Observations generated from those events.
+
+MemSmith doesn't stamp an actor on session records, and prompts aren't stored as events, so neither has one. Codex sessions that MemSmith reads through the transcript watcher take the actor of the watcher process, not of the Codex session. The OpenCode plugin doesn't stamp an actor.
+
+MemSmith stores the actor in the record's metadata:
+
+- A captured event, a note, or a directly added observation has `actor`.
+- An observation generated from events has `actors`, which lists every distinct actor of its source events. It has `actor` only when one actor wrote every source event. When some source events have no actor, it has `unattributed: true` instead, so a summary of a long main-session conversation isn't credited to a subagent that ran briefly in it.
+
+<Warning>
+The actor is self-reported. The MCP tools replace any `actor` or `actors` that the agent passes with the session's own `MEMSMITH_ACTOR`, but anyone who holds an API key can write any actor through the `/v1` API. Use actor tags to organize memory, not to prove who wrote it.
+</Warning>
+
+#### Filter by actor
+
+To filter by actor, pass `actor` to the `observation_search` and `observation_context` MCP tools or to the `search` and `context` tools of the hosted `/v1/mcp` link, pass `--actor <name>` to `memsmith search`, or send `actor` in a `POST /v1/search` or `POST /v1/context` request. The filter is an exact, case-sensitive match on `actor` or membership in `actors`. A blank `actor` is an error.
+
+Records saved before actor tags existed have no actor, so an actor filter excludes them.
+
+The filter also applies to the newer versions of records. When a record matches but a record by another actor supersedes it, search returns the matching record marked as superseded, without the newer version. `observation_context` and `POST /v1/context` serve only the newest version, so they return neither.
 
 ### Mode examples
 

@@ -10,6 +10,7 @@ import { resolveRuntimeContext, type RuntimeContext } from '../../services/hooks
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
+import { actorField, resolveActor } from '../../shared/actor.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 
@@ -24,7 +25,7 @@ function inject(additionalContext: string): HookResult {
 
 /** Best-effort gap persistence: record that a why/decision prompt had no memory,
  *  so the dashboard can surface un-captured rationale. Never throws. */
-async function persistGap(runtime: RuntimeContext, prompt: string): Promise<void> {
+async function persistGap(runtime: RuntimeContext, prompt: string, actor: string | null): Promise<void> {
   try {
     if (runtime.runtime !== 'server') return;
     // The direct-insert API (/v1/memories) takes `kind`, not `obsType`; gap
@@ -33,7 +34,7 @@ async function persistGap(runtime: RuntimeContext, prompt: string): Promise<void
       projectId: runtime.projectId,
       kind: 'memory_gap',
       content: `memory_gap: no recorded rationale for prompt: ${prompt.slice(0, 200)}`,
-      metadata: { memoryGap: true },
+      metadata: { memoryGap: true, ...actorField(actor) },
     });
   } catch (err) {
     logger.debug('HOOK', 'gap persist failed (best-effort)', { error: err instanceof Error ? err.message : String(err) });
@@ -77,7 +78,7 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
         );
         const probe = await broker.probe(ask);
         if (probe.unavailable) return inject(frameUnavailableNotice());
-        if (probe.isGap) await persistGap(runtime, ask);
+        if (probe.isGap) await persistGap(runtime, ask, resolveActor(input));
         gate.beginTurn({ pending: true, topic: topicKey(ask) });
         return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
       } catch (err) {
