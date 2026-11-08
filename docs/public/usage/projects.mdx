@@ -72,6 +72,63 @@ If the folder already has a marker for a different project or team server, `mems
 
 After it writes the marker, `memsmith link` registers the project with the local server so search works right away. If the server isn't reachable, the next session in the folder registers it.
 
+## List your projects
+
+To see every project that the local server knows, run `memsmith projects`. For each project, it shows the name and id, the team (`local`, or a joined team and its server), the runtime, the folders that link to it, its database, its record counts (observations, notes, and events), and its last activity. Add `--json` for output that scripts can read.
+
+A project's folders are the folder recorded the last time a session registered it, the current folder's project root, and any nested folder whose marker names the project. A recorded folder whose marker now names another project isn't listed.
+
+`memsmith projects` marks a project with these flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `empty` | The project has no observations, notes, or events. |
+| `missing-db` | The project has no database yet, usually because no session in it has written anything. |
+| `orphan-db` | A project database exists, but no project names it. |
+| `stray` | A marker in a subfolder of another project's root names this project. Usually a session that started in the subfolder created it. |
+| `archived` | `memsmith merge` folded this project into another one. |
+
+`memsmith projects`, `memsmith merge`, and `memsmith projects --prune` work with the local runtime only, and they read the embedded Postgres directly. If it isn't running, start it with `memsmith start`.
+
+## Merge one project into another
+
+To fold one local project's records into another, run `memsmith merge <from> <into>`. Each project can be a project id, a project name, or a folder path that contains `/` or starts with `.` or `~`.
+
+Without `--yes`, `memsmith merge` changes nothing. It shows how many sessions, events, generation jobs, observations and notes, observation sources, and job history rows it would copy, which rows the target already has, which rows get a new id, which folders it would link to the target, and the exact command to run. To merge, run that command, which ends in `--yes`. With `--yes`, `memsmith merge` does the following:
+
+1. Refuses when the two projects are the same project, when either one is a team project, or when the target was merged into a third project.
+1. Backs up the source project's database with `pg_dump` to `~/.memsmith/backups/merge-<project-id>-<time>.sql`, readable only by you. If the backup fails, the merge stops before it changes anything.
+1. Cancels the source project's queued and running generation jobs, so nothing more is generated into it. Their events still move, but MemSmith doesn't create observations from them.
+1. Copies the source project's sessions, events, completed generation jobs, observations, notes, embeddings, observation sources, and job history into the target project, in one transaction. Rows keep their ids. A row the target already has, such as a session that ran in both folders, isn't copied again, and the copied rows point to the target's row. A row whose id the target uses for a different row gets a new id that ends in `-m` and the first eight characters of the source project id.
+1. Marks the source project archived. Its database stays, and search, recall, and the dashboard project list leave it out.
+1. Links every folder that MemSmith knows uses the source project to the target project. MemSmith never changes a team project's marker.
+1. Copies any rows that the source project received during the merge.
+
+Search, recall, and the dashboard show the merged records right away, because they read the target project's database, and the embeddings are copied with the records.
+
+You can run the same merge again. It copies only rows that the target doesn't have yet.
+
+## Prune projects
+
+To see which projects and databases MemSmith can remove, run `memsmith projects --prune`. To remove them, add `--yes`. MemSmith removes:
+
+- Orphan databases that hold no records.
+- Empty projects, and projects without a database.
+- Projects archived by `memsmith merge`.
+
+Before it drops a database, MemSmith backs it up with `pg_dump` to `~/.memsmith/backups/prune-<database>-<time>.sql`, readable only by you. If the backup fails, MemSmith keeps that database and project. MemSmith never removes a project that has records unless `memsmith merge` archived it, a team project, a project that a folder still links to, or a database that holds records but that no project names. `memsmith projects --prune` lists each project it keeps and why.
+
+## Find stray markers
+
+A session that starts in a subfolder before the project root has a marker can create a separate project for that subfolder. `memsmith doctor` looks for these. For each project root that the local server knows, and for the current folder's project root, it checks subfolders up to three levels down, and skips `node_modules`, build folders, and hidden folders. For each subfolder marker that names a different project, it shows the nested project's record count and the commands that fold it in:
+
+```
+memsmith merge <nested-project-id> <root-project-id>
+memsmith link        # run in the nested folder
+```
+
+A nested folder that is its own git repository is a project of its own, and `memsmith doctor` doesn't report it. `memsmith doctor` never changes markers or records, even with `--fix`.
+
 ## Converting a shared marker
 
 Go Team convert refuses a project whose marker is above the git repositories that use it, because converting it would move every one of those repositories to the team. To convert one repository, run `memsmith link --new` in it, and then convert that project. Convert checks only git repositories up to three folder levels below the marker, using the search roots in your settings file at the time of the convert. It doesn't check folders outside git that use the marker.

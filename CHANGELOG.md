@@ -8,8 +8,16 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Added
+
+- `memsmith projects` lists every project that the local server knows: its name and id, team, runtime, folders, record counts, last activity, and the flags `empty`, `missing-db`, `orphan-db`, `stray`, and `archived`. `--json` prints the list as JSON.
+- `memsmith merge <from> <into>` folds one local project's records into another. Without `--yes`, it shows what it would copy and the command to run. With `--yes`, it backs up the source database to `~/.memsmith/backups`, cancels the source's queued generation jobs, copies its sessions, events, observations, notes, and embeddings in one transaction, archives the source without dropping its database, and links the source's known folders to the target. It refuses team projects.
+- `memsmith projects --prune [--yes]` removes orphan databases and empty or merged projects, after a `pg_dump` backup of each database. It never removes a project that has records unless `memsmith merge` archived it.
+- `memsmith doctor` reports subfolder markers that name a different project, with the nested project's record count and the commands that fold it in. It never changes them, even with `--fix`.
+
 ### Fixed
 
+- Search, recall, and the dashboard project list leave out a project archived by `memsmith merge`, so a team-wide read doesn't return its records twice.
 - A folder outside every `MEMSMITH_PROJECT_SEARCH_ROOTS` entry now resolves as if no search roots were set. Before, setting any search root stopped a folder outside git, and outside the roots, from finding a marker above it below your home folder.
 
 ## [13.15.0] - 2026-11-08
