@@ -34,7 +34,8 @@ interface FakeOptions {
   search?: () => Promise<unknown>;
   get?: () => Promise<unknown>;
   add?: () => Promise<unknown>;
-  stdin?: string;
+  stdin?: string | Uint8Array;
+  tty?: boolean;
   access?: string;
   actor?: string;
 }
@@ -66,7 +67,8 @@ function fake(opts: FakeOptions = {}) {
     },
     out: (l) => { outs.push(l); },
     err: (l) => { errs.push(l); },
-    readStdin: async () => opts.stdin ?? '',
+    readStdin: async () => (typeof opts.stdin === 'string' || opts.stdin === undefined ? Buffer.from(opts.stdin ?? '') : opts.stdin),
+    stdinIsTTY: () => opts.tty ?? false,
     access: () => opts.access,
     actorSource: { env: () => opts.actor, setting: () => undefined },
   };
@@ -93,6 +95,20 @@ describe('memsmith search option parsing', () => {
     expect(f.calls[0].input.query).toBe('--limit -x --json');
     expect(f.calls[0].input.limit).toBe(10);
     expect(f.json().query).toBe('--limit -x --json');
+  });
+
+  it('does not take another option as an option value', async () => {
+    for (const args of [['cache', '--actor', '--json'], ['cache', '--limit', '--json']]) {
+      const f = fake();
+      expect(await runMemorySearch(args, f.deps)).toBe(1);
+      expect(f.calls).toEqual([]);
+    }
+  });
+
+  it('says --json takes no value', async () => {
+    const f = fake();
+    expect(await runMemorySearch(['--json=true', 'cache'], f.deps)).toBe(1);
+    expect(f.errs.join('\n')).toContain('--json takes no value');
   });
 
   it('rejects an unknown double-dash option and points at --', async () => {
@@ -281,6 +297,32 @@ describe('memsmith note', () => {
   it('exits 1 when the server rejects the write', async () => {
     const f = fake({ add: async () => { throw new ServerClientError('http_error', 'HTTP 500', { status: 500 }); } });
     expect(await runMemoryNote(['Cache TTL'], f.deps)).toBe(1);
+  });
+
+  it('refuses to wait on a terminal for stdin and says how to pass the text', async () => {
+    const f = fake({ tty: true });
+    expect(await runMemoryNote(['-'], f.deps)).toBe(1);
+    expect(f.errs.join('\n')).toContain('memsmith note "<text>"');
+    expect(f.calls).toEqual([]);
+  });
+
+  it('rejects stdin over 5 MB, with NUL bytes, or that is not UTF-8', async () => {
+    const cases: Array<[Uint8Array, string]> = [
+      [Buffer.alloc(5 * 1024 * 1024 + 1, 'a'), '5 MB'],
+      [Buffer.from('note\u0000text'), 'NUL'],
+      [Uint8Array.from([0x6e, 0xff, 0xfe, 0x6f]), 'UTF-8'],
+    ];
+    for (const [stdin, message] of cases) {
+      const f = fake({ stdin });
+      expect(await runMemoryNote(['-'], f.deps)).toBe(1);
+      expect(f.calls).toEqual([]);
+      expect(f.errs.join('\n')).toContain(message);
+    }
+  });
+
+  it('accepts stdin of exactly 5 MB', async () => {
+    const f = fake({ stdin: Buffer.alloc(5 * 1024 * 1024, 'a') });
+    expect(await runMemoryNote(['-'], f.deps)).toBe(0);
   });
 
   it('keeps text after -- verbatim', async () => {

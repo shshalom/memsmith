@@ -29,7 +29,8 @@ export interface MemoryCommandDeps {
   diagnose?: (cwd: string) => FolderProjectResolution;
   out: (line: string) => void;
   err: (line: string) => void;
-  readStdin?: () => Promise<string>;
+  readStdin?: (maxBytes: number) => Promise<Uint8Array>;
+  stdinIsTTY?: () => boolean;
   access?: () => string | undefined;
   actorSource?: ActorSource;
 }
@@ -42,15 +43,45 @@ export function defaultMemoryCommandDeps(): MemoryCommandDeps {
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     readStdin: readAllStdin,
+    stdinIsTTY: () => process.stdin.isTTY === true,
     access: configuredAccess,
     actorSource: defaultActorSource,
   };
 }
 
-async function readAllStdin(): Promise<string> {
+// Reads at most maxBytes + 1, which is enough to tell the input is too large.
+async function readAllStdin(maxBytes: number): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-  return Buffer.concat(chunks).toString('utf-8');
+  let total = 0;
+  for await (const chunk of process.stdin) {
+    const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk as Buffer;
+    chunks.push(buffer);
+    total += buffer.length;
+    if (total > maxBytes) break;
+  }
+  return Buffer.concat(chunks);
+}
+
+// Matches the server's 5 MB request body limit.
+const NOTE_MAX_BYTES = 5 * 1024 * 1024;
+
+async function noteTextFromStdin(d: MemoryCommandDeps): Promise<string> {
+  if ((d.stdinIsTTY ?? (() => process.stdin.isTTY === true))()) {
+    throw new CommandFailure('usage', [
+      'memsmith note - reads the note from stdin, but stdin is a terminal.',
+      'Pipe the text in, or pass it as an argument: memsmith note "<text>"',
+    ]);
+  }
+  const bytes = await (d.readStdin ?? readAllStdin)(NOTE_MAX_BYTES);
+  if (bytes.length > NOTE_MAX_BYTES) {
+    throw new CommandFailure('usage', [`The note on stdin is larger than 5 MB. ${NOT_SAVED}`]);
+  }
+  if (bytes.includes(0)) throw new CommandFailure('usage', [`The note on stdin contains a NUL byte. ${NOT_SAVED}`]);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new CommandFailure('usage', [`The note on stdin is not valid UTF-8 text. ${NOT_SAVED}`]);
+  }
 }
 
 function configuredAccess(): string | undefined {
@@ -131,11 +162,16 @@ function parseArgs(args: string[], allowed: { actor?: boolean; limit?: boolean }
     const eq = arg.indexOf('=');
     const name = eq === -1 ? arg : arg.slice(0, eq);
     const inline = eq === -1 ? undefined : arg.slice(eq + 1);
-    if (name === '--json' && inline === undefined) {
-      parsed.json = true;
+    if (name === '--json') {
+      if (inline === undefined) parsed.json = true;
+      else deferred.push(failure('--json takes no value.'));
       continue;
     }
     if ((name === '--limit' && allowed.limit) || (name === '--actor' && allowed.actor)) {
+      if (inline === undefined && args[i + 1]?.startsWith('--')) {
+        deferred.push(failure(`${name} needs a value, but the next argument is the option ${args[i + 1]}.`));
+        continue;
+      }
       const value = inline ?? args[++i];
       if (name === '--limit') {
         if (!/^[1-9]\d*$/.test(value ?? '')) {
@@ -295,7 +331,7 @@ export async function runMemoryNote(args: string[], d: MemoryCommandDeps = defau
   }
   try {
     const fromStdin = parsed.words.length === 1 && parsed.words[0] === '-';
-    const text = (fromStdin ? await (d.readStdin ?? readAllStdin)() : parsed.words.join(' ')).trim();
+    const text = (fromStdin ? await noteTextFromStdin(d) : parsed.words.join(' ')).trim();
     if (!text) return report.fail(new CommandFailure('usage', [NOTE_USAGE]));
     const actor = configuredActor(d.actorSource ?? defaultActorSource);
     if (!actor.ok) {
