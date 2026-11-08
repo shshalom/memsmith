@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.15.0] - 2026-11-08
+
 ### Added
 
 - `memsmith project` shows the project that the current folder uses: the project root, the project id and name, the team, the runtime, why the folder resolves there (such as `marker in ~/Workspace (search root ~/Workspace)` or `main worktree ~/Workspace/MemSmith`), and your configured search roots. It also lists any search-root entries that MemSmith ignored. `memsmith status` adds a `Project:` line for the current folder.
