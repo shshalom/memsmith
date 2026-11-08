@@ -15,7 +15,6 @@ import type { PoolRegistry } from '../../storage/postgres/pool-registry.js';
 import { projectDatabaseName } from '../runtime/resolve-project-database.js';
 import { logger } from '../../utils/logger.js';
 import { resolveMergeChain } from '../../services/projects/merge-chain.js';
-import { hasForwardedClientHeaders, hasLoopbackHostHeader, isLocalhost } from './request-auth-helpers.js';
 
 export interface ResolveRequestDatabaseOptions {
   // The cold-boot/dogfood project's database lives in the base database, not
@@ -28,6 +27,8 @@ export interface ResolveRequestDatabaseOptions {
    * comes from the projects table, never from the request.
    */
   accountPool?: { query(text: string, values?: unknown[]): Promise<{ rows: any[] }> };
+  /** True only on the local runtime, where a merge may join projects from different teams. */
+  localRuntime?: boolean;
 }
 
 /** Remembers values to act on once each; forgets them all when full, so it never grows without bound. */
@@ -45,13 +46,7 @@ export class BoundedSeen {
 
 const loggedRedirects = new BoundedSeen(1000);
 
-function isLoopbackRequest(req: Request): boolean {
-  try {
-    return isLocalhost(req) && hasLoopbackHostHeader(req) && !hasForwardedClientHeaders(req);
-  } catch {
-    return false;
-  }
-}
+
 
 // Returns false after answering the request itself.
 async function followMerge(opts: ResolveRequestDatabaseOptions, req: Request, res: Response): Promise<boolean> {
@@ -69,10 +64,10 @@ async function followMerge(opts: ResolveRequestDatabaseOptions, req: Request, re
     res.status(409).json({ error: 'merged_project_unresolvable', message: chain.reason });
     return false;
   }
-  // A merge combines two local projects that may sit in different teams. The
-  // local runtime only answers loopback requests; elsewhere a credential is
-  // never moved into another team.
-  if (chain.teamId !== req.authContext.teamId && !isLoopbackRequest(req)) return true;
+  // A merge combines two local projects that may sit in different teams.
+  // Anywhere but the local runtime, a credential is never moved into another
+  // team; a request's address cannot tell the two apart behind a proxy.
+  if (chain.teamId !== req.authContext.teamId && !opts.localRuntime) return true;
   if (loggedRedirects.first(projectId)) {
     logger.info('HTTP', 'routing a merged project to the project it was merged into', { projectId, into: chain.projectId });
   }

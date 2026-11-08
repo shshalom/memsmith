@@ -137,7 +137,7 @@ describe('resolveRequestDatabase for a merged project', () => {
   it('routes a request for the archived project to the project it was merged into', async () => {
     const { registry, calls } = fakeRegistry();
     const middleware = resolveRequestDatabase(registry, {
-      ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
+      ...opts(), localRuntime: true, accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
     });
     const req = localReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: { projectId: 'old' }, body: { projectId: 'old', content: 'x' } });
     const res = mockRes();
@@ -186,14 +186,24 @@ describe('resolveRequestDatabase for a merged project', () => {
     expect(calls[0].databaseName).toBe(projectDatabaseName('new'));
   });
 
-  it('does not treat a forwarded request as local', async () => {
+  it('never moves a request into another team outside the local runtime, even from loopback', async () => {
     const { registry, calls } = fakeRegistry();
     const middleware = resolveRequestDatabase(registry, {
       ...opts(), accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
     });
-    const req = localReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: {}, body: {} }, { host: '127.0.0.1', 'x-forwarded-for': '203.0.113.9' });
+    const req = localReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: {}, body: {} });
     await middleware(req, mockRes(), () => {});
     expect(calls[0].databaseName).toBe(projectDatabaseName('old'));
+  });
+
+  it('moves a request into another team on the local runtime, whatever its address', async () => {
+    const { registry, calls } = fakeRegistry();
+    const middleware = resolveRequestDatabase(registry, {
+      ...opts(), localRuntime: true, accountPool: account({ old: { team: 't-old', mergedInto: 'new' }, new: { team: 't-new' } }),
+    });
+    const req = remoteReq({ authContext: { projectId: 'old', teamId: 't-old' }, query: {}, body: {} });
+    await middleware(req, mockRes(), () => {});
+    expect(calls[0].databaseName).toBe(projectDatabaseName('new'));
   });
 
   it('leaves an active project untouched', async () => {

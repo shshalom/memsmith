@@ -17,6 +17,7 @@
 //   - The API key MUST be project-scoped. Cross-project compat calls return
 //     400; we never let compat traffic bypass project scope.
 
+import { isLocalRuntime } from '../runtime/runtime-kind.js';
 import type { Application, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import type { RouteHandler } from '../../services/server/Server.js';
@@ -94,6 +95,7 @@ export class SessionsObservationsAdapter implements RouteHandler {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
           accountPool: this.options.pool,
+          localRuntime: isLocalRuntime(),
         })]
       : [];
 

@@ -12,6 +12,7 @@
 // UNIQUE constraint stays in force — exactly the same idempotency guarantee
 // as `/v1/sessions/:id/end`.
 
+import { isLocalRuntime } from '../runtime/runtime-kind.js';
 import type { Application, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import type { RouteHandler } from '../../services/server/Server.js';
@@ -64,6 +65,7 @@ export class SessionsSummarizeAdapter implements RouteHandler {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
           accountPool: this.options.pool,
+          localRuntime: isLocalRuntime(),
         })]
       : [];
 
