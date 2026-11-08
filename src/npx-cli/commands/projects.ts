@@ -247,7 +247,7 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
       if (result.movedJobs > 0) {
         d.out(`Moved ${plural(result.movedJobs, 'queued or running generation job')} to ${into.name}.`);
         // The running server picks up queued jobs in a project database only at startup.
-        d.out('Run `memsmith restart` to process moved jobs.');
+        d.out('Run `memsmith restart` to process the moved jobs.');
       }
       for (const [table, cols] of Object.entries(result.report.droppedColumns)) {
         d.err(`Warning: the target's ${table} table has no ${cols.join(', ')} column, so those values were not copied.`);

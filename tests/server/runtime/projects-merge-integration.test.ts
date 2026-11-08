@@ -229,7 +229,7 @@ if (OPT_IN) {
       // Merge.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
       // A running server requeues project-database jobs only at startup.
-      expect(out).toContain('Run `memsmith restart` to process moved jobs.');
+      expect(out).toContain('Run `memsmith restart` to process the moved jobs.');
       const backups = readdirSync(backupDir).sort((x, y) => statSync(join(backupDir, y)).mtimeMs - statSync(join(backupDir, x)).mtimeMs);
       expect(backups).toHaveLength(2);
       expect(backups[0]).toStartWith(`merge-${A}-`);
@@ -280,7 +280,7 @@ if (OPT_IN) {
 
       // A second run copies nothing new.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
-      expect(out).not.toContain('Run `memsmith restart` to process moved jobs.');
+      expect(out).not.toContain('Run `memsmith restart` to process the moved jobs.');
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length);
 
       // Rows changed or added in the source after a copy reach the target on the next pass.
