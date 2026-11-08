@@ -147,6 +147,67 @@ interface ObservationSourceRow {
   created_at: Date;
 }
 
+const iterativeScanSupport = new WeakMap<object, Promise<boolean>>();
+
+// pgvector 0.8.0 added hnsw.iterative_scan.
+function supportsIterativeScan(client: PostgresQueryable): Promise<boolean> {
+  let support = iterativeScanSupport.get(client);
+  if (!support) {
+    support = client
+      .query<{ extversion: string }>(`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)
+      .then(({ rows }) => {
+        const [major = 0, minor = 0] = (rows[0]?.extversion ?? '0').split('.').map(Number);
+        return major > 0 || minor >= 8;
+      })
+      .catch(() => {
+        iterativeScanSupport.delete(client);
+        return false;
+      });
+    iterativeScanSupport.set(client, support);
+  }
+  return support;
+}
+
+/**
+ * Run a filtered vector query so the filter cannot starve it. An HNSW scan
+ * yields only ef_search candidates before the WHERE clause runs, so a rare
+ * actor among many nearer rows would come back empty. Iterative scan keeps
+ * scanning until enough rows pass; older pgvector gets the largest ef_search.
+ */
+async function withFilteredHnswScan<T>(
+  client: PostgresQueryable,
+  run: (client: PostgresQueryable) => Promise<T>,
+): Promise<T> {
+  const setting = (await supportsIterativeScan(client))
+    ? { name: 'hnsw.iterative_scan', value: 'relaxed_order' }
+    : { name: 'hnsw.ef_search', value: '1000' };
+  // A pg.Client also has connect(); only a Pool hands out a fresh connection.
+  const pool = client as PostgresQueryable & { connect?: () => Promise<PostgresQueryable & { release: () => void }>; totalCount?: unknown };
+  if (typeof pool.connect === 'function' && typeof pool.totalCount === 'number') {
+    const conn = await pool.connect();
+    try {
+      await conn.query('BEGIN');
+      await conn.query(`SET LOCAL ${setting.name} = ${setting.value}`);
+      const result = await run(conn);
+      await conn.query('COMMIT');
+      return result;
+    } catch (error) {
+      await conn.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+  // A single connection may already be inside the caller's transaction, so it
+  // cannot be wrapped in one; set and reset the session value instead.
+  await client.query(`SET ${setting.name} = ${setting.value}`);
+  try {
+    return await run(client);
+  } finally {
+    await client.query(`RESET ${setting.name}`).catch(() => {});
+  }
+}
+
 // A record derived from several actors lists them in metadata.actors and has no
 // single metadata.actor, so both keys are checked.
 function actorClause(table: string, param: number): string {
@@ -419,7 +480,7 @@ export class PostgresObservationRepository {
    */
   async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number; maxDistance?: number; actor?: string | null }): Promise<PostgresObservation[]> {
     const qvec = '[' + (await embed(input.query)).join(',') + ']';
-    const result = await this.client.query<ObservationRow & { __distance?: unknown }>(
+    const run = (client: PostgresQueryable) => client.query<ObservationRow & { __distance?: unknown }>(
       // Schema-qualify the cosine operator via OPERATOR(public.<=>) so vector
       // search resolves even when a connection pool sets a tenant-only
       // search_path that excludes `public` (where pgvector's operators live).
@@ -439,11 +500,14 @@ export class PostgresObservationRepository {
         LIMIT $4`,
       [input.projectId, input.teamId, qvec, input.limit ?? 20, input.maxDistance ?? null, input.actor ?? null]
     );
-    return result.rows.map(row => {
+    const result = input.actor ? await withFilteredHnswScan(this.client, run) : await run(this.client);
+    const rows = result.rows.map(row => {
       const observation = mapObservationRow(row);
       const distance = Number(row.__distance);
       return Number.isFinite(distance) ? { ...observation, distance } : observation;
     });
+    // relaxed_order can return neighbours slightly out of order.
+    return input.actor ? rows.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity)) : rows;
   }
 
   // Run vectorSearch for each query variant and RRF-fuse the rankings into one

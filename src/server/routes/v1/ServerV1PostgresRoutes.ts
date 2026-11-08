@@ -162,12 +162,13 @@ interface BatchPreValidationFailure {
 }
 
 const ACTOR_FILTER_SCHEMA = z.string().optional().transform((raw, ctx) => {
+  if (raw === undefined) return undefined;
   const parsed = parseActor(raw);
-  if (!parsed.ok) {
-    ctx.addIssue({ code: 'custom', message: parsed.reason });
+  if (!parsed.ok || !parsed.actor) {
+    ctx.addIssue({ code: 'custom', message: parsed.ok ? 'the actor filter must not be blank' : parsed.reason });
     return z.NEVER;
   }
-  return parsed.actor ?? undefined;
+  return parsed.actor;
 });
 
 const EVENT_QUERY_SCHEMA = z.object({
@@ -1542,23 +1543,23 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         }
       };
       const backend: RecallBackend = {
-        search: async ({ projectId, query, limit }) => {
+        search: async ({ projectId, query, limit, actor }) => {
           assertProjectAllowed(projectId);
           // Same ranking as POST /v1/search — hybrid by default (see
           // resolveSearchResults), so MCP recall and REST search agree.
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'search' }, dataPool);
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'search', actor }, dataPool);
           // Audit the read, same as POST /v1/search — the MCP path is no exception.
           await this.auditWrite(req, 'observation.read', null, projectId, {
-            mode: 'search', via: 'mcp', query, limit,
+            mode: 'search', via: 'mcp', query, limit, actor: actor ?? null,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
           });
           return rows.map(serializeObservation);
         },
-        context: async ({ projectId, query, limit }) => {
+        context: async ({ projectId, query, limit, actor }) => {
           assertProjectAllowed(projectId);
-          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'context' }, dataPool);
+          const rows = await this.resolveSearchResults({ projectId, teamId, query, limit, platformSource: null, mode: 'context', actor }, dataPool);
           await this.auditWrite(req, 'observation.read', null, projectId, {
-            mode: 'context', via: 'mcp', query, limit,
+            mode: 'context', via: 'mcp', query, limit, actor: actor ?? null,
             resultCount: rows.length, observationIds: rows.map(o => o.id),
           });
           return rows.map(serializeObservation);

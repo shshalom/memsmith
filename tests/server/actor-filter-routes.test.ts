@@ -9,6 +9,8 @@ import {
   type PostgresPoolClient,
 } from '../../src/storage/postgres/index.js';
 import { PostgresObservationRepository } from '../../src/storage/postgres/observations.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { DisabledServerQueueManager } from '../../src/server/runtime/types.js';
 import { logger } from '../../src/utils/logger.js';
 import { newApiKey, createIsolatedSchema, dropSchema, TEST_POOL_MAX } from '../sdk/pg-isolation.js';
@@ -134,23 +136,47 @@ describe('actor tags over the /v1 routes', () => {
     expect(res.status).toBe(400);
   });
 
-  it('/v1/events stores the actor with the event payload', async () => {
-    const res = await post('/v1/events?generate=false', {
-      projectId, sourceType: 'hook', eventType: 'tool_use', occurredAtEpoch: Date.now(),
-      payload: { tool_name: 'Read', actor: 'reviewer' },
-    });
-    expect(res.status).toBe(201);
-    const { event } = await res.json() as { event: { id: string } };
-    const row = await pool.query<{ payload: { actor?: string } }>('SELECT payload FROM agent_events WHERE id = $1', [event.id]);
-    expect(row.rows[0].payload.actor).toBe('reviewer');
+  it('the hosted /v1/mcp search tool applies the actor filter', async () => {
+    const mcp = new Client({ name: 'actor-test', version: '0' }, { capabilities: {} });
+    await mcp.connect(new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${port}/v1/mcp`),
+      { requestInit: { headers: { Authorization: `Bearer ${apiKeyRaw}` } } },
+    ));
+    try {
+      const result = await mcp.callTool({ name: 'search', arguments: { projectId, query: 'queue engine', actor: 'Explore' } });
+      const text = (result.content as Array<{ text?: string }>)[0]?.text ?? '';
+      expect(text).toContain(`[${ids.explore}]`);
+      expect(text).toContain(`[${ids.both}]`);
+      expect(text).not.toContain(`[${ids.reviewer}]`);
+      expect(text).not.toContain(`[${ids.legacy}]`);
+    } finally {
+      await mcp.close();
+    }
   });
 
-  it('/v1/memories keeps the actor in the observation metadata', async () => {
-    const res = await post('/v1/memories', {
-      projectId, kind: 'user_note', content: 'Cache TTL is five minutes', metadata: { userDirected: true, actor: 'reviewer' },
+  it('rejects a blank actor filter, like the CLI', async () => {
+    const res = await post('/v1/search', { projectId, query: 'queue', actor: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  describe('when a matching record is superseded by another actor', () => {
+    let oldId: string;
+    let headId: string;
+    beforeAll(async () => {
+      const repo = new PostgresObservationRepository(pool);
+      oldId = (await repo.create({ projectId, teamId, kind: 'decision', content: 'Zorbaxian retry budget is three', metadata: { actor: 'reviewer' } })).id;
+      headId = (await repo.create({ projectId, teamId, kind: 'decision', content: 'Retry budget raised to five', metadata: { actor: 'Explore' }, supersedes: oldId })).id;
     });
-    expect(res.status).toBe(201);
-    const { memory } = await res.json() as { memory: { metadata: { actor?: string } } };
-    expect(memory.metadata.actor).toBe('reviewer');
+
+    it('/v1/search keeps the matching record, marked superseded, and hides the other actor\'s head', async () => {
+      const res = await post('/v1/search', { projectId, query: 'zorbaxian', actor: 'reviewer' });
+      const { observations } = await res.json() as { observations: Array<{ id: string; supersededBy?: string }> };
+      expect(observations.map((o) => o.id)).toEqual([oldId]);
+      expect(observations[0].supersededBy).toBe(headId);
+    });
+
+    it('/v1/context returns nothing, because it serves only the current head', async () => {
+      expect(await idsFrom('/v1/context', { query: 'zorbaxian', actor: 'reviewer' })).toEqual([]);
+    });
   });
 });

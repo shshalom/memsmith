@@ -31,19 +31,25 @@ import {
   SEARCH_LIMIT,
   type ObservationRow,
 } from '../../shared/observation-format.js';
+import { parseActor } from '../../shared/actor.js';
 
 export interface RecallBackend {
   // Returns serialized observations (already shaped by serializeObservation),
   // scoped to the caller's team. Throws if `projectId` is outside the key's scope.
   // `search` and `context` query identically; they are separate methods so the
   // route can audit each tool under its own mode (search vs context).
-  search(args: { projectId: string; query: string; limit: number }): Promise<ObservationRow[]>;
-  context(args: { projectId: string; query: string; limit: number }): Promise<ObservationRow[]>;
+  search(args: { projectId: string; query: string; limit: number; actor?: string }): Promise<ObservationRow[]>;
+  context(args: { projectId: string; query: string; limit: number; actor?: string }): Promise<ObservationRow[]>;
   recent(args: { projectId: string; limit: number }): Promise<ObservationRow[]>;
   get(args: { projectId: string; ids: string[] }): Promise<ObservationRow[]>;
 }
 
 const RECENT_LIMIT = SEARCH_LIMIT;
+
+const ACTOR_PROPERTY = {
+  type: 'string',
+  description: 'Only return records written by this actor (exact match). Records without an actor are excluded.',
+} as const;
 
 const TOOLS: Tool[] = [
   {
@@ -55,6 +61,7 @@ const TOOLS: Tool[] = [
       properties: {
         projectId: { type: 'string', description: 'Project to search within.' },
         query: { type: 'string', description: 'Search query.' },
+        actor: ACTOR_PROPERTY,
         limit: { type: 'integer', minimum: 1, maximum: SEARCH_LIMIT.max },
       },
       required: ['projectId', 'query'],
@@ -69,6 +76,7 @@ const TOOLS: Tool[] = [
       properties: {
         projectId: { type: 'string', description: 'Project to search within.' },
         query: { type: 'string', description: 'Search query.' },
+        actor: ACTOR_PROPERTY,
         limit: { type: 'integer', minimum: 1, maximum: CONTEXT_LIMIT.max },
       },
       required: ['projectId', 'query'],
@@ -108,6 +116,14 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return value;
 }
 
+function optionalActor(args: Record<string, unknown>): { actor?: string } {
+  if (args.actor === undefined) return {};
+  const parsed = parseActor(args.actor);
+  if (!parsed.ok) throw new Error(`invalid "actor": ${parsed.reason}`);
+  if (!parsed.actor) throw new Error('"actor" must not be blank');
+  return { actor: parsed.actor };
+}
+
 function textResult(text: string): CallToolResult {
   return { content: [{ type: 'text', text }] };
 }
@@ -131,19 +147,23 @@ async function dispatchToolCall(
 ): Promise<CallToolResult> {
   if (name === 'search') {
     const query = requireString(args, 'query');
+    const filter = optionalActor(args);
     const observations = await backend.search({
       projectId: requireString(args, 'projectId'),
       query,
       limit: clampLimit(args.limit, SEARCH_LIMIT),
+      ...filter,
     });
-    return textResult(formatObservationIndex(observations, { query, getTool: 'get' }));
+    return textResult(formatObservationIndex(observations, { query, getTool: 'get', ...filter }));
   }
   if (name === 'context') {
     const query = requireString(args, 'query');
+    const filter = optionalActor(args);
     const observations = await backend.context({
       projectId: requireString(args, 'projectId'),
       query,
       limit: clampLimit(args.limit, CONTEXT_LIMIT),
+      ...filter,
     });
     return textResult(formatObservationContext(observations, { query, getTool: 'get' }));
   }
