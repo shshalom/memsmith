@@ -62,3 +62,32 @@ export function isInternalProtocolPayload(text: string): boolean {
   if (text.length > MAX_PROTOCOL_PAYLOAD_BYTES) return false;
   return PROTOCOL_ONLY_REGEX.test(text);
 }
+
+/** Blocks Claude Code and other agents put into a prompt; none of it is the user's own text. */
+const AUTOMATED_TAGS = [
+  'task-notification',
+  'system-reminder',
+  'teammate-message',
+  'cross-session-message',
+  'user-prompt-submit-hook',
+  'local-command-stdout',
+  'local-command-stderr',
+  'local-command-caveat',
+  'bash-input',
+  'bash-stdout',
+  'bash-stderr',
+  'command-name',
+  'command-message',
+  'command-args',
+] as const;
+
+// An unclosed block runs to the end: a truncated notification is still not the user.
+const AUTOMATED_REGEX = new RegExp(
+  `<(${AUTOMATED_TAGS.join('|')})\\b[^>]*>[\\s\\S]*?(?:</\\1>|$)`,
+  'g',
+);
+
+export function stripAutomatedContent(prompt: string): string {
+  if (!prompt) return '';
+  return prompt.replace(AUTOMATED_REGEX, '').trim();
+}

@@ -128,6 +128,41 @@ describe('classifyPrompt', () => {
   });
 });
 
+const TASK_NOTIFICATION = '<task-notification><task-id>x</task-id><status>completed</status>'
+  + '<summary>Agent "Review" finished</summary>'
+  + '<result>Earlier we decided to keep the previous design. Why did the old cache fail? See the history of the queue.</result>'
+  + '</task-notification>';
+
+describe('classifyPrompt — automated messages are not the user asking', () => {
+  for (const [name, prompt] of [
+    ['a task notification', TASK_NOTIFICATION],
+    ['a task notification cut off before its closing tag', TASK_NOTIFICATION.replace('</task-notification>', '')],
+    ['a system reminder', '<system-reminder>What did we decide about the cache? Remind me.</system-reminder>'],
+    ['a teammate message', '<teammate-message teammate_id="lead">What did we decide about the cache?</teammate-message>'],
+    ['a cross-session message', '<cross-session-message from="worker">Why did the deploy fail last time?</cross-session-message>'],
+    ['local command output', '<local-command-stdout>history of the queue: we decided to ship inline</local-command-stdout>'],
+    ['shell output', '<bash-input>git log</bash-input><bash-stdout>revert: the decision we agreed last week</bash-stdout>'],
+    ['a hook-injected block', '<user-prompt-submit-hook>previously decided: keep the port fixed</user-prompt-submit-hook>'],
+    ['several automated blocks together', `<system-reminder>why did we pin it?</system-reminder>\n${TASK_NOTIFICATION}`],
+  ] as const) {
+    it(`${name} alone is not an information request`, () => {
+      expect(classifyPrompt(prompt)).not.toBe('info-request');
+    });
+  }
+
+  it('classifies a question that arrives with a notification on the question', () => {
+    expect(classifyPrompt(`${TASK_NOTIFICATION}\nWhy did we drop SQLite?`)).toBe('info-request');
+  });
+
+  it('classifies a task that arrives with a notification on the task', () => {
+    expect(classifyPrompt(`${TASK_NOTIFICATION}\nfix the lint errors`)).toBe('task');
+  });
+
+  it('keeps the user text that follows a notification', () => {
+    expect(classifyPrompt(`${TASK_NOTIFICATION}\nyou just said the port is fixed — why?`)).toBe('conversation');
+  });
+});
+
 describe('isInfoRequest', () => {
   it('is true only for info-request', () => {
     expect(isInfoRequest('why did we pick Bun?')).toBe(true);
