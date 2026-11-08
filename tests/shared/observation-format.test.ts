@@ -161,3 +161,37 @@ describe('clampLimit', () => {
     expect(clampLimit('12' as unknown as number, SEARCH_LIMIT)).toBe(10);
   });
 });
+
+describe('actor in formatted output', () => {
+  const tagged = (metadata: Record<string, unknown>) => generated('obs-a', { metadata: { title: 'Title for obs-a', ...metadata } });
+
+  it('shows a single actor in the index line', () => {
+    const text = formatObservationIndex([tagged({ actor: 'reviewer' })], { query: 'q' });
+    expect(text).toContain('[obs-a] 2026-10-14 · discovery · by reviewer · Title for obs-a');
+  });
+
+  it('shows every actor of a record derived from several', () => {
+    const text = formatObservationIndex([tagged({ actors: ['reviewer', 'Explore'] })], { query: 'q' });
+    expect(text).toContain('· by reviewer, Explore ·');
+  });
+
+  it('shows the actor in the full record', () => {
+    const text = formatObservationDetails([tagged({ actor: 'reviewer' })], ['obs-a']);
+    expect(text).toContain('## [obs-a] 2026-10-14 · discovery · by reviewer');
+  });
+
+  it('leaves records without an actor unchanged', () => {
+    const text = formatObservationIndex([generated('obs-b')], { query: 'q' });
+    expect(text).toContain('[obs-b] 2026-10-14 · discovery · Title for obs-b');
+    expect(text).not.toContain(' by ');
+  });
+
+  it('names the actor filter when a listing comes back empty', () => {
+    expect(formatObservationIndex([], { query: '', actor: 'reviewer' })).toBe('No observations recorded by reviewer. Records saved before actor tags existed have no actor.');
+    expect(formatObservationIndex([], { query: 'cache', actor: 'reviewer' })).toContain('No observations by reviewer matched "cache"');
+  });
+
+  it('names the actor in a listing header', () => {
+    expect(formatObservationIndex([tagged({ actor: 'reviewer' })], { query: '', actor: 'reviewer' })).toStartWith('1 most recent observation by reviewer:');
+  });
+});

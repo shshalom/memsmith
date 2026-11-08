@@ -88,6 +88,7 @@ import { readProjectMarker as readProjectMarkerForRuntime } from '../../../servi
 import type { PoolRegistry } from '../../../storage/postgres/pool-registry.js';
 import { resolveRequestDatabase } from '../../middleware/resolve-request-database.js';
 import { projectDatabaseName } from '../../runtime/resolve-project-database.js';
+import { matchesActor, parseActor, parseActorOrNull } from '../../../shared/actor.js';
 
 const SOURCE_ADAPTER_DEFAULT = 'api';
 
@@ -159,6 +160,15 @@ interface BatchPreValidationFailure {
   status: number;
   body: { error: string; message: string };
 }
+
+const ACTOR_FILTER_SCHEMA = z.string().optional().transform((raw, ctx) => {
+  const parsed = parseActor(raw);
+  if (!parsed.ok) {
+    ctx.addIssue({ code: 'custom', message: parsed.reason });
+    return z.NEVER;
+  }
+  return parsed.actor ?? undefined;
+});
 
 const EVENT_QUERY_SCHEMA = z.object({
   generate: z.union([z.literal('true'), z.literal('false')]).optional(),
@@ -1206,6 +1216,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       z.object({
         prompt: z.string().min(1),
         projectId: z.string().min(1).optional(),
+        actor: z.string().optional(),
       }),
       async (req, res, body) => {
         try {
@@ -1233,6 +1244,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             },
             teamId,
             projectId,
+            actor: parseActorOrNull(body.actor),
           };
           // Strip <private> and redact secrets before classify so the LLM
           // classifier, the idempotency hash, and the stored content all receive
@@ -1276,6 +1288,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         lifecycleState: z.string().min(1).nullable().optional(),
         // When true, restrict results to user-directed notes (kind='user_note').
         userDirected: z.boolean().optional(),
+        actor: ACTOR_FILTER_SCHEMA,
       }),
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
@@ -1290,6 +1303,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         }
         if (!this.ensureProjectAllowed(req, res, projectId)) return;
         const platformSource = normalizePlatformSourceOrNull(body.platformSource);
+        const actor = body.actor ?? null;
         const query = (body.query ?? '').trim();
         const limit = body.limit ?? 20;
         const obsType = body.obsType ?? null;
@@ -1316,6 +1330,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                 limit,
                 obsType,
                 lifecycleState,
+                actor,
               }),
             );
           } else {
@@ -1337,6 +1352,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
                 platformSource,
                 mode: 'search',
                 userDirected,
+                actor,
               }, pool),
             );
             if (obsType) results = results.filter(o => o.obsType === obsType);
@@ -1355,6 +1371,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           platformSource,
           obsType,
           lifecycleState,
+          actor,
           resultCount: results.length,
           observationIds: results.map(o => o.id),
         });
@@ -1419,6 +1436,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
         platformSource: z.string().min(1).nullable().optional(),
         // When true, restrict results to user-directed notes (kind='user_note').
         userDirected: z.boolean().optional(),
+        actor: ACTOR_FILTER_SCHEMA,
       }),
       async (req, res, body) => {
         const teamId = this.requireTeamId(req, res);
@@ -1443,6 +1461,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
             platformSource,
             mode: 'context',
             userDirected: body.userDirected,
+            actor: body.actor ?? null,
           }, req.databasePool ?? this.options.pool);
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
@@ -1467,6 +1486,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
           query: body.query,
           limit: body.limit ?? 10,
           platformSource,
+          actor: body.actor ?? null,
           resultCount: results.length,
           observationIds: results.map(o => o.id),
         });
@@ -2860,6 +2880,7 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       platformSource: string | null;
       mode: 'search' | 'context';
       userDirected?: boolean;
+      actor?: string | null;
     },
     pool: PostgresPool = this.options.pool,
   ): Promise<PostgresObservation[]> {
@@ -2877,12 +2898,15 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       : process.env.MEMSMITH_USER_NOTE_BOOST !== '0' && process.env.MEMSMITH_USER_NOTE_BOOST?.toLowerCase() !== 'false' && process.env.MEMSMITH_USER_NOTE_BOOST?.toLowerCase() !== 'off';
     let boosted = ranked;
     try { boosted = boostUserDirected(ranked, boost); } catch { boosted = ranked; }  // fail-open
+    let resolved = boosted;
     try {
-      return await this.applySupersession(boosted, input.mode, { teamId: input.teamId, projectId: input.projectId }, pool);
+      resolved = await this.applySupersession(boosted, input.mode, { teamId: input.teamId, projectId: input.projectId }, pool);
     } catch (err) {
       logger.warn('SYSTEM', 'supersession resolution failed; returning ranked results', {}, err instanceof Error ? err : new Error(String(err)));
-      return boosted;
     }
+    // Supersession can bring in a head written by a different actor.
+    const actor = input.actor;
+    return actor ? resolved.filter(row => matchesActor(row, actor)) : resolved;
   }
 
   // Marks each row a newer observation superseded, without replacing it: the

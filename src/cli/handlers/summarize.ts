@@ -12,6 +12,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import type { ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { actorField, resolveActor } from '../../shared/actor.js';
 
 async function summarizeViaServer(
   runtime: ServerRuntimeContext,
@@ -42,6 +43,7 @@ async function summarizeViaServer(
     payload: {
       last_assistant_message: lastAssistantMessage,
       platformSource,
+      ...actorField(resolveActor()),
     },
   });
   await runtime.client.endSession({ sessionId: serverSessionId });

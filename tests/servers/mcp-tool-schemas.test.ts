@@ -77,16 +77,19 @@ describe('MCP tool inputSchema declarations', () => {
     expect(section).toContain('handleObservationRecordEvent');
   });
 
-  it('observation_search declares query as required and accepts limit', async () => {
+  // query is enforced in the handler, because "query or actor" cannot be a
+  // top-level anyOf: the Claude API rejects combinators at the schema root.
+  it('observation_search declares query, actor, and limit', async () => {
     const src = await Bun.file(mcpServerPath).text();
     const section = src.slice(
       src.indexOf("name: 'observation_search'"),
       src.indexOf("name: 'observation_context'"),
     );
     expect(section).toContain('query:');
+    expect(section).toContain('actor: ACTOR_FILTER_PROPERTY');
     expect(section).toContain('platformSource:');
     expect(section).toContain('limit:');
-    expect(section).toContain("required: ['query']");
+    expect(section).not.toContain('anyOf');
     expect(section).toContain('handleObservationSearch');
   });
 

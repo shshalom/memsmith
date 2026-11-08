@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { isRecordIntent } from '../../services/retrieval/record-intent-detect.js';
 import { RecordArmedStore } from '../../services/retrieval/record-armed-store.js';
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
+import { actorField, resolveActor } from '../../shared/actor.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 
@@ -54,7 +55,11 @@ export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps):
         const runtime = deps.resolveRuntime();
         if (runtime.runtime !== 'server') return CONTINUE;
         // Best-effort fire; the server writes on a positive classification.
-        await runtime.client.recordIntent({ projectId: runtime.projectId, prompt: stripRecordIntentPrompt(prompt) });
+        await runtime.client.recordIntent({
+          projectId: runtime.projectId,
+          prompt: stripRecordIntentPrompt(prompt),
+          ...actorField(resolveActor(input)),
+        });
       } catch (err) {
         logger.debug('HOOK', 'record-intent backstop failed (fail-open)', { error: err instanceof Error ? err.message : String(err) });
       }

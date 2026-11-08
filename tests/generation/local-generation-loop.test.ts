@@ -178,3 +178,21 @@ describe('drainGenerationQueue', () => {
     expect(empty).toBe(1);
   });
 });
+
+describe('drainGenerationQueue actor', () => {
+  it('posts the queued event\'s actor with every observation generated from it', async () => {
+    const posted: Array<{ metadata: Record<string, unknown> }> = [];
+    await drainGenerationQueue({
+      read: () => [
+        { projectId: 'p1', payload: { tool_name: 'Read', actor: 'reviewer' } },
+        { projectId: 'p1', payload: { tool_name: 'Read' } },
+      ],
+      clear: () => {},
+      generate: async () => [{ type: 'decision', title: 'T', facts: ['f'], narrative: 'n' } as never],
+      post: async (o) => { posted.push(o as never); },
+    });
+    expect(posted[0].metadata).toMatchObject({ actor: 'reviewer', actors: ['reviewer'] });
+    expect(posted[1].metadata).not.toHaveProperty('actor');
+    expect(posted[1].metadata).not.toHaveProperty('actors');
+  });
+});

@@ -6,6 +6,7 @@ import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
+import { actorField, resolveActor } from '../../shared/actor.js';
 
 export const fileEditHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
@@ -49,6 +50,7 @@ export const fileEditHandler: EventHandler = {
           tool_response: { success: true },
           cwd,
           platformSource,
+          ...actorField(resolveActor(input)),
         },
       };
       try {

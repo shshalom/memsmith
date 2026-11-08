@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { payloadActor } from '../../shared/actor.js';
 import type { Job } from 'bullmq';
 import { logger } from '../../utils/logger.js';
 import { PostgresAgentEventsRepository } from '../../storage/postgres/agent-events.js';
@@ -349,6 +350,7 @@ export class ProviderObservationGenerator {
       modelId: result.modelId,
       providerLabel: result.providerLabel,
       tokensUsed: result.tokensUsed,
+      sourceActors: events.map(e => payloadActor(e.payload)),
       // Phase 11 — flow identity context from BullMQ payload into the
       // persistence layer so observations and audit rows carry the same
       // generation_job_id reference back through to the original API key.

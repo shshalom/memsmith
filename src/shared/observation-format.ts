@@ -3,6 +3,8 @@
 // were spilled to a file the agent never read. Search returns a short index,
 // and full records are fetched by id.
 
+import { actorsOf } from './actor.js';
+
 export interface ObservationRow {
   id: string;
   projectId?: string;
@@ -90,12 +92,30 @@ function titleAndRest(row: ObservationRow): { title: string; rest: string } {
     : { title: oneLine(content.slice(0, newline)), rest: content.slice(newline + 1) };
 }
 
-function headerLine(row: ObservationRow, title?: string): string {
-  const date = typeof row.createdAtEpoch === 'number' && Number.isFinite(row.createdAtEpoch)
+export function observationDate(row: ObservationRow): string | null {
+  return typeof row.createdAtEpoch === 'number' && Number.isFinite(row.createdAtEpoch)
     ? new Date(row.createdAtEpoch).toISOString().slice(0, 10)
-    : 'unknown-date';
-  const type = row.obsType ?? row.kind ?? 'observation';
-  const parts = [`[${row.id}] ${date}`, type];
+    : null;
+}
+
+export function observationType(row: ObservationRow): string {
+  return row.obsType ?? row.kind ?? 'observation';
+}
+
+/** The title and snippet the search index shows for a row. */
+export function indexSummary(row: ObservationRow): { title: string; snippet: string } {
+  const { title, rest } = titleAndRest(row);
+  return { title: truncate(title, TITLE_MAX_CHARS), snippet: truncate(oneLine(rest), SNIPPET_MAX_CHARS) };
+}
+
+export function observationTitle(row: ObservationRow): string {
+  return titleAndRest(row).title;
+}
+
+function headerLine(row: ObservationRow, title?: string): string {
+  const parts = [`[${row.id}] ${observationDate(row) ?? 'unknown-date'}`, observationType(row)];
+  const actors = actorsOf(row);
+  if (actors.length > 0) parts.push(`by ${actors.join(', ')}`);
   if (title) parts.push(title);
   if (typeof row.supersededBy === 'string' && row.supersededBy) parts.push(`superseded by ${row.supersededBy}`);
   return parts.join(' · ');
@@ -146,23 +166,29 @@ function pack(
 
 // getTool names the full-record tool on the server rendering this output:
 // observation_get on the stdio MCP server, get on the hosted /v1/mcp link.
-export function formatObservationIndex(rows: ObservationRow[], opts: { query: string; getTool?: string }): string {
+export function formatObservationIndex(rows: ObservationRow[], opts: { query: string; getTool?: string; actor?: string }): string {
   const getTool = opts.getTool ?? 'observation_get';
   const listing = opts.query.trim().length === 0;
-  if (rows.length === 0 && listing) return 'No observations recorded yet.';
+  const byActor = opts.actor ? ` by ${opts.actor}` : '';
+  if (rows.length === 0 && listing) {
+    return opts.actor
+      ? `No observations recorded${byActor}. Records saved before actor tags existed have no actor.`
+      : 'No observations recorded yet.';
+  }
   if (rows.length === 0) {
-    return `No observations matched "${echoQuery(opts.query)}". Memory has no record of this; say so before falling back to the code.`;
+    return opts.actor
+      ? `No observations${byActor} matched "${echoQuery(opts.query)}". Records without that actor were not searched; search again without the actor filter before concluding memory has no record of this.`
+      : `No observations matched "${echoQuery(opts.query)}". Memory has no record of this; say so before falling back to the code.`;
   }
   const entries = rows.map((row) => {
-    const { title, rest } = titleAndRest(row);
-    const snippet = truncate(oneLine(rest), SNIPPET_MAX_CHARS);
-    const head = headerLine(row, truncate(title, TITLE_MAX_CHARS));
+    const { title, snippet } = indexSummary(row);
+    const head = headerLine(row, title);
     return snippet ? `${head}\n    ${snippet}` : head;
   });
   return pack(
     listing
-      ? `${rows.length} most recent observation${rows.length === 1 ? '' : 's'}:`
-      : `${rows.length} observation${rows.length === 1 ? '' : 's'} for "${echoQuery(opts.query)}" (most relevant first):`,
+      ? `${rows.length} most recent observation${rows.length === 1 ? '' : 's'}${byActor}:`
+      : `${rows.length} observation${rows.length === 1 ? '' : 's'}${byActor} for "${echoQuery(opts.query)}" (most relevant first):`,
     entries,
     `Fetch the full record for the relevant ids with ${getTool}(ids=[...]), up to ${GET_MAX_IDS} at a time.`,
     { maxChars: OUTPUT_MAX_CHARS, omittedNote: searchOmitted(getTool) },

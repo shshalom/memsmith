@@ -147,6 +147,14 @@ interface ObservationSourceRow {
   created_at: Date;
 }
 
+// A record derived from several actors lists them in metadata.actors and has no
+// single metadata.actor, so both keys are checked.
+function actorClause(table: string, param: number): string {
+  return `($${param}::text IS NULL
+            OR ${table}.metadata->>'actor' = $${param}::text
+            OR ${table}.metadata->'actors' @> jsonb_build_array($${param}::text))`;
+}
+
 export class PostgresObservationRepository {
   constructor(private client: PostgresQueryable) {}
 
@@ -312,6 +320,7 @@ export class PostgresObservationRepository {
     // just within a recent-N window.
     obsType?: string | null;
     lifecycleState?: string | null;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const result = await this.client.query<ObservationRow>(
       `
@@ -321,6 +330,7 @@ export class PostgresObservationRepository {
           AND ($3::text IS NULL OR server_session_id = $3)
           AND ($5::text IS NULL OR obs_type = $5)
           AND ($6::text IS NULL OR lifecycle_state = $6)
+          AND ${actorClause('observations', 7)}
         ORDER BY created_at DESC
         LIMIT $4
       `,
@@ -331,6 +341,7 @@ export class PostgresObservationRepository {
         input.limit ?? 100,
         input.obsType ?? null,
         input.lifecycleState ?? null,
+        input.actor ?? null,
       ]
     );
     return result.rows.map(mapObservationRow);
@@ -345,6 +356,7 @@ export class PostgresObservationRepository {
     obsType?: string | null;
     lifecycleState?: string | null;
     userDirected?: boolean;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const platformSource = normalizePlatformSourceOrNull(input.platformSource);
     const result = await this.client.query<ObservationRow>(
@@ -378,10 +390,11 @@ export class PostgresObservationRepository {
           AND ($6::text IS NULL OR observations.obs_type = $6)
           AND ($7::text IS NULL OR observations.lifecycle_state = $7)
           AND ($8::boolean IS NOT TRUE OR observations.kind = 'user_note')
+          AND ${actorClause('observations', 9)}
         ORDER BY ts_rank(observations.content_search, websearch_to_tsquery('english', $3)) DESC, observations.updated_at DESC
         LIMIT $4
       `,
-      [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null, input.userDirected ?? null]
+      [input.projectId, input.teamId, input.query, input.limit ?? 20, platformSource, input.obsType ?? null, input.lifecycleState ?? null, input.userDirected ?? null, input.actor ?? null]
     );
     return result.rows.map(mapObservationRow);
   }
@@ -404,7 +417,7 @@ export class PostgresObservationRepository {
    * The distance is attached to each row so callers can rank, threshold, or
    * display it. It is a response-only annotation, never persisted.
    */
-  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number; maxDistance?: number }): Promise<PostgresObservation[]> {
+  async vectorSearch(input: { projectId: string; teamId: string; query: string; limit?: number; maxDistance?: number; actor?: string | null }): Promise<PostgresObservation[]> {
     const qvec = '[' + (await embed(input.query)).join(',') + ']';
     const result = await this.client.query<ObservationRow & { __distance?: unknown }>(
       // Schema-qualify the cosine operator via OPERATOR(public.<=>) so vector
@@ -421,9 +434,10 @@ export class PostgresObservationRepository {
         WHERE project_id = $1 AND team_id = $2 AND embedding_vec IS NOT NULL
           AND ($5::float8 IS NULL
                OR (embedding_vec OPERATOR(public.<=>) $3::public.vector) <= $5::float8)
+          AND ${actorClause('observations', 6)}
         ORDER BY embedding_vec OPERATOR(public.<=>) $3::public.vector
         LIMIT $4`,
-      [input.projectId, input.teamId, qvec, input.limit ?? 20, input.maxDistance ?? null]
+      [input.projectId, input.teamId, qvec, input.limit ?? 20, input.maxDistance ?? null, input.actor ?? null]
     );
     return result.rows.map(row => {
       const observation = mapObservationRow(row);
@@ -437,13 +451,13 @@ export class PostgresObservationRepository {
   // just vectorSearch; with expansion it lets any variant that ranks the answer
   // high pull it up in the fused order.
   private async multiVectorSearch(
-    projectId: string, teamId: string, variants: string[], limit: number,
+    projectId: string, teamId: string, variants: string[], limit: number, actor: string | null = null,
   ): Promise<PostgresObservation[]> {
     if (variants.length <= 1) {
-      return this.vectorSearch({ projectId, teamId, query: variants[0] ?? '', limit });
+      return this.vectorSearch({ projectId, teamId, query: variants[0] ?? '', limit, actor });
     }
     const perVariant = await Promise.all(
-      variants.map(q => this.vectorSearch({ projectId, teamId, query: q, limit })),
+      variants.map(q => this.vectorSearch({ projectId, teamId, query: q, limit, actor })),
     );
     const byId = new Map<string, PostgresObservation>();
     for (const list of perVariant) for (const o of list) byId.set(o.id, o);
@@ -458,6 +472,7 @@ export class PostgresObservationRepository {
     ftsWeight?: number; vecWeight?: number; rrfK?: number;
     expandQueries?: boolean; platformSource?: string | null;
     userDirected?: boolean;
+    actor?: string | null;
   }): Promise<PostgresObservation[]> {
     const limit = input.limit ?? 5;
     const pool = 30; // retrieve deeper, fuse, then trim
@@ -483,8 +498,8 @@ export class PostgresObservationRepository {
     // /v1/search and /v1/context into a 500 even for queries with good FTS hits.
     // An empty vector arm simply contributes nothing to the RRF fusion.
     const [fts, vec] = await Promise.all([
-      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource, userDirected: input.userDirected }),
-      this.multiVectorSearch(input.projectId, input.teamId, variants, pool).catch(() => [] as PostgresObservation[]),
+      this.search({ projectId: input.projectId, teamId: input.teamId, query: input.query, limit: pool, obsType: input.obsType, lifecycleState: input.lifecycleState, platformSource: input.platformSource, userDirected: input.userDirected, actor: input.actor }),
+      this.multiVectorSearch(input.projectId, input.teamId, variants, pool, input.actor ?? null).catch(() => [] as PostgresObservation[]),
     ]);
     const toRanked = (list: PostgresObservation[]) => list.map((o, i) => ({ id: o.id, rank: i }));
     const fused = combineRanks([toRanked(fts), toRanked(vec)], input.rrfK, [ftsWeight, vecWeight]);

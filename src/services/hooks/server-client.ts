@@ -174,6 +174,7 @@ export interface ServerSearchObservationsRequest {
   query: string;
   limit?: number;
   platformSource?: string | null;
+  actor?: string;
 }
 
 export interface ServerSearchObservationsResponse {
@@ -197,6 +198,7 @@ export interface ServerContextObservationsRequest {
   query: string;
   limit?: number;
   platformSource?: string | null;
+  actor?: string;
 }
 
 export interface ServerContextObservationsResponse {
@@ -222,6 +224,7 @@ export interface ServerJobStatusResponse {
 export interface ServerRecordIntentRequest {
   projectId: string;
   prompt: string;
+  actor?: string;
 }
 
 export interface ServerRecordIntentResponse {
@@ -325,7 +328,11 @@ export class ServerClient {
     return this.request<ServerRecordIntentResponse>(
       'POST',
       '/v1/record-intent',
-      { projectId: input.projectId, prompt: redactSecrets(input.prompt) },
+      {
+        projectId: input.projectId,
+        prompt: redactSecrets(input.prompt),
+        ...(input.actor !== undefined ? { actor: input.actor } : {}),
+      },
     );
   }
 
@@ -395,12 +402,13 @@ export class ServerClient {
   }
 
   buildSearchPayload(
-    input: { projectId: string; query: string; limit?: number; platformSource?: string | null },
+    input: { projectId: string; query: string; limit?: number; platformSource?: string | null; actor?: string },
   ): Record<string, unknown> {
     return {
       projectId: input.projectId,
       query: input.query,
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      ...(input.actor !== undefined ? { actor: input.actor } : {}),
       ...(input.platformSource !== undefined ? { platformSource: normalizePlatformSourceField(input.platformSource) } : {}),
     };
   }

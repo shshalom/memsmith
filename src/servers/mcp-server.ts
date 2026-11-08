@@ -37,6 +37,7 @@ import {
 import { describeUnusableProject, resolveFolderProject } from '../services/identity/folder-project.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
 import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
+import { parseActor, resolveActor } from '../shared/actor.js';
 import {
   clampLimit,
   formatObservationContext,
@@ -117,6 +118,17 @@ function requireProjectForTool(toolName: string, cwd: unknown, consequence: stri
   throw new ToolMessageError(describeUnusableProject(resolution, consequence, NO_PROJECT_HINT).join('\n'));
 }
 
+function actorFilterArg(toolName: string, raw: unknown): string | undefined {
+  const parsed = parseActor(raw);
+  if (!parsed.ok) throw new ToolMessageError(`${toolName}: invalid "actor": ${parsed.reason}. ${NOT_SEARCHED}`);
+  return parsed.actor ?? undefined;
+}
+
+function withSessionActor(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const actor = resolveActor();
+  return actor ? { ...(metadata ?? {}), actor } : metadata;
+}
+
 function formatToolError(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {
   if (error instanceof ToolMessageError) {
     return { content: [{ type: 'text' as const, text: error.message }], isError: true as const };
@@ -191,12 +203,13 @@ const handleObservationAdd = wrapHandler('observation_add', async (args: Observa
     throw new Error('observation_add: "content" is required');
   }
   const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+  const metadata = withSessionActor(args.metadata);
   const request: ServerAddObservationRequest = {
     projectId,
     content: args.content,
     ...(args.serverSessionId !== undefined ? { serverSessionId: args.serverSessionId } : {}),
     ...(args.kind !== undefined ? { kind: args.kind } : {}),
-    ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
     ...(args.idempotencyKey !== undefined ? { idempotencyKey: args.idempotencyKey } : {}),
   };
   const response = await ctx.client.addObservation(request);
@@ -215,7 +228,7 @@ export const handleNoteAdd = wrapHandler('note_add', async (args: NoteAddArgs) =
     throw new Error('note_add: "content" is required');
   }
   const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
-  const request = buildUserNoteRequest(args.content, { projectId });
+  const request = buildUserNoteRequest(args.content, { projectId, metadata: withSessionActor(undefined) });
   const response = await ctx.client.addObservation(request);
   return formatJsonResult(response);
 });
@@ -244,6 +257,9 @@ const handleObservationRecordEvent = wrapHandler('observation_record_event', asy
     throw new Error('observation_record_event: "eventType" is required');
   }
   const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
+  const payload = args.payload === undefined || (typeof args.payload === 'object' && args.payload !== null && !Array.isArray(args.payload))
+    ? withSessionActor(args.payload as Record<string, unknown> | undefined)
+    : args.payload;
   const request: ServerRecordEventRequest = {
     projectId,
     sourceType: args.sourceType ?? 'api',
@@ -253,7 +269,7 @@ const handleObservationRecordEvent = wrapHandler('observation_record_event', asy
     ...(args.contentSessionId !== undefined ? { contentSessionId: args.contentSessionId } : {}),
     ...(args.memorySessionId !== undefined ? { memorySessionId: args.memorySessionId } : {}),
     ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
-    ...(args.payload !== undefined ? { payload: args.payload } : {}),
+    ...(payload !== undefined ? { payload } : {}),
     ...(args.generate !== undefined ? { generate: args.generate } : {}),
   };
   const response = await ctx.client.recordEvent(request);
@@ -263,25 +279,29 @@ const handleObservationRecordEvent = wrapHandler('observation_record_event', asy
 interface ObservationSearchArgs {
   projectId?: string;
   cwd?: string;
-  query: string;
+  query?: string;
   limit?: number;
   platformSource?: string | null;
+  actor?: string;
 }
 
 const handleObservationSearch = wrapHandler('observation_search', async (args: ObservationSearchArgs) => {
-  const ctx = requireProjectForTool('observation_search', args?.cwd, NOT_SEARCHED);
-  if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
-    throw new Error('observation_search: "query" is required');
+  const actor = actorFilterArg('observation_search', args?.actor);
+  const query = typeof args?.query === 'string' ? args.query.trim() : '';
+  if (!query && !actor) {
+    throw new Error('observation_search: "query" is required unless "actor" is given');
   }
+  const ctx = requireProjectForTool('observation_search', args?.cwd, NOT_SEARCHED);
   const projectId = args.projectId && args.projectId.trim().length > 0 ? args.projectId : ctx.projectId;
   const request: ServerSearchObservationsRequest = {
     projectId,
-    query: args.query,
+    query,
     limit: clampLimit(args.limit, SEARCH_LIMIT),
     ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
+    ...(actor !== undefined ? { actor } : {}),
   };
   const response = await ctx.client.searchObservations(request);
-  return formatTextResult(formatObservationIndex(response.observations ?? [], { query: args.query }));
+  return formatTextResult(formatObservationIndex(response.observations ?? [], { query, actor }));
 });
 
 interface ObservationGetArgs {
@@ -318,9 +338,11 @@ interface ObservationContextArgs {
   query: string;
   limit?: number;
   platformSource?: string | null;
+  actor?: string;
 }
 
 const handleObservationContext = wrapHandler('observation_context', async (args: ObservationContextArgs) => {
+  const actor = actorFilterArg('observation_context', args?.actor);
   const ctx = requireProjectForTool('observation_context', args?.cwd, NOT_SEARCHED);
   if (typeof args?.query !== 'string' || args.query.trim().length === 0) {
     throw new Error('observation_context: "query" is required');
@@ -331,6 +353,7 @@ const handleObservationContext = wrapHandler('observation_context', async (args:
     query: args.query,
     limit: clampLimit(args.limit, CONTEXT_LIMIT),
     ...(args.platformSource !== undefined ? { platformSource: normalizeMcpPlatformSource(args.platformSource) } : {}),
+    ...(actor !== undefined ? { actor } : {}),
   };
   const response = await ctx.client.contextObservations(request);
   return formatTextResult(formatObservationContext(response.observations ?? [], { query: args.query }));
@@ -416,6 +439,11 @@ const handleObservationGenerationStatus = wrapHandler('observation_generation_st
 const CWD_PROPERTY = {
   type: 'string',
   description: 'Absolute path of the folder you are working in. Pass it when it differs from the folder the session started in.',
+} as const;
+
+const ACTOR_FILTER_PROPERTY = {
+  type: 'string',
+  description: 'Only return records written by this actor (exact match on the MEMSMITH_ACTOR name or subagent type). Records saved before actor tags existed have no actor and are excluded.',
 } as const;
 
 const tools = [
@@ -540,17 +568,17 @@ absolute path as \`cwd\` so the tools use that folder's project.`
   },
   {
     name: 'observation_search',
-    description: 'Search memory for past work, decisions, and rationale. Returns a ranked index (id, date, type, title, snippet), not full records; fetch the relevant ids with observation_get. Params: query (required), limit (default 10, max 25), projectId, platformSource, cwd.',
+    description: 'Search memory for past work, decisions, and rationale. Returns a ranked index (id, date, type, actor, title, snippet), not full records; fetch the relevant ids with observation_get. Params: query (required unless actor is given; with only actor, lists that actor\'s most recent records), actor, limit (default 10, max 25), projectId, platformSource, cwd.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         cwd: CWD_PROPERTY,
-        query: { type: 'string', description: 'Search query (required)' },
+        query: { type: 'string', description: 'Search query. Required unless actor is given.' },
+        actor: ACTOR_FILTER_PROPERTY,
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
         limit: { type: 'number', description: 'Max results (default 10, max 25)' },
       },
-      required: ['query'],
       additionalProperties: false,
     },
     handler: async (args: any) => handleObservationSearch(args ?? {}),
@@ -572,13 +600,14 @@ absolute path as \`cwd\` so the tools use that folder's project.`
   },
   {
     name: 'observation_context',
-    description: 'Get the full bodies of the top few observations for a query in one call, capped in size. Prefer observation_search plus observation_get when you need to choose what to read. Params: query (required), limit (default 5, max 10), projectId, platformSource, cwd.',
+    description: 'Get the full bodies of the top few observations for a query in one call, capped in size. Prefer observation_search plus observation_get when you need to choose what to read. Params: query (required), actor, limit (default 5, max 10), projectId, platformSource, cwd.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         cwd: CWD_PROPERTY,
         query: { type: 'string', description: 'Search query (required)' },
+        actor: ACTOR_FILTER_PROPERTY,
         platformSource: { type: 'string', description: 'Optional platform source filter, e.g. claude, codex, cursor' },
         limit: { type: 'number', description: 'Max observations (default 5, max 10)' },
       },
