@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
+//
+// A database is dropped only when a count of every row in every table shows
+// nothing but its own project's hinge rows (or, for a merged project, nothing
+// newer than the merge), and no other project names it. Anything MemSmith
+// cannot count or cannot rule out is kept, with the reason.
 import { join } from 'path';
-import { readMarkerAt } from '../identity/project-identity.js';
-import { backupFileName, type DumpDatabase } from './backup.js';
-import { recordTotal, type ProjectEntry, type ProjectInventory } from './inventory.js';
-import type { ProjectsDb } from './projects-db.js';
+import { backupFileName, writeBackupFile, type DumpDatabase } from './backup.js';
+import { knownEmpty, recordTotal, type ProjectEntry, type ProjectInventory } from './inventory.js';
+import type { DatabaseCensus, ProjectsDb } from './projects-db.js';
 
 export type PruneReason = 'orphan-db' | 'empty' | 'archived';
 
 export interface PruneCandidate {
   entry: ProjectEntry;
   reason: PruneReason;
-  /** Database to back up and drop; null when the project has none of its own. */
+  /** Database to back up and drop; null when the project has none. */
   dropDatabase: string | null;
+  /** Delete the projects row. A merged project keeps its row, so folders that still name it are routed to its target. */
   deleteProject: boolean;
 }
 
@@ -23,58 +28,108 @@ export interface PruneKept {
 export interface PrunePlan {
   candidates: PruneCandidate[];
   kept: PruneKept[];
+  /** Every database a project entry names, with the entries that name it. */
+  databaseOwners: Map<string, Array<string | null>>;
 }
 
-const SHARED_DATABASES = new Set(['postgres', 'template0', 'template1']);
+export const DROPPABLE_DATABASE = /^msp_[0-9a-f]{32}$/;
 
-function liveFolders(entry: ProjectEntry): string[] {
-  return entry.folders.filter((dir) => readMarkerAt(dir)?.projectId === entry.projectId);
+export type Census = (databaseName: string, owner: { projectId: string; teamId: string } | 'from-name') => Promise<DatabaseCensus | null>;
+
+/** Why a census rules out dropping the database, or null when it allows it. */
+function censusBlocks(census: DatabaseCensus | null, allowData: { archivedAt: string } | null): string | null {
+  if (!census) return 'MemSmith could not count every table in its database';
+  if (census.accountRows > 0) return `its database holds ${census.accountRows} account rows (teams, projects, keys, or members) that are not its own`;
+  if (!allowData) {
+    return census.dataRows > 0 ? `its database holds ${census.dataRows} rows` : null;
+  }
+  if (census.foreignRows > 0) return `its database holds ${census.foreignRows} rows of another project`;
+  if (census.newestRowAt && census.newestRowAt > allowData.archivedAt) {
+    return `its database has rows from ${census.newestRowAt}, after it was merged on ${allowData.archivedAt}; run the merge again to copy them`;
+  }
+  return null;
 }
 
-export function planPrune(inv: ProjectInventory): PrunePlan {
+export async function planPrune(inv: ProjectInventory, census: Census): Promise<PrunePlan> {
   const candidates: PruneCandidate[] = [];
   const kept: PruneKept[] = [];
-  const ownDatabase = (entry: ProjectEntry) =>
-    entry.databaseName && entry.databaseName !== inv.accountDatabase && !SHARED_DATABASES.has(entry.databaseName)
-      ? entry.databaseName
-      : null;
+  const keep = (entry: ProjectEntry, reason: string) => kept.push({ entry, reason });
+  const databaseOwners = new Map<string, Array<string | null>>();
+  for (const p of inv.projects) {
+    if (p.databaseName) databaseOwners.set(p.databaseName, [...(databaseOwners.get(p.databaseName) ?? []), p.projectId]);
+  }
+  const droppable = (entry: ProjectEntry): string | null => {
+    const name = entry.databaseName;
+    if (!name) return null;
+    if (!DROPPABLE_DATABASE.test(name) || name === inv.accountDatabase) return `it keeps its records in the shared ${name} database`;
+    if ((databaseOwners.get(name) ?? []).some((owner) => owner !== entry.projectId)) return `another project also uses ${name}`;
+    return null;
+  };
 
   for (const entry of inv.projects) {
     const flags = new Set(entry.flags);
     if (entry.projectId === null) {
-      if (recordTotal(entry.counts) === 0 && entry.counts !== null) {
-        candidates.push({ entry, reason: 'orphan-db', dropDatabase: entry.databaseName, deleteProject: false });
-      } else {
-        kept.push({ entry, reason: entry.counts === null
-          ? 'MemSmith could not read it'
-          : `it holds ${recordTotal(entry.counts)} records, and no project names it` });
+      if (!knownEmpty(entry.counts)) {
+        keep(entry, entry.counts === null ? 'MemSmith could not count its records' : `it holds ${recordTotal(entry.counts)} records, and no project names it`);
+        continue;
       }
+      const shared = droppable(entry);
+      if (shared) { keep(entry, shared); continue; }
+      const blocked = censusBlocks(await census(entry.databaseName!, 'from-name'), null);
+      if (blocked) { keep(entry, blocked); continue; }
+      candidates.push({ entry, reason: 'orphan-db', dropDatabase: entry.databaseName, deleteProject: false });
       continue;
     }
+
     const archived = flags.has('archived');
-    const empty = flags.has('empty') || (flags.has('missing-db') && recordTotal(entry.counts) === 0);
-    if (!archived && !empty) continue;
-    if (entry.runtime === 'team' || entry.teamMarkerFolders.length > 0) {
-      kept.push({ entry, reason: 'it is a team project' });
+    const emptyish = flags.has('empty') || flags.has('missing-db');
+    if (!archived && !emptyish && !flags.has('merging')) continue;
+    if (flags.has('merging')) { keep(entry, `a merge into ${entry.mergingInto} did not finish; run it again`); continue; }
+    if (entry.runtime === 'team' || entry.teamMarkerFolders.length > 0) { keep(entry, 'it is a team project'); continue; }
+    if (entry.folders.length > 0) {
+      keep(entry, `${entry.folders.join(', ')} still links to it`);
       continue;
     }
-    const live = liveFolders(entry);
-    if (live.length > 0) {
-      kept.push({ entry, reason: `${live.join(', ')} still links to it, and a session there would create it again` });
+    if (inv.incompleteScans.length > 0) {
+      keep(entry, `the marker scan of ${inv.incompleteScans.join(', ')} stopped early, so a folder there may still link to it`);
       continue;
     }
-    if (entry.databaseName && !ownDatabase(entry)) {
-      kept.push({ entry, reason: `its records live in the shared ${entry.databaseName} database` });
+
+    if (archived) {
+      if (!entry.databaseName) continue;
+      const shared = droppable(entry);
+      if (shared) { keep(entry, shared); continue; }
+      const blocked = censusBlocks(
+        await census(entry.databaseName, { projectId: entry.projectId, teamId: entry.teamId! }),
+        { archivedAt: entry.archivedAt ?? '' },
+      );
+      if (blocked) { keep(entry, blocked); continue; }
+      candidates.push({ entry, reason: 'archived', dropDatabase: entry.databaseName, deleteProject: false });
       continue;
     }
-    candidates.push({ entry, reason: archived ? 'archived' : 'empty', dropDatabase: ownDatabase(entry), deleteProject: true });
+
+    if (!knownEmpty(entry.counts)) {
+      keep(entry, entry.counts === null ? 'MemSmith could not count its records' : `it holds ${recordTotal(entry.counts)} records`);
+      continue;
+    }
+    if (!entry.recordedPath) {
+      keep(entry, 'no folder is recorded for it, so MemSmith cannot rule out a folder that still links to it');
+      continue;
+    }
+    if (entry.databaseName) {
+      const shared = droppable(entry);
+      if (shared) { keep(entry, shared); continue; }
+      const blocked = censusBlocks(await census(entry.databaseName, { projectId: entry.projectId, teamId: entry.teamId! }), null);
+      if (blocked) { keep(entry, blocked); continue; }
+    }
+    candidates.push({ entry, reason: 'empty', dropDatabase: entry.databaseName, deleteProject: true });
   }
-  return { candidates, kept };
+  return { candidates, kept, databaseOwners };
 }
 
 export interface PruneOutcome {
   candidate: PruneCandidate;
-  backupFile: string | null;
+  backupFiles: string[];
   droppedDatabase: boolean;
   error: string | null;
 }
@@ -89,34 +144,51 @@ export interface PruneDeps {
 }
 
 export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<PruneOutcome[]> {
-  const outcomes: PruneOutcome[] = [];
-  for (const candidate of plan.candidates) {
-    let backupFile: string | null = null;
-    let droppedDatabase = false;
-    try {
-      const name = candidate.dropDatabase;
-      if (name) {
-        if (name === deps.db.accountDatabase || SHARED_DATABASES.has(name) || !/^[A-Za-z0-9_]+$/.test(name)) {
-          throw new Error(`refusing to drop ${name}`);
+  const { db } = deps;
+  if (!db.accountDatabaseKnown) throw new Error('MemSmith cannot tell which database holds your projects. Run `memsmith start` first.');
+  return db.withMaintenanceLock(async () => {
+    const outcomes: PruneOutcome[] = [];
+    for (const candidate of plan.candidates) {
+      const backupFiles: string[] = [];
+      let droppedDatabase = false;
+      const { entry } = candidate;
+      try {
+        const name = candidate.dropDatabase;
+        if (name) {
+          const owners = plan.databaseOwners.get(name) ?? [];
+          if (!DROPPABLE_DATABASE.test(name) || name === db.accountDatabase || owners.some((o) => o !== entry.projectId)) {
+            throw new Error(`refusing to drop ${name}`);
+          }
         }
-        backupFile = join(deps.backupDir, backupFileName('prune', name, deps.now()));
-        await deps.dump(deps.db.urlFor(name), backupFile);
-        await deps.db.release(name);
-        await deps.db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-        droppedDatabase = true;
+        if (candidate.deleteProject && entry.projectId) {
+          const file = join(deps.backupDir, backupFileName('prune', `${entry.projectId}-account`, deps.now()));
+          writeBackupFile(file, await db.accountRowsSql(entry.projectId, entry.teamId!, true));
+          backupFiles.push(file);
+        }
+        if (name) {
+          const file = join(deps.backupDir, backupFileName('prune', name, deps.now()));
+          await deps.dump(db.urlFor(name), file);
+          backupFiles.push(file);
+          const recount = await db.census(name, entry.projectId ? { projectId: entry.projectId, teamId: entry.teamId! } : 'from-name');
+          const blocked = censusBlocks(recount, candidate.reason === 'archived' ? { archivedAt: entry.archivedAt ?? '' } : null);
+          if (blocked) throw new Error(`${blocked} (it changed after the preview)`);
+          await db.release(name);
+          await db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+          droppedDatabase = true;
+        }
+        if (candidate.deleteProject && entry.projectId) {
+          await db.base.query('DELETE FROM projects WHERE id = $1', [entry.projectId]);
+          const team = await db.base.query(
+            'DELETE FROM teams WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM projects WHERE team_id = $1)',
+            [entry.teamId],
+          );
+          if ((team.rowCount ?? 0) > 0 && entry.teamId) deps.forgetTeamKey(entry.teamId);
+        }
+        outcomes.push({ candidate, backupFiles, droppedDatabase, error: null });
+      } catch (error) {
+        outcomes.push({ candidate, backupFiles, droppedDatabase, error: error instanceof Error ? error.message : String(error) });
       }
-      if (candidate.deleteProject && candidate.entry.projectId) {
-        await deps.db.base.query('DELETE FROM projects WHERE id = $1', [candidate.entry.projectId]);
-        const team = await deps.db.base.query(
-          'DELETE FROM teams WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM projects WHERE team_id = $1)',
-          [candidate.entry.teamId],
-        );
-        if ((team.rowCount ?? 0) > 0 && candidate.entry.teamId) deps.forgetTeamKey(candidate.entry.teamId);
-      }
-      outcomes.push({ candidate, backupFile, droppedDatabase, error: null });
-    } catch (error) {
-      outcomes.push({ candidate, backupFile, droppedDatabase, error: error instanceof Error ? error.message : String(error) });
     }
-  }
-  return outcomes;
+    return outcomes;
+  });
 }

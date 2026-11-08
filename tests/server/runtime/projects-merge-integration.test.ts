@@ -82,7 +82,7 @@ if (OPT_IN) {
 
       const teamB = randomUUID();
       const teamA = randomUUID();
-      const [A, B, E, F, T] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+      const [A, B, E, F, G, T] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
       const home = realpathSync(mkdtemp('home'));
       const rootB = join(home, 'work', 'app');
       const folderA = join(rootB, 'packages', 'cli');
@@ -109,7 +109,7 @@ if (OPT_IN) {
       const http = `http://127.0.0.1:${service.getRuntimeState().port}`;
 
       const projects: Array<[string, string, string, string | null]> = [
-        [A, teamA, 'cli', folderA], [B, teamB, 'app', rootB], [E, teamB, 'notes', folderE], [F, teamA, 'scratch', null], [T, teamA, 'shared', folderT],
+        [A, teamA, 'cli', folderA], [B, teamB, 'app', rootB], [E, teamB, 'notes', folderE], [F, teamA, 'scratch', join(home, 'deleted-scratch')], [G, teamA, 'crowded', join(home, 'deleted-crowded')], [T, teamA, 'shared', folderT],
       ];
       const dbs: Record<string, Pool> = {};
       for (const [id, team, name, folder] of projects) {
@@ -126,6 +126,16 @@ if (OPT_IN) {
       const orphan = `msp_${randomUUID().replace(/-/g, '')}`;
       await base.query(`CREATE DATABASE "${orphan}"`);
       await bootstrapServerPostgresSchema(pool(orphan) as never, 'project');
+      // An orphan that still holds a record, and an empty project whose
+      // database also holds another team's account row: prune keeps both.
+      const orphanWithRecords = `msp_${randomUUID().replace(/-/g, '')}`;
+      await base.query(`CREATE DATABASE "${orphanWithRecords}"`);
+      const orphanPool = pool(orphanWithRecords);
+      await bootstrapServerPostgresSchema(orphanPool as never, 'project');
+      await orphanPool.query(`INSERT INTO teams (id, name) VALUES ('t-lost', 't-lost')`);
+      await orphanPool.query(`INSERT INTO projects (id, team_id, name) VALUES ('p-lost', 't-lost', 'lost')`);
+      await orphanPool.query(`INSERT INTO observations (id, project_id, team_id, content) VALUES ('o-lost', 'p-lost', 't-lost', 'a record nobody names')`);
+      await dbs[G].query(`INSERT INTO teams (id, name) VALUES ('t-foreign', 't-foreign')`);
 
       // Target B: a session that also ran in A's folder, an unrelated row that
       // happens to use one of A's ids, and an event A captured too.
@@ -186,9 +196,9 @@ if (OPT_IN) {
       const preview = out.join('\n');
       expect(preview).toContain('sessions: 0 (1 already in the target)');
       expect(preview).toContain('events: 2 (1 already in the target)');
-      expect(preview).toContain('completed generation jobs: 1');
+      expect(preview).toContain('generation jobs: 2');
       expect(preview).toContain('observations and notes: 4 (1 get a new id because the target uses theirs)');
-      expect(preview).toContain('1 queued or running generation job in cli will be cancelled');
+      expect(preview).toContain('Queued or running generation jobs: 1. They move to the target as queued');
       expect(preview).toContain(folderA);
       expect(preview).toContain(`memsmith merge ${A} ${B} --yes`);
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(1);
@@ -200,10 +210,26 @@ if (OPT_IN) {
       expect(await run(() => runMergeCommand([A, A, '--yes'], deps))).toBe(1);
       expect(existsSync(backupDir)).toBe(false);
 
+      // A copy that fails partway is rolled back: the target gains nothing,
+      // the source is not archived, and its queued job is still queued.
+      await b.query(`CREATE FUNCTION refuse_revised() RETURNS trigger AS $$
+        BEGIN IF NEW.content = 'zebra decision revised' THEN RAISE EXCEPTION 'refused by test trigger'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+      await b.query('CREATE TRIGGER refuse_revised BEFORE INSERT ON observations FOR EACH ROW EXECUTE FUNCTION refuse_revised()');
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(1);
+      expect(err.join('\n')).toContain('stopped at the copy step');
+      expect(err.join('\n')).toContain('rolled back');
+      expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(1);
+      expect((await b.query('SELECT count(*)::int AS n FROM agent_events WHERE project_id = $1', [B])).rows[0].n).toBe(1);
+      expect((await a.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j2])).rows[0].status).toBe('queued');
+      const untouched = (await base.query('SELECT metadata FROM projects WHERE id = $1', [A])).rows[0].metadata;
+      expect(untouched.mergedInto).toBeUndefined();
+      expect(untouched.mergingInto).toBeUndefined();
+      await b.query('DROP TRIGGER refuse_revised ON observations');
+
       // Merge.
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
-      const backups = readdirSync(backupDir);
-      expect(backups).toHaveLength(1);
+      const backups = readdirSync(backupDir).sort((x, y) => statSync(join(backupDir, y)).mtimeMs - statSync(join(backupDir, x)).mtimeMs);
+      expect(backups).toHaveLength(2);
       expect(backups[0]).toStartWith(`merge-${A}-`);
       expect(statSync(join(backupDir, backups[0])).mode & 0o777).toBe(0o600);
       expect(readFileSync(join(backupDir, backups[0]), 'utf-8')).toContain('zebra quokka migration decision');
@@ -211,6 +237,8 @@ if (OPT_IN) {
       const moved = (await b.query('SELECT id, team_id, content, kind, supersedes, created_by_job_id, server_session_id, embedding_vec::text AS vec FROM observations WHERE project_id = $1', [B])).rows;
       const byId = new Map(moved.map((r) => [r.id, r]));
       expect(byId.get(o1)).toMatchObject({ team_id: teamB, created_by_job_id: j1, server_session_id: sB });
+      const createdText = async (pool: Pool) => (await pool.query('SELECT created_at::text AS t FROM observations WHERE id = $1', [o1])).rows[0].t;
+      expect(await createdText(b)).toBe(await createdText(a));
       expect(byId.get(o1).vec).toBe((await a.query('SELECT embedding_vec::text AS vec FROM observations WHERE id = $1', [o1])).rows[0].vec);
       expect(byId.get(n1).kind).toBe('user_note');
       expect(byId.get(o2).supersedes).toBe(o1);
@@ -219,7 +247,8 @@ if (OPT_IN) {
       const events = (await b.query('SELECT id, server_session_id, team_id FROM agent_events WHERE id = ANY($1)', [[e1, e2, e3]])).rows;
       expect(events.map((r) => r.id).sort()).toEqual([e1, e2].sort());
       expect(events.every((r) => r.server_session_id === sB && r.team_id === teamB)).toBe(true);
-      expect((await b.query('SELECT id FROM observation_generation_jobs WHERE project_id = $1', [B])).rows.map((r) => r.id)).toEqual([j1]);
+      const movedJobs = (await b.query('SELECT id, status FROM observation_generation_jobs WHERE project_id = $1 ORDER BY id', [B])).rows;
+      expect(movedJobs).toEqual([{ id: j1, status: 'completed' }, { id: j2, status: 'queued' }].sort((x, y) => (x.id < y.id ? -1 : 1)));
       expect((await b.query('SELECT count(*)::int AS n FROM observation_sources WHERE observation_id = $1', [o1])).rows[0].n).toBe(1);
       expect((await a.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j2])).rows[0].status).toBe('cancelled');
       expect((await a.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(4);
@@ -251,6 +280,15 @@ if (OPT_IN) {
       expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length);
 
+      // Rows changed or added in the source after a copy reach the target on the next pass.
+      const o4 = randomUUID();
+      await a.query(`UPDATE observations SET content = 'zebra quokka migration decision, amended', updated_at = now() WHERE id = $1`, [o1]);
+      await a.query(`INSERT INTO observations (id, project_id, team_id, content) VALUES ($1, $2, $3, 'late arrival')`, [o4, A, teamA]);
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT content FROM observations WHERE id = $1', [o1])).rows[0].content).toBe('zebra quokka migration decision, amended');
+      expect((await b.query('SELECT project_id FROM observations WHERE id = $1', [o4])).rows[0].project_id).toBe(B);
+      await b.query('DELETE FROM observations WHERE id = $1', [o4]);
+
       // E shares B's team; once merged and archived, a team-wide read must not return its rows twice.
       expect(await run(() => runMergeCommand([E, B, '--yes'], deps))).toBe(0);
       const browse = await postJson(http, '/v1/search', { projectId: B, query: '' , limit: 100 });
@@ -262,21 +300,27 @@ if (OPT_IN) {
       expect(await run(() => runProjectsCommand(['--prune'], deps))).toBe(0);
       const prunePreview = out.join('\n');
       for (const name of ['cli', 'notes', 'scratch', orphan]) expect(prunePreview).toContain(name);
+      expect(prunePreview).toContain(`Keeping ${orphanWithRecords}: it holds 1 records`);
+      expect(prunePreview).toContain('Keeping crowded: its database holds 1 account rows');
       expect(prunePreview).not.toContain('app (');
       expect(prunePreview).toContain('Keeping shared');
-      expect((await base.query('SELECT count(*)::int AS n FROM projects')).rows[0].n).toBe(5);
+      expect((await base.query('SELECT count(*)::int AS n FROM projects')).rows[0].n).toBe(6);
 
       for (const p of pools) if (p !== base && p !== b) await p.end().catch(() => {});
       expect(await run(() => runProjectsCommand(['--prune', '--yes'], deps))).toBe(0);
       expect(out).toContain('Run `memsmith restart` to release connections to dropped databases.');
       expect(forgotten).toEqual([]);
       const remaining = (await base.query('SELECT id FROM projects ORDER BY id')).rows.map((r) => r.id);
-      expect(remaining.sort()).toEqual([B, T].sort());
+      // Merged projects keep their record, so a folder that still names them is routed to B.
+      expect(remaining.sort()).toEqual([A, B, E, G, T].sort());
       const dbNames = (await base.query("SELECT datname FROM pg_database WHERE datname LIKE 'msp_%'")).rows.map((r) => r.datname);
-      expect(dbNames.sort()).toEqual([msp(B), msp(T)].sort());
+      expect(dbNames.sort()).toEqual([msp(B), msp(G), msp(T), orphanWithRecords].sort());
       const pruneBackups = readdirSync(backupDir).filter((f) => f.startsWith('prune-'));
-      expect(pruneBackups).toHaveLength(4);
-      for (const name of [msp(A), msp(E), msp(F), orphan]) expect(pruneBackups.some((f) => f.includes(name))).toBe(true);
+      expect(pruneBackups).toHaveLength(5);
+      for (const name of [msp(A), msp(E), msp(F), `${F}-account`, orphan]) expect(pruneBackups.some((f) => f.includes(name))).toBe(true);
+      const accountBackup = readFileSync(join(backupDir, pruneBackups.find((f) => f.includes(`${F}-account`))!), 'utf-8');
+      expect(accountBackup).toContain(F);
+      expect(accountBackup).toContain('json_populate_record');
       expect((await b.query('SELECT count(*)::int AS n FROM observations')).rows[0].n).toBe(moved.length + 1);
     }, 180_000);
   });

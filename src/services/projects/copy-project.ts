@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Copies one project's rows into another project's database, rewriting
-// project_id and team_id. Ids are kept unless the target already holds a
-// different row with that id; such rows get a derived id, so a second run maps
-// them to the same id and skips them. A row the target already has under a
-// unique key (an event's idempotency key, a session's external id, an
-// observation's generation key) is not copied again; its children point at the
-// target's row.
+// project_id and team_id.
+//
+// Two passes, both paged by id so no table is held in memory: the first reads
+// only key columns and decides, for every source row, its target id and
+// whether to copy it, update an earlier copy, or skip it; the second reads full
+// rows, as text so timestamps keep microsecond precision, and writes them.
+//
+// Ids are kept unless the target holds a different row with that id; such
+// rows get a derived id, the same on every run, so a second run finds them. A
+// row the target already holds under a unique key (an event's idempotency
+// key, a session's external id, an observation's generation key) is not
+// copied again; its children point at the target's row.
 import type { Queryable } from './projects-db.js';
 
 export const COPY_TABLES = [
@@ -21,20 +27,26 @@ export const COPY_TABLES = [
 export type CopyTable = (typeof COPY_TABLES)[number];
 
 export interface TableCounts {
-  /** Rows in the source project that this table's copy considers. */
+  /** Source rows this table's copy considers. */
   source: number;
   /** Rows the copy inserts. */
   copy: number;
   /** Rows the target already has, from an earlier run or under the same unique key. */
   alreadyThere: number;
+  /** Earlier copies the source has changed since, which the copy updates. */
+  updated: number;
   /** Copied rows that get a new id or idempotency key because the target uses theirs. */
   renamed: number;
 }
 
 export interface CopyReport {
   tables: Record<CopyTable, TableCounts>;
-  /** Jobs that are not copied: queued or processing ones are cancelled instead, and failed or cancelled ones stay behind. */
-  jobsLeftBehind: { active: number; finished: number };
+  /** Queued or processing source jobs, copied into the target as queued. Cancel them in the source after the copy commits. */
+  activeJobIds: string[];
+  /** Failed and cancelled jobs stay in the source. */
+  finishedJobsLeftBehind: number;
+  /** Source columns the target has no column for, per table. Their values are not copied. */
+  droppedColumns: Partial<Record<CopyTable, string[]>>;
 }
 
 export interface CopyScope {
@@ -45,18 +57,19 @@ export interface CopyScope {
 }
 
 type Row = Record<string, any>;
-type IdMap = Map<string, string>;
+type Action = 'copy' | 'update' | 'skip';
+interface Decision { target: string; action: Action }
+type Decisions = Map<string, Decision>;
 
-const BATCH = 500;
+const PAGE = 500;
 const INSERT_BATCH = 200;
+const MAX_DERIVED = 5;
+const UPDATABLE = new Set<CopyTable>(['server_sessions', 'observations']);
+const COPIED_JOB_STATUSES = ['completed', 'queued', 'processing'];
+const us = (col: string) => `(extract(epoch FROM ${col}) * 1000000)::bigint::text`;
 
 function emptyCounts(): Record<CopyTable, TableCounts> {
-  return Object.fromEntries(COPY_TABLES.map((t) => [t, { source: 0, copy: 0, alreadyThere: 0, renamed: 0 }])) as Record<CopyTable, TableCounts>;
-}
-
-function sameInstant(a: unknown, b: unknown): boolean {
-  if (a == null || b == null) return a == b;
-  return new Date(a as string).getTime() === new Date(b as string).getTime();
+  return Object.fromEntries(COPY_TABLES.map((t) => [t, { source: 0, copy: 0, alreadyThere: 0, updated: 0, renamed: 0 }])) as Record<CopyTable, TableCounts>;
 }
 
 function chunks<T>(items: T[], size: number): T[][] {
@@ -65,80 +78,78 @@ function chunks<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-async function lookup(db: Queryable, table: string, column: string, values: unknown[], where = ''): Promise<Map<string, Row>> {
-  const found = new Map<string, Row>();
-  const distinct = [...new Set(values.filter((v) => v != null).map(String))];
-  for (const batch of chunks(distinct, BATCH)) {
-    const result = await db.query(`SELECT * FROM ${table} WHERE ${column} = ANY($1::text[]) ${where}`, [batch]);
-    for (const row of result.rows) found.set(String(row[column]), row);
+function newer(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (a == null) return false;
+  if (b == null) return true;
+  return BigInt(a) > BigInt(b);
+}
+
+/** Pages `select` (which must end in a WHERE clause on alias `x`) by x.id. */
+async function* pages(db: Queryable, select: string, params: unknown[]): AsyncGenerator<Row[]> {
+  let after = '';
+  for (;;) {
+    const result = await db.query(
+      `${select} AND x.id > $${params.length + 1} ORDER BY x.id LIMIT ${PAGE}`,
+      [...params, after],
+    );
+    if (result.rows.length === 0) return;
+    yield result.rows;
+    after = String(result.rows[result.rows.length - 1].id);
+    if (result.rows.length < PAGE) return;
   }
+}
+
+const SOURCE_SCOPE: Record<CopyTable, string> = {
+  server_sessions: 'FROM server_sessions x WHERE x.project_id = $1',
+  agent_events: 'FROM agent_events x WHERE x.project_id = $1',
+  observation_generation_jobs: `FROM observation_generation_jobs x WHERE x.project_id = $1 AND x.status IN ('completed', 'queued', 'processing')`,
+  observations: 'FROM observations x WHERE x.project_id = $1',
+  observation_sources: 'FROM observation_sources x JOIN observations o ON o.id = x.observation_id WHERE o.project_id = $1',
+  observation_generation_job_events: `FROM observation_generation_job_events x JOIN observation_generation_jobs j ON j.id = x.generation_job_id
+    WHERE j.project_id = $1 AND j.status IN ('completed', 'queued', 'processing')`,
+};
+
+const KEY_COLUMNS: Record<CopyTable, string> = {
+  server_sessions: `x.id, ${us('x.created_at')} AS created_us, ${us('x.updated_at')} AS updated_us, x.idempotency_key, x.external_session_id, x.platform_source`,
+  agent_events: `x.id, ${us('x.created_at')} AS created_us, x.idempotency_key`,
+  observation_generation_jobs: `x.id, ${us('x.created_at')} AS created_us, x.status, x.idempotency_key, x.bullmq_job_id, x.source_type, x.source_id, x.job_type`,
+  observations: `x.id, ${us('x.created_at')} AS created_us, ${us('x.updated_at')} AS updated_us, x.generation_key, x.idempotency_key`,
+  observation_sources: `x.id, ${us('x.created_at')} AS created_us, x.observation_id, x.source_id`,
+  observation_generation_job_events: `x.id, ${us('x.created_at')} AS created_us, x.generation_job_id`,
+};
+
+async function targetById(target: Queryable, table: CopyTable, ids: string[]): Promise<Map<string, Row>> {
+  const found = new Map<string, Row>();
+  if (ids.length === 0) return found;
+  const extra = table === 'observation_sources' ? ', observation_id, source_id'
+    : table === 'observation_generation_job_events' ? ', generation_job_id'
+    : `, project_id${UPDATABLE.has(table) ? `, ${us('updated_at')} AS updated_us` : ''}`;
+  const result = await target.query(`SELECT id, ${us('created_at')} AS created_us${extra} FROM ${table} WHERE id = ANY($1::text[])`, [ids]);
+  for (const r of result.rows) found.set(String(r.id), r);
   return found;
 }
 
-export async function readSourceRows(source: Queryable, projectId: string): Promise<Record<CopyTable, Row[]>> {
-  const q = async (sql: string) => (await source.query(sql, [projectId])).rows as Row[];
-  return {
-    server_sessions: await q('SELECT * FROM server_sessions WHERE project_id = $1 ORDER BY created_at, id'),
-    agent_events: await q('SELECT * FROM agent_events WHERE project_id = $1 ORDER BY created_at, id'),
-    observation_generation_jobs: await q('SELECT * FROM observation_generation_jobs WHERE project_id = $1 ORDER BY created_at, id'),
-    observations: await q('SELECT * FROM observations WHERE project_id = $1 ORDER BY created_at, id'),
-    observation_sources: await q(
-      `SELECT s.* FROM observation_sources s JOIN observations o ON o.id = s.observation_id
-        WHERE o.project_id = $1 ORDER BY s.created_at, s.id`,
-    ),
-    observation_generation_job_events: await q(
-      `SELECT e.* FROM observation_generation_job_events e
-         JOIN observation_generation_jobs j ON j.id = e.generation_job_id
-        WHERE j.project_id = $1 AND j.status = 'completed' ORDER BY e.created_at, e.id`,
-    ),
-  };
+async function lookupColumn(target: Queryable, table: string, column: string, values: unknown[]): Promise<Map<string, Row>> {
+  const found = new Map<string, Row>();
+  const distinct = [...new Set(values.filter((v) => v != null).map(String))];
+  if (distinct.length === 0) return found;
+  const result = await target.query(`SELECT id, project_id, ${column} FROM ${table} WHERE ${column} = ANY($1::text[])`, [distinct]);
+  for (const r of result.rows) found.set(String(r[column]), r);
+  return found;
 }
 
-interface ColumnInfo { name: string; json: boolean }
+interface ColumnSets { source: string[]; target: string[] }
 
-async function targetColumns(target: Queryable): Promise<Map<string, ColumnInfo[]>> {
-  const result = await target.query(
-    `SELECT table_name, column_name, data_type
-       FROM information_schema.columns
+async function columnsOf(db: Queryable, tables: readonly string[]): Promise<Map<string, string[]>> {
+  const result = await db.query(
+    `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ANY($1::text[]) AND is_generated <> 'ALWAYS'
       ORDER BY table_name, ordinal_position`,
-    [[...COPY_TABLES]],
+    [[...tables]],
   );
-  const map = new Map<string, ColumnInfo[]>();
-  for (const row of result.rows) {
-    const list = map.get(row.table_name) ?? [];
-    list.push({ name: String(row.column_name), json: row.data_type === 'jsonb' || row.data_type === 'json' });
-    map.set(row.table_name, list);
-  }
+  const map = new Map<string, string[]>();
+  for (const r of result.rows) map.set(r.table_name, [...(map.get(r.table_name) ?? []), String(r.column_name)]);
   return map;
-}
-
-async function insertRows(
-  target: Queryable,
-  table: CopyTable,
-  rows: Row[],
-  columns: ColumnInfo[],
-  onConflict = '',
-): Promise<number> {
-  let inserted = 0;
-  const present = columns.filter((c) => rows.some((r) => c.name in r));
-  for (const batch of chunks(rows, INSERT_BATCH)) {
-    const values: unknown[] = [];
-    const tuples = batch.map((row) => {
-      const slots = present.map((c) => {
-        const v = row[c.name];
-        values.push(c.json && v != null ? JSON.stringify(v) : v ?? null);
-        return `$${values.length}`;
-      });
-      return `(${slots.join(', ')})`;
-    });
-    const result = await target.query(
-      `INSERT INTO ${table} (${present.map((c) => `"${c.name}"`).join(', ')}) VALUES ${tuples.join(', ')} ${onConflict}`,
-      values,
-    );
-    inserted += result.rowCount ?? batch.length;
-  }
-  return inserted;
 }
 
 /**
@@ -151,215 +162,276 @@ export async function copyProject(
   scope: CopyScope,
   write: boolean,
 ): Promise<CopyReport> {
-  const src = await readSourceRows(source, scope.fromProjectId);
   const counts = emptyCounts();
-  const suffix = `-m${scope.fromProjectId.replace(/-/g, '').slice(0, 8)}`;
-  const derive = (value: string) => `${value}${suffix}`;
-  const inTarget = (row: Row | undefined) => row !== undefined && row.project_id === scope.intoProjectId;
+  const suffixBase = `-m${scope.fromProjectId.replace(/-/g, '').slice(0, 8)}`;
+  const derived = (id: string, n: number) => `${id}${suffixBase}${n > 1 ? `-${n}` : ''}`;
+  const decisions = Object.fromEntries(COPY_TABLES.map((t) => [t, new Map()])) as Record<CopyTable, Decisions>;
+  const renamedKeys = { agent_events: new Set<string>(), observation_generation_jobs: new Set<string>() };
+  const supersedes = new Map<string, string>();
+  const activeJobIds: string[] = [];
 
-  // Assigns each source row its target id. `duplicateOf` returns the target
-  // row's id when the target already holds this row under a unique key.
-  async function assign(
+  const mapId = (table: CopyTable, id: unknown): string | null =>
+    id == null ? null : decisions[table].get(String(id))?.target ?? null;
+
+  // Decides one page of rows. `duplicateOf` returns the target row's id when
+  // the target holds this row under a unique key.
+  async function decide(
     table: CopyTable,
     rows: Row[],
     sameRow: (existing: Row, row: Row) => boolean,
     duplicateOf: (row: Row) => string | undefined = () => undefined,
-  ): Promise<{ map: IdMap; copy: Row[] }> {
-    const map: IdMap = new Map();
-    const copy: Row[] = [];
-    const byId = await lookup(target, table, 'id', rows.map((r) => r.id));
-    const pending: Row[] = [];
+  ): Promise<void> {
+    const map = decisions[table];
+    let pending: Row[] = [];
+    const existingById = await targetById(target, table, rows.map((r) => String(r.id)));
+    const settle = (row: Row, id: string, existing: Row | undefined, renamed: boolean) => {
+      if (!existing) {
+        map.set(row.id, { target: id, action: 'copy' });
+        counts[table].copy += 1;
+        if (renamed) counts[table].renamed += 1;
+        return true;
+      }
+      if (!sameRow(existing, row)) return false;
+      const update = UPDATABLE.has(table) && newer(row.updated_us, existing.updated_us);
+      map.set(row.id, { target: id, action: update ? 'update' : 'skip' });
+      if (update) counts[table].updated += 1;
+      else counts[table].alreadyThere += 1;
+      return true;
+    };
     for (const row of rows) {
       counts[table].source += 1;
       const dup = duplicateOf(row);
       if (dup !== undefined) {
-        map.set(row.id, dup);
+        map.set(row.id, { target: dup, action: 'skip' });
         counts[table].alreadyThere += 1;
         continue;
       }
-      const existing = byId.get(row.id);
-      if (!existing) {
-        map.set(row.id, row.id);
-        copy.push(row);
-      } else if (sameRow(existing, row)) {
-        map.set(row.id, row.id);
-        counts[table].alreadyThere += 1;
-      } else {
-        pending.push(row);
-      }
+      if (!settle(row, row.id, existingById.get(row.id), false)) pending.push(row);
     }
-    const derived = await lookup(target, table, 'id', pending.map((r) => derive(r.id)));
-    for (const row of pending) {
-      const id = derive(row.id);
-      const existing = derived.get(id);
-      map.set(row.id, id);
-      if (existing && sameRow(existing, row)) {
-        counts[table].alreadyThere += 1;
-      } else {
-        copy.push({ ...row, id });
-        counts[table].renamed += 1;
-      }
+    for (let n = 1; n <= MAX_DERIVED && pending.length > 0; n++) {
+      const found = await targetById(target, table, pending.map((r) => derived(r.id, n)));
+      pending = pending.filter((row) => !settle(row, derived(row.id, n), found.get(derived(row.id, n)), true));
     }
-    return { map, copy };
+    if (pending.length > 0) {
+      throw new Error(`${table} ${pending[0].id}: the target uses that id and ${MAX_DERIVED} derived ids, so the row cannot be copied`);
+    }
   }
 
-  const sameProjectRow = (existing: Row, row: Row) => inTarget(existing) && sameInstant(existing.created_at, row.created_at);
-  const mapped = (map: IdMap, value: unknown) => (value == null ? null : map.get(String(value)) ?? null);
+  const inTarget = (row: Row) => row.project_id === scope.intoProjectId;
+  const sameProjectRow = (existing: Row, row: Row) => inTarget(existing) && existing.created_us === row.created_us;
+  const keyPages = (table: CopyTable) => pages(source, `SELECT ${KEY_COLUMNS[table]} ${SOURCE_SCOPE[table]}`, [scope.fromProjectId]);
 
   // Sessions: one coding session can span two folders that resolved to two
   // projects, so the target may already hold it under the same external id.
-  const targetSessions = (await target.query('SELECT * FROM server_sessions WHERE project_id = $1', [scope.intoProjectId])).rows as Row[];
-  const sessionKey = (r: Row) => (r.external_session_id ? `${r.platform_source ?? ''}\u0000${r.external_session_id}` : null);
   const sessionByKey = new Map<string, string>();
   const sessionByIdem = new Map<string, string>();
-  for (const s of targetSessions) {
-    const key = sessionKey(s);
-    if (key) sessionByKey.set(key, s.id);
-    if (s.idempotency_key) sessionByIdem.set(s.idempotency_key, s.id);
+  const sessionKey = (r: Row) => (r.external_session_id ? `${r.platform_source ?? ''}\u0000${r.external_session_id}` : null);
+  for await (const page of pages(target, 'SELECT x.id, x.idempotency_key, x.external_session_id, x.platform_source FROM server_sessions x WHERE x.project_id = $1', [scope.intoProjectId])) {
+    for (const s of page) {
+      const key = sessionKey(s);
+      if (key) sessionByKey.set(key, s.id);
+      if (s.idempotency_key) sessionByIdem.set(s.idempotency_key, s.id);
+    }
   }
-  const sessions = await assign('server_sessions', src.server_sessions, sameProjectRow, (r) => {
-    const key = sessionKey(r);
-    const viaKey = key ? sessionByKey.get(key) : undefined;
-    const viaIdem = r.idempotency_key ? sessionByIdem.get(r.idempotency_key) : undefined;
-    const dup = viaKey ?? viaIdem;
-    return dup !== undefined && dup !== r.id ? dup : undefined;
-  });
+  for await (const page of keyPages('server_sessions')) {
+    await decide('server_sessions', page, sameProjectRow, (r) => {
+      const key = sessionKey(r);
+      const dup = (key ? sessionByKey.get(key) : undefined) ?? (r.idempotency_key ? sessionByIdem.get(r.idempotency_key) : undefined);
+      return dup !== undefined && dup !== r.id ? dup : undefined;
+    });
+  }
 
   // Events: idempotency_key is unique across the whole database.
-  const eventKeys = await lookup(target, 'agent_events', 'idempotency_key', src.agent_events.map((r) => r.idempotency_key));
-  const renamedEventKeys = new Set<string>();
-  const events = await assign('agent_events', src.agent_events, sameProjectRow, (r) => {
-    const holder = eventKeys.get(r.idempotency_key);
-    if (!holder || holder.id === r.id) return undefined;
-    if (inTarget(holder)) return String(holder.id);
-    renamedEventKeys.add(r.id);
-    return undefined;
-  });
-
-  const obsByGenKey = new Map<string, string>();
-  const obsByIdem = new Map<string, string>();
-  const targetKeyed = (await target.query(
-    `SELECT id, generation_key, idempotency_key FROM observations
-      WHERE project_id = $1 AND team_id = $2 AND (generation_key IS NOT NULL OR idempotency_key IS NOT NULL)`,
-    [scope.intoProjectId, scope.intoTeamId],
-  )).rows as Row[];
-  for (const o of targetKeyed) {
-    if (o.generation_key) obsByGenKey.set(o.generation_key, o.id);
-    if (o.idempotency_key) obsByIdem.set(o.idempotency_key, o.id);
+  for await (const page of keyPages('agent_events')) {
+    const holders = await lookupColumn(target, 'agent_events', 'idempotency_key', page.map((r) => r.idempotency_key));
+    await decide('agent_events', page, sameProjectRow, (r) => {
+      const holder = holders.get(r.idempotency_key);
+      if (!holder || holder.id === r.id) return undefined;
+      if (inTarget(holder)) return String(holder.id);
+      renamedKeys.agent_events.add(r.id);
+      return undefined;
+    });
   }
-  const observations = await assign('observations', src.observations, sameProjectRow, (r) => {
-    const dup = (r.generation_key && obsByGenKey.get(r.generation_key)) || (r.idempotency_key && obsByIdem.get(r.idempotency_key));
-    return dup && dup !== r.id ? dup : undefined;
-  });
 
-  const completed = src.observation_generation_jobs.filter((j) => j.status === 'completed');
-  const jobsLeftBehind = {
-    active: src.observation_generation_jobs.filter((j) => j.status === 'queued' || j.status === 'processing').length,
-    finished: src.observation_generation_jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled').length,
-  };
+  const keyedObs = new Map<string, string>();
+  for await (const page of pages(target,
+    `SELECT x.id, x.generation_key, x.idempotency_key FROM observations x
+      WHERE x.project_id = $1 AND x.team_id = $2 AND (x.generation_key IS NOT NULL OR x.idempotency_key IS NOT NULL)`,
+    [scope.intoProjectId, scope.intoTeamId])) {
+    for (const o of page) {
+      if (o.generation_key) keyedObs.set(`g\u0000${o.generation_key}`, o.id);
+      if (o.idempotency_key) keyedObs.set(`i\u0000${o.idempotency_key}`, o.id);
+    }
+  }
+  for await (const page of keyPages('observations')) {
+    await decide('observations', page, sameProjectRow, (r) => {
+      const dup = (r.generation_key && keyedObs.get(`g\u0000${r.generation_key}`)) || (r.idempotency_key && keyedObs.get(`i\u0000${r.idempotency_key}`));
+      return dup && dup !== r.id ? dup : undefined;
+    });
+  }
+
+  const finished = await source.query(
+    `SELECT count(*)::int AS n FROM observation_generation_jobs WHERE project_id = $1 AND status NOT IN ('completed', 'queued', 'processing')`,
+    [scope.fromProjectId],
+  );
   const jobSourceId = (j: Row): string => {
-    if (j.source_type === 'agent_event') return events.map.get(j.source_id) ?? j.source_id;
-    if (j.source_type === 'session_summary') return sessions.map.get(j.source_id) ?? j.source_id;
-    return observations.map.get(j.source_id) ?? j.source_id;
+    if (j.source_type === 'agent_event') return mapId('agent_events', j.source_id) ?? j.source_id;
+    if (j.source_type === 'session_summary') return mapId('server_sessions', j.source_id) ?? j.source_id;
+    return mapId('observations', j.source_id) ?? j.source_id;
   };
-  const jobKeys = await lookup(target, 'observation_generation_jobs', 'idempotency_key', completed.map((j) => j.idempotency_key));
-  const targetJobScopes = new Map<string, string>();
-  for (const j of (await target.query(
-    'SELECT id, source_type, source_id, job_type FROM observation_generation_jobs WHERE project_id = $1 AND team_id = $2',
-    [scope.intoProjectId, scope.intoTeamId],
-  )).rows as Row[]) {
-    targetJobScopes.set(`${j.source_type}\u0000${j.source_id}\u0000${j.job_type}`, j.id);
+  const jobScopes = new Map<string, string>();
+  for await (const page of pages(target,
+    'SELECT x.id, x.source_type, x.source_id, x.job_type FROM observation_generation_jobs x WHERE x.project_id = $1 AND x.team_id = $2',
+    [scope.intoProjectId, scope.intoTeamId])) {
+    for (const j of page) jobScopes.set(`${j.source_type}\u0000${j.source_id}\u0000${j.job_type}`, j.id);
   }
-  const renamedJobKeys = new Set<string>();
-  const jobs = await assign('observation_generation_jobs', completed, sameProjectRow, (j) => {
-    const scoped = targetJobScopes.get(`${j.source_type}\u0000${jobSourceId(j)}\u0000${j.job_type}`);
-    if (scoped !== undefined && scoped !== j.id) return scoped;
-    const holder = jobKeys.get(j.idempotency_key);
-    if (!holder || holder.id === j.id) return undefined;
-    if (inTarget(holder)) return String(holder.id);
-    renamedJobKeys.add(j.id);
-    return undefined;
-  });
-  const bullmqTaken = await lookup(target, 'observation_generation_jobs', 'bullmq_job_id', jobs.copy.map((j) => j.bullmq_job_id));
+  const bullmqTaken = new Set<string>();
+  for await (const page of keyPages('observation_generation_jobs')) {
+    for (const j of page) if (j.status !== 'completed') activeJobIds.push(String(j.id));
+    const holders = await lookupColumn(target, 'observation_generation_jobs', 'idempotency_key', page.map((j) => j.idempotency_key));
+    for (const id of (await lookupColumn(target, 'observation_generation_jobs', 'bullmq_job_id', page.map((j) => j.bullmq_job_id))).keys()) bullmqTaken.add(id);
+    await decide('observation_generation_jobs', page, sameProjectRow, (j) => {
+      const scoped = jobScopes.get(`${j.source_type}\u0000${jobSourceId(j)}\u0000${j.job_type}`);
+      if (scoped !== undefined && scoped !== j.id) return scoped;
+      const holder = holders.get(j.idempotency_key);
+      if (!holder || holder.id === j.id) return undefined;
+      if (inTarget(holder)) return String(holder.id);
+      renamedKeys.observation_generation_jobs.add(j.id);
+      return undefined;
+    });
+  }
 
-  const copiedObservations = new Set(observations.copy.map((o) => String(o.id)));
-  const sourceRows = src.observation_sources.filter((s) => copiedObservations.has(observations.map.get(s.observation_id)!));
-  const sources = await assign('observation_sources', sourceRows, (existing, row) =>
-    existing.observation_id === observations.map.get(row.observation_id) && existing.source_id === row.source_id);
-  const copiedJobs = new Set(jobs.copy.map((j) => String(j.id)));
-  const jobEventRows = src.observation_generation_job_events.filter((e) => copiedJobs.has(jobs.map.get(e.generation_job_id)!));
-  const jobEvents = await assign('observation_generation_job_events', jobEventRows, (existing, row) =>
-    existing.generation_job_id === jobs.map.get(row.generation_job_id) && sameInstant(existing.created_at, row.created_at));
-
-  const scoped = (row: Row) => ({ ...row, project_id: scope.intoProjectId, team_id: scope.intoTeamId });
-  const rewritten: Record<CopyTable, Row[]> = {
-    server_sessions: sessions.copy.map(scoped),
-    agent_events: events.copy.map((e) => ({
-      ...scoped(e),
-      server_session_id: mapped(sessions.map, e.server_session_id),
-      idempotency_key: renamedEventKeys.has(e.id) ? `${e.idempotency_key}${suffix}` : e.idempotency_key,
-    })),
-    observation_generation_jobs: jobs.copy.map((j) => {
-      const sourceId = jobSourceId(j);
-      const payload = j.payload && typeof j.payload === 'object' && !Array.isArray(j.payload)
-        ? {
-            ...j.payload,
-            ...('project_id' in j.payload ? { project_id: scope.intoProjectId } : {}),
-            ...('team_id' in j.payload ? { team_id: scope.intoTeamId } : {}),
-            ...('generation_job_id' in j.payload ? { generation_job_id: j.id } : {}),
-            ...('agent_event_id' in j.payload ? { agent_event_id: mapped(events.map, j.payload.agent_event_id) } : {}),
-          }
-        : j.payload;
-      return {
-        ...scoped(j),
-        agent_event_id: mapped(events.map, j.agent_event_id),
-        server_session_id: mapped(sessions.map, j.server_session_id),
-        source_id: sourceId,
-        idempotency_key: renamedJobKeys.has(j.id) ? `${j.idempotency_key}${suffix}` : j.idempotency_key,
-        bullmq_job_id: j.bullmq_job_id && bullmqTaken.has(String(j.bullmq_job_id)) ? null : j.bullmq_job_id,
-        payload,
-      };
-    }),
-    observations: observations.copy.map((o) => ({
-      ...scoped(o),
-      server_session_id: mapped(sessions.map, o.server_session_id),
-      created_by_job_id: mapped(jobs.map, o.created_by_job_id),
-      supersedes: null,
-    })),
-    observation_sources: sources.copy.map((s): Row => ({
-      ...s,
-      observation_id: observations.map.get(s.observation_id),
-      agent_event_id: mapped(events.map, s.agent_event_id),
-      generation_job_id: mapped(jobs.map, s.generation_job_id),
-      source_id: s.source_type === 'agent_event' ? mapped(events.map, s.source_id)
-        : s.source_type === 'session_summary' ? (sessions.map.get(s.source_id) ?? s.source_id)
-        : s.source_type === 'observation_reindex' ? (observations.map.get(s.source_id) ?? s.source_id)
-        : s.source_id,
-    })).filter((s) => s.source_type !== 'agent_event' || s.agent_event_id),
-    observation_generation_job_events: jobEvents.copy.map((e) => ({ ...e, generation_job_id: jobs.map.get(e.generation_job_id) })),
+  const written = (table: CopyTable, id: unknown) => {
+    const d = id == null ? undefined : decisions[table].get(String(id));
+    return d !== undefined && d.action !== 'skip';
   };
-  for (const table of COPY_TABLES) counts[table].copy = rewritten[table].length;
+  for await (const page of keyPages('observation_sources')) {
+    const rows = page.filter((s) => written('observations', s.observation_id));
+    if (rows.length > 0) {
+      await decide('observation_sources', rows, (existing, row) =>
+        existing.observation_id === mapId('observations', row.observation_id) && existing.source_id === row.source_id);
+    }
+  }
+  for await (const page of keyPages('observation_generation_job_events')) {
+    const rows = page.filter((e) => decisions.observation_generation_jobs.get(String(e.generation_job_id))?.action === 'copy');
+    if (rows.length > 0) {
+      await decide('observation_generation_job_events', rows, (existing, row) =>
+        existing.generation_job_id === mapId('observation_generation_jobs', row.generation_job_id) && existing.created_us === row.created_us);
+    }
+  }
 
-  if (!write) return { tables: counts, jobsLeftBehind };
+  const sourceColumns = await columnsOf(source, COPY_TABLES);
+  const targetColumns = await columnsOf(target, COPY_TABLES);
+  const droppedColumns: CopyReport['droppedColumns'] = {};
+  for (const table of COPY_TABLES) {
+    const targetSet = new Set(targetColumns.get(table) ?? []);
+    const dropped = (sourceColumns.get(table) ?? []).filter((c) => !targetSet.has(c));
+    if (dropped.length > 0) droppedColumns[table] = dropped;
+  }
+  const report: CopyReport = { tables: counts, activeJobIds, finishedJobsLeftBehind: Number(finished.rows[0]?.n ?? 0), droppedColumns };
+  if (!write) return report;
 
   await target.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [scope.intoTeamId]);
   await target.query(
     'INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING',
     [scope.intoProjectId, scope.intoTeamId, scope.intoName],
   );
-  const columns = await targetColumns(target);
+
+  const rewrite = (table: CopyTable, row: Row, targetId: string): Row => {
+    const out: Row = { ...row, id: targetId };
+    if ('project_id' in out) out.project_id = scope.intoProjectId;
+    if ('team_id' in out) out.team_id = scope.intoTeamId;
+    if (table === 'agent_events') {
+      out.server_session_id = mapId('server_sessions', row.server_session_id);
+      if (renamedKeys.agent_events.has(row.id)) out.idempotency_key = `${row.idempotency_key}${suffixBase}`;
+    } else if (table === 'observation_generation_jobs') {
+      out.agent_event_id = mapId('agent_events', row.agent_event_id);
+      out.server_session_id = mapId('server_sessions', row.server_session_id);
+      out.source_id = jobSourceId(row);
+      if (renamedKeys.observation_generation_jobs.has(row.id)) out.idempotency_key = `${row.idempotency_key}${suffixBase}`;
+      if (row.bullmq_job_id && bullmqTaken.has(String(row.bullmq_job_id))) out.bullmq_job_id = null;
+      if (row.status !== 'completed') {
+        out.status = 'queued';
+        out.locked_at = null;
+        out.locked_by = null;
+      }
+      if (row.payload) {
+        try {
+          const payload = JSON.parse(row.payload);
+          if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+            if ('project_id' in payload) payload.project_id = scope.intoProjectId;
+            if ('team_id' in payload) payload.team_id = scope.intoTeamId;
+            if ('generation_job_id' in payload) payload.generation_job_id = targetId;
+            if ('agent_event_id' in payload) payload.agent_event_id = mapId('agent_events', payload.agent_event_id);
+            out.payload = JSON.stringify(payload);
+          }
+        } catch {
+          // Keep a payload that is not a JSON object as it is.
+        }
+      }
+    } else if (table === 'observations') {
+      out.server_session_id = mapId('server_sessions', row.server_session_id);
+      out.created_by_job_id = mapId('observation_generation_jobs', row.created_by_job_id);
+      if (row.supersedes != null) supersedes.set(targetId, String(row.supersedes));
+      out.supersedes = null;
+    } else if (table === 'observation_sources') {
+      out.observation_id = mapId('observations', row.observation_id);
+      out.agent_event_id = mapId('agent_events', row.agent_event_id);
+      out.generation_job_id = mapId('observation_generation_jobs', row.generation_job_id);
+      out.source_id = row.source_type === 'agent_event' ? mapId('agent_events', row.source_id)
+        : row.source_type === 'session_summary' ? (mapId('server_sessions', row.source_id) ?? row.source_id)
+        : row.source_type === 'observation_reindex' ? (mapId('observations', row.source_id) ?? row.source_id)
+        : row.source_id;
+    } else if (table === 'observation_generation_job_events') {
+      out.generation_job_id = mapId('observation_generation_jobs', row.generation_job_id);
+    } else if (table === 'server_sessions') {
+      // Only project_id and team_id change.
+    }
+    return out;
+  };
+
   for (const table of COPY_TABLES) {
-    const rows = rewritten[table];
-    if (rows.length === 0) continue;
-    const conflict = table === 'observation_sources' ? 'ON CONFLICT DO NOTHING' : '';
-    counts[table].copy = await insertRows(target, table, rows, columns.get(table) ?? [], conflict);
+    const decided = decisions[table];
+    if (![...decided.values()].some((d) => d.action !== 'skip')) continue;
+    const targetSet = new Set(targetColumns.get(table) ?? []);
+    const cols = (sourceColumns.get(table) ?? []).filter((c) => targetSet.has(c));
+    const select = `SELECT ${cols.map((c) => `x."${c}"::text AS "${c}"`).join(', ')} ${SOURCE_SCOPE[table]}`;
+    const onConflict = table === 'observation_sources' ? ' ON CONFLICT DO NOTHING' : '';
+    let inserted = 0;
+    for await (const page of pages(source, select, [scope.fromProjectId])) {
+      const inserts: Row[] = [];
+      for (const row of page) {
+        const d = decided.get(String(row.id));
+        if (!d || d.action === 'skip') continue;
+        const out = rewrite(table, row, d.target);
+        if (table === 'observation_sources' && out.source_type === 'agent_event' && !out.agent_event_id) continue;
+        if (d.action === 'copy') {
+          inserts.push(out);
+        } else {
+          const setCols = cols.filter((c) => c !== 'id');
+          await target.query(
+            `UPDATE ${table} SET ${setCols.map((c, i) => `"${c}" = $${i + 1}`).join(', ')} WHERE id = $${setCols.length + 1}`,
+            [...setCols.map((c) => out[c] ?? null), d.target],
+          );
+        }
+      }
+      for (const batch of chunks(inserts, INSERT_BATCH)) {
+        const values: unknown[] = [];
+        const tuples = batch.map((r) => `(${cols.map((c) => { values.push(r[c] ?? null); return `$${values.length}`; }).join(', ')})`);
+        const result = await target.query(
+          `INSERT INTO ${table} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${tuples.join(', ')}${onConflict}`,
+          values,
+        );
+        inserted += result.rowCount ?? batch.length;
+      }
+    }
+    counts[table].copy = inserted;
   }
 
-  const links = src.observations
-    .filter((o) => o.supersedes != null && copiedObservations.has(observations.map.get(o.id)!))
-    .map((o) => ({ id: observations.map.get(o.id)!, supersedes: mapped(observations.map, o.supersedes) }))
-    .filter((l) => l.supersedes);
-  for (const batch of chunks(links, BATCH)) {
+  const links = [...supersedes.entries()]
+    .map(([id, original]) => ({ id, supersedes: mapId('observations', original) }))
+    .filter((l): l is { id: string; supersedes: string } => l.supersedes !== null);
+  for (const batch of chunks(links, PAGE)) {
     await target.query(
       `UPDATE observations o SET supersedes = v.supersedes
          FROM unnest($1::text[], $2::text[]) AS v(id, supersedes)
@@ -368,26 +440,34 @@ export async function copyProject(
     );
   }
 
-  return { tables: counts, jobsLeftBehind };
+  return report;
 }
 
-/** Cancels the source project's queued and processing jobs; the generator drops a cancelled job before it writes. */
-export async function cancelActiveJobs(source: Queryable, fromProjectId: string, intoProjectId: string): Promise<number> {
-  const result = await source.query(
-    `WITH cancelled AS (
-       UPDATE observation_generation_jobs
-          SET status = 'cancelled', cancelled_at = now(), updated_at = now(), locked_at = NULL, locked_by = NULL
-        WHERE project_id = $1 AND status IN ('queued', 'processing')
-        RETURNING id, attempts
-     ), logged AS (
-       INSERT INTO observation_generation_job_events (id, generation_job_id, event_type, status_after, attempt, details)
-       SELECT gen_random_uuid()::text, id, 'cancelled', 'cancelled', attempts,
-              jsonb_build_object('reason', 'project merged', 'mergedInto', $2::text)
-         FROM cancelled
-       RETURNING 1
-     )
-     SELECT count(*)::int AS cancelled FROM cancelled`,
-    [fromProjectId, intoProjectId],
-  );
-  return Number(result.rows[0]?.cancelled ?? 0);
+/**
+ * Cancels the given source jobs if they are still queued or processing. The
+ * generator drops a cancelled job before it writes. Call it only after their
+ * copies in the target are committed.
+ */
+export async function cancelSourceJobs(source: Queryable, ids: string[], intoProjectId: string): Promise<number> {
+  let cancelled = 0;
+  for (const batch of chunks(ids, PAGE)) {
+    const result = await source.query(
+      `WITH cancelled AS (
+         UPDATE observation_generation_jobs
+            SET status = 'cancelled', cancelled_at = now(), updated_at = now(), locked_at = NULL, locked_by = NULL
+          WHERE id = ANY($1::text[]) AND status IN ('queued', 'processing')
+          RETURNING id, attempts
+       ), logged AS (
+         INSERT INTO observation_generation_job_events (id, generation_job_id, event_type, status_after, attempt, details)
+         SELECT gen_random_uuid()::text, id, 'cancelled', 'cancelled', attempts,
+                jsonb_build_object('reason', 'moved to the merged project', 'mergedInto', $2::text)
+           FROM cancelled
+         RETURNING 1
+       )
+       SELECT count(*)::int AS cancelled FROM cancelled`,
+      [batch, intoProjectId],
+    );
+    cancelled += Number(result.rows[0]?.cancelled ?? 0);
+  }
+  return cancelled;
 }

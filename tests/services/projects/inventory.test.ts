@@ -74,6 +74,7 @@ describe('loadInventory', () => {
     expect(byId.get(B)?.folders).toEqual([join(repo, 'src', 'cli')]);
     expect(byId.get(B)?.strayUnder).toEqual([{ root: repo, projectId: A }]);
     expect(byId.get(C)?.flags).toEqual(['missing-db']);
+    expect(byId.get(C)?.counts).toMatchObject({ observations: 0, events: 0 });
     expect(byId.get(C)?.databaseName).toBeNull();
     expect(byId.get(D)?.flags).toEqual(['archived']);
     expect(byId.get(D)?.mergedInto).toBe(A);
@@ -86,6 +87,33 @@ describe('loadInventory', () => {
   it('marks a project with no records as empty', async () => {
     const inv = await loadInventory(source([{ id: A, teamId: 't', name: 'a', metadata: {} }], [msp(A)], {}), {});
     expect(inv.projects[0].flags).toEqual(['empty']);
+  });
+
+  it('does not call a database an orphan when a marker stamps it for a project', async () => {
+    const dir = join(home, 'stamped');
+    mkdirSync(dir);
+    const stampedDb = 'msp_99999999999999999999999999999999';
+    marker(dir, A, { databaseName: stampedDb });
+    const inv = await loadInventory(
+      source([{ id: A, teamId: `t-${A}`, name: 'stamped', metadata: { memsmith_project_path: dir } }], [stampedDb], { [`${stampedDb}:${A}`]: stats({ events: 2 }) }),
+      {},
+    );
+    expect(inv.projects.map((p) => [p.projectId, p.databaseName])).toEqual([[A, stampedDb]]);
+  });
+
+  it('leaves unreadable counts unknown instead of empty', async () => {
+    const unreadable: InventorySource = { ...source([{ id: A, teamId: 't', name: 'a', metadata: {} }], [msp(A), msp(B)], {}), recordStats: async () => null };
+    const inv = await loadInventory(unreadable, {});
+    expect(inv.projects.find((p) => p.projectId === A)).toMatchObject({ counts: null, flags: [] });
+    expect(inv.projects.find((p) => p.databaseName === msp(B))?.flags).toEqual(['orphan-db']);
+  });
+
+  it('finds a marker under a search root that names a project', async () => {
+    const ws = join(home, 'ws');
+    mkdirSync(join(ws, 'app', '.git'), { recursive: true });
+    marker(join(ws, 'app'), A);
+    const inv = await loadInventory(source([{ id: A, teamId: 't', name: 'a', metadata: {} }], [msp(A)], {}), { scanRoots: [ws] });
+    expect(inv.projects[0].folders).toEqual([join(ws, 'app')]);
   });
 
   it('never calls the account database an orphan', async () => {

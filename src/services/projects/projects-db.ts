@@ -31,6 +31,33 @@ export function databaseFromUrl(connectionString: string): string {
   return decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, '')) || 'postgres';
 }
 
+/** Every row in one database, classified for deciding whether it may be dropped. */
+export interface DatabaseCensus {
+  /** Rows in each public table. */
+  tables: Record<string, number>;
+  /** Rows in account-only tables (api_keys, team_members, audit_log, ...), or teams/projects rows that are not the owner's. */
+  accountRows: number;
+  /** Rows in data tables (sessions, events, jobs, observations, sources, job history, import batches). */
+  dataRows: number;
+  /** Data rows whose project_id is not the owner's. */
+  foreignRows: number;
+  /** Newest created_at, updated_at, or received_at in any data table, as an ISO string. */
+  newestRowAt: string | null;
+}
+
+const SCHEMA_TABLES = new Set(['server_beta_schema_migrations']);
+const HINGE_TABLES = new Set(['teams', 'projects']);
+const DATA_TABLES = new Set([
+  'server_sessions', 'agent_events', 'observation_generation_jobs', 'observations',
+  'observation_sources', 'observation_generation_job_events', 'convert_import_batches',
+]);
+const TIME_COLUMNS = ['created_at', 'updated_at', 'received_at'];
+const MAINTENANCE_LOCK = 'memsmith:projects-maintenance';
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 export class ProjectsDb {
   readonly accountDatabase: string;
   readonly base: PoolLike;
@@ -38,7 +65,10 @@ export class ProjectsDb {
 
   constructor(
     private readonly baseUrl: string,
-    private readonly createPool: (connectionString: string) => PoolLike = (cs) => new pg.Pool({ connectionString: cs, max: 2 }) as unknown as PoolLike,
+    /** False when the account database is a fallback guess rather than the running server's record. */
+    readonly accountDatabaseKnown: boolean = true,
+    private readonly createPool: (connectionString: string) => PoolLike = (cs) =>
+      new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: 5000 }) as unknown as PoolLike,
   ) {
     this.accountDatabase = databaseFromUrl(baseUrl);
     this.base = createPool(baseUrl);
@@ -70,6 +100,22 @@ export class ProjectsDb {
     const pools = [...this.pools.values()];
     this.pools.clear();
     await Promise.all(pools.map((p) => p.end().catch(() => {})));
+  }
+
+  /** Runs `fn` while holding a session advisory lock, so two merges or prunes never overlap. */
+  async withMaintenanceLock<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await this.base.connect();
+    try {
+      const got = await client.query('SELECT pg_try_advisory_lock(hashtext($1)) AS locked', [MAINTENANCE_LOCK]);
+      if (!got.rows[0]?.locked) throw new Error('another memsmith merge or prune is running. Try again when it finishes.');
+      try {
+        return await fn();
+      } finally {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [MAINTENANCE_LOCK]).catch(() => {});
+      }
+    } finally {
+      client.release();
+    }
   }
 
   async listDatabases(): Promise<string[]> {
@@ -118,6 +164,98 @@ export class ProjectsDb {
     }
   }
 
+  /**
+   * Counts every row in every public table of `databaseName`. The owner is the
+   * project the database belongs to; 'from-name' looks for the projects row
+   * whose id matches an msp_ name, and with none every teams/projects row is
+   * foreign. Returns null when any count fails.
+   */
+  async census(databaseName: string, ownerHint: { projectId: string; teamId: string } | 'from-name'): Promise<DatabaseCensus | null> {
+    try {
+      const db = this.pool(databaseName);
+      let owner: { projectId: string; teamId: string } | null = ownerHint === 'from-name' ? null : ownerHint;
+      if (ownerHint === 'from-name') {
+        const suffix = databaseName.replace(/^msp_/, '');
+        const hinge = await db.query(
+          `SELECT id, team_id FROM projects WHERE replace(id, '-', '') = $1 LIMIT 1`,
+          [suffix],
+        ).catch(() => ({ rows: [] as any[] }));
+        if (hinge.rows[0]) owner = { projectId: String(hinge.rows[0].id), teamId: String(hinge.rows[0].team_id) };
+      }
+      const columns = await db.query(
+        `SELECT c.table_name, c.column_name
+           FROM information_schema.columns c
+           JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+          WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'`,
+      );
+      const byTable = new Map<string, Set<string>>();
+      for (const r of columns.rows) {
+        const set = byTable.get(r.table_name) ?? new Set<string>();
+        set.add(r.column_name);
+        byTable.set(r.table_name, set);
+      }
+      const census: DatabaseCensus = { tables: {}, accountRows: 0, dataRows: 0, foreignRows: 0, newestRowAt: null };
+      let newest: number | null = null;
+      for (const [table, cols] of byTable) {
+        const t = quoteIdent(table);
+        const total = Number((await db.query(`SELECT count(*)::bigint AS n FROM ${t}`)).rows[0].n);
+        census.tables[table] = total;
+        if (total === 0 || SCHEMA_TABLES.has(table)) continue;
+        if (HINGE_TABLES.has(table)) {
+          const ownId = table === 'teams' ? owner?.teamId : owner?.projectId;
+          const foreign = ownId
+            ? Number((await db.query(`SELECT count(*)::bigint AS n FROM ${t} WHERE id <> $1`, [ownId])).rows[0].n)
+            : total;
+          census.accountRows += foreign;
+          continue;
+        }
+        if (!DATA_TABLES.has(table)) {
+          census.accountRows += total;
+          continue;
+        }
+        census.dataRows += total;
+        if (cols.has('project_id')) {
+          census.foreignRows += owner
+            ? Number((await db.query(`SELECT count(*)::bigint AS n FROM ${t} WHERE project_id IS DISTINCT FROM $1`, [owner.projectId])).rows[0].n)
+            : total;
+        }
+        const times = TIME_COLUMNS.filter((c) => cols.has(c));
+        if (times.length > 0) {
+          const r = await db.query(`SELECT extract(epoch FROM GREATEST(${times.map((c) => `max(${quoteIdent(c)})`).join(', ')}))::float8 AS t FROM ${t}`);
+          const at = r.rows[0]?.t;
+          if (at != null) newest = Math.max(newest ?? 0, Number(at) * 1000);
+        }
+      }
+      census.newestRowAt = newest === null ? null : new Date(newest).toISOString();
+      return census;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * SQL that re-creates the account rows deleting `projectId` (and its team,
+   * when `withTeam`) removes. Postgres quotes every value, so the file
+   * restores with psql -f.
+   */
+  async accountRowsSql(projectId: string, teamId: string, withTeam: boolean): Promise<string> {
+    const lines: string[] = ['BEGIN;'];
+    const emit = async (table: string, where: string, values: unknown[]) => {
+      const result = await this.base.query(
+        `SELECT format('INSERT INTO ${table} SELECT * FROM json_populate_record(NULL::${table}, %L) ON CONFLICT DO NOTHING;', row_to_json(x)::text) AS sql
+           FROM ${table} x WHERE ${where}`,
+        values,
+      );
+      for (const r of result.rows) lines.push(String(r.sql));
+    };
+    if (withTeam) await emit('teams', 'id = $1', [teamId]);
+    await emit('projects', 'id = $1', [projectId]);
+    if (withTeam) await emit('team_members', 'team_id = $1', [teamId]);
+    await emit('api_keys', withTeam ? '(project_id = $1 OR team_id = $2)' : 'project_id = $1', withTeam ? [projectId, teamId] : [projectId]);
+    lines.push('COMMIT;');
+    return `${lines.join('\n')}\n`;
+  }
+
   inventorySource(): InventorySource {
     return {
       accountDatabase: this.accountDatabase,
@@ -128,6 +266,16 @@ export class ProjectsDb {
   }
 }
 
-export function openLocalProjectsDb(env: NodeJS.ProcessEnv = process.env): ProjectsDb {
-  return new ProjectsDb(resolveLocalBaseDatabaseUrl(env, readRecordedAccountDatabase));
+export function openLocalProjectsDb(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { connectTimeoutMs?: number } = {},
+): ProjectsDb {
+  const recorded = readRecordedAccountDatabase();
+  const known = Boolean(env.MEMSMITH_SERVER_DATABASE_URL?.trim()) || recorded !== null;
+  const timeout = opts.connectTimeoutMs ?? 5000;
+  return new ProjectsDb(
+    resolveLocalBaseDatabaseUrl(env, () => recorded),
+    known,
+    (cs) => new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: timeout }) as unknown as PoolLike,
+  );
 }

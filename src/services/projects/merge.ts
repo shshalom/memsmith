@@ -3,8 +3,15 @@ import { join, resolve } from 'path';
 import { MARKER_NOTE, readMarkerAt, writeMarkerAt } from '../identity/project-identity.js';
 import { canonicalPath, resolveProjectLocation, type ResolutionEnv } from '../identity/project-location.js';
 import { backupFileName, type DumpDatabase } from './backup.js';
-import { cancelActiveJobs, copyProject, type CopyReport, type CopyScope } from './copy-project.js';
-import { ARCHIVED_AT_KEY, MERGED_INTO_KEY, type ProjectEntry, type ProjectInventory } from './inventory.js';
+import { cancelSourceJobs, copyProject, type CopyReport, type CopyScope } from './copy-project.js';
+import {
+  ARCHIVED_AT_KEY,
+  MERGED_INTO_KEY,
+  MERGING_INTO_KEY,
+  mergedIntoChain,
+  type ProjectEntry,
+  type ProjectInventory,
+} from './inventory.js';
 import type { ProjectsDb, Queryable } from './projects-db.js';
 
 export interface RefContext {
@@ -42,27 +49,37 @@ export interface MergeDecision {
   from: ProjectEntry;
   into: ProjectEntry;
   refusal: string | null;
-  /** Folders whose marker names the source project and will name the target. */
+  /** Folders whose marker names the source, or a project merged into it earlier, and will name the target. */
   repoint: string[];
+  /** Projects whose markers the merge rewrites: the source and any project merged into it earlier. */
+  repointProjectIds: string[];
 }
 
-export function decideMerge(from: ProjectEntry, into: ProjectEntry): MergeDecision {
-  const refuse = (refusal: string): MergeDecision => ({ from, into, refusal, repoint: [] });
+export function decideMerge(inv: ProjectInventory, from: ProjectEntry, into: ProjectEntry): MergeDecision {
+  const refuse = (refusal: string): MergeDecision => ({ from, into, refusal, repoint: [], repointProjectIds: [] });
   if (from.projectId === into.projectId) return refuse(`${from.name} and ${into.name} are the same project.`);
   for (const p of [from, into]) {
     if (p.runtime === 'team' || p.teamMarkerFolders.length > 0) {
       return refuse(`${p.name} is a team project. memsmith merge combines local projects only.`);
     }
   }
-  if (into.mergedInto) return refuse(`${into.name} was merged into ${into.mergedInto}. Merge into that project instead.`);
-  if (from.mergedInto && from.mergedInto !== into.projectId) {
-    return refuse(`${from.name} was already merged into ${from.mergedInto}.`);
+  if (into.mergedInto || into.mergingInto) {
+    return refuse(`${into.name} was merged into ${into.mergedInto ?? into.mergingInto}. Merge into that project instead.`);
   }
+  const previous = from.mergedInto ?? from.mergingInto;
+  if (previous && previous !== into.projectId) return refuse(`${from.name} was already merged into ${previous}.`);
   if (!from.databaseName) return refuse(`${from.name} has no database, so it has no records to merge.`);
   if (!into.databaseName) {
     return refuse(`${into.name} has no database yet. Start a session in its folder first, or merge it the other way.`);
   }
-  return { from, into, refusal: null, repoint: [...from.folders] };
+  if (from.databaseName === into.databaseName) {
+    return refuse(`${from.name} and ${into.name} keep their records in the same database (${from.databaseName}), which memsmith merge does not support.`);
+  }
+  const earlier = mergedIntoChain(inv, from.projectId!);
+  const chainTeam = earlier.find((p) => p.teamMarkerFolders.length > 0);
+  if (chainTeam) return refuse(`${chainTeam.name}, which was merged into ${from.name}, has a team marker.`);
+  const repoint = [...new Set([...from.folders, ...earlier.flatMap((p) => p.folders)])];
+  return { from, into, refusal: null, repoint, repointProjectIds: [from.projectId!, ...earlier.map((p) => p.projectId!)] };
 }
 
 function scopeOf(d: MergeDecision): CopyScope {
@@ -78,20 +95,16 @@ export async function previewMerge(db: ProjectsDb, d: MergeDecision): Promise<Co
   return copyProject(db.pool(d.from.databaseName!), db.pool(d.into.databaseName!), scopeOf(d), false);
 }
 
-async function inTransactions<T>(
-  db: ProjectsDb,
-  d: MergeDecision,
-  fn: (source: Queryable, target: Queryable) => Promise<T>,
-): Promise<T> {
+async function copyInTransactions(db: ProjectsDb, d: MergeDecision): Promise<CopyReport> {
   const source = await db.pool(d.from.databaseName!).connect();
   const target = await db.pool(d.into.databaseName!).connect();
   try {
     await source.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     await target.query('BEGIN');
-    const result = await fn(source, target);
+    const report = await copyProject(source, target, scopeOf(d), true);
     await target.query('COMMIT');
     await source.query('COMMIT');
-    return result;
+    return report;
   } catch (error) {
     await target.query('ROLLBACK').catch(() => {});
     await source.query('ROLLBACK').catch(() => {});
@@ -99,6 +112,15 @@ async function inTransactions<T>(
   } finally {
     target.release();
     source.release();
+  }
+}
+
+export type MergeStage = 'backup' | 'mark' | 'copy' | 'cancel-jobs' | 'archive' | 'markers' | 'catch-up';
+
+/** A merge that stopped. `completed` lists the stages that finished before `stage` failed. */
+export class MergeStageError extends Error {
+  constructor(readonly stage: MergeStage, readonly completed: MergeStage[], cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
   }
 }
 
@@ -111,62 +133,95 @@ export interface MergeDeps {
 
 export interface MergeResult {
   backupFile: string;
-  cancelledJobs: number;
+  /** Source jobs that were queued or processing, now queued in the target and cancelled in the source. */
+  movedJobs: number;
   report: CopyReport;
-  /** Rows written to the source while the copy ran, copied by a second pass. */
+  /** Rows written or changed in the source while the copy ran, copied by a second pass. */
   lateRows: number;
   repointed: string[];
-  /** Folders left alone because their marker changed since the preview. */
   skippedMarkers: Array<{ dir: string; reason: string }>;
+}
+
+async function setMergeState(base: Queryable, projectId: string, patch: Record<string, string>, remove: string[]): Promise<void> {
+  await base.query(
+    `UPDATE projects SET metadata = (COALESCE(metadata, '{}'::jsonb) - $3::text[]) || $2::jsonb WHERE id = $1`,
+    [projectId, JSON.stringify(patch), remove],
+  );
 }
 
 export async function executeMerge(deps: MergeDeps, d: MergeDecision): Promise<MergeResult> {
   if (d.refusal) throw new Error(d.refusal);
   const { db } = deps;
-  const scope = scopeOf(d);
-
-  const backupFile = join(deps.backupDir, backupFileName('merge', scope.fromProjectId, deps.now()));
-  try {
-    await deps.dump(db.urlFor(d.from.databaseName!), backupFile);
-  } catch (error) {
-    throw new Error(`the backup of ${d.from.databaseName} failed, so nothing changed: ${error instanceof Error ? error.message : String(error)}`);
+  if (!db.accountDatabaseKnown) {
+    throw new MergeStageError('backup', [], new Error('MemSmith cannot tell which database holds your projects. Run `memsmith start` first.'));
   }
+  return db.withMaintenanceLock(async () => {
+    const scope = scopeOf(d);
+    const completed: MergeStage[] = [];
+    const stage = async <T>(name: MergeStage, fn: () => Promise<T>): Promise<T> => {
+      try {
+        const result = await fn();
+        completed.push(name);
+        return result;
+      } catch (error) {
+        throw new MergeStageError(name, [...completed], error);
+      }
+    };
 
-  const source = db.pool(d.from.databaseName!);
-  let cancelledJobs = await cancelActiveJobs(source, scope.fromProjectId, scope.intoProjectId);
-  const report = await inTransactions(db, d, (s, t) => copyProject(s, t, scope, true));
+    const backupFile = join(deps.backupDir, backupFileName('merge', scope.fromProjectId, deps.now()));
+    await stage('backup', () => deps.dump(db.urlFor(d.from.databaseName!), backupFile));
 
-  await db.base.query(
-    `UPDATE projects SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object($2::text, $3::text, $4::text, $5::text)
-      WHERE id = $1`,
-    [scope.fromProjectId, MERGED_INTO_KEY, scope.intoProjectId, ARCHIVED_AT_KEY, deps.now().toISOString()],
-  );
+    // Team-wide reads skip a project marked merging, so the source's rows are
+    // never read twice once the copy commits.
+    await stage('mark', () => setMergeState(db.base, scope.fromProjectId, { [MERGING_INTO_KEY]: scope.intoProjectId }, []));
 
-  const repointed: string[] = [];
-  const skippedMarkers: MergeResult['skippedMarkers'] = [];
-  for (const dir of d.repoint) {
-    const current = readMarkerAt(dir);
-    if (!current || current.projectId !== scope.fromProjectId) {
-      skippedMarkers.push({ dir, reason: 'its marker no longer names the merged project' });
-      continue;
+    const source = db.pool(d.from.databaseName!);
+    let report: CopyReport;
+    try {
+      report = await stage('copy', () => copyInTransactions(db, d));
+    } catch (error) {
+      if (!d.from.mergingInto) await setMergeState(db.base, scope.fromProjectId, {}, [MERGING_INTO_KEY]).catch(() => {});
+      throw error;
     }
-    if (current.runtime === 'server') {
-      skippedMarkers.push({ dir, reason: 'its marker names a team project' });
-      continue;
-    }
-    writeMarkerAt(dir, {
-      teamId: scope.intoTeamId,
-      projectId: scope.intoProjectId,
-      note: MARKER_NOTE,
-      ...(current.runtime ? { runtime: current.runtime } : {}),
-      databaseName: d.into.databaseName!,
+    let movedJobs = await stage('cancel-jobs', () => cancelSourceJobs(source, report.activeJobIds, scope.intoProjectId));
+
+    await stage('archive', () => setMergeState(
+      db.base, scope.fromProjectId,
+      { [MERGED_INTO_KEY]: scope.intoProjectId, [ARCHIVED_AT_KEY]: deps.now().toISOString() },
+      [MERGING_INTO_KEY],
+    ));
+
+    const repointed: string[] = [];
+    const skippedMarkers: MergeResult['skippedMarkers'] = [];
+    await stage('markers', async () => {
+      for (const dir of d.repoint) {
+        const current = readMarkerAt(dir);
+        if (!current || !d.repointProjectIds.includes(current.projectId)) {
+          skippedMarkers.push({ dir, reason: 'its marker no longer names the merged project' });
+          continue;
+        }
+        if (current.runtime === 'server') {
+          skippedMarkers.push({ dir, reason: 'its marker names a team project' });
+          continue;
+        }
+        writeMarkerAt(dir, {
+          teamId: scope.intoTeamId,
+          projectId: scope.intoProjectId,
+          note: MARKER_NOTE,
+          ...(current.runtime ? { runtime: current.runtime } : {}),
+          databaseName: d.into.databaseName!,
+        });
+        repointed.push(dir);
+      }
     });
-    repointed.push(dir);
-  }
 
-  cancelledJobs += await cancelActiveJobs(source, scope.fromProjectId, scope.intoProjectId);
-  const late = await inTransactions(db, d, (s, t) => copyProject(s, t, scope, true));
-  const lateRows = Object.values(late.tables).reduce((sum, t) => sum + t.copy, 0);
+    const late = await stage('catch-up', () => copyInTransactions(db, d));
+    movedJobs += await cancelSourceJobs(source, late.activeJobIds, scope.intoProjectId);
+    const lateRows = Object.values(late.tables).reduce((sum, t) => sum + t.copy + t.updated, 0);
+    // Prune compares the source's newest row with archivedAt; the merge's own
+    // writes to the source (cancelled jobs) must not count as new rows.
+    await stage('catch-up', () => setMergeState(db.base, scope.fromProjectId, { [ARCHIVED_AT_KEY]: deps.now().toISOString() }, []));
 
-  return { backupFile, cancelledJobs, report, lateRows, repointed, skippedMarkers };
+    return { backupFile, movedJobs, report, lateRows, repointed, skippedMarkers };
+  });
 }

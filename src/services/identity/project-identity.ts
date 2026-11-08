@@ -80,6 +80,32 @@ export function findNestedMarkerDirs(root: string): string[] {
   return found;
 }
 
+/**
+ * Every marker folder at or below `root`, nested repositories included, with
+ * the same bounds as the nested scan. `complete` is false when a bound cut the
+ * scan short, so a caller cannot read "not found" as "not there".
+ */
+export function scanMarkerDirs(root: string): { dirs: string[]; complete: boolean } {
+  const dirs: string[] = existsSync(join(root, MARKER_RELATIVE_PATH)) ? [root] : [];
+  let visited = 0;
+  let complete = true;
+  const walk = (dir: string, depth: number) => {
+    if (depth > NESTED_SCAN_MAX_DEPTH) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || NESTED_SCAN_SKIP.has(entry.name)) continue;
+      if (visited >= NESTED_SCAN_MAX_DIRS) { complete = false; return; }
+      visited++;
+      const child = join(dir, entry.name);
+      if (existsSync(join(child, MARKER_RELATIVE_PATH))) dirs.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return { dirs, complete };
+}
+
 // A single local subfolder identity in a repo whose root has none. Team markers
 // are excluded: their membership is per-directory state the join flow owns.
 function adoptableNestedMarker(root: string): { dir: string; marker: ProjectMarker } | null {
@@ -192,11 +218,14 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
   writeMarkerAt(resolveProjectRoot(cwd), marker);
 }
 
+// Temp file + rename, so a hook reading the marker never sees half of it.
 export function writeMarkerAt(root: string, marker: ProjectMarker): void {
   const p = join(root, MARKER_RELATIVE_PATH);
   const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
+  const tmp = `${p}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(marker, null, 2), 'utf-8');
+  renameSync(tmp, p);
 }
 
 /**

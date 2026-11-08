@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { basename } from 'path';
-import { PROJECT_PATH_KEY, readMarkerAt, type ProjectMarker } from '../identity/project-identity.js';
+import { PROJECT_PATH_KEY, readMarkerAt, scanMarkerDirs, type ProjectMarker } from '../identity/project-identity.js';
 import { projectDatabaseName } from '../../server/runtime/resolve-project-database.js';
 import { findStrayMarkers, type StrayMarker } from './stray-markers.js';
 
 export const MERGED_INTO_KEY = 'mergedInto';
+export const MERGING_INTO_KEY = 'mergingInto';
 export const ARCHIVED_AT_KEY = 'archivedAt';
 
 export interface ProjectRow {
@@ -33,10 +34,12 @@ export interface InventorySource {
 export interface InventoryOptions {
   /** Project roots known outside the database, such as the current folder's. */
   extraRoots?: string[];
+  /** Folders to scan for markers that name a project, such as the configured search roots. */
+  scanRoots?: string[];
   hasKeyForTeam?: (teamId: string) => boolean;
 }
 
-export type ProjectFlag = 'empty' | 'orphan-db' | 'missing-db' | 'stray' | 'archived';
+export type ProjectFlag = 'empty' | 'orphan-db' | 'missing-db' | 'stray' | 'archived' | 'merging';
 
 export interface ProjectEntry {
   /** Null for an orphan database, which has no projects row. */
@@ -46,11 +49,15 @@ export interface ProjectEntry {
   team: string;
   runtime: 'local' | 'team';
   folders: string[];
+  /** The folder recorded the last time a session registered the project, whether or not its marker still names it. */
+  recordedPath: string | null;
   databaseName: string | null;
+  /** Null when MemSmith could not count the records; never read that as empty. */
   counts: RecordStats | null;
   lastActivity: string | null;
   flags: ProjectFlag[];
   mergedInto?: string;
+  mergingInto?: string;
   archivedAt?: string;
   strayUnder?: Array<{ root: string; projectId: string }>;
   /** Folders whose marker names this project as a team project; merge never rewrites them. */
@@ -61,12 +68,19 @@ export interface ProjectInventory {
   accountDatabase: string;
   projects: ProjectEntry[];
   strays: StrayMarker[];
+  /** Scanned folders where a bound cut the marker scan short. */
+  incompleteScans: string[];
 }
 
 const PROJECT_DATABASE = /^msp_[0-9a-f]{32}$/;
 
-export function recordTotal(stats: RecordStats | null): number {
-  return stats ? stats.observations + stats.notes + stats.events : 0;
+export function recordTotal(stats: RecordStats): number {
+  return stats.observations + stats.notes + stats.events;
+}
+
+/** True only for a successful count of zero. */
+export function knownEmpty(stats: RecordStats | null): boolean {
+  return stats !== null && recordTotal(stats) === 0;
 }
 
 function recordedPath(row: ProjectRow): string | null {
@@ -84,6 +98,11 @@ function pushUnique(list: string[], value: string): void {
   if (!list.includes(value)) list.push(value);
 }
 
+function metaString(row: ProjectRow, key: string): string | undefined {
+  const v = row.metadata?.[key];
+  return typeof v === 'string' && v ? v : undefined;
+}
+
 export async function loadInventory(src: InventorySource, opts: InventoryOptions): Promise<ProjectInventory> {
   const hasKeyForTeam = opts.hasKeyForTeam ?? (() => false);
   const rows = await src.listProjects();
@@ -94,24 +113,33 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
   const markers = new Map<string, ProjectMarker[]>(rows.map((r) => [r.id, []]));
   const noteMarker = (dir: string, marker: ProjectMarker) => {
     if (!known.has(marker.projectId)) return;
-    pushUnique(folders.get(marker.projectId)!, dir);
+    if (folders.get(marker.projectId)!.includes(dir)) return;
+    folders.get(marker.projectId)!.push(dir);
     markers.get(marker.projectId)!.push(marker);
   };
 
   const roots: Array<{ dir: string; projectId: string }> = [];
+  const addRoot = (dir: string, marker: ProjectMarker) => {
+    noteMarker(dir, marker);
+    if (!roots.some((r) => r.dir === dir)) roots.push({ dir, projectId: marker.projectId });
+  };
   for (const row of rows) {
     const path = recordedPath(row);
     const marker = path ? readMarkerAt(path) : null;
-    if (path && marker?.projectId === row.id) {
-      noteMarker(path, marker);
-      roots.push({ dir: path, projectId: row.id });
-    }
+    if (path && marker) addRoot(path, marker);
   }
   for (const dir of opts.extraRoots ?? []) {
     const marker = readMarkerAt(dir);
-    if (!marker) continue;
-    noteMarker(dir, marker);
-    if (!roots.some((r) => r.dir === dir)) roots.push({ dir, projectId: marker.projectId });
+    if (marker) addRoot(dir, marker);
+  }
+  const incompleteScans: string[] = [];
+  for (const scanRoot of opts.scanRoots ?? []) {
+    const scan = scanMarkerDirs(scanRoot);
+    if (!scan.complete) incompleteScans.push(scanRoot);
+    for (const dir of scan.dirs) {
+      const marker = readMarkerAt(dir);
+      if (marker) noteMarker(dir, marker);
+    }
   }
 
   const strays: StrayMarker[] = [];
@@ -134,44 +162,47 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
     const stamped = projectMarkers.map((m) => m.databaseName).find((n) => n && databases.has(n));
     let databaseName: string | null = stamped
       ?? (databases.has(projectDatabaseName(row.id)) ? projectDatabaseName(row.id) : null);
-    let counts: RecordStats | null = null;
+    let counts: RecordStats | null;
     if (databaseName) {
       counts = await src.recordStats(databaseName, row.id);
     } else {
-      const legacy = await src.recordStats(src.accountDatabase, row.id);
-      if (recordTotal(legacy) > 0) {
-        databaseName = src.accountDatabase;
-        counts = legacy;
-      }
+      counts = await src.recordStats(src.accountDatabase, row.id);
+      if (counts && recordTotal(counts) > 0) databaseName = src.accountDatabase;
     }
 
-    const mergedInto = row.metadata?.[MERGED_INTO_KEY];
-    const archivedAt = row.metadata?.[ARCHIVED_AT_KEY];
+    const mergedInto = metaString(row, MERGED_INTO_KEY);
+    const mergingInto = metaString(row, MERGING_INTO_KEY);
+    const archivedAt = metaString(row, ARCHIVED_AT_KEY);
     const flags: ProjectFlag[] = [];
-    if (typeof mergedInto === 'string') flags.push('archived');
+    if (mergedInto) flags.push('archived');
+    else if (mergingInto) flags.push('merging');
     if (!databaseName) flags.push('missing-db');
-    else if (counts && recordTotal(counts) === 0 && typeof mergedInto !== 'string') flags.push('empty');
+    else if (knownEmpty(counts) && !mergedInto && !mergingInto) flags.push('empty');
     if (strayUnder.has(row.id)) flags.push('stray');
 
+    const projectFolders = folders.get(row.id)!;
     projects.push({
       projectId: row.id,
       teamId: row.teamId,
-      name: row.name && row.name !== row.id ? row.name : basename(folders.get(row.id)![0] ?? '') || row.id.slice(0, 8),
+      name: row.name && row.name !== row.id ? row.name : basename(projectFolders[0] ?? '') || row.id.slice(0, 8),
       team: teamLabel(teamMarker, hasKeyForTeam),
       runtime: teamMarker ? 'team' : 'local',
-      folders: folders.get(row.id)!,
+      folders: projectFolders,
+      recordedPath: recordedPath(row),
       databaseName,
       counts,
       lastActivity: counts?.lastActivity ?? null,
       flags,
-      ...(typeof mergedInto === 'string' ? { mergedInto } : {}),
-      ...(typeof archivedAt === 'string' ? { archivedAt } : {}),
+      ...(mergedInto ? { mergedInto } : {}),
+      ...(mergingInto ? { mergingInto } : {}),
+      ...(archivedAt ? { archivedAt } : {}),
       ...(strayUnder.has(row.id) ? { strayUnder: strayUnder.get(row.id) } : {}),
-      teamMarkerFolders: folders.get(row.id)!.filter((dir) => readMarkerAt(dir)?.runtime === 'server'),
+      teamMarkerFolders: projectFolders.filter((dir) => readMarkerAt(dir)?.runtime === 'server'),
     });
   }
 
-  const owned = new Set(rows.map((r) => projectDatabaseName(r.id)));
+  const owned = new Set<string>(rows.map((r) => projectDatabaseName(r.id)));
+  for (const p of projects) if (p.databaseName) owned.add(p.databaseName);
   for (const name of [...databases].sort()) {
     if (!PROJECT_DATABASE.test(name) || owned.has(name) || name === src.accountDatabase) continue;
     const counts = await src.recordStats(name, null);
@@ -182,13 +213,30 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
       team: 'none',
       runtime: 'local',
       folders: [],
+      recordedPath: null,
       databaseName: name,
       counts,
       lastActivity: counts?.lastActivity ?? null,
-      flags: counts && recordTotal(counts) === 0 ? ['orphan-db', 'empty'] : ['orphan-db'],
+      flags: knownEmpty(counts) ? ['orphan-db', 'empty'] : ['orphan-db'],
       teamMarkerFolders: [],
     });
   }
 
-  return { accountDatabase: src.accountDatabase, projects, strays };
+  return { accountDatabase: src.accountDatabase, projects, strays, incompleteScans };
+}
+
+/** Projects whose merges lead, possibly through other merges, into `projectId`. */
+export function mergedIntoChain(inv: ProjectInventory, projectId: string, maxHops = 8): ProjectEntry[] {
+  const out: ProjectEntry[] = [];
+  const byId = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, p]));
+  for (const p of byId.values()) {
+    let current = p.mergedInto;
+    const seen = new Set<string>([p.projectId!]);
+    for (let hop = 0; current && hop < maxHops && !seen.has(current); hop++) {
+      if (current === projectId) { out.push(p); break; }
+      seen.add(current);
+      current = byId.get(current)?.mergedInto;
+    }
+  }
+  return out;
 }

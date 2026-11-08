@@ -60,7 +60,7 @@ export async function listProjectTargets(
     const result = await basePool.query(
       `SELECT p.id, p.team_id
          FROM projects p
-        WHERE NOT (COALESCE(p.metadata, '{}'::jsonb) ? 'mergedInto')
+        WHERE NOT (COALESCE(p.metadata, '{}'::jsonb) ?| array['mergedInto', 'mergingInto'])
           AND EXISTS (
           SELECT 1 FROM pg_database d
            WHERE d.datname = 'msp_' || replace(p.id::text, '-', '')

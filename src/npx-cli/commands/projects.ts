@@ -7,7 +7,7 @@ import { normalizeRuntimeFlag } from './server-runtime-setup.js';
 import { backupsDir, pgDumpWith, type DumpDatabase } from '../../services/projects/backup.js';
 import { COPY_TABLES, type CopyReport } from '../../services/projects/copy-project.js';
 import { loadInventory, type ProjectEntry, type ProjectInventory } from '../../services/projects/inventory.js';
-import { decideMerge, executeMerge, previewMerge, resolveProjectRef } from '../../services/projects/merge.js';
+import { decideMerge, executeMerge, MergeStageError, previewMerge, resolveProjectRef } from '../../services/projects/merge.js';
 import { openLocalProjectsDb, type ProjectsDb } from '../../services/projects/projects-db.js';
 import { executePrune, planPrune } from '../../services/projects/prune.js';
 
@@ -31,7 +31,7 @@ const MERGE_USAGE = 'Usage: memsmith merge <from> <into> [--yes]';
 const TABLE_LABELS: Record<(typeof COPY_TABLES)[number], string> = {
   server_sessions: 'sessions',
   agent_events: 'events',
-  observation_generation_jobs: 'completed generation jobs',
+  observation_generation_jobs: 'generation jobs',
   observations: 'observations and notes',
   observation_sources: 'observation sources',
   observation_generation_job_events: 'generation job history',
@@ -60,6 +60,7 @@ async function withInventory<T>(
       const loc = resolveProjectLocation(d.cwd, d.env);
       inv = await loadInventory(db.inventorySource(), {
         extraRoots: loc.markerFound ? [loc.root] : [],
+        scanRoots: d.env.searchRoots,
         hasKeyForTeam: d.hasKeyForTeam,
       });
     } catch (error) {
@@ -85,6 +86,7 @@ function describeFlags(p: ProjectEntry): string[] {
     if (flag === 'stray') return `stray (nested under ${p.strayUnder?.map((s) => s.root).join(', ')})`;
     if (flag === 'missing-db') return 'missing-db (no database yet)';
     if (flag === 'orphan-db') return 'orphan-db (no project names this database)';
+    if (flag === 'merging') return `merging (a merge into ${p.mergingInto} did not finish; run it again)`;
     return flag;
   });
 }
@@ -135,7 +137,11 @@ export async function runProjectsCommand(args: string[], d: ProjectsCommandDeps 
 
 async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
   return withInventory(d, async (db, inv) => {
-    const plan = planPrune(inv);
+    if (!db.accountDatabaseKnown) {
+      d.err('MemSmith cannot tell which database holds your projects, because the server has not recorded it. Run `memsmith start` first, then prune again.');
+      return 1;
+    }
+    const plan = await planPrune(inv, (name, owner) => db.census(name, owner));
     for (const k of plan.kept) d.out(`Keeping ${k.entry.name}: ${k.reason}.`);
     if (plan.candidates.length === 0) {
       d.out('Nothing to prune.');
@@ -143,8 +149,12 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
     }
     const describe = (c: (typeof plan.candidates)[number]) => {
       const what = c.reason === 'orphan-db' ? 'orphan database' : c.reason === 'archived' ? `archived project, merged into ${c.entry.mergedInto}` : 'empty project';
-      const steps = [c.dropDatabase ? `back up and drop database ${c.dropDatabase}` : null, c.deleteProject ? 'remove the project' : null]
-        .filter(Boolean).join(', then ');
+      const steps = [
+        c.deleteProject ? 'back up its account rows' : null,
+        c.dropDatabase ? `back up and drop database ${c.dropDatabase}` : null,
+        c.deleteProject ? 'remove the project' : 'keep the project record, so folders that still name it reach the project it was merged into',
+      ].filter(Boolean).join(', then ');
+      if (c.reason === 'orphan-db') return `${c.entry.name}: orphan database. MemSmith will back it up and drop it.`;
       return `${c.entry.name}${c.entry.projectId ? ` (${c.entry.projectId})` : ''}: ${what}. MemSmith will ${steps}.`;
     };
     if (!yes) {
@@ -159,9 +169,9 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
     for (const o of outcomes) {
       if (o.error) {
         failed += 1;
-        d.err(`Could not prune ${o.candidate.entry.name}: ${o.error}. Nothing was removed for it.`);
+        d.err(`Could not prune ${o.candidate.entry.name}: ${o.error}. ${o.droppedDatabase ? 'Its database was dropped, but its project record stays.' : 'Nothing was removed for it.'}`);
       } else {
-        d.out(`Pruned ${o.candidate.entry.name}.${o.backupFile ? ` Backup: ${o.backupFile}` : ''}`);
+        d.out(`Pruned ${o.candidate.entry.name}.${o.backupFiles.length > 0 ? ` Backup: ${o.backupFiles.join(', ')}` : ''}`);
       }
     }
     if (outcomes.some((o) => o.droppedDatabase)) d.out('Run `memsmith restart` to release connections to dropped databases.');
@@ -175,6 +185,7 @@ function printReport(report: CopyReport, d: ProjectsCommandDeps): void {
     if (t.source === 0) continue;
     const extra = [
       t.alreadyThere > 0 ? `${t.alreadyThere} already in the target` : null,
+      t.updated > 0 ? `${t.updated} changed since an earlier copy, updated` : null,
       t.renamed > 0 ? `${t.renamed} get a new id because the target uses theirs` : null,
     ].filter(Boolean);
     d.out(`  ${TABLE_LABELS[table]}: ${t.copy}${extra.length > 0 ? ` (${extra.join('; ')})` : ''}`);
@@ -202,7 +213,7 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
     for (const r of [from, into]) if (typeof r === 'string') d.err(r);
     if (typeof from === 'string' || typeof into === 'string') return 1;
 
-    const decision = decideMerge(from, into);
+    const decision = decideMerge(inv, from, into);
     if (decision.refusal) {
       d.err(`${decision.refusal} Nothing changed.`);
       return 1;
@@ -214,11 +225,14 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
       d.out(`memsmith merge would fold ${label(from)} into ${label(into)}.`);
       d.out('Rows to copy:');
       printReport(report, d);
-      if (report.jobsLeftBehind.active > 0) {
-        d.out(`  ${plural(report.jobsLeftBehind.active, 'queued or running generation job')} in ${from.name} will be cancelled, not moved. Their events move.`);
+      if (report.activeJobIds.length > 0) {
+        d.out(`  Queued or running generation jobs: ${report.activeJobIds.length}. They move to the target as queued, and MemSmith cancels them in ${from.name} after the copy commits.`);
       }
-      if (report.jobsLeftBehind.finished > 0) {
-        d.out(`  ${plural(report.jobsLeftBehind.finished, 'failed or cancelled generation job')} stay with ${from.name}.`);
+      if (report.finishedJobsLeftBehind > 0) {
+        d.out(`  Failed or cancelled generation jobs that stay with ${from.name}: ${report.finishedJobsLeftBehind}.`);
+      }
+      for (const [table, cols] of Object.entries(report.droppedColumns)) {
+        d.err(`  Warning: the target's ${table} table has no ${cols.join(', ')} column, so those values are not copied.`);
       }
       d.out(decision.repoint.length > 0 ? 'Markers that will link to the target:' : 'No known folder links to the source project.');
       for (const dir of decision.repoint) d.out(`  ${dir}`);
@@ -230,7 +244,10 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
     try {
       const result = await executeMerge({ db, dump: d.dump, backupDir: d.backupDir, now: d.now }, decision);
       d.out(`Backed up ${from.databaseName} to ${result.backupFile}.`);
-      if (result.cancelledJobs > 0) d.out(`Cancelled ${plural(result.cancelledJobs, 'queued or running generation job')} in ${from.name}.`);
+      if (result.movedJobs > 0) d.out(`Moved ${plural(result.movedJobs, 'queued or running generation job')} to ${into.name}.`);
+      for (const [table, cols] of Object.entries(result.report.droppedColumns)) {
+        d.err(`Warning: the target's ${table} table has no ${cols.join(', ')} column, so those values were not copied.`);
+      }
       d.out(`Merged ${label(from)} into ${label(into)}:`);
       printReport(result.report, d);
       if (result.lateRows > 0) d.out(`  Also copied ${plural(result.lateRows, 'row')} that arrived during the merge.`);
@@ -239,11 +256,45 @@ export async function runMergeCommand(args: string[], d: ProjectsCommandDeps = d
       d.out(`${from.name} is archived. Its database stays; to remove it, run: memsmith projects --prune`);
       return 0;
     } catch (error) {
-      d.err(`The merge stopped: ${error instanceof Error ? error.message : String(error)}`);
-      d.err('The copy runs in one transaction, so a failed copy adds no rows to the target. You can run the merge again.');
+      for (const line of mergeFailure(error, from, into)) d.err(line);
       return 1;
     }
   }) as Promise<number>;
+}
+
+const RERUN = 'Run the same memsmith merge command again; it copies only what the target does not have yet.';
+
+export function mergeFailure(error: unknown, from: ProjectEntry, into: ProjectEntry): string[] {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!(error instanceof MergeStageError)) return [`The merge stopped before it changed anything: ${message}`];
+  const lines = [`The merge stopped at the ${error.stage} step: ${message}`];
+  switch (error.stage) {
+    case 'backup':
+    case 'mark':
+      lines.push('Nothing changed in either project.');
+      break;
+    case 'copy':
+      lines.push(`The copy was rolled back, so ${into.name} has none of the rows. ${from.name} and its generation jobs are unchanged.`);
+      lines.push(RERUN);
+      break;
+    case 'cancel-jobs':
+      lines.push(`${into.name} has every row, including ${from.name}'s queued jobs. Some of those jobs may still be queued in ${from.name} too, and ${from.name} is marked as merging, so search leaves it out.`);
+      lines.push(RERUN);
+      break;
+    case 'archive':
+      lines.push(`${into.name} has every row, and ${from.name} is marked as merging, so search leaves it out. ${from.name} is not archived yet.`);
+      lines.push(RERUN);
+      break;
+    case 'markers':
+      lines.push(`${into.name} has every row and ${from.name} is archived, but some folders still name ${from.name}. The server routes them to ${into.name}.`);
+      lines.push(RERUN);
+      break;
+    case 'catch-up':
+      lines.push(`The merge finished, but copying rows that reached ${from.name} during the merge failed.`);
+      lines.push(RERUN);
+      break;
+  }
+  return lines;
 }
 
 function readRuntimeSetting(): string {
