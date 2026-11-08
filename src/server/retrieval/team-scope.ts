@@ -51,6 +51,9 @@ interface Queryable {
  * write), and asking a pool for a non-existent database throws. Filtering here
  * keeps a half-provisioned teammate from failing the whole read.
  *
+ * A project archived by `memsmith merge` is left out: its rows were copied
+ * into the project it was merged into, so reading both returns them twice.
+ *
  * `baseProjectId` is passed through because the cold-boot project lives in the
  * base database rather than an msp_ one, so its name cannot be derived.
  */
@@ -65,6 +68,7 @@ export async function listTeamProjects(
       `SELECT p.id
          FROM projects p
         WHERE p.team_id = $1
+          AND NOT (COALESCE(p.metadata, '{}'::jsonb) ? 'mergedInto')
           AND (
             p.id = $2
             OR EXISTS (

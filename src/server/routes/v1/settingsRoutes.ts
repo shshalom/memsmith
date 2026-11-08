@@ -178,7 +178,9 @@ export function registerProjectsRoutes(app: Application, deps: ProjectsRouteDeps
     }
 
     const rows = await deps.pool.query(
-      'SELECT id, team_id, name, metadata FROM projects WHERE team_id = ANY($1::text[]) ORDER BY name',
+      `SELECT id, team_id, name, metadata FROM projects
+        WHERE team_id = ANY($1::text[]) AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'mergedInto')
+        ORDER BY name`,
       [teamIds],
     );
 
