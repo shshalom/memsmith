@@ -8,6 +8,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.16.0] - 2026-11-08
+
 ### Added
 
 - Actor tags. Set `MEMSMITH_ACTOR` in a session's environment, or as a default in `settings.json`, and MemSmith stamps that name on the events, notes, and observations the session captures. An empty `MEMSMITH_ACTOR` opts a session out of the default. Without one, an event from a Claude Code subagent takes the subagent type as its actor. An observation generated from events lists their actors in `actors`, has `actor` only when one actor wrote every source event, and has `unattributed: true` when some source events have none. `observation_search`, `observation_context`, the hosted `/v1/mcp` `search` and `context` tools, `memsmith search --actor <name>`, and `POST /v1/search` and `/v1/context` filter by actor, and the search index and full records show it. Records saved before this release have no actor, so an actor filter excludes them. The actor is self-reported: the MCP tools replace a caller-supplied actor with the session's own, but any API key holder can set one through the API.
