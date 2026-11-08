@@ -9,26 +9,35 @@ MemSmith keeps memory per project. A project is identified by a non-secret marke
 
 ## How a folder finds its project
 
-When a session starts, MemSmith looks for a marker, starting in the session folder. The nearest marker always wins, so a folder with its own marker keeps its project.
+When a session starts, MemSmith looks for a marker in this order. The nearest marker always wins, so a repository or folder with its own marker keeps its own project.
 
-- **Inside a search root.** If the folder is inside a folder listed in `MEMSMITH_PROJECT_SEARCH_ROOTS`, MemSmith checks each parent folder up to and including the search root, across git repositories. It never looks above the search root. When search roots overlap, the innermost one applies.
-- **No search roots configured.** Your home folder acts as the search root. MemSmith checks each parent folder up to your home folder, but never a marker directly in your home folder, because that marker would claim every project on the machine.
-- **Outside every search root.** MemSmith checks the folders between the session folder and the git root, or only the session folder outside git. For example, `/tmp/scratch` never uses a marker in `/tmp`.
+1. **The folder's own repository.** MemSmith checks the session folder and each parent up to the git root. Outside git, it checks only the session folder at this step.
+2. **The main checkout of a worktree.** If the folder is in a linked git worktree that has no marker, MemSmith uses the project of the main checkout, before it looks anywhere above the worktree.
+3. **Above the repository, only where you allow it.**
+   - **Inside a search root.** If the folder is inside a folder listed in `MEMSMITH_PROJECT_SEARCH_ROOTS`, MemSmith checks each parent above the git root, up to and including the search root. It never looks above the search root. When search roots overlap, the innermost one applies.
+   - **Outside git, with no search roots configured.** MemSmith checks each parent up to your home folder, but never a marker directly in your home folder, because that marker would claim every project on the machine.
+   - **Everywhere else**, including a repository with no search roots configured, nothing above the git root counts. For example, `/tmp/scratch` never uses a marker in `/tmp`.
 
-If MemSmith finds no marker, the project root is the git root, or the session folder outside git. A new project is created there.
+If MemSmith finds no marker, the project root is the git root, or the session folder outside git. A new project, in a team of its own, is created there.
+
+MemSmith compares folders after it resolves symbolic links, and it ignores letter case on macOS and Windows.
 
 ### Git worktrees
 
-If a linked git worktree has no marker of its own, it uses the project of its main checkout. When the main checkout has no project yet, MemSmith creates the project at the main checkout, so every worktree of a repository shares it. MemSmith reads the worktree's `.git` file to find the main checkout and doesn't run `git`. A submodule is its own project.
+MemSmith reads the worktree's `.git` file and the git directory to find the main checkout, and doesn't run `git`. When the main checkout has no project yet, MemSmith creates the project at the main checkout, so every worktree of a repository shares it. If MemSmith can't confirm where the main checkout is, for example in a repository created with `git init --separate-git-dir`, the worktree keeps its own project. A submodule is always its own project.
 
-## The local team
+## Notices
 
-MemSmith creates every new local project in one local team for this machine. It creates the team the first time it needs one and records its id in `~/.memsmith/local-team.json`. Each project in the local team has its own key in `~/.memsmith/credentials.json`, so a project reads and writes only its own memory, and joining one project to a team leaves the other projects unchanged. Projects created before this team existed keep their own teams. Joining a team project and converting a project to a team work as before.
-
-When a session creates a project, the session-start context includes a line such as the following. If the project is created on your first prompt instead, that prompt's context carries the line.
+When a session creates a project, its context includes a line such as the following. If the project is created on your first prompt instead, that prompt's context carries the line.
 
 ```
-MemSmith created project api for /Users/ana/Workspace/api in your local team. Run `memsmith project` to check it, or `memsmith link` to use a different project.
+MemSmith created project api for /Users/ana/Workspace/api. Run `memsmith project` to check it, or `memsmith link` to use a different project.
+```
+
+When a session uses a project whose marker is above its own folder, such as a search-root marker or a worktree's main checkout, its context includes a line such as the following, once for each folder:
+
+```
+MemSmith is using project Workspace from /Users/ana/Workspace for this folder. Run `memsmith project` to check it, or `memsmith link --new` to give this folder its own project.
 ```
 
 ## Check a folder's project
@@ -39,25 +48,30 @@ To see which project a folder uses, run `memsmith project` in it:
 Folder:        /Users/ana/Workspace/api/src
 Project root:  /Users/ana/Workspace
 Project:       Workspace (7f3c9a2e-1b4d-4e8f-9c6a-2d5e8b1f0a37)
-Team:          4b1e6d90-8a3f-4c2e-b7d5-91f0e3a6c812 (your local team)
+Team:          4b1e6d90-8a3f-4c2e-b7d5-91f0e3a6c812 (local)
 Runtime:       local
 Resolved by:   marker in ~/Workspace (search root ~/Workspace)
+Search roots:  ~/Workspace
 ```
 
-The project name comes from the running server. When the server isn't running, MemSmith shows the folder name instead. `memsmith status` also prints a `Project:` line for the current folder.
+The project name comes from the running server. When the server isn't running, MemSmith shows the folder name instead. If MemSmith ignored an entry in `MEMSMITH_PROJECT_SEARCH_ROOTS`, `memsmith project` says which one and why. `memsmith status` also prints a `Project:` line for the current folder.
 
 ## Pin a folder to a project
 
-`memsmith link` writes a marker at the folder's git root, or in the folder itself outside git. Inside git, it also adds `.memsmith/` to `.git/info/exclude`, once. It doesn't change `.gitignore`.
+`memsmith link` writes a marker at the folder's git root, or in the folder itself outside git. Inside git, it also adds `.memsmith/*` to `.git/info/exclude`, once. It doesn't change `.gitignore`. If `.git/info/exclude` already has a `.memsmith` entry, MemSmith leaves it alone.
 
 | Command | Result |
 | --- | --- |
-| `memsmith link` | Pins the project that the folder resolves to now. If the folder resolves to no project, MemSmith creates one in your local team. |
+| `memsmith link` | Pins the project that the folder resolves to now. If the folder resolves to no project, MemSmith creates one. |
 | `memsmith link <project-id>` | Pins the project with that id. The server must be running. |
 | `memsmith link <project-name>` | Pins the project with that name. The server must be running. If more than one project has the name, MemSmith lists their ids and changes nothing. |
-| `memsmith link <path>` | Pins the project that another folder uses. |
-| `memsmith link --new` | Creates a fresh project in your local team, even when a parent folder has a project. |
+| `memsmith link <path>` | Pins the project that another folder uses. A path must contain `/` or start with `.` or `~`; any other argument is read as a project id or name. |
+| `memsmith link --new` | Creates a fresh project, even when a folder above has a project. |
 
-If the folder already has a marker for a different project, `memsmith link` shows the change and stops. To replace the marker, add `--force`. MemSmith never replaces a team project's marker with a local one, even with `--force`. To link to a team project, pass the path of a folder that already uses it.
+If the folder already has a marker for a different project or team server, `memsmith link` shows the change and stops. To replace the marker, add `--force`. MemSmith never replaces a team project's marker with a local one, even with `--force`, and it never links your home folder itself. To link to a team project, pass the path of a folder that already uses it.
 
 After it writes the marker, `memsmith link` registers the project with the local server so search works right away. If the server isn't reachable, the next session in the folder registers it.
+
+## Converting a shared marker
+
+Go Team convert refuses a project whose marker is above the git repositories that use it, because converting it would move every one of those repositories to the team. To convert one repository, run `memsmith link --new` in it, and then convert that project.

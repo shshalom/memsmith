@@ -83,7 +83,7 @@ by a port derived from your user ID.
 | `memsmith search <query>` | Searches the current project's memory and prints a ranked index. Accepts `--limit <n>` (default 10, maximum 25). |
 | `memsmith get <id> [<id>...]` | Prints the full records for up to 10 observation ids from `memsmith search`. |
 | `memsmith project` | Shows the project that the current folder uses, its team and runtime, and why the folder resolves to it. |
-| `memsmith link [<target>]` | Pins the current folder to a project by writing a marker at its git root. The target is a project id, a project name, or another folder's path; with no target, it pins the project that the folder resolves to now. Accepts `--new` for a fresh project and `--force` to replace a marker that points elsewhere. |
+| `memsmith link [<target>]` | Pins the current folder to a project by writing a marker at its git root. The target is a project id, a project name, or a path (containing `/` or starting with `.` or `~`); with no target, it pins the project that the folder resolves to now. Accepts `--new` for a fresh project and `--force` to replace a marker that points elsewhere. |
 
 Without a global install, prefix each command with `npx`, for example
 `npx memsmith status`.
