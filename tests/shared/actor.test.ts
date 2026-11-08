@@ -28,6 +28,10 @@ describe('parseActor', () => {
     }
   });
 
+  it('rejects a comma, which separates names in a list of actors', () => {
+    expect(parseActor('reviewer, Explore').ok).toBe(false);
+  });
+
   it('rejects the middle dot that separates fields in the index line', () => {
     expect(parseActor('reviewer · 2026-01-01').ok).toBe(false);
   });

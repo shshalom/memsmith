@@ -8,9 +8,10 @@ export type ActorParse =
   | { ok: false; reason: string };
 
 // Control characters forge lines, line separators and bidi controls disguise or
-// reorder the name, and the middle dot separates fields in the index line.
+// reorder the name, the middle dot separates fields in the index line, and a
+// comma separates names in a list of actors.
 // eslint-disable-next-line no-control-regex
-const FORBIDDEN_CHARS = /[\u0000-\u001f\u007f-\u009f\u00b7\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+const FORBIDDEN_CHARS = /[\u0000-\u001f\u007f-\u009f\u00b7\u2028\u2029\u202a-\u202e\u2066-\u2069,]/;
 
 export function parseActor(raw: unknown): ActorParse {
   if (raw === undefined || raw === null) return { ok: true, actor: null };
@@ -21,7 +22,7 @@ export function parseActor(raw: unknown): ActorParse {
     return { ok: false, reason: `the actor must be at most ${ACTOR_MAX_CHARS} characters (got ${actor.length})` };
   }
   if (FORBIDDEN_CHARS.test(actor)) {
-    return { ok: false, reason: 'the actor must not contain control, line-separator, or bidi characters, or a middle dot (·)' };
+    return { ok: false, reason: 'the actor must not contain control, line-separator, or bidi characters, a middle dot (·), or a comma' };
   }
   return { ok: true, actor };
 }
