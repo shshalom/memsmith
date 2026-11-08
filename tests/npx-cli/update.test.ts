@@ -224,7 +224,7 @@ describe('memsmith update', () => {
       const f = withGlobal('1.0.0');
       expect(await runUpdate([], f.deps)).toBe(0);
       expect(f.calls).toContain('global:1.1.0');
-      expect(f.calls.indexOf('global:1.1.0')).toBeGreaterThan(f.calls.indexOf('install:1.1.0'));
+      expect(f.calls.indexOf('global:1.1.0')).toBeGreaterThan(f.calls.indexOf('start'));
       expect(f.out).toContain('  CLI: 1.1.0');
     });
 
@@ -265,7 +265,7 @@ describe('memsmith update', () => {
       const f = withGlobal('1.0.0', { linkedFrom: '/src/memsmith' });
       await runUpdate([], f.deps);
       expect(f.calls.some((c) => c.startsWith('global:'))).toBe(false);
-      expect(f.out).toContain('  CLI: 1.0.0, linked from /src/memsmith (not updated)');
+      expect(f.out).toContain('  CLI: 1.0.0, linked to a local checkout (not updated)');
     });
 
     it('does not call a failed global update "already up to date"', async () => {

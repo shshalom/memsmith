@@ -244,7 +244,6 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     return 1;
   }
   if (registryChanged > 0) d.out(`Updated ${registryChanged} Claude Code plugin entr${registryChanged === 1 ? 'y' : 'ies'} to ${target}.`);
-  const cli = syncGlobalCli(target, d);
 
   let serverLine: string;
   if (server.kind === 'remote') {
@@ -277,6 +276,7 @@ export async function runUpdate(argv: string[], d: UpdateDeps = defaultUpdateDep
     serverLine = `Server: ${runningVersion}`;
   }
 
+  const cli = syncGlobalCli(target, d);
   const nothingChanged = !replaceFiles && registryChanged === 0 && !staleServer && !cli.changed;
   if (nothingChanged) d.out(cli.failed ? `The MemSmith ${target} plugin and server are already up to date.` : `MemSmith ${target} is already up to date.`);
   else d.out(`MemSmith updated to ${target}.`);
@@ -297,7 +297,7 @@ function syncGlobalCli(target: string, d: UpdateDeps): { line: string | null; ch
   if (!d.globalCli) return unchanged(null);
   const current = d.globalCli.info();
   if (current === null) return unchanged(null);
-  if (current.linkedFrom) return unchanged(`CLI: ${current.version}, linked from ${current.linkedFrom} (not updated)`);
+  if (current.linkedFrom) return unchanged(`CLI: ${current.version}, linked to a local checkout (not updated)`);
   if (current.version === target || isNewerVersion(current.version, target)) return unchanged(`CLI: ${current.version}`);
   d.out(`Updating the global memsmith command from ${current.version} to ${target}…`);
   const result = d.globalCli.install(target);
