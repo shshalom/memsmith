@@ -59,6 +59,7 @@ if (OPT_IN) {
       const { bootstrapServerPostgresSchema } = await import('../../../src/storage/postgres/schema.js');
       const { ProjectsDb } = await import('../../../src/services/projects/projects-db.js');
       const { pgDumpWith } = await import('../../../src/services/projects/backup.js');
+      const { undoMergeSql } = await import('../../../src/services/projects/copy-project.js');
       const { runMergeCommand, runProjectsCommand } = await import('../../../src/npx-cli/commands/projects.js');
       const pg = (await import('pg')).default;
 
@@ -266,6 +267,29 @@ if (OPT_IN) {
       expect(found.map((o) => o.id)).toContain(o1);
       expect(found.every((o) => o.projectId === B)).toBe(true);
 
+      // The merge records exactly the rows it inserted, so undoing it removes
+      // the copies and never B's own rows, even where an id collided.
+      const derivedCollide = `obs-collide-m${A.replace(/-/g, '').slice(0, 8)}`;
+      const provenance = (await b.query(
+        'SELECT table_name, source_id, target_id FROM memsmith_merge_provenance WHERE source_project_id = $1', [A],
+      )).rows;
+      expect(provenance.filter((p) => p.table_name === 'observations').map((p) => p.target_id).sort()).toEqual([o1, n1, o2, derivedCollide].sort());
+      expect(provenance.find((p) => p.target_id === derivedCollide)?.source_id).toBe('obs-collide');
+      expect(provenance.some((p) => p.target_id === 'obs-collide' || p.target_id === sB)).toBe(false);
+      const undo = await b.connect();
+      try {
+        await undo.query('BEGIN');
+        await undo.query(undoMergeSql(A));
+        expect((await undo.query('SELECT id FROM observations WHERE project_id = $1', [B])).rows.map((r) => r.id)).toEqual(['obs-collide']);
+        expect((await undo.query('SELECT content FROM observations WHERE id = $1', ['obs-collide'])).rows[0].content).toBe('B original row');
+        expect((await undo.query('SELECT id FROM server_sessions WHERE project_id = $1', [B])).rows.map((r) => r.id)).toEqual([sB]);
+        expect((await undo.query('SELECT count(*)::int AS n FROM agent_events WHERE project_id = $1', [B])).rows[0].n).toBe(1);
+        expect((await undo.query('SELECT count(*)::int AS n FROM observation_generation_jobs WHERE project_id = $1', [B])).rows[0].n).toBe(0);
+      } finally {
+        await undo.query('ROLLBACK');
+        undo.release();
+      }
+
       // A hook that still sends the archived project's id is routed to the target.
       const late = await postJson(http, '/v1/memories', { projectId: A, kind: 'user_note', metadata: { userDirected: true }, content: 'Observation in project A after the merge' });
       expect(late.status).toBe(201);
@@ -291,6 +315,19 @@ if (OPT_IN) {
       expect((await b.query('SELECT content FROM observations WHERE id = $1', [o1])).rows[0].content).toBe('zebra quokka migration decision, amended');
       expect((await b.query('SELECT project_id FROM observations WHERE id = $1', [o4])).rows[0].project_id).toBe(B);
       await b.query('DELETE FROM observations WHERE id = $1', [o4]);
+      await a.query('DELETE FROM observations WHERE id = $1', [o4]);
+
+      // A job processing in the source finishes there before the merge could
+      // cancel it. The next pass completes the target's queued copy, so it is
+      // not generated a second time, and copies the observation it produced.
+      const o5 = randomUUID();
+      await a.query(`UPDATE observation_generation_jobs SET status = 'completed', completed_at = now(), cancelled_at = NULL, updated_at = now() WHERE id = $1`, [j2]);
+      await a.query(`INSERT INTO observations (id, project_id, team_id, content, created_by_job_id) VALUES ($1, $2, $3, 'generated in the source before the cancel', $4)`, [o5, A, teamA, j2]);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j2])).rows[0].status).toBe('queued');
+      expect(await run(() => runMergeCommand([A, B, '--yes'], deps))).toBe(0);
+      expect((await b.query('SELECT status FROM observation_generation_jobs WHERE id = $1', [j2])).rows[0].status).toBe('completed');
+      expect((await b.query('SELECT id FROM observations WHERE created_by_job_id = $1', [j2])).rows.map((r) => r.id)).toEqual([o5]);
+      await b.query('DELETE FROM observations WHERE id = $1', [o5]);
 
       // E shares B's team; once merged and archived, a team-wide read must not return its rows twice.
       expect(await run(() => runMergeCommand([E, B, '--yes'], deps))).toBe(0);

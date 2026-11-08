@@ -50,6 +50,7 @@ const HINGE_TABLES = new Set(['teams', 'projects']);
 const DATA_TABLES = new Set([
   'server_sessions', 'agent_events', 'observation_generation_jobs', 'observations',
   'observation_sources', 'observation_generation_job_events', 'convert_import_batches',
+  'memsmith_merge_provenance',
 ]);
 const TIME_COLUMNS = ['created_at', 'updated_at', 'received_at'];
 const MAINTENANCE_LOCK = 'memsmith:projects-maintenance';

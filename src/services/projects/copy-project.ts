@@ -8,6 +8,9 @@
 // whether to copy it, update an earlier copy, or skip it; the second reads full
 // rows, as text so timestamps keep microsecond precision, and writes them.
 //
+// Every inserted row is recorded in the target's memsmith_merge_provenance
+// table (source id to target id), which is what undoMergeSql deletes by.
+//
 // Ids are kept unless the target holds a different row with that id; such
 // rows get a derived id, the same on every run, so a second run finds them. A
 // row the target already holds under a unique key (an event's idempotency
@@ -66,6 +69,7 @@ const INSERT_BATCH = 200;
 const MAX_DERIVED = 5;
 const UPDATABLE = new Set<CopyTable>(['server_sessions', 'observations']);
 const COPIED_JOB_STATUSES = ['completed', 'queued', 'processing'];
+export const PROVENANCE_TABLE = 'memsmith_merge_provenance';
 const us = (col: string) => `(extract(epoch FROM ${col}) * 1000000)::bigint::text`;
 
 function emptyCounts(): Record<CopyTable, TableCounts> {
@@ -123,7 +127,7 @@ async function targetById(target: Queryable, table: CopyTable, ids: string[]): P
   if (ids.length === 0) return found;
   const extra = table === 'observation_sources' ? ', observation_id, source_id'
     : table === 'observation_generation_job_events' ? ', generation_job_id'
-    : `, project_id${UPDATABLE.has(table) ? `, ${us('updated_at')} AS updated_us` : ''}`;
+    : `, project_id${UPDATABLE.has(table) ? `, ${us('updated_at')} AS updated_us` : ''}${table === 'observation_generation_jobs' ? ', status' : ''}`;
   const result = await target.query(`SELECT id, ${us('created_at')} AS created_us${extra} FROM ${table} WHERE id = ANY($1::text[])`, [ids]);
   for (const r of result.rows) found.set(String(r.id), r);
   return found;
@@ -192,7 +196,11 @@ export async function copyProject(
         return true;
       }
       if (!sameRow(existing, row)) return false;
-      const update = UPDATABLE.has(table) && newer(row.updated_us, existing.updated_us);
+      // A job copied as queued that the source then completed must not run
+      // again in the target: its observation arrives with this copy.
+      const finishedInSource = table === 'observation_generation_jobs' && row.status === 'completed'
+        && (existing.status === 'queued' || existing.status === 'processing');
+      const update = finishedInSource || (UPDATABLE.has(table) && newer(row.updated_us, existing.updated_us));
       map.set(row.id, { target: id, action: update ? 'update' : 'skip' });
       if (update) counts[table].updated += 1;
       else counts[table].alreadyThere += 1;
@@ -331,6 +339,16 @@ export async function copyProject(
   const report: CopyReport = { tables: counts, activeJobIds, finishedJobsLeftBehind: Number(finished.rows[0]?.n ?? 0), droppedColumns };
   if (!write) return report;
 
+  await target.query(
+    `CREATE TABLE IF NOT EXISTS ${PROVENANCE_TABLE} (
+       source_project_id TEXT NOT NULL,
+       table_name TEXT NOT NULL,
+       source_id TEXT NOT NULL,
+       target_id TEXT NOT NULL,
+       merged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       PRIMARY KEY (source_project_id, table_name, target_id)
+     )`,
+  );
   await target.query('INSERT INTO teams (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [scope.intoTeamId]);
   await target.query(
     'INSERT INTO projects (id, team_id, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING',
@@ -400,6 +418,7 @@ export async function copyProject(
     let inserted = 0;
     for await (const page of pages(source, select, [scope.fromProjectId])) {
       const inserts: Row[] = [];
+      const sourceIdOf = new Map<string, string>();
       for (const row of page) {
         const d = decided.get(String(row.id));
         if (!d || d.action === 'skip') continue;
@@ -407,6 +426,7 @@ export async function copyProject(
         if (table === 'observation_sources' && out.source_type === 'agent_event' && !out.agent_event_id) continue;
         if (d.action === 'copy') {
           inserts.push(out);
+          sourceIdOf.set(String(out.id), String(row.id));
         } else {
           const setCols = cols.filter((c) => c !== 'id');
           await target.query(
@@ -419,10 +439,17 @@ export async function copyProject(
         const values: unknown[] = [];
         const tuples = batch.map((r) => `(${cols.map((c) => { values.push(r[c] ?? null); return `$${values.length}`; }).join(', ')})`);
         const result = await target.query(
-          `INSERT INTO ${table} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${tuples.join(', ')}${onConflict}`,
+          `INSERT INTO ${table} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${tuples.join(', ')}${onConflict} RETURNING id`,
           values,
         );
-        inserted += result.rowCount ?? batch.length;
+        inserted += result.rows.length;
+        const targetIds = result.rows.map((r) => String(r.id));
+        await target.query(
+          `INSERT INTO ${PROVENANCE_TABLE} (source_project_id, table_name, source_id, target_id)
+           SELECT $1, $2, v.source_id, v.target_id FROM unnest($3::text[], $4::text[]) AS v(source_id, target_id)
+           ON CONFLICT DO NOTHING`,
+          [scope.fromProjectId, table, targetIds.map((id) => sourceIdOf.get(id) ?? id), targetIds],
+        );
       }
     }
     counts[table].copy = inserted;
@@ -441,6 +468,20 @@ export async function copyProject(
   }
 
   return report;
+}
+
+/**
+ * SQL that deletes, from the target database, every row a merge from
+ * `fromProjectId` inserted, children first, then forgets those records. Rows
+ * the target already had are not in the provenance table, so they stay.
+ */
+export function undoMergeSql(fromProjectId: string): string {
+  const id = fromProjectId.replace(/'/g, "''");
+  const tables = [...COPY_TABLES].reverse();
+  return [
+    ...tables.map((t) => `DELETE FROM ${t} WHERE id IN (SELECT target_id FROM ${PROVENANCE_TABLE} WHERE source_project_id = '${id}' AND table_name = '${t}');`),
+    `DELETE FROM ${PROVENANCE_TABLE} WHERE source_project_id = '${id}';`,
+  ].join('\n');
 }
 
 /**
