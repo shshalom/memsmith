@@ -152,10 +152,11 @@ export class PostgresObservationGenerationJobRepository {
     id: string;
     projectId: string;
     teamId: string;
+    forUpdate?: boolean;
   }): Promise<PostgresObservationGenerationJob | null> {
     const row = await queryOne<JobRow>(
       this.client,
-      'SELECT * FROM observation_generation_jobs WHERE id = $1 AND project_id = $2 AND team_id = $3',
+      `SELECT * FROM observation_generation_jobs WHERE id = $1 AND project_id = $2 AND team_id = $3${input.forUpdate ? ' FOR UPDATE' : ''}`,
       [input.id, input.projectId, input.teamId]
     );
     return row ? mapJobRow(row) : null;

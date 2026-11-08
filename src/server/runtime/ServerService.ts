@@ -72,6 +72,8 @@ export interface ServerRuntimeState {
   startedAt: string;
   /** Read by hooks to mint identities. Name only, never credentials. */
   accountDatabase?: string;
+  /** The project read from the account database; `memsmith merge` checks it. */
+  baseProjectId?: string | null;
   bootstrap: ServerServiceGraph['postgres']['bootstrap'];
   boundaries: {
     queueManager: ReturnType<ServerServiceGraph['queueManager']['getHealth']>;
@@ -602,6 +604,7 @@ export class ServerService {
       host: this.host,
       startedAt: new Date().toISOString(),
       accountDatabase: databaseNameFromUrl(process.env.MEMSMITH_SERVER_DATABASE_URL),
+      baseProjectId: this.graph.baseProjectId ?? null,
       bootstrap: this.graph.postgres.bootstrap,
       boundaries: {
         queueManager: this.graph.queueManager.getHealth(),

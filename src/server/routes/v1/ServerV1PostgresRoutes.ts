@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { isLocalRuntime } from '../../runtime/runtime-kind.js';
 import type { Application, Request, RequestHandler, Response } from 'express';
 import { z, type ZodTypeAny } from 'zod';
 import type { RouteHandler } from '../../../services/server/Server.js';
@@ -318,6 +319,8 @@ export class ServerV1PostgresRoutes implements RouteHandler {
       ? [resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.pool,
+          localRuntime: isLocalRuntime(),
         })]
       : [];
     const writeAuth: RequestHandler[] = [baseWrite, ...dbRouting, ...writeGuards];

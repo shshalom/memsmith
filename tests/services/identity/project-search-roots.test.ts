@@ -136,10 +136,39 @@ describe('without search roots', () => {
 });
 
 describe('with search roots that do not contain the folder', () => {
-  it('turns off the home walk', () => {
+  it('walks a folder outside git up to a marker below home, as without roots', () => {
     marker(workspace, 'p-ws');
-    mkdirSync(join(workspace, 'notes'), { recursive: true });
+    mkdirSync(join(workspace, 'notes', 'daily'), { recursive: true });
+    mkdirSync(join(home, 'Elsewhere'));
     const env = { home, searchRoots: [join(home, 'Elsewhere')] };
-    expect(readProjectMarker(join(workspace, 'notes'), env)).toBeNull();
+    expect(readProjectMarker(join(workspace, 'notes', 'daily'), env)?.projectId).toBe('p-ws');
+    expect(resolveProjectLocation(join(workspace, 'notes', 'daily'), env)).toMatchObject({
+      root: workspace, borrowed: true, boundary: { kind: 'home', dir: home },
+    });
+  });
+
+  it('still stops a git folder at its git root', () => {
+    marker(workspace, 'p-ws');
+    mkdirSync(join(home, 'Elsewhere'));
+    const env = { home, searchRoots: [join(home, 'Elsewhere')] };
+    expect(readProjectMarker(join(repo, 'src', 'cli'), env)).toBeNull();
+    expect(resolveProjectRoot(join(repo, 'src', 'cli'), env)).toBe(repo);
+  });
+
+  it('still never reads a marker in the home folder itself', () => {
+    marker(home, 'p-home');
+    mkdirSync(join(home, 'notes'));
+    mkdirSync(join(home, 'Elsewhere'));
+    const env = { home, searchRoots: [join(home, 'Elsewhere')] };
+    expect(readProjectMarker(join(home, 'notes'), env)).toBeNull();
+  });
+
+  it('does not let a sibling root bound the walk', () => {
+    marker(workspace, 'p-ws');
+    const sibling = join(workspace, 'roots');
+    mkdirSync(sibling, { recursive: true });
+    mkdirSync(join(workspace, 'notes'), { recursive: true });
+    const env = { home, searchRoots: [sibling] };
+    expect(readProjectMarker(join(workspace, 'notes'), env)?.projectId).toBe('p-ws');
   });
 });

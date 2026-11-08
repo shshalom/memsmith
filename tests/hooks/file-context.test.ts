@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, afterAll, spyOn, mock } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'fs';
-import { tmpdir, homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 // Capture the REAL modules BEFORE mocking so afterAll can restore them.
@@ -12,6 +12,8 @@ import * as realSettingsDefaultsManager from '../../src/shared/SettingsDefaultsM
 import * as realProjectName from '../../src/utils/project-name.js';
 import * as realProjectFilter from '../../src/utils/project-filter.js';
 
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'ms-hook-test-data-'));
+
 // Snapshot the real exports into plain objects NOW, before mock.module mutates
 // the live ESM namespace bindings. These snapshots are re-registered in afterAll.
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
@@ -21,7 +23,7 @@ const realProjectFilterSnapshot = { ...realProjectFilter };
 mock.module('../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
+      if (key === 'MEMSMITH_DATA_DIR') return TEST_DATA_DIR;
       return '';
     },
     getInt: () => 0,

@@ -44,6 +44,9 @@ export function projectDatabaseNameFor(projectId: string): string {
  * provisioned — connecting to a missing database throws and would abort the
  * whole sweep partway through, leaving later projects unrecovered.
  *
+ * A project archived by `memsmith merge` is excluded too: its queued work was
+ * cancelled, and a retry there would write into a project nobody reads.
+ *
  * The base project is EXCLUDED: its rows live in the base database, which the
  * caller already sweeps directly. Including it would double-process the dogfood.
  *
@@ -57,7 +60,8 @@ export async function listProjectTargets(
     const result = await basePool.query(
       `SELECT p.id, p.team_id
          FROM projects p
-        WHERE EXISTS (
+        WHERE NOT (COALESCE(p.metadata, '{}'::jsonb) ?| array['mergedInto', 'mergingInto'])
+          AND EXISTS (
           SELECT 1 FROM pg_database d
            WHERE d.datname = 'msp_' || replace(p.id::text, '-', '')
         )`,

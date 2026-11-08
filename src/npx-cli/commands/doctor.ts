@@ -21,6 +21,9 @@ import { readServerPidFile, removeServerState } from '../../server/runtime/serve
 import { verifyPidFileOwnership } from '../../supervisor/process-registry.js';
 import { installedPluginVersion } from '../utils/paths.js';
 import { resolveServerAddress } from './lifecycle.js';
+import { readMarkerAt } from '../../services/identity/project-identity.js';
+import { resolveProjectLocation } from '../../services/identity/project-location.js';
+import { findStrayMarkers } from '../../services/projects/stray-markers.js';
 import { resolveServerUrl, ServerUrlError, type ServerUrlSource } from '../utils/server-url.js';
 import {
   generationSettingsFromServer,
@@ -57,6 +60,8 @@ interface CheckResult {
   detail: string;
   /** When false, a 'fail' does not affect the overall exit code. */
   required: boolean;
+  /** Lines printed under the check. */
+  notes?: string[];
 }
 
 function probeVersion(bin: string): string | null {
@@ -74,7 +79,7 @@ function probeVersion(bin: string): string | null {
   }
 }
 
-export type Repair = 'remove-stale-state' | 'install-deps' | 'restart' | 'start' | 'start-ollama' | 'pull-ollama-model';
+export type Repair = 'unlock-databases' | 'remove-stale-state' | 'install-deps' | 'restart' | 'start' | 'start-ollama' | 'pull-ollama-model';
 
 export type GenerationStatus =
   | { provider: null; configured: string }
@@ -90,6 +95,8 @@ export interface DoctorState {
   pluginVersion: string;
   remote: boolean;
   generation?: GenerationStatus;
+  /** Project databases an interrupted prune left closed to connections. */
+  lockedDatabases?: string[];
 }
 
 export interface RepairDeps {
@@ -98,6 +105,7 @@ export interface RepairDeps {
   lifecycle(cmd: 'start' | 'restart'): Promise<number>;
   ollama(action: 'start' | 'pull'): Promise<boolean>;
   out(line: string): void;
+  unlockDatabases?(): Promise<void>;
 }
 
 export type DoctorArgs =
@@ -167,6 +175,7 @@ export function featureSwitchChecks(s: FeatureSwitches): CheckResult[] {
 
 export function planRepairs(s: DoctorState): Repair[] {
   const repairs: Repair[] = [];
+  if (!s.remote && (s.lockedDatabases?.length ?? 0) > 0) repairs.push('unlock-databases');
   if (!s.remote && s.pidFileStale && !s.portInUse) repairs.push('remove-stale-state');
   if (s.depsMissing) repairs.push('install-deps');
   if (s.remote) return repairs;
@@ -188,7 +197,8 @@ export async function applyRepairs(
   for (const repair of repairs) {
     deps.out(`Fixing: ${repair}`);
     try {
-      if (repair === 'remove-stale-state') deps.removeState();
+      if (repair === 'unlock-databases') await deps.unlockDatabases?.();
+      else if (repair === 'remove-stale-state') deps.removeState();
       else if (repair === 'install-deps') await deps.installDeps();
       else if (repair === 'start-ollama' || repair === 'pull-ollama-model') {
         if (!(await deps.ollama(repair === 'start-ollama' ? 'start' : 'pull'))) {
@@ -235,6 +245,116 @@ export interface DoctorProbes {
   isPortInUse(host: string, port: number): Promise<boolean>;
   dataDir(): string;
   generation(serverReachable: boolean): Promise<GenerationStatus>;
+  strayMarkers?(): Promise<StrayReport[]>;
+  lockedDatabases?(): Promise<string[]>;
+  unfinishedMerges?(): Promise<UnfinishedMerge[]>;
+}
+
+export interface StrayReport {
+  dir: string;
+  root: string;
+  rootProjectId: string;
+  projectId: string;
+  /** Null when the local database could not be read. */
+  records: number | null;
+}
+
+export function scanStrayMarkers(roots: string[], records: Map<string, number | null>): StrayReport[] {
+  const reports: StrayReport[] = [];
+  for (const root of roots) {
+    const rootMarker = readMarkerAt(root);
+    if (!rootMarker) continue;
+    for (const stray of findStrayMarkers(root, rootMarker.projectId)) {
+      if (reports.some((r) => r.dir === stray.dir)) continue;
+      reports.push({
+        dir: stray.dir, root, rootProjectId: rootMarker.projectId, projectId: stray.marker.projectId,
+        records: records.get(stray.marker.projectId) ?? null,
+      });
+    }
+  }
+  return reports;
+}
+
+export function strayMarkerCheck(strays: StrayReport[]): CheckResult {
+  if (strays.length === 0) {
+    return { name: 'Stray markers', status: 'ok', detail: 'no subfolder links to a different project', required: false };
+  }
+  const notes: string[] = [];
+  for (const s of strays) {
+    const records = s.records === null ? 'unknown records' : `${s.records} records`;
+    notes.push(`${s.dir} links to project ${s.projectId} (${records}), inside ${s.root} (project ${s.rootProjectId}).`);
+    notes.push(`  To fold it in: memsmith merge ${s.projectId} ${s.rootProjectId}`);
+  }
+  notes.push('memsmith merge links the nested folder to the root project. A nested folder that is its own repository is a project of its own, and doctor does not report it.');
+  notes.push('Doctor never changes markers, even with --fix.');
+  return {
+    name: 'Stray markers',
+    status: 'warn',
+    detail: `${strays.length} subfolder${strays.length === 1 ? '' : 's'} link${strays.length === 1 ? 's' : ''} to a different project`,
+    required: false,
+    notes,
+  };
+}
+
+export interface UnfinishedMerge {
+  projectId: string;
+  name: string;
+  mergingInto: string;
+}
+
+export function lockedDatabaseCheck(locked: string[]): CheckResult {
+  if (locked.length === 0) return { name: 'Locked databases', status: 'ok', detail: 'every project database accepts connections', required: false };
+  return {
+    name: 'Locked databases',
+    status: 'fail',
+    detail: `${locked.length} project database${locked.length === 1 ? '' : 's'} refuse${locked.length === 1 ? 's' : ''} connections after an interrupted prune; run \`memsmith doctor --fix\``,
+    required: false,
+    notes: locked,
+  };
+}
+
+export function unfinishedMergeCheck(merges: UnfinishedMerge[]): CheckResult {
+  if (merges.length === 0) return { name: 'Unfinished merges', status: 'ok', detail: 'no merge was left in progress', required: false };
+  const notes: string[] = [];
+  for (const m of merges) {
+    notes.push(`${m.name} (${m.projectId}) is still marked as merging into ${m.mergingInto}, so search leaves it out.`);
+    notes.push(`  To finish the merge: memsmith merge ${m.projectId} ${m.mergingInto} --yes`);
+  }
+  return {
+    name: 'Unfinished merges',
+    status: 'warn',
+    detail: `${merges.length} merge${merges.length === 1 ? '' : 's'} did not finish`,
+    required: false,
+    notes,
+  };
+}
+
+// One database read serves both project checks in a doctor pass.
+interface ProjectHealth { strays: StrayReport[]; merges: UnfinishedMerge[]; locked: string[] }
+let projectHealth: Promise<ProjectHealth> | null = null;
+
+function probeProjectHealth(): Promise<ProjectHealth> {
+  projectHealth ??= (async () => {
+    const loc = resolveProjectLocation(process.env.MEMSMITH_PROJECT_CWD || process.cwd());
+    const cwdRoots = loc.markerFound ? [loc.root] : [];
+    const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
+    const { loadInventory, recordTotal } = await import('../../services/projects/inventory.js');
+    const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
+    try {
+      const inv = await loadInventory(db.inventorySource(), { extraRoots: cwdRoots });
+      const records = new Map(inv.projects.filter((p) => p.projectId).map((p) => [p.projectId!, p.counts ? recordTotal(p.counts) : null]));
+      const roots = [...new Set([...inv.projects.flatMap((p) => p.folders), ...cwdRoots])];
+      const merges = inv.projects
+        .filter((p) => p.projectId && p.mergingInto && !p.mergedInto)
+        .map((p) => ({ projectId: p.projectId!, name: p.name, mergingInto: p.mergingInto! }));
+      return { strays: scanStrayMarkers(roots, records), merges, locked: await db.lockedDatabases() };
+    } catch {
+      return { strays: scanStrayMarkers(cwdRoots, new Map()), merges: [], locked: [] };
+    } finally {
+      await db.close();
+    }
+  })();
+  return projectHealth;
 }
 
 /**
@@ -299,6 +419,10 @@ const defaultProbes: DoctorProbes = {
   isPortInUse,
   dataDir: resolveDataDir,
   generation: probeGeneration,
+  // collectChecks asks for strays first, so each doctor pass reads afresh.
+  strayMarkers: async () => { projectHealth = null; return (await probeProjectHealth()).strays; },
+  unfinishedMerges: async () => (await probeProjectHealth()).merges,
+  lockedDatabases: async () => (await probeProjectHealth()).locked,
 };
 
 export async function collectChecks(
@@ -375,6 +499,11 @@ export async function collectChecks(
     urlSource.env ?? process.env,
   )));
 
+  if (probes.strayMarkers && !address.remote) checks.push(strayMarkerCheck(await probes.strayMarkers()));
+  if (probes.unfinishedMerges && !address.remote) checks.push(unfinishedMergeCheck(await probes.unfinishedMerges()));
+  const lockedDatabases = probes.lockedDatabases && !address.remote ? await probes.lockedDatabases() : [];
+  if (probes.lockedDatabases && !address.remote) checks.push(lockedDatabaseCheck(lockedDatabases));
+
   // 6. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');
   if (existsSync(lastErrorPath)) {
@@ -405,6 +534,7 @@ export async function collectChecks(
     pluginVersion,
     remote: address.remote,
     generation,
+    lockedDatabases,
   };
   return { checks, state };
 }
@@ -416,6 +546,7 @@ function printChecks(checks: CheckResult[]): void {
   console.log(styleText('bold', '\nmemsmith doctor\n'));
   for (const c of checks) {
     console.log(`  ${icon(c.status)} ${c.name.padEnd(22)} ${styleText('dim', c.detail)}`);
+    for (const note of c.notes ?? []) console.log(`      ${note}`);
   }
 }
 
@@ -468,6 +599,12 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
       return runLifecycle(cmd, [], defaultLifecycleDeps(urlSource));
     },
     ollama: (action) => repairOllama(action, state.generation),
+    unlockDatabases: async () => {
+      const { openLocalProjectsDb } = await import('../../services/projects/projects-db.js');
+      const { unlockLockedDatabases } = await import('../../services/projects/prune.js');
+      const db = openLocalProjectsDb(process.env, { connectTimeoutMs: 2000 });
+      try { await unlockLockedDatabases(db); } finally { await db.close(); }
+    },
     out: (line) => console.log(styleText('cyan', `  → ${line}`)),
   });
   if (!result.ok) {

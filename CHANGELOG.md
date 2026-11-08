@@ -17,15 +17,25 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 - `MEMSMITH_HOOKS_DISABLED` turns off hook features by name: `capture`, `summary`, `context`, `prompt-injection`, `record-intent`, `answer-gate`, `memory-first-gate`, `discovery-context`, `file-context`, and `subagent-directive`. The environment overrides `settings.json`. MemSmith logs one warning for each unknown name and ignores it.
 - `MEMSMITH_PG_BINARIES_DIR` sets where embedded Postgres keeps its binaries. The default is still `~/.memsmith/pg-binaries`.
 - `memsmith doctor` shows the memory access setting and the turned-off hook features, and warns about unknown names. `memsmith status` shows an `Access:` line when access is `read`.
+- `memsmith projects` lists every project that the local server knows: its name and id, team, runtime, folders, record counts, last activity, and the flags `empty`, `missing-db`, `orphan-db`, `stray`, `merging`, and `archived`. `--json` prints the list as JSON.
+- `memsmith merge <from> <into>` folds one local project's records into another. Without `--yes`, it shows what it would copy and the command to run. With `--yes`, it backs up the source database to `~/.memsmith/backups`, copies its sessions, events, generation jobs, observations, notes, and embeddings in one transaction, moves its queued jobs to the target, archives the source without dropping its database, and links the source's known folders to the target. It refuses team projects, two projects that share a database, and a source already merged elsewhere. A failed step says what finished, and running the command again finishes the merge.
+- `memsmith projects --prune [--yes]` removes orphan databases, empty projects, and the databases of merged projects. It counts every row in every table first, keeps anything it can't count or that holds account rows, records of another project, or rows newer than the merge, and backs up each database and each deleted project record. It refuses to run until the server has recorded which database holds your projects. It removes the key of each team it deletes, and asks you to run `memsmith restart` after it drops a database.
+- A folder that still links to a project archived by `memsmith merge` keeps working: the server routes its captures and reads to the project it was merged into, and the next session start rewrites the folder's local marker to name that project.
+- `memsmith doctor` reports subfolder markers that name a different project, with the nested project's record count and the command that folds it in, a merge that didn't finish, and a project database that an interrupted prune left closed to connections. `memsmith doctor --fix` opens that database again, unless a merge or prune is running. It never changes markers, even with `--fix`.
+- `memsmith projects` shows each project's queued generation jobs, so you can see when jobs a merge moved have run.
+- Each merge records the rows it copied in the target's `memsmith_merge_provenance` table, and the restore steps in the projects guide use it to undo a merge without removing the target's own rows.
 
 ### Changed
 
 - The memory commands parse options more strictly. An unknown `--option` is now an error instead of part of the query, an option value can't be another option (`--actor --json`), and `--json` takes no value. Put `--` before a query that starts with `--`.
+- A folder outside every `MEMSMITH_PROJECT_SEARCH_ROOTS` entry now resolves as if no search roots were set: a folder outside git uses a marker above it, up to just below your home folder. Before, setting any search root turned that off everywhere outside the roots, so such a folder could now resolve to a different project than before.
+- MemSmith writes `.memsmith/project.json` to a temporary file and renames it into place, so a hook never reads half a marker.
 
 ### Fixed
 
 - The documentation no longer claims that `MEMSMITH_MODE` selects a mode profile. The server always loads the `code` profile and ignores the setting.
 - Queued generation jobs that no running loop picked up now get processed without a server restart. Previously, a job whose publish returned `queued_only`, a project backlog of more than 500 jobs at boot, and jobs moved by `memsmith merge` stayed queued until the next restart. The server now checks the base database and every project database every 30 seconds. Each check loads up to 500 jobs per database and skips a job that is already waiting or running, so a large backlog drains over successive checks. The check marks a job as failed if its payload is invalid or belongs to another database, so it doesn't return every few minutes. Session-summary jobs that the server replays now go to the summary queue.
+- Search, recall, and the dashboard project list leave out a project archived by `memsmith merge`, or being merged, so a team-wide read doesn't return its records twice.
 
 ## [13.15.0] - 2026-11-08
 

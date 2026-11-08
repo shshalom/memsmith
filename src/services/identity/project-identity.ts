@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'path';
 import { CredentialStore } from './credential-store.js';
 import { createRawApiKey, hashApiKey } from '../hooks/server-bootstrap.js';
 import { logger } from '../../utils/logger.js';
+import { resolveMergeChain } from '../projects/merge-chain.js';
 import { LOCAL_OWNER_USER_ID } from '../../server/identity/providers/local-provider.js';
 import {
   findGitRoot,
@@ -56,10 +57,10 @@ const NESTED_SCAN_MAX_DEPTH = 3;
 const NESTED_SCAN_MAX_DIRS = 2000;
 const NESTED_SCAN_SKIP = new Set(['node_modules', 'Pods', 'DerivedData', 'build', 'dist', 'vendor', 'target']);
 
-// Markers minted by sessions started in subfolders of this repo. Bounded, run
-// only when a root identity is about to be minted, and never crosses into a
-// nested work tree or submodule, which is a project of its own.
-function findNestedMarkerDirs(root: string): string[] {
+// Markers minted by sessions started in subfolders of this repo. Bounded, and
+// never crosses into a nested work tree or submodule, which is a project of
+// its own.
+export function findNestedMarkerDirs(root: string): string[] {
   const found: string[] = [];
   let visited = 0;
   const walk = (dir: string, depth: number) => {
@@ -77,6 +78,32 @@ function findNestedMarkerDirs(root: string): string[] {
   };
   walk(root, 1);
   return found;
+}
+
+/**
+ * Every marker folder at or below `root`, nested repositories included, with
+ * the same bounds as the nested scan. `complete` is false when a bound cut the
+ * scan short, so a caller cannot read "not found" as "not there".
+ */
+export function scanMarkerDirs(root: string): { dirs: string[]; complete: boolean } {
+  const dirs: string[] = existsSync(join(root, MARKER_RELATIVE_PATH)) ? [root] : [];
+  let visited = 0;
+  let complete = true;
+  const walk = (dir: string, depth: number) => {
+    if (depth > NESTED_SCAN_MAX_DEPTH) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || NESTED_SCAN_SKIP.has(entry.name)) continue;
+      if (visited >= NESTED_SCAN_MAX_DIRS) { complete = false; return; }
+      visited++;
+      const child = join(dir, entry.name);
+      if (existsSync(join(child, MARKER_RELATIVE_PATH))) dirs.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return { dirs, complete };
 }
 
 // A single local subfolder identity in a repo whose root has none. Team markers
@@ -191,11 +218,14 @@ function writeMarker(cwd: string, marker: ProjectMarker): void {
   writeMarkerAt(resolveProjectRoot(cwd), marker);
 }
 
+// Temp file + rename, so a hook reading the marker never sees half of it.
 export function writeMarkerAt(root: string, marker: ProjectMarker): void {
   const p = join(root, MARKER_RELATIVE_PATH);
   const dir = dirname(p);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(p, JSON.stringify(marker, null, 2), 'utf-8');
+  const tmp = `${p}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(marker, null, 2), 'utf-8');
+  renameSync(tmp, p);
 }
 
 /**
@@ -328,9 +358,26 @@ export async function ensureProjectIdentity(
   let teamId: string;
   let projectId: string;
   let created: EnsuredProjectIdentity['created'];
+  let redirected = false;
   if (existing) {
     teamId = existing.teamId;
     projectId = existing.projectId;
+    const target = await mergedTarget(pool, existing);
+    if (target) {
+      // No databaseName: the next resolution stamps the target's database.
+      writeMarkerAt(root, {
+        teamId: target.teamId,
+        projectId: target.projectId,
+        note: MARKER_NOTE,
+        ...(existing.runtime ? { runtime: existing.runtime } : {}),
+      });
+      logger.info('IDENTITY', 'linked a folder from a merged project to the project it was merged into', {
+        root, from: existing.projectId, into: target.projectId,
+      });
+      teamId = target.teamId;
+      projectId = target.projectId;
+      redirected = true;
+    }
   } else {
     // A repo whose only identity was minted from one subfolder keeps that
     // identity, so its memory follows the whole repo instead of being stranded.
@@ -357,7 +404,8 @@ export async function ensureProjectIdentity(
     }
   }
   // basename of a path ending in a separator is '' — fall back to the id.
-  await upsertTeamAndProject(pool, teamId, projectId, basename(root) || undefined, root);
+  // A repointed folder is not where the target project lives, so its recorded path stays.
+  await upsertTeamAndProject(pool, teamId, projectId, basename(root) || undefined, redirected ? undefined : root);
   // NEVER MINT A KEY FOR A TEAM THIS MACHINE HAS NOT LOGGED INTO.
   //
   // The key guarantee below exists to close dark capture: a LOCAL marker with no
@@ -386,6 +434,18 @@ export async function ensureProjectIdentity(
     await ensureBaseKey(pool, teamId, projectId, store);
   }
   return created ? { teamId, projectId, created } : { teamId, projectId };
+}
+
+async function mergedTarget(pool: QueryablePool, marker: ProjectMarker): Promise<{ teamId: string; projectId: string } | null> {
+  if (marker.runtime === 'server') return null;
+  try {
+    const chain = await resolveMergeChain(pool, marker.projectId);
+    if (chain.kind === 'redirect') return { teamId: chain.teamId, projectId: chain.projectId };
+    if (chain.kind === 'broken') logger.warn('IDENTITY', 'left a merged project marker unchanged', { projectId: marker.projectId, reason: chain.reason });
+  } catch {
+    // The redirect is an optimization; the server routes the request either way.
+  }
+  return null;
 }
 
 /** Insert (or idempotently re-insert) an api_key hash row. Used by both the

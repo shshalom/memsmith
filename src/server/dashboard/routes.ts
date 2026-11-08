@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { isLocalRuntime } from '../runtime/runtime-kind.js';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import type { Application, RequestHandler } from 'express';
@@ -216,6 +217,8 @@ export class DashboardRoutes implements RouteHandler {
       ? [readAuth, resolveRequestDatabase(this.options.poolRegistry, {
           baseDatabaseName: this.options.baseDatabaseName ?? 'postgres',
           baseProjectId: this.options.baseProjectId ?? null,
+          accountPool: this.options.db,
+          localRuntime: isLocalRuntime(),
         })]
       : [readAuth];
     const resolveDataDb = this.options.poolRegistry

@@ -1,11 +1,14 @@
+import { mkdtempSync, writeFileSync } from 'fs';
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
 import * as realHookSettings from '../../../src/shared/hook-settings.js';
 import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
 import * as realRuntimeSelector from '../../../src/services/hooks/runtime-selector.js';
+
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'ms-hook-test-data-'));
 
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
@@ -26,7 +29,7 @@ let workerFallbackCalled = false;
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
+      if (key === 'MEMSMITH_DATA_DIR') return TEST_DATA_DIR;
       return '';
     },
     getInt: () => 0,
@@ -110,9 +113,17 @@ afterAll(() => {
   mock.module('../../../src/services/hooks/runtime-selector.js', () => realRuntimeSelectorSnapshot);
 });
 
+// Each child gets its own data dir with a settings file, so none of them
+// announces on stderr that it created one.
+function childEnv(): Record<string, string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-hook-child-data-'));
+  writeFileSync(join(dir, 'settings.json'), '{}');
+  return { ...process.env, MEMSMITH_DATA_DIR: dir };
+}
+
 describe('sessionInitHandler server semantic injection', () => {
   it('starts the server session and skips worker semantic injection in server mode', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'Please restore platform-aware context for this Cursor session.';
     const script = `

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { markLocalRuntime } from './runtime-kind.js';
 import pg from 'pg';
 import { EmbeddedPostgresManager } from './EmbeddedPostgresManager.js';
 import { readProjectMarker, writeProjectDatabaseName } from '../../services/identity/project-identity.js';
@@ -47,6 +48,7 @@ export async function startLocalRuntime(
       error instanceof Error ? error : new Error(String(error)),
     );
   }
+  markLocalRuntime();
   const start = options.startService ?? defaultStartService;
   await start(connectionString);
   return { connectionString };

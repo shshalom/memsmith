@@ -1,10 +1,13 @@
+import { mkdtempSync, writeFileSync } from 'fs';
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 import * as realSettingsDefaultsManager from '../../../src/shared/SettingsDefaultsManager.js';
 import * as realHookSettings from '../../../src/shared/hook-settings.js';
 import * as realWorkerUtils from '../../../src/shared/worker-utils.js';
+
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'ms-hook-test-data-'));
 
 const realSettingsSnapshot = { ...realSettingsDefaultsManager };
 const realHookSettingsSnapshot = { ...realHookSettings };
@@ -14,7 +17,7 @@ const originalInternalEnv = process.env.MEMSMITH_INTERNAL;
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'MEMSMITH_DATA_DIR') return join(homedir(), '.memsmith');
+      if (key === 'MEMSMITH_DATA_DIR') return TEST_DATA_DIR;
       return '';
     },
     getInt: () => 0,
@@ -78,9 +81,17 @@ afterAll(() => {
 // These tests verify the clean-skip path for each scenario that previously exercised
 // the worker path.
 
+// Each child gets its own data dir with a settings file, so none of them
+// announces on stderr that it created one.
+function childEnv(): Record<string, string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-hook-child-data-'));
+  writeFileSync(join(dir, 'settings.json'), '{}');
+  return { ...process.env, MEMSMITH_DATA_DIR: dir };
+}
+
 describe('sessionInitHandler per-prompt hybrid injection', () => {
   it('1: local runtime -> handler skips cleanly without calling worker or team server', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'How do I implement the hybrid RRF injection pipeline?';
     const script = `
@@ -116,7 +127,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('2: local runtime -> skips cleanly (no worker semantic call)', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'What is the current state of the per-prompt injection feature?';
     const script = `
@@ -150,7 +161,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('3: local runtime -> skips cleanly (no fallback to worker)', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'Server returns empty rows so we should fall through to worker semantic.';
     const script = `
@@ -183,7 +194,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('4: local runtime -> skips cleanly without team server query', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'Explicit query assertion: this exact text must be passed as query.';
     const script = `
@@ -216,7 +227,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('5: injectability gate: short prompt still skips cleanly on local runtime', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'Short prompt';  // 12 chars — below the old 20-char gate (gate removed with worker)
     const script = `
@@ -252,7 +263,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('6: local runtime -> handler returns { continue: true } and does not throw', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'This prompt triggers the local skip path.';
     const script = `
@@ -290,7 +301,7 @@ describe('sessionInitHandler per-prompt hybrid injection', () => {
   });
 
   it('7: local runtime -> skips cleanly regardless of MEMSMITH_TEAM_INJECT setting', async () => {
-    const env = { ...process.env };
+    const env = childEnv();
     delete env.MEMSMITH_INTERNAL;
     const prompt = 'This prompt has URL and key set but the master TEAM_INJECT switch is off.';
     const script = `
