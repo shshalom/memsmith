@@ -257,11 +257,28 @@ function isSecretValue(value: string, kind: NameKind, quoted: boolean): boolean 
   return value.length >= 8 && (/\d/.test(value) || value.length >= 20);
 }
 
+// A bare `pass` is also an ordinary word ("first pass: 12/27"), so it counts
+// as a field name only where a key can stand: at the start of a line, after an
+// opening brace, bracket, or comma, after a YAML list dash, after an opening
+// quote, or after `export`.
+function isKeyPosition(text: string, offset: number): boolean {
+  let i = offset;
+  if (i > 0 && (text[i - 1] === '"' || text[i - 1] === "'")) i -= 1;
+  while (i > 0 && (text[i - 1] === ' ' || text[i - 1] === '\t')) i -= 1;
+  if (i === 0) return true;
+  const prev = text[i - 1];
+  if (prev === '\n' || prev === '\r' || prev === '{' || prev === '[' || prev === '(' || prev === ',') return true;
+  if (prev === '-' && /(?:^|[\r\n])[ \t]*-$/.test(text.slice(Math.max(0, i - 256), i))) return true;
+  return /(?:^|\s)export$/.test(text.slice(Math.max(0, i - 7), i));
+}
+
 function redactAssignments(text: string): string {
   return text.replace(
     ASSIGNMENT,
     (match, suffix: string, sep: string, esc: string | undefined, dq: string | undefined, sq: string | undefined, bare: string | undefined, offset: number) => {
-      const kind = secretNameKind(nameBefore(text, offset, suffix));
+      const name = nameBefore(text, offset, suffix);
+      if (name.toLowerCase() === 'pass' && !isKeyPosition(text, offset)) return match;
+      const kind = secretNameKind(name);
       if (!kind) return match;
       if (bare !== undefined) {
         if (text[offset + match.length] === '(') return match;

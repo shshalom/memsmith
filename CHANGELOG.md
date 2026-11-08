@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- Secret redaction no longer removes text after the word "pass" in prose. Before, a line such as `Stack CI first pass: 12/27 green` lost `12/27`, because a bare `pass` counted as a field name anywhere. A bare `pass` now counts only where a key can stand, such as the start of a line, after `{` or `,`, or after a YAML list dash. Names such as `SMTP_PASS` and `dbPass` are unchanged.
+
 ## [13.14.0] - 2026-11-08
 
 ### Added
