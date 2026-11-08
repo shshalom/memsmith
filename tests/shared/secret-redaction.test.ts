@@ -511,6 +511,8 @@ describe('redactSecrets: the word "pass" in test results', () => {
       ['user: bob pass: hunter22x', 'user: bob pass: [REDACTED:password]'],
       ['# pass: hunter22x', '# pass: [REDACTED:password]'],
       ['pass: "1234/5678"', 'pass: "[REDACTED:password]"'],
+      ['smtp:\n  pass: 84629173\n', 'smtp:\n  pass: [REDACTED:password]\n'],
+      ['pass: 1234.5678', 'pass: [REDACTED:password]'],
       ['SMTP_PASS=hunter22x', 'SMTP_PASS=[REDACTED:password]'],
     ];
     for (const [input, expected] of cases) expect(redactSecrets(input)).toBe(expected);

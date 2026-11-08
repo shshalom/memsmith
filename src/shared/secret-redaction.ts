@@ -260,7 +260,7 @@ function isSecretValue(value: string, kind: NameKind, quoted: boolean): boolean 
 // A bare `pass` is also an ordinary word in test output ("first pass: 12/27",
 // "PASS: 98%"). After `pass:`, an unquoted count, fraction, or percentage is a
 // result, not a password.
-const PASS_RESULT = /^\d+(?:[/.]\d+)?%?$/;
+const PASS_RESULT = /^(?:\d+\/\d+|\d{1,3}(?:\.\d{1,2})?%|\d{1,4})$/;
 
 function redactAssignments(text: string): string {
   return text.replace(
