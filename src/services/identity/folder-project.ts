@@ -14,6 +14,7 @@ export type FolderProjectResolution =
   | { kind: 'resolved'; ctx: ServerRuntimeContext }
   | { kind: 'no_project'; folder: string }
   | { kind: 'no_key'; folder: string; projectId: string; team: boolean }
+  | { kind: 'no_team_server'; folder: string; projectId: string }
   | { kind: 'unconfigured'; folder: string };
 
 export interface ResolveFolderProjectOptions {
@@ -47,9 +48,15 @@ function firstNonEmpty(...candidates: Array<string | undefined>): string {
   return '';
 }
 
+function sameUrl(a: string, b: string): boolean {
+  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+}
+
 // A key only ever goes to its own team's server. The settings key carries no
 // team id, so it is trusted for a marker only when settings name that same
-// project; any other team needs its own cached key.
+// project or the marker names the settings server (where that key already
+// goes); any other team needs its own cached key. A team marker that names no
+// server sends nothing, even with a cached key.
 function resolvePinnedMarker(folder: string, marker: ProjectMarker, store: CredentialStore): FolderProjectResolution {
   const settings = loadFromFileOnce();
   const settingsKey = firstNonEmpty(settings.MEMSMITH_SERVER_API_KEY, settings.MEMSMITH_SERVER_BETA_API_KEY);
@@ -58,13 +65,14 @@ function resolvePinnedMarker(folder: string, marker: ProjectMarker, store: Crede
   const settingsAreLocal = normalizeRuntime(settings.MEMSMITH_RUNTIME) === 'local';
   const isTeam = marker.runtime === 'server';
 
-  const apiKey = store.resolveKeyForTeam(marker.teamId)
-    ?? (settingsKey && settingsProject === marker.projectId ? settingsKey : null);
+  const settingsKeyFits = settingsProject === marker.projectId
+    || (marker.serverUrl !== undefined && settingsUrl !== '' && sameUrl(marker.serverUrl, settingsUrl));
+  const apiKey = store.resolveKeyForTeam(marker.teamId) ?? (settingsKey && settingsKeyFits ? settingsKey : null);
   if (!apiKey) return { kind: 'no_key', folder, projectId: marker.projectId, team: isTeam };
+  if (isTeam && !marker.serverUrl) return { kind: 'no_team_server', folder, projectId: marker.projectId };
 
   const localUrl = settingsAreLocal && settingsUrl ? settingsUrl : `http://127.0.0.1:${resolveDashboardPort()}`;
-  const serverBaseUrl = marker.serverUrl ?? (isTeam ? (settingsAreLocal ? '' : settingsUrl) : localUrl);
-  if (!serverBaseUrl) return { kind: 'unconfigured', folder };
+  const serverBaseUrl = marker.serverUrl ?? localUrl;
 
   const client = new ServerClient({ serverBaseUrl, apiKey, delegateGeneration: selectRuntime(folder) === 'server' });
   return { kind: 'resolved', ctx: { runtime: 'server', client, projectId: marker.projectId, serverBaseUrl } };
@@ -94,6 +102,11 @@ export function describeUnusableProject(
           `The folder ${resolution.folder} belongs to MemSmith project ${resolution.projectId}, but this machine holds no key for it. ${consequence}`,
           'To restore the key, start a MemSmith session in that folder.',
         ];
+    case 'no_team_server':
+      return [
+        `The folder ${resolution.folder} belongs to MemSmith project ${resolution.projectId}, but its team server is unknown. ${consequence}`,
+        'To rejoin the team, open the MemSmith dashboard and choose Join on the Runtime tile.',
+      ];
     case 'unconfigured':
       return [
         `The folder ${resolution.folder} has a MemSmith project, but the MemSmith server settings are incomplete. ${consequence}`,

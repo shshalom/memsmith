@@ -28,6 +28,8 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
   let otherTeam: string;
   let sharedWithSettings: string;
   let joinedTeam: string;
+  let teamWithoutUrl: string;
+  let teamOnSettingsServer: string;
   let fromPinned: Client;
   let fromUnpinned: Client;
   let withSettingsProject: Client;
@@ -58,7 +60,7 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
   function writeDataDir(dir: string, settings: Record<string, string>) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ MEMSMITH_SERVER_URL: `http://127.0.0.1:${fake.port}`, ...settings }));
-    writeFileSync(join(dir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned', 'team-joined': 'key-team' } }));
+    writeFileSync(join(dir, 'credentials.json'), JSON.stringify({ keys: { 'team-pinned': 'key-pinned', 'team-joined': 'key-team', 'team-no-url': 'key-no-url' } }));
   }
 
   function writeMarker(dir: string, marker: Record<string, string>) {
@@ -105,6 +107,10 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
     writeMarker(sharedWithSettings, { teamId: 'team-settings', projectId: 'proj-settings', runtime: 'server', serverUrl: `http://127.0.0.1:${teamFake.port}` });
     joinedTeam = join(home, 'joined-team');
     writeMarker(joinedTeam, { teamId: 'team-joined', projectId: 'proj-team', runtime: 'server', serverUrl: `http://127.0.0.1:${teamFake.port}` });
+    teamWithoutUrl = join(home, 'team-without-url');
+    writeMarker(teamWithoutUrl, { teamId: 'team-no-url', projectId: 'proj-no-url', runtime: 'server' });
+    teamOnSettingsServer = join(home, 'team-on-settings-server');
+    writeMarker(teamOnSettingsServer, { teamId: 'team-same-server', projectId: 'proj-same-server', runtime: 'server', serverUrl: `http://127.0.0.1:${teamFake.port}/` });
     unpinned = join(home, 'unpinned-checkout');
     mkdirSync(unpinned, { recursive: true });
 
@@ -225,6 +231,22 @@ describe('memory MCP tools and folders without a usable MemSmith project', () =>
     await expectSentTo(
       withSettingsProject, 'observation_search', { query: 'queue engine', cwd: sharedWithSettings },
       'proj-settings', 'key-settings', 'team',
+    );
+  });
+
+  it("never sends a team folder's cached key to the settings server when its marker names no server", async () => {
+    await expectRefused(
+      withSettingsProject, 'observation_search', { query: 'queue engine', cwd: teamWithoutUrl },
+      `The folder ${teamWithoutUrl} belongs to MemSmith project proj-no-url, but its team server is unknown.`,
+      NOT_SEARCHED,
+      'choose Join',
+    );
+  });
+
+  it("uses the settings key for a team folder whose marker names the settings server", async () => {
+    await expectSentTo(
+      withSettingsProject, 'observation_search', { query: 'queue engine', cwd: teamOnSettingsServer },
+      'proj-same-server', 'key-settings', 'team',
     );
   });
 
