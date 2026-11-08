@@ -22,6 +22,7 @@ describe('MCP tools and the session actor', () => {
   let fake: ReturnType<typeof Bun.serve>;
   let home: string;
   let client: Client;
+  let anonymous: Client;
   const received: Array<{ path: string; body: any }> = [];
 
   beforeAll(async () => {
@@ -50,18 +51,24 @@ describe('MCP tools and the session actor', () => {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([k, v]) => !k.startsWith('MEMSMITH_') && v !== undefined),
     ) as Record<string, string>;
-    client = new Client({ name: 'test', version: '0.0.0' });
-    await client.connect(new StdioClientTransport({
-      command: process.execPath,
-      args: [mcpServerPath],
-      cwd: home,
-      env: { ...env, HOME: home, MEMSMITH_DATA_DIR: dataDir, CLAUDE_CONFIG_DIR: join(home, '.claude'), MEMSMITH_ACTOR: 'reviewer', MEMSMITH_SERVER_DATABASE_URL: UNREACHABLE_DB },
-      stderr: 'ignore',
-    }));
+    const connect = async (actor: string) => {
+      const c = new Client({ name: 'test', version: '0.0.0' });
+      await c.connect(new StdioClientTransport({
+        command: process.execPath,
+        args: [mcpServerPath],
+        cwd: home,
+        env: { ...env, HOME: home, MEMSMITH_DATA_DIR: dataDir, CLAUDE_CONFIG_DIR: join(home, '.claude'), MEMSMITH_ACTOR: actor, MEMSMITH_SERVER_DATABASE_URL: UNREACHABLE_DB },
+        stderr: 'ignore',
+      }));
+      return c;
+    };
+    client = await connect('reviewer');
+    anonymous = await connect('');
   }, 30_000);
 
   afterAll(async () => {
     await client?.close();
+    await anonymous?.close();
     fake?.stop(true);
     rmSync(home, { recursive: true, force: true });
   });
@@ -78,9 +85,14 @@ describe('MCP tools and the session actor', () => {
     });
   });
 
-  it('observation_add stamps the session actor over any actor in the caller metadata', async () => {
-    await call('observation_add', { content: 'Queue note', metadata: { title: 'Q', actor: 'someone-else' } });
+  it('observation_add replaces caller-supplied actor and actors with the session actor', async () => {
+    await call('observation_add', { content: 'Queue note', metadata: { title: 'Q', actor: 'someone-else', actors: ['a', 'b'] } });
     expect(received.at(-1)?.body.metadata).toEqual({ title: 'Q', actor: 'reviewer' });
+  });
+
+  it('observation_add drops caller-supplied actor and actors when the session has no actor', async () => {
+    await anonymous.callTool({ name: 'observation_add', arguments: { content: 'Queue note', metadata: { title: 'Q', actor: 'forged', actors: ['forged'] } } });
+    expect(received.at(-1)?.body.metadata).toEqual({ title: 'Q' });
   });
 
   it('observation_record_event stamps the session actor on the event payload', async () => {

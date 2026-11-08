@@ -124,9 +124,12 @@ function actorFilterArg(toolName: string, raw: unknown): string | undefined {
   return parsed.actor ?? undefined;
 }
 
+// Attribution comes from this process's MEMSMITH_ACTOR, never from the caller.
 function withSessionActor(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   const actor = resolveActor();
-  return actor ? { ...(metadata ?? {}), actor } : metadata;
+  if (metadata === undefined) return actor ? { actor } : undefined;
+  const { actor: _actor, actors: _actors, unattributed: _unattributed, ...rest } = metadata;
+  return actor ? { ...rest, actor } : rest;
 }
 
 function formatToolError(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {
