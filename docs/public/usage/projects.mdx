@@ -122,7 +122,7 @@ If a step fails, `memsmith merge` says which steps finished and what the target 
 
 Search, recall, and the dashboard show the merged records right away, because they read the target project's database, and the embeddings are copied with the records.
 
-A folder that still links to the archived project keeps working. The server routes its captures, searches, and dashboard reads to the project it was merged into, following a chain of up to eight merges, and refuses the request when the merges form a cycle. The next time a session starts in that folder, MemSmith rewrites the folder's marker to name the target project, unless the marker belongs to a team project.
+A folder that still links to the archived project keeps working. The local server routes its captures, searches, and dashboard reads to the project it was merged into, following a chain of up to eight merges, and refuses the request when the merges form a cycle. The next time a session starts in that folder, MemSmith rewrites the folder's marker to name the target project, unless the marker belongs to a team project.
 
 ## Prune projects
 
@@ -143,7 +143,7 @@ Before it removes anything, MemSmith counts every row in every table of the data
 
 `memsmith projects --prune` refuses to run when the server hasn't recorded which database holds your projects, for example after `memsmith stop`. Run `memsmith start` first.
 
-Before it drops a database, MemSmith backs it up with `pg_dump` to `~/.memsmith/backups/prune-<database>-<time>.sql`. Before it deletes a project record, it writes the project, team, member, and key rows it deletes to `~/.memsmith/backups/prune-<project-id>-account-<time>.sql`. Both files are readable only by you, and MemSmith flushes them to disk before it continues. If a backup fails, MemSmith keeps that database and project. Right before each drop, MemSmith counts the database again, and keeps it if it changed. After it drops a database, it asks you to run `memsmith restart`, so the server releases its connections to the dropped database.
+Before it drops a database, MemSmith backs it up with `pg_dump` to `~/.memsmith/backups/prune-<database>-<time>.sql`. Before it deletes a project record, it writes the project, team, member, and key rows it deletes to `~/.memsmith/backups/prune-<project-id>-account-<time>.sql`. Both files are readable only by you, and MemSmith flushes them to disk before it continues. If a backup fails, MemSmith keeps that database and project. Right before each drop, MemSmith stops new connections to the database, closes every other connection to it, and counts it again. If the count changed, MemSmith keeps the database and opens it to connections again. After it drops a database, it asks you to run `memsmith restart`, so the server releases its connections to the dropped database.
 
 ## Restore from a backup
 
@@ -155,45 +155,52 @@ The backups are plain SQL. To restore one, use the tools in `~/.memsmith/pg-bina
    memsmith start
    ```
 
+1. Find the database that holds your projects. `memsmith projects --json` prints its name as `accountDatabase`. On an install from before projects had their own databases, it's `postgres`; on a newer install, it's the `msp_` database of the first project MemSmith created.
+
 1. Set up the tools and the connection. On Linux, use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH`.
 
    ```bash
    export PGBIN=~/.memsmith/pg-binaries/bin
    export DYLD_LIBRARY_PATH=~/.memsmith/pg-binaries/lib
    export PGURL=postgres://memsmith:memsmith-local@127.0.0.1:55433
+   export ACCOUNT_DB=<accountDatabase from the previous step>
    ```
 
 1. To restore a dropped project database, create it and load its backup. The database name is in the backup file name.
 
    ```bash
-   "$PGBIN/createdb" --dbname="$PGURL/postgres" msp_<id>
+   "$PGBIN/createdb" --maintenance-db="$PGURL/postgres" msp_<id>
    "$PGBIN/psql" "$PGURL/msp_<id>" -v ON_ERROR_STOP=1 -f ~/.memsmith/backups/prune-msp_<id>-<time>.sql
    ```
 
-1. To restore a deleted project record, load its account backup into the database that holds your projects. `memsmith projects --json` prints its name as `accountDatabase`; on most installs it's `postgres`. Use that name in place of `postgres` in this step and the next.
+1. To restore a deleted project record, load its account backup into the database that holds your projects. Prune deletes the record only of an empty project; a merged project keeps its record.
 
    ```bash
-   "$PGBIN/psql" "$PGURL/postgres" -v ON_ERROR_STOP=1 -f ~/.memsmith/backups/prune-<project-id>-account-<time>.sql
+   "$PGBIN/psql" "$PGURL/$ACCOUNT_DB" -v ON_ERROR_STOP=1 -f ~/.memsmith/backups/prune-<project-id>-account-<time>.sql
    ```
 
 1. To undo a merge, make the source project active again, so search and the dashboard read it:
 
    ```bash
-   "$PGBIN/psql" "$PGURL/postgres" -c "UPDATE projects SET metadata = metadata - 'mergedInto' - 'mergingInto' - 'archivedAt' WHERE id = '<source-project-id>'"
+   "$PGBIN/psql" "$PGURL/$ACCOUNT_DB" -c "UPDATE projects SET metadata = metadata - 'mergedInto' - 'mergingInto' - 'archivedAt' WHERE id = '<source-project-id>'"
    ```
 
-   If you also pruned the source's database, restore it first with step 3, from the `merge-<source-project-id>-<time>.sql` backup or the later `prune-` backup. Then link the source's folders to it again with `memsmith link <source-project-id> --force` in each folder.
+   If you also pruned the source's database, restore it first with step 4, from the `merge-<source-project-id>-<time>.sql` backup or the later `prune-` backup. Then link the source's folders to it again with `memsmith link <source-project-id> --force` in each folder.
 
-1. The rows a merge copied stay in the target. To remove them, delete the target's rows whose ids appear in the source database, in this order. Rows renamed during the merge have ids that end in `-m` and the first eight characters of the source project id.
+1. The rows a merge copied stay in the target. Each merge records the rows it inserted in the target database's `memsmith_merge_provenance` table, so you can remove exactly those. Rows the target already had, including a target row whose id matched a source row, aren't recorded, so they stay. Back up the target first, then run this SQL in the target's database (`msp_` followed by the target project id without dashes, as `memsmith projects` shows):
 
-   ```sql
-   -- In the target database, for each table: observation_generation_job_events,
-   -- observation_sources, observations, observation_generation_jobs, agent_events,
-   -- server_sessions. List the source ids from the restored source database first.
-   DELETE FROM observations WHERE project_id = '<target-project-id>' AND id = ANY('{<source ids>}');
+   ```bash
+   "$PGBIN/pg_dump" --dbname="$PGURL/msp_<target-id>" --file=target-before-undo.sql
+   "$PGBIN/psql" "$PGURL/msp_<target-id>" -v ON_ERROR_STOP=1 --single-transaction <<'SQL'
+   DELETE FROM observation_generation_job_events WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'observation_generation_job_events');
+   DELETE FROM observation_sources WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'observation_sources');
+   DELETE FROM observations WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'observations');
+   DELETE FROM observation_generation_jobs WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'observation_generation_jobs');
+   DELETE FROM agent_events WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'agent_events');
+   DELETE FROM server_sessions WHERE id IN (SELECT target_id FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>' AND table_name = 'server_sessions');
+   DELETE FROM memsmith_merge_provenance WHERE source_project_id = '<source-project-id>';
+   SQL
    ```
-
-   Rows the target already had, such as a session that ran in both folders, weren't copied, so their ids aren't in the source database under the target's id. Back up the target with `pg_dump` before you delete anything.
 
 1. Run `memsmith restart`.
 
@@ -205,7 +212,7 @@ A session that starts in a subfolder before the project root has a marker can cr
 memsmith merge <nested-project-id> <root-project-id>
 ```
 
-The merge links the nested folder to the root project. A nested folder that is its own git repository is a project of its own, and `memsmith doctor` doesn't report it. `memsmith doctor` never changes markers or records, even with `--fix`. When it can't reach the embedded Postgres within two seconds, it checks only the current folder's project root.
+The merge links the nested folder to the root project. A nested folder that is its own git repository is a project of its own, and `memsmith doctor` doesn't report it. `memsmith doctor` also reports a project whose merge didn't finish, with the command that finishes it. It never changes markers or records, even with `--fix`. When it can't reach the embedded Postgres within two seconds, it checks only the current folder's project root.
 
 ## Converting a shared marker
 
