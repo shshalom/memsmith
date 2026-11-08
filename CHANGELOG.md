@@ -15,6 +15,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 - `memsmith projects --prune [--yes]` removes orphan databases, empty projects, and the databases of merged projects. It counts every row in every table first, keeps anything it can't count or that holds account rows, records of another project, or rows newer than the merge, and backs up each database and each deleted project record. It refuses to run until the server has recorded which database holds your projects. It removes the key of each team it deletes, and asks you to run `memsmith restart` after it drops a database.
 - A folder that still links to a project archived by `memsmith merge` keeps working: the server routes its captures and reads to the project it was merged into, and the next session start rewrites the folder's local marker to name that project.
 - `memsmith doctor` reports subfolder markers that name a different project, with the nested project's record count and the command that folds it in, and a merge that didn't finish. It never changes markers, even with `--fix`.
+- `memsmith projects` shows each project's queued generation jobs, so you can see when jobs a merge moved have run.
 - Each merge records the rows it copied in the target's `memsmith_merge_provenance` table, and the restore steps in the projects guide use it to undo a merge without removing the target's own rows.
 
 ### Changed

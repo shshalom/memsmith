@@ -27,4 +27,14 @@ describe('projects.mdx restore steps', () => {
     expect(documented.slice(first, first + statements.length)).toEqual(statements);
     expect(restore).not.toContain("id = ANY('{<source ids>}')");
   });
+
+  it('say what undoing a merge leaves behind and what it cannot undo', () => {
+    expect(restore).toContain('generated from moved jobs');
+    expect(restore).toContain('after the merge routed');
+    expect(restore).toContain('merged into a third project');
+  });
+
+  it('do not claim the server picks up moved jobs only at startup', () => {
+    expect(doc).not.toContain('picks up those jobs only when it starts');
+  });
 });
