@@ -37,6 +37,7 @@ import {
 import { describeUnusableProject, resolveFolderProject } from '../services/identity/folder-project.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
 import { buildUserNoteRequest } from '../services/retrieval/user-note-write.js';
+import { READ_ONLY_REFUSAL, writesAllowed } from '../shared/feature-switches.js';
 import {
   clampLimit,
   formatObservationContext,
@@ -418,6 +419,8 @@ const CWD_PROPERTY = {
   description: 'Absolute path of the folder you are working in. Pass it when it differs from the folder the session started in.',
 } as const;
 
+const WRITE_TOOLS: ReadonlySet<string> = new Set(['observation_add', 'note_add', 'observation_record_event']);
+
 const tools = [
   {
     name: '__IMPORTANT',
@@ -746,6 +749,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (!tool) {
     throw new Error(`Unknown tool: ${request.params.name}`);
+  }
+
+  if (WRITE_TOOLS.has(tool.name) && !writesAllowed()) {
+    return { content: [{ type: 'text' as const, text: READ_ONLY_REFUSAL }], isError: true };
   }
 
   try {
