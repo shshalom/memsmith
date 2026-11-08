@@ -43,6 +43,9 @@ ${styleText('bold', 'Memory Commands')} (run from a project folder; need the ser
   ${styleText('cyan', 'memsmith get <id> [<id>...]')}       Show full observations by id
   ${styleText('cyan', 'memsmith project')}                  Show which project this folder uses, and why
   ${styleText('cyan', 'memsmith link [<id>|<name>|<path>] [--new] [--force]')}   Pin this folder to a project
+  ${styleText('cyan', 'memsmith projects [--json]')}         List every local project, its folders, records, and flags
+  ${styleText('cyan', 'memsmith projects --prune [--yes]')}  Remove orphan databases and empty or merged projects, after a backup
+  ${styleText('cyan', 'memsmith merge <from> <into> [--yes]')}   Fold one local project's records into another (preview without --yes)
 
 ${styleText('bold', 'Server Commands')} (requires Bun, delegates to installed plugin):
   ${styleText('cyan', 'memsmith start [--timeout <s>]')}    Start the local server and wait until it is ready
@@ -222,6 +225,16 @@ async function main(): Promise<void> {
     case 'link': {
       const { runLinkCommand } = await import('./commands/project.js');
       process.exit(await runLinkCommand(args.slice(1)));
+    }
+
+    case 'projects': {
+      const { runProjectsCommand } = await import('./commands/projects.js');
+      process.exit(await runProjectsCommand(args.slice(1)));
+    }
+
+    case 'merge': {
+      const { runMergeCommand } = await import('./commands/projects.js');
+      process.exit(await runMergeCommand(args.slice(1)));
     }
 
     case 'adopt':
