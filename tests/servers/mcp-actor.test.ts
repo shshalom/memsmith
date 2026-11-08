@@ -122,6 +122,15 @@ describe('MCP tools and the session actor', () => {
     expect(received.at(-1)).toEqual({ path: '/v1/context', body: expect.objectContaining({ actor: 'reviewer' }) });
   });
 
+  it('refuses a blank actor filter, like POST /v1/search', async () => {
+    const before = received.length;
+    for (const name of ['observation_search', 'observation_context']) {
+      const result = await call(name, { query: 'queue', actor: '   ' });
+      expect(result.isError).toBe(true);
+    }
+    expect(received.length).toBe(before);
+  });
+
   it('refuses an actor filter with control characters', async () => {
     const before = received.length;
     const result = await call('observation_search', { query: 'queue', actor: 'bad\nactor' });

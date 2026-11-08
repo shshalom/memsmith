@@ -121,6 +121,7 @@ function requireProjectForTool(toolName: string, cwd: unknown, consequence: stri
 function actorFilterArg(toolName: string, raw: unknown): string | undefined {
   const parsed = parseActor(raw);
   if (!parsed.ok) throw new ToolMessageError(`${toolName}: invalid "actor": ${parsed.reason}. ${NOT_SEARCHED}`);
+  if (raw !== undefined && raw !== null && !parsed.actor) throw new ToolMessageError(`${toolName}: "actor" must not be blank. ${NOT_SEARCHED}`);
   return parsed.actor ?? undefined;
 }
 

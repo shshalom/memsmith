@@ -182,9 +182,10 @@ async function withFilteredHnswScan<T>(
     ? { name: 'hnsw.iterative_scan', value: 'relaxed_order' }
     : { name: 'hnsw.ef_search', value: '1000' };
   // A pg.Client also has connect(); only a Pool hands out a fresh connection.
-  const pool = client as PostgresQueryable & { connect?: () => Promise<PostgresQueryable & { release: () => void }>; totalCount?: unknown };
+  const pool = client as PostgresQueryable & { connect?: () => Promise<PostgresQueryable & { release: (error?: Error) => void }>; totalCount?: unknown };
   if (typeof pool.connect === 'function' && typeof pool.totalCount === 'number') {
     const conn = await pool.connect();
+    let broken: Error | undefined;
     try {
       await conn.query('BEGIN');
       await conn.query(`SET LOCAL ${setting.name} = ${setting.value}`);
@@ -192,10 +193,14 @@ async function withFilteredHnswScan<T>(
       await conn.query('COMMIT');
       return result;
     } catch (error) {
-      await conn.query('ROLLBACK').catch(() => {});
+      // A connection that cannot roll back is unusable; passing the error to
+      // release() destroys it instead of returning it to the pool.
+      await conn.query('ROLLBACK').catch((rollbackError: unknown) => {
+        broken = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
+      });
       throw error;
     } finally {
-      conn.release();
+      conn.release(broken);
     }
   }
   // A single connection may already be inside the caller's transaction, so it

@@ -62,8 +62,10 @@ async function readAllStdin(maxBytes: number): Promise<Uint8Array> {
   return Buffer.concat(chunks);
 }
 
-// Matches the server's 5 MB request body limit.
-const NOTE_MAX_BYTES = 5 * 1024 * 1024;
+// The server's express.json limit. Text that fits can still encode larger,
+// because JSON escapes quotes and control characters.
+const SERVER_BODY_MAX_BYTES = 5 * 1024 * 1024;
+const NOTE_MAX_BYTES = SERVER_BODY_MAX_BYTES;
 
 async function noteTextFromStdin(d: MemoryCommandDeps): Promise<string> {
   if ((d.stdinIsTTY ?? (() => process.stdin.isTTY === true))()) {
@@ -342,6 +344,12 @@ export async function runMemoryNote(args: string[], d: MemoryCommandDeps = defau
       projectId: ctx.projectId,
       ...(actor.actor ? { metadata: actorField(actor.actor) } : {}),
     });
+    const bodyBytes = Buffer.byteLength(JSON.stringify(request));
+    if (bodyBytes > SERVER_BODY_MAX_BYTES) {
+      throw new CommandFailure('usage', [
+        `The note is too large: its request would be ${bodyBytes} bytes, over the server's 5 MB limit. ${NOT_SAVED}`,
+      ]);
+    }
     const { memory } = await ctx.client.addObservation(request);
     report.print(
       `Saved note ${memory.id} to project ${ctx.projectId}${actor.actor ? ` as ${actor.actor}` : ''}.`,

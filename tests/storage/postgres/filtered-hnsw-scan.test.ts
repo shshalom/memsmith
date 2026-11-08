@@ -40,3 +40,36 @@ describe('vector search with an actor filter', () => {
     expect(statements.some((s) => s.startsWith('SET') || s.includes('pg_extension'))).toBe(false);
   });
 });
+
+describe('vector search with an actor filter on a pool', () => {
+  function fakePool(opts: { failQuery: boolean; failRollback: boolean }) {
+    const released: unknown[] = [];
+    const conn = {
+      async query(text: string) {
+        if (text.includes('pg_extension')) return { rows: [{ extversion: '0.8.0' }] };
+        if (text === 'ROLLBACK' && opts.failRollback) throw new Error('connection lost');
+        if (text.includes('FROM observations') && opts.failQuery) throw new Error('query failed');
+        return { rows: [] };
+      },
+      release(error?: unknown) { released.push(error); },
+    };
+    const pool = { totalCount: 1, query: conn.query, connect: async () => conn };
+    return { pool, released };
+  }
+
+  const search = (pool: unknown) => new PostgresObservationRepository(pool as never)
+    .vectorSearch({ projectId: 'p', teamId: 't', query: 'q', actor: 'reviewer' });
+
+  it('discards the connection when ROLLBACK fails, instead of returning it to the pool', async () => {
+    const { pool, released } = fakePool({ failQuery: true, failRollback: true });
+    await expect(search(pool)).rejects.toThrow('query failed');
+    expect(released).toHaveLength(1);
+    expect(released[0]).toBeInstanceOf(Error);
+  });
+
+  it('returns the connection to the pool after a clean rollback', async () => {
+    const { pool, released } = fakePool({ failQuery: true, failRollback: false });
+    await expect(search(pool)).rejects.toThrow('query failed');
+    expect(released).toEqual([undefined]);
+  });
+});

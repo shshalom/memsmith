@@ -320,9 +320,21 @@ describe('memsmith note', () => {
     }
   });
 
-  it('accepts stdin of exactly 5 MB', async () => {
-    const f = fake({ stdin: Buffer.alloc(5 * 1024 * 1024, 'a') });
+  const SERVER_BODY_LIMIT = 5 * 1024 * 1024;
+
+  it('accepts a note whose encoded request fits the server body limit', async () => {
+    const f = fake({ stdin: Buffer.alloc(SERVER_BODY_LIMIT - 1024, 'a') });
     expect(await runMemoryNote(['-'], f.deps)).toBe(0);
+    expect(Buffer.byteLength(JSON.stringify(f.calls[0].input))).toBeLessThanOrEqual(SERVER_BODY_LIMIT);
+  });
+
+  it('refuses a note whose encoded request the server would reject, before sending it', async () => {
+    for (const stdin of [Buffer.alloc(SERVER_BODY_LIMIT, 'a'), Buffer.alloc(3 * 1024 * 1024, '"')]) {
+      const f = fake({ stdin });
+      expect(await runMemoryNote(['-'], f.deps)).toBe(1);
+      expect(f.calls).toEqual([]);
+      expect(f.errs.join('\n')).toContain('5 MB');
+    }
   });
 
   it('keeps text after -- verbatim', async () => {
