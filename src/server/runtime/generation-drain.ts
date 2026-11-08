@@ -15,6 +15,8 @@
 // deleted, which is exactly why replaying it recovers the lot.
 
 export const DEFAULT_DRAIN_BATCH = 500;
+/** Stored `job_type` of a session-summary job (EndSessionService). */
+export const SUMMARY_JOB_TYPE = 'observation_generate_session_summary';
 export const DEFAULT_QUEUE_CONCURRENCY = 1;
 export const MAX_QUEUE_CONCURRENCY = 16;
 
@@ -110,13 +112,14 @@ export async function claimDueRetries(
 export const BACKLOG_MIN_AGE_SECONDS = 60;
 
 /**
- * Claim first-attempt jobs that are `queued` but that no live loop will poll:
- * a publish that returned `queued_only`, a project backlog beyond one boot
- * batch, or a job moved in by `memsmith merge`.
+ * Claim `queued` jobs that no live loop will poll: a publish that returned
+ * `queued_only`, a project backlog beyond one boot batch, or a job moved in by
+ * `memsmith merge` or reclaimed with no `next_attempt_at`. Retries that carry a
+ * `next_attempt_at` belong to `claimDueRetries`.
  *
- * The in-memory queue has no dedupe, so the caller must only run this while the
- * queue is idle. The lease and the minimum age guard the remaining race, where a
- * job was just committed and is about to be published. Never throws.
+ * The lease keeps one sweep from reclaiming a job on every tick; the queue
+ * dedupes by job id if the job is still in memory. The minimum age skips a job
+ * that was just committed and is about to be published. Never throws.
  */
 export async function claimQueuedBacklog(
   pool: DrainQueryable,
@@ -129,8 +132,8 @@ export async function claimQueuedBacklog(
         WHERE id IN (
           SELECT id FROM observation_generation_jobs
            WHERE status = 'queued'
-             AND attempts = 0
              AND attempts < max_attempts
+             AND (attempts = 0 OR next_attempt_at IS NULL)
              AND (next_attempt_at IS NULL OR next_attempt_at <= now())
              AND created_at <= now() - make_interval(secs => $3::int)
            ORDER BY created_at ASC
@@ -352,7 +355,7 @@ export async function requeueDrainedJobs(
   for (const job of jobs) {
     try {
       // 'summary' jobs go to the summary lane; everything else is an event job.
-      const kind = job.jobType === 'summary' ? 'summary' : 'event';
+      const kind = job.jobType === 'summary' || job.jobType === SUMMARY_JOB_TYPE ? 'summary' : 'event';
       const queue = deps.resolveQueue(kind);
       // No queue (disabled adapter) or no payload to replay → leave it queued.
       if (!queue || job.payload == null) { skipped += 1; continue; }
@@ -388,17 +391,44 @@ export function resolveQueueConcurrency(env: Record<string, string | undefined>)
 }
 
 /**
- * Put orphaned first-attempt jobs from one pool onto the queue, at most one
- * batch per call. Does nothing while the queue holds work, so a job already in
- * memory is never loaded twice; a large backlog drains over successive calls.
+ * Fail queued jobs that can never run, so a sweep stops claiming them. A row the
+ * worker rejects or no-ops stays `queued`, and its lease would expire and bring
+ * it back every few minutes forever.
+ */
+export async function failUnrunnableJobs(pool: DrainQueryable, ids: string[], reason: string): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    await pool.query(
+      `UPDATE observation_generation_jobs
+          SET status = 'failed', failed_at = now(), locked_at = NULL, locked_by = NULL,
+              next_attempt_at = NULL, last_error = $2::jsonb, updated_at = now()
+        WHERE id = ANY($1::text[]) AND status = 'queued'`,
+      [ids, JSON.stringify({ reason, classification: 'unrunnable_backlog' })],
+    );
+  } catch { /* the next sweep retries */ }
+}
+
+/**
+ * Put orphaned jobs from one pool onto the queue, at most one batch per call, so
+ * a large backlog drains over successive calls. `isRunnable` rejects jobs the
+ * worker would refuse or resolve to another database; those are failed instead
+ * of requeued.
  */
 export async function requeueOrphanedJobs(
   pool: DrainQueryable,
-  deps: RequeueDeps & { isQueueIdle: () => boolean },
+  deps: RequeueDeps & { isRunnable?: (job: DrainableJob) => Promise<boolean> },
   opts: { batchSize?: number } = {},
 ): Promise<number> {
-  if (!deps.isQueueIdle()) return 0;
-  const jobs = await claimQueuedBacklog(pool, opts);
+  const claimed = await claimQueuedBacklog(pool, opts);
+  if (claimed.length === 0) return 0;
+  const jobs: DrainableJob[] = [];
+  const rejected: string[] = [];
+  for (const job of claimed) {
+    let ok = true;
+    try { ok = deps.isRunnable ? await deps.isRunnable(job) : true; } catch { ok = true; }
+    if (ok) jobs.push(job); else rejected.push(job.id);
+  }
+  await failUnrunnableJobs(pool, rejected, 'payload invalid or routed to another database');
   if (jobs.length === 0) return 0;
   return (await requeueDrainedJobs(jobs, deps)).requeued;
 }

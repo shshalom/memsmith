@@ -15,10 +15,12 @@ import {
   listProjectTargets, sweepAllProjects,
 } from './multi-project-recovery.js';
 import {
-  DEFAULT_DRAIN_BATCH, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
+  DEFAULT_DRAIN_BATCH, type DrainableJob, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
   requeueDrainedJobs, requeueOrphanedJobs, resolveQueueConcurrency,
 } from './generation-drain.js';
 import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
+import { assertServerGenerationJobPayload } from '../jobs/types.js';
+import { projectDatabaseName } from './resolve-project-database.js';
 import { runContinuousDrain } from './continuous-drain.js';
 import { runRetrySweep } from './retry-sweep.js';
 import { backfillEmbeddings, loadUnembeddedRows } from './embedding-backfill.js';
@@ -414,7 +416,7 @@ export async function createServerService(
       // backlog at once would mean a shutdown strands all of it, which is the
       // original bug at a larger scale.
       let totalRequeued = 0;
-      await runContinuousDrain({
+      const bootDrain = runContinuousDrain({
         batchSize: DEFAULT_DRAIN_BATCH,
         // Depth of the RECOVERY lane, not the live lane.
         //
@@ -456,19 +458,18 @@ export async function createServerService(
         },
       });
 
-      const isQueueIdle = () => {
-        const mgr = queueManager as {
-          getQueue?: (k: string) => { getWaitingCount?: () => number; getRecoveryWaitingCount?: () => number };
-        };
-        try {
-          return (['event', 'summary'] as const).every((kind) => {
-            const q = mgr.getQueue?.(kind);
-            return (q?.getWaitingCount?.() ?? 0) === 0 && (q?.getRecoveryWaitingCount?.() ?? 0) === 0;
-          });
-        } catch { return false; }
+      const isRunnableIn = async (p: PostgresPool, job: DrainableJob): Promise<boolean> => {
+        let payload;
+        try { payload = assertServerGenerationJobPayload(job.payload); } catch { return false; }
+        if (payload.generation_job_id !== job.id) return false;
+        if (!poolRegistry || payload.project_id === localDevProjectId) return p === pool;
+        const target = await poolRegistry.registry.getPool(
+          projectDatabaseName(payload.project_id), { teamId: payload.team_id, projectId: payload.project_id },
+        );
+        return target === p;
       };
 
-      await runRetrySweep<PostgresPool>({
+      const retrySweep = runRetrySweep<PostgresPool>({
         listPools: async () => {
           const pools: PostgresPool[] = [pool];
           if (!poolRegistry) return pools;
@@ -486,12 +487,13 @@ export async function createServerService(
           const retried = jobs.length === 0
             ? 0
             : (await requeueDrainedJobs(jobs, { resolveQueue })).requeued;
-          return retried + await requeueOrphanedJobs(p, { resolveQueue, isQueueIdle });
+          return retried + await requeueOrphanedJobs(p, { resolveQueue, isRunnable: (job) => isRunnableIn(p, job) });
         },
         sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
         isClosed: () => false,
         onRequeued: (count) => logger.info('SYSTEM', 'requeued generation retries', { count }),
       });
+      await Promise.all([bootDrain, retrySweep]);
     })().catch(() => { /* never blocks boot */ });
   }
 

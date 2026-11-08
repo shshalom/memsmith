@@ -33,6 +33,8 @@ export class InlineServerQueue<TPayload extends object = object> {
   private readonly waiting: InlineJob<TPayload>[] = [];
   /** Backlog lane. Only ever drained when the live lane is completely clear. */
   private readonly waitingRecovery: InlineJob<TPayload>[] = [];
+  /** Ids waiting or running, so a replayed job is never executed twice at once. */
+  private readonly inFlight = new Set<string>();
   private active = 0;
   /** How many of `active` are recovery jobs, so live capacity is knowable. */
   private activeRecovery = 0;
@@ -48,6 +50,8 @@ export class InlineServerQueue<TPayload extends object = object> {
 
   async add(jobId: string, payload: TPayload): Promise<void> {
     if (this.closed) throw new Error(`InlineServerQueue ${this.name} is closed`);
+    if (this.inFlight.has(jobId)) return;
+    this.inFlight.add(jobId);
     this.waiting.push({ id: jobId, data: payload, attemptsMade: 0 });
     queueMicrotask(() => this.drain());
   }
@@ -61,6 +65,8 @@ export class InlineServerQueue<TPayload extends object = object> {
    */
   async addRecovery(jobId: string, payload: TPayload): Promise<void> {
     if (this.closed) throw new Error(`InlineServerQueue ${this.name} is closed`);
+    if (this.inFlight.has(jobId)) return;
+    this.inFlight.add(jobId);
     this.waitingRecovery.push({ id: jobId, data: payload, attemptsMade: 0 });
     queueMicrotask(() => this.drain());
   }
@@ -132,6 +138,7 @@ export class InlineServerQueue<TPayload extends object = object> {
         }
       })
       .finally(() => {
+        this.inFlight.delete(job.id);
         this.active -= 1;
         if (isRecovery) this.activeRecovery -= 1;
         // Re-drain on ANY completion, not only when the live lane is non-empty:
@@ -184,6 +191,8 @@ export class InlineServerQueue<TPayload extends object = object> {
   async close(): Promise<void> {
     this.closed = true;
     this.waiting.length = 0;
+    this.waitingRecovery.length = 0;
+    this.inFlight.clear();
     this.processor = null;
     this.started = false;
   }

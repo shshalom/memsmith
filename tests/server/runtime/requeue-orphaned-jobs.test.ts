@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { InlineServerQueue } from '../../../src/server/runtime/InlineServerQueue.js';
-import { requeueOrphanedJobs, claimQueuedBacklog } from '../../../src/server/runtime/generation-drain.js';
+import { requeueOrphanedJobs, requeueDrainedJobs, claimQueuedBacklog } from '../../../src/server/runtime/generation-drain.js';
 import { runRetrySweep } from '../../../src/server/runtime/retry-sweep.js';
+import { runContinuousDrain } from '../../../src/server/runtime/continuous-drain.js';
 
 interface Row { id: string; leased: boolean }
 
@@ -27,10 +28,7 @@ function setup(queue: InlineServerQueue<object>) {
   queue.start(async (job) => { processed.push(job.id); });
   return {
     processed,
-    deps: {
-      resolveQueue: () => queue,
-      isQueueIdle: () => queue.getWaitingCount() === 0 && queue.getRecoveryWaitingCount() === 0,
-    },
+    deps: { resolveQueue: () => queue },
   };
 }
 
@@ -61,16 +59,55 @@ describe('requeueOrphanedJobs', () => {
     expect(processed).toEqual(['j0', 'j1', 'j2', 'j3', 'j4']);
   });
 
-  it('does not load a job again while the queue still holds work', async () => {
+  it('runs a job once when the sweep replays an id that is already waiting or running', async () => {
     const queue = new InlineServerQueue<object>('event', 1);
-    await queue.addRecovery('already-in-memory', { id: 'already-in-memory' });
-    const pool = fakeProjectPool([{ id: 'already-in-memory', leased: false }]);
+    const processed: string[] = [];
+    let release!: () => void;
+    queue.start(async (job) => {
+      processed.push(job.id);
+      await new Promise<void>((r) => { release = r; });
+    });
+    await queue.add('busy', { id: 'busy' });
+    await tick();
+    await queue.addRecovery('busy', { id: 'busy' });
+    await queue.addRecovery('waiting', { id: 'waiting' });
+    await queue.addRecovery('waiting', { id: 'waiting' });
+    release();
+    await tick();
+    release();
+    await tick();
 
-    expect(await requeueOrphanedJobs(pool, {
-      resolveQueue: () => queue,
-      isQueueIdle: () => queue.getRecoveryWaitingCount() === 0,
-    })).toBe(0);
-    expect(pool.rows[0]!.leased).toBe(false);
+    expect(processed).toEqual(['busy', 'waiting']);
+  });
+
+  it('accepts the same id again after the first run has finished', async () => {
+    const queue = new InlineServerQueue<object>('event', 1);
+    const { processed } = setup(queue);
+    await queue.add('retry', { id: 'retry' });
+    await tick();
+    await queue.addRecovery('retry', { id: 'retry' });
+    await tick();
+    expect(processed).toEqual(['retry', 'retry']);
+  });
+
+  it('fails a claimed job the worker would refuse instead of requeueing it', async () => {
+    const queue = new InlineServerQueue<object>('event', 1);
+    const { processed, deps } = setup(queue);
+    const pool = fakeProjectPool([{ id: 'bad', leased: false }, { id: 'good', leased: false }]);
+    const updates: Array<{ text: string; values: unknown[] }> = [];
+    const original = pool.query;
+    pool.query = async (text: string, values: unknown[] = []) => {
+      if (/SET status = 'failed'/.test(text)) { updates.push({ text, values }); return { rows: [] }; }
+      return original(text, values);
+    };
+
+    const requeued = await requeueOrphanedJobs(pool, { ...deps, isRunnable: async (j) => j.id !== 'bad' });
+    await tick();
+
+    expect(requeued).toBe(1);
+    expect(processed).toEqual(['good']);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.values[0]).toEqual(['bad']);
   });
 
   it('does not hand a leased job out twice', async () => {
@@ -92,7 +129,7 @@ describe('claimQueuedBacklog', () => {
     await claimQueuedBacklog({ query: async (t) => { queries.push(t); return { rows: [] }; } });
     const sql = queries[0]!;
     expect(sql).toContain("status = 'queued'");
-    expect(sql).toContain('attempts = 0');
+    expect(sql).toContain('(attempts = 0 OR next_attempt_at IS NULL)');
     expect(sql).toContain('attempts < max_attempts');
     expect(sql).toContain('next_attempt_at IS NULL OR next_attempt_at <= now()');
     expect(sql).toContain('created_at <= now() - make_interval');
@@ -119,5 +156,37 @@ describe('periodic sweep reaches the orphaned jobs', () => {
     });
     await tick();
     expect(processed).toEqual(['late-queued-only']);
+  });
+});
+
+describe('requeueDrainedJobs summary lane', () => {
+  it('routes a stored session-summary job to the summary queue', async () => {
+    const lanes: string[] = [];
+    const target = (lane: string) => ({ add: async () => { lanes.push(lane); } });
+    await requeueDrainedJobs(
+      [{
+        id: 's1', jobType: 'observation_generate_session_summary', projectId: 'p', teamId: 't',
+        agentEventId: null, sourceType: null, sourceId: null, serverSessionId: 'x',
+        payload: { kind: 'summary' }, bullmqJobId: 's1',
+      }],
+      { resolveQueue: (kind) => target(kind) },
+    );
+    expect(lanes).toEqual(['summary']);
+  });
+});
+
+describe('runContinuousDrain', () => {
+  it('pauses between batches when the same rows reload instead of spinning', async () => {
+    const sleeps: number[] = [];
+    await runContinuousDrain({
+      loadBatch: async () => 1,
+      queueDepth: () => 0,
+      sleep: async (ms) => { sleeps.push(ms); },
+      isClosed: () => false,
+      batchSize: 10,
+      pollMs: 5_000,
+      maxIterations: 4,
+    });
+    expect(sleeps).toEqual([5_000, 5_000, 5_000, 5_000]);
   });
 });

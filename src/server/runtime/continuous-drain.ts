@@ -86,6 +86,9 @@ export async function runContinuousDrain(deps: ContinuousDrainDeps): Promise<voi
       deps.onProgress?.({ loaded, totalLoaded });
 
       if (deps.isClosed()) return;
+      // Rows the queue refuses or finishes at once stay queued and reload; the
+      // pause keeps that from spinning.
+      await deps.sleep(pollMs);
     } catch {
       consecutiveFailures += 1;
       // Exponential backoff, capped — never a permanent stop. A dead database
