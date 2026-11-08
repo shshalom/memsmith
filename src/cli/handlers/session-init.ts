@@ -18,7 +18,13 @@ import { isServerClientError } from '../../services/hooks/server-client.js';
 import { isIncognito, bumpTurn } from '../incognito.js';
 import { handleIncognitoCommand } from './incognito-command.js';
 
+async function defaultMintProjectIdentity(cwd: string): Promise<{ created?: { root: string; name: string } } | null> {
+  const { ensureProjectIdentityForHook, realEnsureIdentityDeps } = await import('./ensure-identity.js');
+  return ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
+}
+
 const defaultDependencies = {
+  mintProjectIdentity: defaultMintProjectIdentity,
   resolveRuntimeContext: defaultResolveRuntimeContext,
   logServerFallback: defaultLogServerFallback,
   shouldTrackProject: defaultShouldTrackProject,
@@ -123,10 +129,13 @@ export const sessionInitHandler: EventHandler = {
     // MEMSMITH_SERVER_DATABASE_URL from the server) and must not fork between the
     // two call sites. Idempotent, so running in both places is a no-op the second
     // time.
+    let createdNotice: string | null = null;
     try {
-      const { ensureProjectIdentityForHook, realEnsureIdentityDeps } =
-        await import('./ensure-identity.js');
-      await ensureProjectIdentityForHook(cwd, await realEnsureIdentityDeps());
+      const minted = await dependencies.mintProjectIdentity(cwd);
+      if (minted?.created) {
+        const { createdProjectNotice } = await import('./ensure-identity.js');
+        createdNotice = createdProjectNotice(minted.created);
+      }
     } catch (err) {
       logger.warn('IDENTITY', 'session-init identity mint skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
@@ -157,7 +166,7 @@ export const sessionInitHandler: EventHandler = {
       const store = new CredentialStore();
       await claimPendingTeamJoin(cwd, {
         readProjectMarker: (c) => readProjectMarker(c) as any,
-        resolveKeyForTeam: (teamId) => store.resolveKeyForTeam(teamId),
+        resolveKeyForTeam: (teamId, projectId) => (projectId ? store.resolveKeyFor({ teamId, projectId }) : store.resolveKeyForTeam(teamId)),
         // The LOCAL base-account pool, already open above for identity minting.
         // The note lives here, not on the destination: putting it on the remote is
         // circular, since reaching the remote needs the URL the note carries.
@@ -172,6 +181,14 @@ export const sessionInitHandler: EventHandler = {
     } catch (err) {
       logger.warn('IDENTITY', 'pending team join not applied (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
+
+    const withNotice = (result: HookResult): HookResult => (createdNotice
+      ? {
+        ...result,
+        suppressOutput: false,
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: createdNotice },
+      }
+      : result);
 
     const runtime = dependencies.resolveRuntimeContext(cwd);
 
@@ -210,7 +227,7 @@ export const sessionInitHandler: EventHandler = {
         // Server does not currently support the same context-injection
         // protocol as the worker. Skip semantic injection in server mode
         // until the server context endpoint exists.
-        return { continue: true, suppressOutput: true };
+        return withNotice({ continue: true, suppressOutput: true });
       } catch (error: unknown) {
         if (isServerClientError(error) && error.isFallbackEligible()) {
           dependencies.logServerFallback(error.kind, {
@@ -223,7 +240,7 @@ export const sessionInitHandler: EventHandler = {
           logger.error('HOOK', 'Server session-start failed (non-recoverable)', {
             error: error instanceof Error ? error.message : String(error),
           });
-          return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+          return withNotice({ continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS });
         }
       }
     }
@@ -231,7 +248,7 @@ export const sessionInitHandler: EventHandler = {
     // No server runtime reachable (embedded not yet available). The worker
     // fallback has been retired; skip cleanly so the hook never blocks.
     logger.debug('HOOK', 'session-init: no reachable runtime; skipping', { sessionId, project });
-    return { continue: true, suppressOutput: true };
+    return withNotice({ continue: true, suppressOutput: true });
   }
 };
 

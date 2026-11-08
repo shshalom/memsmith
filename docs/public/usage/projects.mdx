@@ -23,9 +23,9 @@ If a linked git worktree has no marker of its own, it uses the project of its ma
 
 ## The local team
 
-MemSmith creates every new local project in one local team for this machine. It creates the team the first time it needs one and records its id in `~/.memsmith/local-team.json`. Projects created before this team existed keep their own teams. Joining a team project and converting a project to a team work as before.
+MemSmith creates every new local project in one local team for this machine. It creates the team the first time it needs one and records its id in `~/.memsmith/local-team.json`. Each project in the local team has its own key in `~/.memsmith/credentials.json`, so a project reads and writes only its own memory, and joining one project to a team leaves the other projects unchanged. Projects created before this team existed keep their own teams. Joining a team project and converting a project to a team work as before.
 
-When a session creates a project, the session-start context includes a line such as the following:
+When a session creates a project, the session-start context includes a line such as the following. If the project is created on your first prompt instead, that prompt's context carries the line.
 
 ```
 MemSmith created project api for /Users/ana/Workspace/api in your local team. Run `memsmith project` to check it, or `memsmith link` to use a different project.

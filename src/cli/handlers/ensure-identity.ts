@@ -19,6 +19,11 @@
 
 interface MintedIds { teamId: string; projectId: string; created?: { root: string; name: string } }
 
+export function createdProjectNotice(created: { root: string; name: string }): string {
+  return `MemSmith created project ${created.name} for ${created.root} in your local team. `
+    + 'Run `memsmith project` to check it, or `memsmith link` to use a different project.';
+}
+
 export interface EnsureIdentityDeps {
   /**
    * The local embedded-PG base DSN.

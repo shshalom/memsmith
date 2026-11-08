@@ -22,6 +22,7 @@ import {
 } from '../../services/hooks/runtime-selector.js';
 import { resolveDashboardUrl } from '../../shared/dashboard-url.js';
 import { INJECTED_DIRECTIVES, SESSION_START_ORIENTATION_LABEL } from '../../services/retrieval/directive.js';
+import { createdProjectNotice } from './ensure-identity.js';
 
 // The SessionStart primary-context budget. Injection is NOT query-driven at
 // startup — we pull the most recent observations for the project scope and pack
@@ -44,11 +45,6 @@ const SESSION_START_RECENT_LIMIT = 10;
  */
 const MIN_SESSION_OBSERVATIONS = 1;
 const MAX_SESSION_OBSERVATIONS = 50;
-
-export function createdProjectNotice(created: { root: string; name: string }): string {
-  return `MemSmith created project ${created.name} for ${created.root} in your local team. `
-    + 'Run `memsmith project` to check it, or `memsmith link` to use a different project.';
-}
 
 export function resolveSessionStartLimit(raw: string | undefined | null): number {
   const parsed = Number.parseInt(String(raw ?? '').trim(), 10);

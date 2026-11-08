@@ -18,8 +18,8 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 - A session now uses the nearest project marker above its folder, past the git root, up to a configured search root. Without search roots, MemSmith searches up to your home folder but never uses a marker directly in it. Folders outside these scopes, such as `/tmp/scratch`, resolve as before. A workspace with one marker at `~/Workspace` is now one project instead of one project per repository.
 - A linked git worktree uses the project of its main checkout. When the main checkout has no project yet, MemSmith creates it at the main checkout, so every worktree of a repository shares one project.
-- MemSmith creates every new local project in one local team for this machine, instead of a new random team for each project. Existing projects keep their teams.
-- When a session creates a project, the session-start context says so, names the project and its folder, and points to `memsmith project` and `memsmith link`.
+- MemSmith creates every new local project in one local team for this machine, instead of a new random team for each project. Each project still gets its own key, so every project reads and writes only its own memory, and joining one project to a team leaves the others unchanged. Existing projects keep their teams.
+- When a session creates a project, the session-start context says so, names the project and its folder, and points to `memsmith project` and `memsmith link`. If the project is created on your first prompt instead, that prompt's context carries the same line.
 
 ## [13.14.1] - 2026-11-08
 
