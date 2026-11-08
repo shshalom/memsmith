@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect } from 'bun:test';
 import { startLocalRuntime } from '../../src/server/runtime/local-runtime.js';
 import { EmbeddedPostgresManager } from '../../src/server/runtime/EmbeddedPostgresManager.js';
 
@@ -13,8 +13,14 @@ function fakeManager(conn: string): EmbeddedPostgresManager {
 }
 
 describe('startLocalRuntime', () => {
+  const priorDatabaseUrl = process.env.MEMSMITH_SERVER_DATABASE_URL;
+  afterEach(() => {
+    if (priorDatabaseUrl === undefined) delete process.env.MEMSMITH_SERVER_DATABASE_URL;
+    else process.env.MEMSMITH_SERVER_DATABASE_URL = priorDatabaseUrl;
+  });
+
   it('sets DATABASE_URL + inline engine and calls the service starter', async () => {
-    const conn = 'postgres://memsmith:memsmith-local@127.0.0.1:55433/postgres';
+    const conn = 'postgres://memsmith:memsmith-local@127.0.0.1:55491/postgres';
     delete process.env.MEMSMITH_QUEUE_ENGINE;
     let startedWith: string | null = null;
     await startLocalRuntime({ manager: fakeManager(conn), startService: async (c) => { startedWith = c; }, resolveDatabaseUrl: async (c) => c });
@@ -25,7 +31,7 @@ describe('startLocalRuntime', () => {
 
   it('does not override an explicitly set queue engine', async () => {
     process.env.MEMSMITH_QUEUE_ENGINE = 'bullmq';
-    const conn = 'postgres://x:y@127.0.0.1:55433/postgres';
+    const conn = 'postgres://x:y@127.0.0.1:55491/postgres';
     await startLocalRuntime({ manager: fakeManager(conn), startService: async () => {}, resolveDatabaseUrl: async (c) => c });
     expect(process.env.MEMSMITH_QUEUE_ENGINE).toBe('bullmq');
     delete process.env.MEMSMITH_QUEUE_ENGINE;
