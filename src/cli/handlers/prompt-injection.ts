@@ -9,7 +9,7 @@ import { frameAnswerFromMemoryDirective, frameUnavailableNotice } from '../../se
 import { resolveRuntimeContext, type RuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
-import { stripAutomatedContent } from '../../utils/tag-stripping.js';
+import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
 
@@ -68,7 +68,7 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
         // Memory is consulted when the agent needs information (the standing
         // directive plus the tool-intent gate), so only a clear question about
         // past work gets anything here. Other prompts cost no search at all.
-        const ask = stripAutomatedContent(prompt);
+        const ask = stripAutomatedContent(stripMemoryTags(prompt));
         if (classifyPrompt(ask) !== 'info-request') return CONTINUE;
         const runtime = deps.resolveRuntime();
         const broker = new RetrievalBroker(

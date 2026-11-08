@@ -137,7 +137,15 @@ describe('classifyPrompt — automated messages are not the user asking', () => 
   for (const [name, prompt] of [
     ['a task notification', TASK_NOTIFICATION],
     ['a task notification cut off before its closing tag', TASK_NOTIFICATION.replace('</task-notification>', '')],
-    ['a system reminder', '<system-reminder>What did we decide about the cache? Remind me.</system-reminder>'],
+    ['a notification that quotes its own closing tag',
+      '<task-notification><result>The agent wrote <task-notification>x</task-notification> to the log, '
+      + 'then we decided to keep the history of the queue.</result></task-notification>'],
+    ['a notification in upper case', '<TASK-NOTIFICATION><result>We decided to keep the history.</result></TASK-NOTIFICATION>'],
+    ['an unclosed notification after another automated block',
+      '<system-reminder>context</system-reminder><task-notification><result>we decided to keep the history'],
+    ['an IDE file-open notice', '<ide_opened_file>The user opened docs/decisions.md: why did we pin the port?</ide_opened_file>'],
+    ['an IDE selection', '<ide_selection>The user selected: // we decided to keep the history of the queue</ide_selection>'],
+    ['a background shell notification', '<bash-notification><output>reverted: the decision we agreed last week</output></bash-notification>'],
     ['a teammate message', '<teammate-message teammate_id="lead">What did we decide about the cache?</teammate-message>'],
     ['a cross-session message', '<cross-session-message from="worker">Why did the deploy fail last time?</cross-session-message>'],
     ['local command output', '<local-command-stdout>history of the queue: we decided to ship inline</local-command-stdout>'],
@@ -149,6 +157,18 @@ describe('classifyPrompt — automated messages are not the user asking', () => 
       expect(classifyPrompt(prompt)).not.toBe('info-request');
     });
   }
+
+  it('keeps a question that names an automated tag in prose', () => {
+    expect(classifyPrompt('what does <bash-stdout> mean, and why did we add it?')).toBe('info-request');
+  });
+
+  it('keeps a question that follows a truncated tag inside a code fence', () => {
+    expect(classifyPrompt('```\n<task-notification><status>completed\n```\nwhy did we drop sqlite?')).toBe('info-request');
+  });
+
+  it('treats a tag that only starts with an automated name as user text', () => {
+    expect(classifyPrompt('<task-notification-extra>why did we drop sqlite?</task-notification-extra>')).toBe('info-request');
+  });
 
   it('classifies a question that arrives with a notification on the question', () => {
     expect(classifyPrompt(`${TASK_NOTIFICATION}\nWhy did we drop SQLite?`)).toBe('info-request');

@@ -10,7 +10,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Fixed
 
-- The Stop answer gate no longer blocks your turn on task notifications, system reminders, teammate messages, or command output. MemSmith now classifies only your own text in a prompt, so an automated message can't start a loop of blocked turns, and a question you send alongside a notification is still answered from memory.
+- The Stop answer gate no longer blocks your turn on task notifications, system reminders, teammate messages, IDE file and selection notices, or shell and command output. MemSmith now classifies a prompt, searches memory, and records a memory gap using only your own text, so a run of automated messages can't re-arm the gate each turn. A question you send alongside a notification still gets the gate, and a tag you name in prose or inside a code fence stays part of your question.
 
 ## [13.13.2] - 2026-11-08
 

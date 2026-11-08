@@ -1,6 +1,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
-import { stripMemoryTags, isInternalProtocolPayload } from '../../src/utils/tag-stripping.js';
+import { stripMemoryTags, isInternalProtocolPayload, stripAutomatedContent } from '../../src/utils/tag-stripping.js';
 import { logger } from '../../src/utils/logger.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
@@ -446,5 +446,61 @@ after`;
       const text = '<task-notification>a</task-notification><task-notification>b</task-notification>';
       expect(isInternalProtocolPayload(text)).toBe(false);
     });
+  });
+});
+
+describe('stripAutomatedContent', () => {
+  it('drops an orphan closing tag and keeps the text around it', () => {
+    expect(stripAutomatedContent('</system-reminder>why did we pin the port?')).toBe('why did we pin the port?');
+  });
+
+  it('strips a notification whose result quotes the same tag, through its outer close', () => {
+    const prompt = '<task-notification><result>log: <task-notification>x</task-notification> then more</result></task-notification>\nfix it';
+    expect(stripAutomatedContent(prompt)).toBe('fix it');
+  });
+
+  it('strips a notification whose result quotes only the closing tag, through its real close', () => {
+    const prompt = '<task-notification><result>log: </task-notification> then we decided</result></task-notification>\nfix it';
+    expect(stripAutomatedContent(prompt)).toBe('fix it');
+  });
+
+  it('leaves tags inside a code fence untouched', () => {
+    const prompt = '```\n<bash-stdout>ok</bash-stdout>\n```\nwhy?';
+    expect(stripAutomatedContent(prompt)).toBe(prompt);
+  });
+
+  it('keeps the rest of the prompt after an unclosed tag in prose', () => {
+    expect(stripAutomatedContent('I saw <bash-stdout> in the log. Why?')).toBe('I saw <bash-stdout> in the log. Why?');
+  });
+
+  it('strips to the end from an unclosed tag at the start of the prompt', () => {
+    expect(stripAutomatedContent('  <task-notification><result>cut off')).toBe('');
+  });
+
+  it('strips to the end from an unclosed tag at the start even when a closed block follows', () => {
+    expect(stripAutomatedContent('<task-notification><result>cut off <system-reminder>r</system-reminder> rest')).toBe('');
+  });
+
+  // Unbounded attribute scanning made these inputs take tens of seconds at 1 MB.
+  for (const [name, input] of [
+    ['openers with unterminated attributes', '<bash-input '.repeat(90_000)],
+    ['unclosed openers in prose', 'x <task-notification>'.repeat(50_000)],
+    ['nested openers', '<task-notification>'.repeat(50_000)],
+    ['tags between code fences', '```\n<bash-input>x\n```\n'.repeat(60_000)],
+    ['unclosed openers inside the last of many blocks',
+      '<bash-input>x</bash-input>'.repeat(20_000) + '<task-notification>' + '<bash-stdout>'.repeat(40_000) + '</task-notification>'],
+    ['unclosed openers between closed blocks', 'q <bash-stdout> <bash-input>x</bash-input> '.repeat(25_000)],
+  ] as const) {
+    it(`stays fast on ~1 MB of ${name}`, () => {
+      const t = performance.now();
+      stripAutomatedContent(input);
+      expect(performance.now() - t).toBeLessThan(2000);
+    });
+  }
+
+  it('keeps stripMemoryTags fast on ~1 MB of openers with unterminated attributes', () => {
+    const t = performance.now();
+    stripMemoryTags('<private '.repeat(110_000));
+    expect(performance.now() - t).toBeLessThan(2000);
   });
 });
