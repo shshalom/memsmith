@@ -1,6 +1,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
-import { stripMemoryTags, isInternalProtocolPayload, stripAutomatedContent } from '../../src/utils/tag-stripping.js';
+import { stripMemoryTags, stripTags, isInternalProtocolPayload, stripAutomatedContent } from '../../src/utils/tag-stripping.js';
 import { logger } from '../../src/utils/logger.js';
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
@@ -501,6 +501,72 @@ describe('stripAutomatedContent', () => {
   it('keeps stripMemoryTags fast on ~1 MB of openers with unterminated attributes', () => {
     const t = performance.now();
     stripMemoryTags('<private '.repeat(110_000));
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+});
+
+describe('stripTags matches the regex it replaced', () => {
+  const NAMES = ['private', 'memsmith-context', 'system_instruction', 'system-instruction', 'persisted-output', 'system-reminder'];
+  const references = {
+    'unbounded attributes (origin/main)': new RegExp(`<(${NAMES.join('|')})\\b[^>]*>[\\s\\S]*?</\\1>`, 'g'),
+    'bounded attributes': new RegExp(`<(${NAMES.join('|')})\\b[^>]{0,256}>[\\s\\S]*?</\\1>`, 'g'),
+  };
+  const reference = (re: RegExp, input: string) => {
+    const counts: Record<string, number> = Object.fromEntries(NAMES.map(n => [n, 0]));
+    const stripped = input.replace(re, (_, name: string) => { counts[name] += 1; return ''; });
+    return { stripped: stripped.trim(), counts };
+  };
+
+  const FIXED = [
+    '',
+    'plain text with no tags',
+    '<private>secret</private>',
+    'before <private>secret</private> after',
+    '<private>a</private><private>b</private>',
+    '<private><private>nested</private> tail</private> end',
+    '<private attr="x" data-y=\'1\'>secret</private> keep',
+    '<private-notes>x</private> keep',
+    '<privatex>x</privatex> keep',
+    '<PRIVATE>upper</PRIVATE> keep',
+    '<private>unclosed at the end',
+    'start <private>unclosed in the middle <system-reminder>r</system-reminder> tail',
+    '<private>one</private> <private>unclosed after a closed one',
+    '<system-reminder>r</system-reminder>\r\n<private>line\r\nbreaks</private>\r\nkeep',
+    '<memsmith-context>a</memsmith-context><system_instruction>b</system_instruction><system-instruction>c</system-instruction>',
+    '<persisted-output>x</persisted-output> <private>y</ private> z',
+    '<private>a</system-reminder> b</private>',
+    '<private <private>x</private>',
+    '<private\n>multiline opener</private> keep',
+    `<private ${'a'.repeat(300)}>long attribute</private> keep`,
+    '</private> orphan close <private>x</private>',
+    '<private>x</private',
+  ];
+
+  let seed = 7;
+  const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed % n; };
+  const PIECES = ['<private>', '</private>', '<system-reminder>', '</system-reminder>', '<private a="1">', '<memsmith-context>',
+    '</memsmith-context>', 'text ', '\r\n', '<', '>', '</', '<private-x>', '<persisted-output>', '</persisted-output>'];
+  const RANDOM = Array.from({ length: 500 }, () => Array.from({ length: 1 + rand(14) }, () => PIECES[rand(PIECES.length)]).join(''));
+
+  for (const [label, re] of Object.entries(references)) {
+    it(`gives the same output and counts as the ${label} regex on ${FIXED.length + RANDOM.length} inputs`, () => {
+      for (const input of [...FIXED, ...RANDOM]) {
+        if (label.startsWith('unbounded') && /[^>]{257}/.test(input) && input.includes('<')) continue;
+        expect({ input, ...stripTags(input) }).toEqual({ input, ...reference(re, input) });
+      }
+    });
+  }
+
+  // The lazy regex rescanned to the end of the input for every unclosed opener.
+  it('stays fast on ~1 MB of unclosed openers', () => {
+    const t = performance.now();
+    stripMemoryTags('<private>'.repeat(115_000));
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+
+  it('stays fast on ~1 MB of unclosed openers of every tag', () => {
+    const t = performance.now();
+    stripMemoryTags(NAMES.map(n => `<${n}>`).join(' ').repeat(9_000));
     expect(performance.now() - t).toBeLessThan(2000);
   });
 });

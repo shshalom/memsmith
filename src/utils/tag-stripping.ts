@@ -11,10 +11,7 @@ const TAG_NAMES = [
 ] as const;
 type TagName = (typeof TAG_NAMES)[number];
 
-const STRIP_REGEX = new RegExp(
-  `<(${TAG_NAMES.join('|')})\\b[^>]{0,256}>[\\s\\S]*?</\\1>`,
-  'g'
-);
+const OPENER_REGEX = new RegExp(`<(${TAG_NAMES.join('|')})\\b[^>]{0,256}>`, 'g');
 
 export const SYSTEM_REMINDER_REGEX = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 
@@ -25,14 +22,30 @@ export function stripTags(input: string): { stripped: string; counts: Record<Tag
     TAG_NAMES.map(name => [name, 0])
   ) as Record<TagName, number>;
 
-  STRIP_REGEX.lastIndex = 0; 
-
+  // Same output as replacing /<(tags)\b[^>]{0,256}>[\s\S]*?<\/\1>/g, in
+  // linear time: the regex rescanned to the end for every unclosed opener. A tag
+  // with no close after one opener has none after any later opener either.
+  const unclosable = new Set<TagName>();
+  const opener = new RegExp(OPENER_REGEX);
   let total = 0;
-  const stripped = input.replace(STRIP_REGEX, (_, name: TagName) => {
-    counts[name] = (counts[name] ?? 0) + 1;
+  let kept = 0;
+  let stripped = '';
+  let m: RegExpExecArray | null;
+  while ((m = opener.exec(input)) !== null) {
+    const name = m[1] as TagName;
+    const close = unclosable.has(name) ? -1 : input.indexOf(`</${name}>`, opener.lastIndex);
+    if (close < 0) {
+      unclosable.add(name);
+      opener.lastIndex = m.index + 1;
+      continue;
+    }
+    stripped += input.slice(kept, m.index);
+    kept = close + name.length + 3;
+    opener.lastIndex = kept;
+    counts[name] += 1;
     total += 1;
-    return '';
-  });
+  }
+  stripped += input.slice(kept);
 
   if (total > MAX_TAG_COUNT) {
     logger.warn('SYSTEM', 'tag count exceeds limit', undefined, {
