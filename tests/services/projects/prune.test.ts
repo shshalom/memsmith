@@ -94,7 +94,7 @@ describe('planPrune', () => {
   });
 });
 
-function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: DatabaseCensus | null } = {}) {
+function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: DatabaseCensus | null; locked?: string[]; failReopen?: boolean } = {}) {
   const statements: string[] = [];
   let censusCalls = 0;
   let released = 0;
@@ -106,6 +106,7 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
     release: async () => {},
     close: async () => {},
     withMaintenanceLock: async <T>(fn: () => Promise<T>) => fn(),
+    lockedDatabases: async () => opts.locked ?? [],
     // The first count plans the prune; any later one is the recheck before the drop.
     census: async (_name: string, _owner: unknown, conn?: unknown) => {
       if (censusCalls > 0) recountConnections.push(conn);
@@ -117,6 +118,7 @@ function fakeDb(opts: { known?: boolean; failDumpFor?: string; recount?: Databas
       query: async (sql: string) => {
         const statement = sql.replace(/\s+/g, ' ').trim();
         if (!statement.startsWith('SELECT 1 FROM pg_stat_activity')) statements.push(statement);
+        if (opts.failReopen && statement.endsWith('ALLOW_CONNECTIONS true')) throw new Error('server closed the connection');
         return { rows: statement.startsWith('SELECT 1 FROM pg_stat_activity') ? [{ '?column?': 1 }] : [], rowCount: sql.startsWith('DELETE FROM teams') ? 1 : 0 };
       },
     },
@@ -197,6 +199,58 @@ describe('memsmith projects --prune --yes', () => {
       `ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS true`,
     ]);
     expect(out.join('\n')).toContain('changed after the preview');
+  });
+
+  it('lists the database backup even when the recount stops the drop', async () => {
+    const fake = fakeDb({ recount: { ...clean, dataRows: 1 } });
+    const out: string[] = [];
+    expect(await runProjectsCommand(['--prune', '--yes'], deps(fake, out, []))).toBe(1);
+    expect(out.join('\n')).toContain(`prune-${msp(EMPTY)}-2026-11-08T00-00-00-000Z.sql`);
+  });
+
+  it('reports a database it could not let connections back into', async () => {
+    const fake = fakeDb({ recount: { ...clean, dataRows: 1 }, failReopen: true });
+    const out: string[] = [];
+    expect(await runProjectsCommand(['--prune', '--yes'], deps(fake, out, []))).toBe(1);
+    expect(out.join('\n')).toContain(`could not let connections back into ${msp(EMPTY)}`);
+    expect(out.join('\n')).toContain('memsmith doctor --fix');
+  });
+
+  it('lets connections back into databases an interrupted prune left locked, before planning', async () => {
+    const fake = fakeDb({ locked: [msp(KEEP)] });
+    const out: string[] = [];
+    expect(await runProjectsCommand(['--prune'], deps(fake, out, []))).toBe(0);
+    expect(fake.statements[0]).toBe(`ALTER DATABASE "${msp(KEEP)}" WITH ALLOW_CONNECTIONS true`);
+    expect(out.join('\n')).toContain(`Let connections back into ${msp(KEEP)}`);
+  });
+
+  it('lets connections back in and exits when interrupted while the database is locked', async () => {
+    const fake = fakeDb();
+    const handlers = new Map<string, () => void>();
+    let exitCode: number | null = null;
+    let releaseDump: () => void = () => {};
+    const dumpGate = new Promise<void>((resolve) => { releaseDump = resolve; });
+    const exited = new Promise<void>((resolve) => {
+      const candidate = { entry: entry({}), reason: 'empty' as const, dropDatabase: msp(EMPTY), deleteProject: false };
+      void executePrune({
+        db: fake.db as never,
+        dump: async () => { await dumpGate; },
+        backupDir: join(dir, 'b'), now: () => new Date(), forgetTeamKey: () => {},
+        interrupts: {
+          on: (signal, fn) => { handlers.set(signal, fn); },
+          off: (signal) => { handlers.delete(signal); },
+          exit: (code) => { exitCode = code; resolve(); },
+        },
+      }, { candidates: [candidate], kept: [], databaseOwners: new Map([[msp(EMPTY), [EMPTY]]]) });
+    });
+    for (let i = 0; i < 100 && !handlers.has('SIGINT'); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(fake.statements).toContain(`ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS false`);
+    handlers.get('SIGINT')!();
+    await exited;
+    expect(exitCode).toBe(130);
+    expect(fake.statements.at(-1)).toBe(`ALTER DATABASE "${msp(EMPTY)}" WITH ALLOW_CONNECTIONS true`);
+    expect(fake.statements).not.toContain(`DROP DATABASE IF EXISTS "${msp(EMPTY)}" WITH (FORCE)`);
+    releaseDump();
   });
 
   it('refuses to prune when the account database is a guess', async () => {

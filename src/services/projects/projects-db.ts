@@ -119,6 +119,14 @@ export class ProjectsDb {
     }
   }
 
+  /** Project databases closed to connections, which only an interrupted prune leaves behind. */
+  async lockedDatabases(): Promise<string[]> {
+    const result = await this.base.query(
+      `SELECT datname FROM pg_database WHERE NOT datallowconn AND datname ~ '^msp_[0-9a-f]{32}$' ORDER BY datname`,
+    );
+    return result.rows.map((r) => String(r.datname));
+  }
+
   async listDatabases(): Promise<string[]> {
     const result = await this.base.query('SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname');
     return result.rows.map((r) => String(r.datname));
@@ -144,6 +152,7 @@ export class ProjectsDb {
            (SELECT count(*) FROM observations WHERE kind = 'user_note' ${and})::int AS notes,
            (SELECT count(*) FROM agent_events ${scope})::int AS events,
            (SELECT count(*) FROM server_sessions ${scope})::int AS sessions,
+           (SELECT count(*) FROM observation_generation_jobs WHERE status = 'queued' ${and})::int AS queued_jobs,
            GREATEST(
              (SELECT max(created_at) FROM observations ${scope}),
              (SELECT max(received_at) FROM agent_events ${scope}),
@@ -158,6 +167,7 @@ export class ProjectsDb {
         notes: Number(row.notes ?? 0),
         events: Number(row.events ?? 0),
         sessions: Number(row.sessions ?? 0),
+        queuedJobs: Number(row.queued_jobs ?? 0),
         lastActivity: last ? new Date(last).toISOString() : null,
       };
     } catch {

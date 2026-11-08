@@ -9,6 +9,7 @@ import {
   scanStrayMarkers,
   strayMarkerCheck,
   unfinishedMergeCheck,
+  lockedDatabaseCheck,
   type DoctorProbes,
 } from '../../src/npx-cli/commands/doctor.js';
 
@@ -102,5 +103,31 @@ describe('unfinishedMergeCheck', () => {
     };
     const { checks } = await collectChecks(false, false, { env: {} }, probes);
     expect(checks.find((c) => c.name === 'Unfinished merges')?.status).toBe('warn');
+  });
+});
+
+describe('locked project databases', () => {
+  const healthy = {
+    pidFileStale: false, portInUse: true, depsMissing: false,
+    serverReachable: true, serverVersion: '13.15.0', pluginVersion: '13.15.0', remote: false,
+  };
+
+  it('reports an msp_ database an interrupted prune left closed to connections', () => {
+    expect(lockedDatabaseCheck([])).toMatchObject({ name: 'Locked databases', status: 'ok' });
+    const check = lockedDatabaseCheck(['msp_11111111111111111111111111111111']);
+    expect(check).toMatchObject({ status: 'fail', required: false });
+    expect(check.detail).toContain('memsmith doctor --fix');
+  });
+
+  it('plans and applies the unlock under --fix', async () => {
+    expect(planRepairs({ ...healthy, lockedDatabases: ['msp_1'] })).toEqual(['unlock-databases']);
+    expect(planRepairs(healthy)).toEqual([]);
+    const unlocked: string[] = [];
+    const result = await applyRepairs(['unlock-databases'], {
+      removeState: () => {}, installDeps: async () => {}, lifecycle: async () => 0, ollama: async () => true, out: () => {},
+      unlockDatabases: async () => { unlocked.push('done'); },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(unlocked).toEqual(['done']);
   });
 });

@@ -4,6 +4,7 @@
 // nothing but its own project's hinge rows (or, for a merged project, nothing
 // newer than the merge), and no other project names it. Anything MemSmith
 // cannot count or cannot rule out is kept, with the reason.
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { backupFileName, writeBackupFile, type DumpDatabase } from './backup.js';
 import { knownEmpty, recordTotal, type ProjectEntry, type ProjectInventory } from './inventory.js';
@@ -156,10 +157,23 @@ async function dumpBlockRecountDrop(deps: PruneDeps, candidate: PruneCandidate, 
   const holder = await db.pool(name).connect();
   let blocked = false;
   let released = false;
+  const reopen = () => db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`);
+  const interrupts = deps.interrupts ?? processInterrupts;
+  // Interrupted while the database refuses connections: let them back in
+  // before exiting, or the database stays closed after this process is gone.
+  const handlers = (['SIGINT', 'SIGTERM'] as const).map((signal) => {
+    const handler = () => {
+      void reopen()
+        .catch((error) => console.error(`MemSmith could not let connections back into ${name}: ${error instanceof Error ? error.message : String(error)}. Run \`memsmith doctor --fix\`.`))
+        .finally(() => interrupts.exit(signal === 'SIGINT' ? 130 : 143));
+    };
+    return { signal, handler };
+  });
   try {
     const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0]?.pid ?? null;
     const dumping = deps.dump(db.urlFor(name), file);
     await waitForDumpConnection(db, name, dumping);
+    for (const h of handlers) interrupts.on(h.signal, h.handler);
     await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS false`);
     blocked = true;
     await db.base.query(
@@ -176,9 +190,17 @@ async function dumpBlockRecountDrop(deps: PruneDeps, candidate: PruneCandidate, 
     await db.base.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     return true;
   } catch (error) {
-    if (blocked) await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`).catch(() => {});
+    const message = error instanceof Error ? error.message : String(error);
+    if (blocked) {
+      try {
+        await reopen();
+      } catch (reopenError) {
+        throw new Error(`${message}. MemSmith also could not let connections back into ${name}: ${reopenError instanceof Error ? reopenError.message : String(reopenError)}. Run \`memsmith doctor --fix\``);
+      }
+    }
     throw error;
   } finally {
+    for (const h of handlers) interrupts.off(h.signal, h.handler);
     if (!released) holder.release();
   }
 }
@@ -190,6 +212,25 @@ export interface PruneOutcome {
   error: string | null;
 }
 
+export interface InterruptHooks {
+  on(signal: 'SIGINT' | 'SIGTERM', handler: () => void): void;
+  off(signal: 'SIGINT' | 'SIGTERM', handler: () => void): void;
+  exit(code: number): void;
+}
+
+const processInterrupts: InterruptHooks = {
+  on: (signal, handler) => { process.on(signal, handler); },
+  off: (signal, handler) => { process.off(signal, handler); },
+  exit: (code) => process.exit(code),
+};
+
+/** Re-opens project databases an interrupted prune left closed to connections. */
+export async function reopenLockedDatabases(db: ProjectsDb): Promise<string[]> {
+  const locked = await db.lockedDatabases();
+  for (const name of locked) await db.base.query(`ALTER DATABASE "${name}" WITH ALLOW_CONNECTIONS true`);
+  return locked;
+}
+
 export interface PruneDeps {
   db: ProjectsDb;
   dump: DumpDatabase;
@@ -197,6 +238,7 @@ export interface PruneDeps {
   now: () => Date;
   /** Called after a team row is deleted, so this machine forgets its key. */
   forgetTeamKey: (teamId: string) => void;
+  interrupts?: InterruptHooks;
 }
 
 export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<PruneOutcome[]> {
@@ -223,8 +265,11 @@ export async function executePrune(deps: PruneDeps, plan: PrunePlan): Promise<Pr
         }
         if (name) {
           const file = join(deps.backupDir, backupFileName('prune', name, deps.now()));
-          droppedDatabase = await dumpBlockRecountDrop(deps, candidate, name, file);
-          backupFiles.push(file);
+          try {
+            droppedDatabase = await dumpBlockRecountDrop(deps, candidate, name, file);
+          } finally {
+            if (existsSync(file)) backupFiles.push(file);
+          }
         }
         if (candidate.deleteProject && entry.projectId) {
           await db.base.query('DELETE FROM projects WHERE id = $1', [entry.projectId]);
