@@ -129,6 +129,11 @@ export interface MergeDeps {
   dump: DumpDatabase;
   backupDir: string;
   now: () => Date;
+  /** Test seams for the copy and the source-job cancel. */
+  ops?: {
+    copy?: (db: ProjectsDb, d: MergeDecision) => Promise<CopyReport>;
+    cancel?: (source: Queryable, ids: string[], intoProjectId: string) => Promise<number>;
+  };
 }
 
 export interface MergeResult {
@@ -157,6 +162,8 @@ export async function executeMerge(deps: MergeDeps, d: MergeDecision): Promise<M
   }
   return db.withMaintenanceLock(async () => {
     const scope = scopeOf(d);
+    const copy = deps.ops?.copy ?? copyInTransactions;
+    const cancel = deps.ops?.cancel ?? cancelSourceJobs;
     const completed: MergeStage[] = [];
     const stage = async <T>(name: MergeStage, fn: () => Promise<T>): Promise<T> => {
       try {
@@ -178,12 +185,12 @@ export async function executeMerge(deps: MergeDeps, d: MergeDecision): Promise<M
     const source = db.pool(d.from.databaseName!);
     let report: CopyReport;
     try {
-      report = await stage('copy', () => copyInTransactions(db, d));
+      report = await stage('copy', () => copy(db, d));
     } catch (error) {
       if (!d.from.mergingInto) await setMergeState(db.base, scope.fromProjectId, {}, [MERGING_INTO_KEY]).catch(() => {});
       throw error;
     }
-    let movedJobs = await stage('cancel-jobs', () => cancelSourceJobs(source, report.activeJobIds, scope.intoProjectId));
+    let movedJobs = await stage('cancel-jobs', () => cancel(source, report.activeJobIds, scope.intoProjectId));
 
     await stage('archive', () => setMergeState(
       db.base, scope.fromProjectId,
@@ -215,12 +222,16 @@ export async function executeMerge(deps: MergeDeps, d: MergeDecision): Promise<M
       }
     });
 
-    const late = await stage('catch-up', () => copyInTransactions(db, d));
-    movedJobs += await cancelSourceJobs(source, late.activeJobIds, scope.intoProjectId);
-    const lateRows = Object.values(late.tables).reduce((sum, t) => sum + t.copy + t.updated, 0);
-    // Prune compares the source's newest row with archivedAt; the merge's own
-    // writes to the source (cancelled jobs) must not count as new rows.
-    await stage('catch-up', () => setMergeState(db.base, scope.fromProjectId, { [ARCHIVED_AT_KEY]: deps.now().toISOString() }, []));
+    // One stage, so a failure anywhere in it is reported as the catch-up.
+    const { lateRows, lateJobs } = await stage('catch-up', async () => {
+      const late = await copy(db, d);
+      const jobs = await cancel(source, late.activeJobIds, scope.intoProjectId);
+      // Prune compares the source's newest row with archivedAt; the merge's
+      // own writes to the source (cancelled jobs) must not count as new rows.
+      await setMergeState(db.base, scope.fromProjectId, { [ARCHIVED_AT_KEY]: deps.now().toISOString() }, []);
+      return { lateRows: Object.values(late.tables).reduce((sum, t) => sum + t.copy + t.updated, 0), lateJobs: jobs };
+    });
+    movedJobs += lateJobs;
 
     return { backupFile, movedJobs, report, lateRows, repointed, skippedMarkers };
   });

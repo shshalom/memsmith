@@ -112,6 +112,33 @@ describe('executeMerge', () => {
     expect(touched).toEqual([]);
   });
 
+  it('reports a failed catch-up cancel as the catch-up step, after the archive and markers finished', async () => {
+    const report = (ids: string[]) => ({
+      tables: Object.fromEntries(['server_sessions', 'agent_events', 'observation_generation_jobs', 'observations', 'observation_sources', 'observation_generation_job_events']
+        .map((t) => [t, { source: 0, copy: 0, alreadyThere: 0, updated: 0, renamed: 0 }])),
+      activeJobIds: ids, finishedJobsLeftBehind: 0, droppedColumns: {},
+    });
+    let cancels = 0;
+    const db = {
+      accountDatabaseKnown: true,
+      urlFor: (name: string) => `postgres://x/${name}`,
+      pool: () => ({}),
+      base: { query: async () => ({ rows: [] }) },
+      withMaintenanceLock: async <T>(fn: () => Promise<T>) => fn(),
+    };
+    const run = executeMerge(
+      {
+        db: db as never, dump: async () => {}, backupDir: '/tmp/none', now: () => new Date(),
+        ops: {
+          copy: async () => report(['j-late']) as never,
+          cancel: async () => { cancels += 1; if (cancels === 2) throw new Error('connection lost'); return 1; },
+        },
+      },
+      { ...decideMerge(nested, root), repoint: [] },
+    );
+    await expect(run).rejects.toMatchObject({ stage: 'catch-up', completed: ['backup', 'mark', 'copy', 'cancel-jobs', 'archive', 'markers'] });
+  });
+
   it('refuses when the account database is a guess', async () => {
     const touched: string[] = [];
     let dumped = false;
