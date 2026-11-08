@@ -142,6 +142,24 @@ describe('buildServerGenerationPrompt', () => {
     expect(result.skippedAll).toBe(false);
   });
 
+  it('redacts secrets in the event payload before it reaches any provider', () => {
+    const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+    const result = buildServerGenerationPrompt(makeContext({
+      payload: { tool_response: { stdout: `export ANTHROPIC_API_KEY=${fakeKey}` }, env: { DB_PASSWORD: 'hunter42' } },
+    }));
+    expect(result.prompt).not.toContain(fakeKey);
+    expect(result.prompt).not.toContain('hunter42');
+    expect(result.prompt).toContain('export ANTHROPIC_API_KEY=[REDACTED:anthropic_key]');
+    expect(result.prompt).toContain('[REDACTED:password]');
+  });
+
+  it('redacts secrets in a string payload before it reaches any provider', () => {
+    const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+    const result = buildServerGenerationPrompt(makeContext({ payload: `printenv shows ANTHROPIC_API_KEY=${fakeKey}` }));
+    expect(result.prompt).not.toContain(fakeKey);
+    expect(result.prompt).toContain('printenv shows ANTHROPIC_API_KEY=[REDACTED:anthropic_key]');
+  });
+
   it('marks skippedAll when every event is fully private', () => {
     const context = makeContext({ payload: '<private>secret</private>' });
     const result = buildServerGenerationPrompt(context);

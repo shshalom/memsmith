@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Server-side backstop: strip <private> (and the other stripped tags) from
-// every string value in an event payload BEFORE it is written to agent_events.
-// This closes the ingest leak — private content must never be stored raw,
-// even from a client that did not strip before transmit.
+// Server-side backstop: strip <private> (and the other stripped tags) and
+// redact secrets in every string value of an event payload BEFORE it is
+// written to agent_events. Private content and secrets must never be stored
+// raw, even from a client that did not scrub before transmit.
 
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
+import { redactSecretsDeep } from '../../shared/secret-redaction.js';
 
 export function scrubEventPayload(payload: unknown): unknown {
-  return scrubValue(payload);
+  return redactSecretsDeep(scrubValue(payload));
 }
 
 function scrubValue(value: unknown): unknown {

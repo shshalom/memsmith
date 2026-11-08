@@ -128,3 +128,20 @@ describe('clearSpool', () => {
     clearSpool('/nonexistent-xyz/spool.jsonl');
   });
 });
+
+describe('spoolEvent secret redaction', () => {
+  it('never writes a secret to the spool file', () => {
+    const p = tmp();
+    const fakeKey = 'sk-ant-api03-' + 'FAKE0test9'.repeat(4);
+    try {
+      spoolEvent(p, { ...EVENT, payload: { tool_name: 'Bash', tool_response: { stdout: `key=${fakeKey}` } } });
+      const raw = readFileSync(p, 'utf-8');
+      expect(raw).not.toContain(fakeKey);
+      expect(readSpooledEvents(p)).toEqual([
+        { ...EVENT, payload: { tool_name: 'Bash', tool_response: { stdout: 'key=[REDACTED:anthropic_key]' } } },
+      ]);
+    } finally {
+      rmSync(p, { force: true });
+    }
+  });
+});

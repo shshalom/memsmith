@@ -98,6 +98,39 @@ The `<private>` tag filters content from storage and memory:
 - Session summaries (generated from non-private observations only)
 - Claude's responses (not captured by memsmith)
 
+## Secret redaction
+
+MemSmith redacts known secret patterns from captured content, so a key that a command prints doesn't reach memory even without `<private>` tags. The hook redacts each event before it sends the event to the server or writes it to the local spool, and the MCP tools redact before they write. The server redacts again before it stores an event or sends it to a generation provider, which protects you when an older hook or a third-party client sends events. MemSmith also redacts its own log lines in `~/.memsmith/logs`.
+
+MemSmith replaces each secret value with a marker that names its kind and keeps the surrounding text:
+
+```
+ANTHROPIC_API_KEY=[REDACTED:anthropic_key]
+Authorization: Bearer [REDACTED:bearer_token]
+postgres://app_user:[REDACTED:password]@db.internal:5432/app
+{"db_password": "[REDACTED:password]"}
+```
+
+MemSmith recognizes these patterns:
+
+- Provider keys and tokens: Anthropic (`sk-ant-`), OpenAI (`sk-`, `sk-proj-`), Stripe (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab (`glpat-`), Hugging Face (`hf_`), Google API keys (`AIza`), AWS access key IDs (`AKIA`, `ASIA`), Slack (`xoxb-`, `xoxp-`, and the other `xox` types), and npm (`npm_`).
+- Bearer tokens, `Authorization` header values (`Bearer`, `Basic`, `token`, `Negotiate`), and JSON Web Tokens (JWTs).
+- PEM and PGP private key blocks.
+- Passwords in connection strings, such as `scheme://user:password@host`, `password` entries in `.netrc` files, and npm `_authToken` values.
+- Values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASSWD`, and `SECRET_KEY_BASE`. A name that ends in `PASS` counts when `PASS` is the whole name or follows `_`, `.`, or `-`, such as `SMTP_PASS`. A camelCase name such as `dbPass` counts when its value has at least 6 characters, including a digit or a symbol. MemSmith leaves graphics and build pass names, such as `renderPass`, alone. MemSmith redacts these in env form (`NAME=value`, `export NAME=value`), JSON (including escaped JSON), YAML, and command-line flags (`--api-key value`, `--password value`). It keeps the name and redacts only the value, including quoted passphrases that contain spaces.
+
+To keep useful memory intact, MemSmith doesn't redact these values:
+
+- Values that are too short or too plain to be a key, such as words without digits under a key or token name.
+- Placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
+- Code references such as `process.env.API_KEY`, file paths such as `certs/server.key`, and type names such as `string`.
+- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels. MemSmith treats a quoted value as a label when it has three or more words of plain letters and either starts with a capital letter or ends with `.`, `?`, `!`, or `:`. For example, `"Forgot your login details?"`, `"Type it again to confirm"`, and `"enter it again."` are labels. A passphrase of lowercase words with no closing punctuation, such as `correct horse battery staple`, or one with digits or symbols is still redacted. This means a passphrase written in sentence case, such as `Correct horse battery staple`, isn't redacted.
+- Names where the word is an identifier rather than a credential, such as a bare `key`, `idempotencyKey`, `PUBLIC_KEY`, `nextToken`, `pageToken`, and `max_tokens`.
+
+Redaction is pattern-based, so a secret in a format that MemSmith doesn't recognize is stored as captured. To keep such a secret out of memory, wrap it in `<private>` tags.
+
+Redaction applies to content that MemSmith captures after you update. Memories, events, and log lines that MemSmith wrote before then stay as they are.
+
 ## Examples
 
 ### Example 1: API Keys

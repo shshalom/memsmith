@@ -13,6 +13,7 @@
 
 import { HOOK_TIMEOUTS, getTimeout } from '../../shared/hook-constants.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
+import { redactSecrets, redactSecretsDeep } from '../../shared/secret-redaction.js';
 
 const DEFAULT_TIMEOUT_MS = getTimeout(HOOK_TIMEOUTS.API_REQUEST);
 
@@ -324,7 +325,7 @@ export class ServerClient {
     return this.request<ServerRecordIntentResponse>(
       'POST',
       '/v1/record-intent',
-      { projectId: input.projectId, prompt: input.prompt },
+      { projectId: input.projectId, prompt: redactSecrets(input.prompt) },
     );
   }
 
@@ -362,13 +363,14 @@ export class ServerClient {
     // obsType rides into metadata (what ingest-quality.ts's scoreSubmittedObservation
     // reads) without clobbering any obsType the caller already put in metadata
     // directly — an explicit metadata.obsType wins over the convenience field.
-    const metadata = input.obsType !== undefined
+    const rawMetadata = input.obsType !== undefined
       ? { obsType: input.obsType, ...(input.metadata ?? {}) }
       : input.metadata;
+    const metadata = rawMetadata !== undefined ? redactSecretsDeep(rawMetadata) : undefined;
     return {
       projectId: input.projectId,
       kind,
-      content: input.content,
+      content: redactSecrets(input.content),
       // obsType goes to BOTH homes, deliberately (spec 2026-08-13):
       //   TOP-LEVEL -> the route writes the obs_type COLUMN
       //                (ServerV1PostgresRoutes.ts:1010 reads body.obsType). The
@@ -411,7 +413,7 @@ export class ServerClient {
       ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
       ...(input.agentType !== undefined ? { agentType: input.agentType } : {}),
       ...(input.platformSource !== undefined ? { platformSource: normalizePlatformSourceField(input.platformSource) } : {}),
-      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      ...(input.metadata !== undefined ? { metadata: redactSecretsDeep(input.metadata) } : {}),
     };
   }
 
@@ -425,7 +427,7 @@ export class ServerClient {
       ...(input.contentSessionId !== undefined ? { contentSessionId: input.contentSessionId } : {}),
       ...(input.memorySessionId !== undefined ? { memorySessionId: input.memorySessionId } : {}),
       ...(input.platformSource !== undefined ? { platformSource: normalizePlatformSourceField(input.platformSource) } : {}),
-      ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      ...(input.payload !== undefined ? { payload: redactSecretsDeep(input.payload) } : {}),
     };
   }
 

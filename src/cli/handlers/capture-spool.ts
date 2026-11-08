@@ -20,6 +20,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { DATA_DIR } from '../../shared/paths.js';
+import { redactSecretsDeep } from '../../shared/secret-redaction.js';
 
 /**
  * Cap on retained events.
@@ -46,7 +47,7 @@ export function spoolEvent(path: string, event: unknown): boolean {
   try {
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(path, `${JSON.stringify(event)}\n`, 'utf-8');
+    appendFileSync(path, `${JSON.stringify(redactSecretsDeep(event))}\n`, 'utf-8');
     trimSpool(path);
     return true;
   } catch {

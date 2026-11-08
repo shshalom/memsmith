@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
+
+// hybridSearch embeds the query. Loading the real model takes longer than the
+// default test timeout, so this file mocks the embedder itself instead of
+// depending on a mock that an earlier file left registered.
+mock.module('../../src/server/generation/embedder.js', () => ({
+  embed: async () => Array.from({ length: 384 }, () => 0),
+  embedBatch: async (texts: string[]) => texts.map(() => Array.from({ length: 384 }, () => 0)),
+}));
+
 import { PostgresObservationRepository } from '../../src/storage/postgres/observations.js';
 import { combineRanks } from '../../src/server/retrieval/rrf.js';
 

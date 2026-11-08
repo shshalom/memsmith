@@ -3,6 +3,7 @@
 import { ModeManager } from '../../../../services/domain/ModeManager.js';
 import type { ModeConfig, ObservationType } from '../../../../services/domain/types.js';
 import { stripTags } from '../../../../utils/tag-stripping.js';
+import { redactSecrets, redactSecretsDeep } from '../../../../shared/secret-redaction.js';
 import { logger } from '../../../../utils/logger.js';
 import type { PostgresAgentEvent } from '../../../../storage/postgres/agent-events.js';
 import type { ServerGenerationContext } from './types.js';
@@ -117,7 +118,9 @@ interface EventBlockResult {
 
 function buildEventBlock(event: PostgresAgentEvent): EventBlockResult {
   const rawPayload =
-    typeof event.payload === 'string' ? event.payload : JSON.stringify(event.payload ?? {}, null, 2);
+    typeof event.payload === 'string'
+      ? redactSecrets(event.payload)
+      : JSON.stringify(redactSecretsDeep(event.payload ?? {}), null, 2);
 
   const stripResult = stripTags(rawPayload);
   const hadPrivate = (stripResult.counts.private ?? 0) > 0;
