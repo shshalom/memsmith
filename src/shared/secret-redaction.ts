@@ -34,7 +34,11 @@ export type SecretKind =
   | 'circular'
   | 'unserializable';
 
-const marker = (kind: SecretKind) => `[REDACTED:${kind}]`;
+// `camel_pass` is a name such as `dbPass`. Its values are held to a stricter
+// bar than other password names, and it is reported as `password`.
+type NameKind = SecretKind | 'camel_pass';
+
+const marker = (kind: NameKind) => `[REDACTED:${kind === 'camel_pass' ? 'password' : kind}]`;
 const MARKER_PREFIX = '[REDACTED:';
 
 interface TokenRule {
@@ -123,7 +127,13 @@ const AUTHORIZATION =
 // Without a scheme, an Authorization value must look opaque: a config flag
 // such as `authorization: enabled_for_users_2024` has digits too.
 const looksLikeOpaqueToken = (token: string) =>
-  token.length >= 16 && /\d/.test(token) && /[A-Za-z]/.test(token) && !token.includes('_');
+  /\d/.test(token) && /[A-Za-z]/.test(token) &&
+  (token.includes('_') ? token.length >= 20 && !isWordList(token) : token.length >= 16);
+
+/** True for a value such as `enabled_for_users_2024`: short words, numbers, or version tags. */
+function isWordList(token: string): boolean {
+  return token.split('_').every(part => part.length <= 4 || /^(?:[A-Za-z]{1,12}|\d{1,8})$/.test(part));
+}
 
 const CONNECTION_PASSWORD = /:\/\/([^\s:/@"'<>]{0,256}:)([^\s/@"'<>]+)(?=@)/g;
 
@@ -158,19 +168,27 @@ const NON_SECRET_KEY_PREFIX =
   /(?:idempotency|generation|cache|hash|lookup|query|sort|primary|foreign|partition|dedupe?|config|object|row|group|composite|unique|index|translation|storage|bucket|registry|public|license)[_.-]?$/i;
 
 // Pagination cursors and model token settings, not credentials.
+// Graphics and build passes, not credentials.
+const NON_SECRET_PASS_PREFIX =
+  /(?:render|shadow|depth|blur|bloom|post|light|lighting|geometry|gbuffer|compute|draw|composite|first|second|final|multi|single|compile|lint|build|test|by|sur|com)$/i;
+
 const NON_SECRET_TOKEN_PREFIX =
   /(?:next|page|continuation|pagination|cursor|sync|resume|max|min|num|total|input|output|prompt|completion|stop|eos|bos|pad|unk|special)[_.-]?$/i;
 
 const GLUED_PREFIX = /^(?:api|access|auth|secret|private|client|refresh|session|app|master|bearer|signing|encryption)$/i;
 
 /** The kind a secret-named field carries, or null when the name is not a secret name. */
-function secretNameKind(name: string): SecretKind | null {
+function secretNameKind(name: string): NameKind | null {
   const match = /(key_base|key|token|secret|password|passwd|pass)$/i.exec(name);
   if (!match) return null;
   const suffix = match[1];
   const lower = suffix.toLowerCase();
   if (lower === 'password' || lower === 'passwd') return 'password';
-  if (lower === 'pass') return /(?:^|[_.-])pass$/i.test(name) ? 'password' : null;
+  if (lower === 'pass') {
+    if (/(?:^|[_.-])pass$/i.test(name)) return 'password';
+    const before = name.slice(0, -suffix.length);
+    return suffix === 'Pass' && /[a-z0-9]$/.test(before) && !NON_SECRET_PASS_PREFIX.test(before) ? 'camel_pass' : null;
+  }
   const kind: SecretKind = lower === 'pass' ? 'password' : lower === 'key_base' ? 'key' : (lower as 'key' | 'token' | 'secret');
   const before = name.slice(0, -suffix.length);
   if (kind === 'key' && (before === '' || NON_SECRET_KEY_PREFIX.test(before))) return null;
@@ -221,7 +239,7 @@ function looksLikeLabel(value: string): boolean {
  * bare value is usually an identifier, not a literal. A quoted value with
  * spaces is a passphrase unless it names the field, as a UI label does.
  */
-function isSecretValue(value: string, kind: SecretKind, quoted: boolean): boolean {
+function isSecretValue(value: string, kind: NameKind, quoted: boolean): boolean {
   if (value.length === 0 || value.startsWith(MARKER_PREFIX)) return false;
   if (PLACEHOLDERS.some(p => p.test(value))) return false;
   if (NON_SECRET_WORDS.has(value.toLowerCase())) return false;
@@ -230,6 +248,7 @@ function isSecretValue(value: string, kind: SecretKind, quoted: boolean): boolea
     return !looksLikeLabel(value);
   }
   if (DOTTED_IDENTIFIER.test(value) || PATH.test(value) || FILE_PATH.test(value)) return false;
+  if (kind === 'camel_pass') return value.length >= 6 && /[^A-Za-z]/.test(value);
   if (kind === 'password') {
     if (value.length < 4) return false;
     return quoted || /[^A-Za-z]/.test(value);

@@ -117,14 +117,14 @@ MemSmith recognizes these patterns:
 - Bearer tokens, `Authorization` header values (`Bearer`, `Basic`, `token`, `Negotiate`), and JSON Web Tokens (JWTs).
 - PEM and PGP private key blocks.
 - Passwords in connection strings, such as `scheme://user:password@host`, `password` entries in `.netrc` files, and npm `_authToken` values.
-- Values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, or `PASS`, and `SECRET_KEY_BASE`. MemSmith redacts these in env form (`NAME=value`, `export NAME=value`), JSON (including escaped JSON), YAML, and command-line flags (`--api-key value`, `--password value`). It keeps the name and redacts only the value, including quoted passphrases that contain spaces.
+- Values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASSWD`, and `SECRET_KEY_BASE`. A name that ends in `PASS` counts when `PASS` is the whole name or follows `_`, `.`, or `-`, such as `SMTP_PASS`. A camelCase name such as `dbPass` counts when its value has at least 6 characters, including a digit or a symbol. MemSmith leaves graphics and build pass names, such as `renderPass`, alone. MemSmith redacts these in env form (`NAME=value`, `export NAME=value`), JSON (including escaped JSON), YAML, and command-line flags (`--api-key value`, `--password value`). It keeps the name and redacts only the value, including quoted passphrases that contain spaces.
 
 To keep useful memory intact, MemSmith doesn't redact these values:
 
 - Values that are too short or too plain to be a key, such as words without digits under a key or token name.
 - Placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
 - Code references such as `process.env.API_KEY`, file paths such as `certs/server.key`, and type names such as `string`.
-- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels of three or more plain words that read like a sentence, such as `"forgotPassword": "Forgot your login details?"`. A passphrase of lowercase words, or one with digits or symbols, is still redacted.
+- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels. MemSmith treats a quoted value as a label when it has three or more words of plain letters and either starts with a capital letter or ends with `.`, `?`, `!`, or `:`. For example, `"Forgot your login details?"`, `"Type it again to confirm"`, and `"enter it again."` are labels. A passphrase of lowercase words with no closing punctuation, such as `correct horse battery staple`, or one with digits or symbols is still redacted. This means a passphrase written in sentence case, such as `Correct horse battery staple`, isn't redacted.
 - Names where the word is an identifier rather than a credential, such as a bare `key`, `idempotencyKey`, `PUBLIC_KEY`, `nextToken`, `pageToken`, and `max_tokens`.
 
 Redaction is pattern-based, so a secret in a format that MemSmith doesn't recognize is stored as captured. To keep such a secret out of memory, wrap it in `<private>` tags.

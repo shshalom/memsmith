@@ -10,7 +10,7 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ### Added
 
-- MemSmith redacts known secret patterns from captured content and from its own log lines. The patterns include provider keys and tokens (Anthropic, OpenAI, Stripe, GitHub, GitLab, Hugging Face, Google, AWS, Slack, and npm), bearer tokens and `Authorization` values, JWTs, private key blocks, connection-string passwords, and values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASS`. The hook redacts before it sends or spools an event, and the server redacts again before it stores an event or sends it to a generation provider, which covers older hooks and third-party clients. Each value becomes a marker such as `[REDACTED:anthropic_key]`, and MemSmith keeps the surrounding text. Memories and logs written before you update aren't redacted.
+- MemSmith redacts known secret patterns from captured content and from its own log lines. The patterns include provider keys and tokens (Anthropic, OpenAI, Stripe, GitHub, GitLab, Hugging Face, Google, AWS, Slack, and npm), bearer tokens and `Authorization` values, JWTs, private key blocks, connection-string passwords, and values of names that end in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `PASSWD`, plus names such as `SMTP_PASS` and `dbPass`. The hook redacts before it sends or spools an event, and the server redacts again before it stores an event or sends it to a generation provider, which covers older hooks and third-party clients. Each value becomes a marker such as `[REDACTED:anthropic_key]`, and MemSmith keeps the surrounding text. Memories and logs written before you update aren't redacted.
 
 ## [13.13.2] - 2026-11-08
 

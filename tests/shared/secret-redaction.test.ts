@@ -453,3 +453,28 @@ describe('redactSecrets: every pattern on a 1 MB run of its own start token', ()
     });
   }
 });
+
+describe('redactSecrets: final follow-ups', () => {
+  it('redacts camelCase Pass names when the value looks like a password', () => {
+    expect(redactSecrets('dbPass: "hunter22x"')).toBe('dbPass: "[REDACTED:password]"');
+    expect(redactSecrets('userPass=Sup3rS3cret1')).toBe('userPass=[REDACTED:password]');
+    expect(redactSecretsDeep({ adminPass: 'hunter22x' })).toEqual({ adminPass: '[REDACTED:password]' });
+  });
+
+  it('leaves render-pass style names and plain values under camelCase Pass intact', () => {
+    for (const text of ['renderPass: shadowMap2', 'shadowPass = "depth24"', 'dbPass: "primary"', 'userPass=abc1']) {
+      expect(redactSecrets(text)).toBe(text);
+    }
+  });
+
+  it('redacts a scheme-less Authorization token that contains underscores', () => {
+    const token = 'lin_api_' + 'FAKE0test9'.repeat(4);
+    expect(redactSecrets(`Authorization: ${token}`)).toBe('Authorization: [REDACTED:authorization]');
+  });
+
+  it('leaves a word-like scheme-less Authorization value intact', () => {
+    for (const text of ['authorization: enabled_for_users_2024', 'Authorization: required_for_admin_users_v2']) {
+      expect(redactSecrets(text)).toBe(text);
+    }
+  });
+});
