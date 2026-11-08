@@ -200,6 +200,7 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
       id: input.job.id,
       projectId: input.job.projectId,
       teamId: input.job.teamId,
+      forUpdate: true,
     });
     // Terminal statuses are a no-op: a job already completed, cancelled, or
     // failed must not be re-transitioned (the lifecycle gate rejects
@@ -347,12 +348,13 @@ async function persistGeneratedObservations(
     const jobsRepo = new PostgresObservationGenerationJobRepository(client);
     const eventsLogRepo = new PostgresObservationGenerationJobEventsRepository(client);
 
-    // Reload the job inside the transaction. If it was already completed
-    // by another worker, return its existing observations idempotently.
+    // Locked until commit, so a merge that completes this job from another
+    // project waits for this result or this reload sees the merge's.
     const fresh = await jobsRepo.getByIdForScope({
       id: job.id,
       projectId: job.projectId,
       teamId: job.teamId,
+      forUpdate: true,
     });
     if (!fresh) {
       throw new Error(`generation job ${job.id} not found in scope`);

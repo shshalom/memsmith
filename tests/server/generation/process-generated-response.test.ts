@@ -281,6 +281,61 @@ describe('processGeneratedResponse + markGenerationFailed', () => {
     expect(list).toHaveLength(1);
   });
 
+  // A merge completes a moved job from the source while holding the job's row
+  // lock. A worker that reaches persistence meanwhile must wait for it and
+  // then see the merge's result, so the job keeps one result.
+  async function whileAnotherTransactionCompletesTheJob<T>(work: () => Promise<T>): Promise<T> {
+    await storage.observationGenerationJobs.transitionStatus({ id: jobId, projectId, teamId, status: 'processing' });
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM observation_generation_jobs WHERE id = $1 FOR UPDATE', [jobId]);
+      const pending = work();
+      const started = Date.now();
+      // Poll outside the holder's transaction: pg_stat_activity is a
+      // snapshot that stays fixed for the rest of a transaction.
+      while ((await client.query(
+        `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      )).rows[0].n === 0) {
+        if (Date.now() - started > 60_000) throw new Error('the worker never waited for the row lock');
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await holder.query(`UPDATE observation_generation_jobs SET status = 'completed', completed_at = now() WHERE id = $1`, [jobId]);
+      await holder.query('COMMIT');
+      return await pending;
+    } catch (error) {
+      await holder.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      holder.release();
+    }
+  }
+
+  it('skips persistence when a merge completes the job while the worker is persisting', async () => {
+    const fresh = { ...(await reloadJob())!, status: 'processing' as const };
+    const outcome = await whileAnotherTransactionCompletesTheJob(() => processGeneratedResponse({
+      pool: pool as unknown as Parameters<typeof processGeneratedResponse>[0]['pool'],
+      job: fresh,
+      rawText: `<observation><type>discovery</type><title>Raced</title><facts><fact>raced</fact></facts></observation>`,
+      providerLabel: 'fake',
+    }));
+    expect(outcome.kind).toBe('completed');
+    expect(await storage.observations.listByProject({ projectId, teamId })).toHaveLength(0);
+    expect((await reloadJob())?.status).toBe('completed');
+  }, 90_000);
+
+  it('markGenerationFailed leaves a job that a merge completed meanwhile completed', async () => {
+    const fresh = { ...(await reloadJob())!, status: 'processing' as const };
+    await whileAnotherTransactionCompletesTheJob(() => markGenerationFailed({
+      pool: pool as unknown as Parameters<typeof markGenerationFailed>[0]['pool'],
+      job: fresh,
+      reason: 'transient',
+      classification: 'transient',
+      retryable: true,
+    }));
+    expect((await reloadJob())?.status).toBe('completed');
+  }, 90_000);
+
   it('marks job completed with no observation when the response is a skip_summary', async () => {
     await storage.observationGenerationJobs.transitionStatus({
       id: jobId,
