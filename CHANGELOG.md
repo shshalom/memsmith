@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- Queued generation jobs that no running loop picked up now get processed without a server restart. Previously, a job whose publish returned `queued_only`, a project backlog of more than 500 jobs at boot, and jobs moved by `memsmith merge` stayed queued until the next restart. The server now checks the base database and every project database every 30 seconds. When the generation queue is empty, it loads up to 500 first-attempt jobs per database, so a large backlog drains over successive checks.
+
 ## [13.15.0] - 2026-11-08
 
 ### Added

@@ -16,7 +16,7 @@ import {
 } from './multi-project-recovery.js';
 import {
   DEFAULT_DRAIN_BATCH, claimDueRetries, loadQueuedJobsForDrain, reclaimStaleLocks, reclaimTransientFailures,
-  requeueDrainedJobs, resolveQueueConcurrency,
+  requeueDrainedJobs, requeueOrphanedJobs, resolveQueueConcurrency,
 } from './generation-drain.js';
 import { reclaimStaleSessionGeneration } from './session-status-reclaim.js';
 import { runContinuousDrain } from './continuous-drain.js';
@@ -456,6 +456,18 @@ export async function createServerService(
         },
       });
 
+      const isQueueIdle = () => {
+        const mgr = queueManager as {
+          getQueue?: (k: string) => { getWaitingCount?: () => number; getRecoveryWaitingCount?: () => number };
+        };
+        try {
+          return (['event', 'summary'] as const).every((kind) => {
+            const q = mgr.getQueue?.(kind);
+            return (q?.getWaitingCount?.() ?? 0) === 0 && (q?.getRecoveryWaitingCount?.() ?? 0) === 0;
+          });
+        } catch { return false; }
+      };
+
       await runRetrySweep<PostgresPool>({
         listPools: async () => {
           const pools: PostgresPool[] = [pool];
@@ -471,8 +483,10 @@ export async function createServerService(
         },
         sweepPool: async (p) => {
           const jobs = await claimDueRetries(p);
-          if (jobs.length === 0) return 0;
-          return (await requeueDrainedJobs(jobs, { resolveQueue })).requeued;
+          const retried = jobs.length === 0
+            ? 0
+            : (await requeueDrainedJobs(jobs, { resolveQueue })).requeued;
+          return retried + await requeueOrphanedJobs(p, { resolveQueue, isQueueIdle });
         },
         sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
         isClosed: () => false,

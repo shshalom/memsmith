@@ -106,6 +106,50 @@ export async function claimDueRetries(
   }
 }
 
+/** Minimum age before a first-attempt job counts as orphaned. */
+export const BACKLOG_MIN_AGE_SECONDS = 60;
+
+/**
+ * Claim first-attempt jobs that are `queued` but that no live loop will poll:
+ * a publish that returned `queued_only`, a project backlog beyond one boot
+ * batch, or a job moved in by `memsmith merge`.
+ *
+ * The in-memory queue has no dedupe, so the caller must only run this while the
+ * queue is idle. The lease and the minimum age guard the remaining race, where a
+ * job was just committed and is about to be published. Never throws.
+ */
+export async function claimQueuedBacklog(
+  pool: DrainQueryable,
+  opts: { batchSize?: number; leaseMinutes?: number; minAgeSeconds?: number } = {},
+): Promise<DrainableJob[]> {
+  try {
+    const result = await pool.query(
+      `UPDATE observation_generation_jobs
+          SET next_attempt_at = now() + make_interval(mins => $2::int), updated_at = now()
+        WHERE id IN (
+          SELECT id FROM observation_generation_jobs
+           WHERE status = 'queued'
+             AND attempts = 0
+             AND attempts < max_attempts
+             AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+             AND created_at <= now() - make_interval(secs => $3::int)
+           ORDER BY created_at ASC
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED)
+        RETURNING id, job_type, project_id, team_id, agent_event_id,
+                  source_type, source_id, server_session_id, payload, bullmq_job_id`,
+      [
+        opts.batchSize ?? DEFAULT_DRAIN_BATCH,
+        opts.leaseMinutes ?? RETRY_LEASE_MINUTES,
+        opts.minAgeSeconds ?? BACKLOG_MIN_AGE_SECONDS,
+      ],
+    );
+    return result.rows.map(toJob).filter((j): j is DrainableJob => j !== null);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Load queued generation jobs so a restart no longer abandons them.
  *
@@ -341,4 +385,20 @@ export function resolveQueueConcurrency(env: Record<string, string | undefined>)
   if (parsed < 1) return 1;
   if (parsed > MAX_QUEUE_CONCURRENCY) return MAX_QUEUE_CONCURRENCY;
   return parsed;
+}
+
+/**
+ * Put orphaned first-attempt jobs from one pool onto the queue, at most one
+ * batch per call. Does nothing while the queue holds work, so a job already in
+ * memory is never loaded twice; a large backlog drains over successive calls.
+ */
+export async function requeueOrphanedJobs(
+  pool: DrainQueryable,
+  deps: RequeueDeps & { isQueueIdle: () => boolean },
+  opts: { batchSize?: number } = {},
+): Promise<number> {
+  if (!deps.isQueueIdle()) return 0;
+  const jobs = await claimQueuedBacklog(pool, opts);
+  if (jobs.length === 0) return 0;
+  return (await requeueDrainedJobs(jobs, deps)).requeued;
 }
