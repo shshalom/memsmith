@@ -346,7 +346,8 @@ export const contextHandler: EventHandler = {
       // design and upserts teams/projects on every call — its own doc says a
       // "fresh DB / cloned repo self-heals" — so calling it unconditionally
       // costs an existing project one upsert and gives a clone the row it needs.
-      const registered = await dependencies.mintProjectIdentity(cwd);
+      // A read-only session must not create or register a project anywhere.
+      const registered = writesAllowed() ? await dependencies.mintProjectIdentity(cwd) : null;
       dashboardProjectId = registered?.projectId ?? marker?.projectId;
       noticeLine = await dependencies.projectNotice(cwd, registered);
     } catch { /* unscoped link is a fine fallback */ }

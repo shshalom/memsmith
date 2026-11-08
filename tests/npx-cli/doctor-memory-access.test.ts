@@ -50,9 +50,9 @@ describe('doctor memory access and disabled hooks', () => {
   });
 
   it('warns about an unrecognized access value', async () => {
-    const rows = await checks({ MEMSMITH_ACCESS: 'readonly' }, {});
+    const rows = await checks({ MEMSMITH_ACCESS: 'reed' }, {});
     const access = rows.find((c) => c.name === 'Memory access');
     expect(access?.status).toBe('warn');
-    expect(access?.detail).toContain('"readonly" is not read or write');
+    expect(access?.detail).toContain('"reed" is not read or write');
   });
 });

@@ -91,7 +91,7 @@ The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_L
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. `write` captures and writes as usual. For any other value, MemSmith logs one warning, uses `write`, and `memsmith doctor` flags the value. |
+| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs one warning, uses `write`, and `memsmith doctor` flags the value. |
 | `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs one warning for each unknown name and ignores it. |
 
 An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty environment variable also wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
@@ -104,9 +104,12 @@ In read-only mode, MemSmith does the following:
 - Refuses `note_add`, `observation_add`, and `observation_record_event` with this error: `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`
 - Answers a request such as "remember that..." with a notice that memory is read-only, instead of saving it.
 - Adds a read-only notice to the session-start context, so the agent knows not to try to write.
+- Never creates or registers a project. In a folder that has no MemSmith project yet, the read tools report that the folder has no project.
 - Keeps reading: session-start context, `observation_search`, `observation_get`, `observation_context`, the memory-first gate, and the answer gate work as usual, unless you turn them off with `MEMSMITH_HOOKS_DISABLED`.
 
-The mode belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
+The setting belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
+
+The transcript watcher (`memsmith transcript watch`), which captures sessions from tools that write transcript files, is a single long-running process for all sessions. It follows the `MEMSMITH_ACCESS` value of its own environment, or the `settings.json` default, not the value of each session that it reads.
 
 For example, a coordinator agent records what the team learns, and the worker agents that it launches only read. Start the coordinator as usual, and start each worker with `MEMSMITH_ACCESS=read`:
 

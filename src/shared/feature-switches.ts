@@ -44,6 +44,7 @@ export interface SwitchSettings {
 }
 
 const KNOWN = new Set<string>(HOOK_FEATURES);
+const READ_VALUES = new Set(['read', 'readonly', 'read-only', 'ro']);
 
 // A variable that is present but empty still wins, so a session can clear a
 // settings.json default (for example MEMSMITH_HOOKS_DISABLED=).
@@ -56,8 +57,8 @@ function pick(env: string | undefined, settings: string | undefined): { raw: str
 export function resolveFeatureSwitches(settings: SwitchSettings, env: NodeJS.ProcessEnv = process.env): FeatureSwitches {
   const accessPick = pick(env.MEMSMITH_ACCESS, settings.MEMSMITH_ACCESS);
   const accessValue = accessPick.raw.trim().toLowerCase();
-  const known = accessValue === '' || accessValue === 'read' || accessValue === 'write';
-  const access: MemoryAccess = accessValue === 'read' ? 'read' : 'write';
+  const access: MemoryAccess = READ_VALUES.has(accessValue) ? 'read' : 'write';
+  const known = accessValue === '' || accessValue === 'write' || access === 'read';
   const listPick = pick(env.MEMSMITH_HOOKS_DISABLED, settings.MEMSMITH_HOOKS_DISABLED);
   const names = listPick.raw.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
   return {

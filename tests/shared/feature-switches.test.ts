@@ -49,10 +49,18 @@ describe('resolveFeatureSwitches', () => {
     expect(resolveFeatureSwitches({}, { MEMSMITH_MODE: 'read' }).access).toBe('write');
   });
 
+  it('accepts the common spellings of read-only', () => {
+    for (const value of ['read', 'READ', 'readonly', 'Read-Only', 'ro', ' ro ']) {
+      const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: value });
+      expect(s.access).toBe('read');
+      expect(s.invalidAccess).toBeNull();
+    }
+  });
+
   it('reports an access value it does not recognize and keeps writing', () => {
-    const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'readonly' });
+    const s = resolveFeatureSwitches({}, { MEMSMITH_ACCESS: 'reed' });
     expect(s.access).toBe('write');
-    expect(s.invalidAccess).toBe('readonly');
+    expect(s.invalidAccess).toBe('reed');
   });
 });
 
