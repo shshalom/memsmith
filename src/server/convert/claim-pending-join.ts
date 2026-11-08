@@ -23,7 +23,7 @@ interface NotePool {
 
 export interface ClaimDeps {
   readProjectMarker: (cwd: string) => { projectId: string; teamId: string; runtime?: string } | null;
-  resolveKeyForTeam: (teamId: string) => string | null;
+  resolveKeyForTeam: (teamId: string, projectId?: string) => string | null;
   /**
    * The LOCAL base-account database, where `projects` rows live.
    *
@@ -56,7 +56,7 @@ export async function claimPendingTeamJoin(
   // where the convert's mint cached it. No key means no way to reach the
   // destination — and flipping regardless would strand the project in server mode
   // with nothing to authenticate with.
-  const apiKey = deps.resolveKeyForTeam(marker.teamId);
+  const apiKey = deps.resolveKeyForTeam(marker.teamId, marker.projectId);
   if (!apiKey) return { applied: false, reason: 'no cached key for this team' };
 
   try {

@@ -77,9 +77,9 @@ describe('ensureProjectIdentity', () => {
   it('mints a resolvable base key when a store is provided (no keyless marker)', async () => {
     const store = new CredentialStore(join(cwd, 'credentials.json'));
     const pool = fakePool();
-    const { teamId } = await ensureProjectIdentity(pool, cwd, store);
-    // A key must now be resolvable for the freshly minted team.
-    expect(store.resolveKeyForTeam(teamId)).toBeTruthy();
+    const ids = await ensureProjectIdentity(pool, cwd, store);
+    // A key must now be resolvable for the freshly minted project.
+    expect(store.resolveKeyFor(ids)).toBeTruthy();
     // …and its hash persisted to api_keys.
     expect(pool.calls.some((c: any) => /insert into api_keys/i.test(c.text))).toBe(true);
   });
@@ -92,8 +92,8 @@ describe('ensureProjectIdentity', () => {
     // it must re-establish a resolvable key, not leave the store empty.
     const store2 = new CredentialStore(join(cwd, 'credentials2.json'));
     const pool2 = fakePool();
-    const { teamId } = await ensureProjectIdentity(pool2, cwd, store2);
-    expect(store2.resolveKeyForTeam(teamId)).toBeTruthy();
+    const ids = await ensureProjectIdentity(pool2, cwd, store2);
+    expect(store2.resolveKeyFor(ids)).toBeTruthy();
   });
 });
 

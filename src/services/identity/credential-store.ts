@@ -2,7 +2,14 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSy
 import { dirname, join } from 'path';
 import { resolveDataDir } from '../../shared/paths.js';
 
-interface CredentialFile { keys: Record<string, string>; }
+interface ProjectKeyEntry { teamId: string; key: string }
+
+// `keys` holds one key per team. `projectKeys` holds one key per project for
+// teams whose projects each need their own scope (the machine's local team):
+// postgres-auth never lets a project-scoped key reach another project, so a
+// key shared by several projects scopes all of them to whichever project it
+// was minted for.
+interface CredentialFile { keys: Record<string, string>; projectKeys?: Record<string, ProjectKeyEntry>; }
 
 /**
  * How long to wait for another process to release the write lock.
@@ -69,11 +76,53 @@ export class CredentialStore {
     return file.keys[teamId] ?? null;
   }
 
+  /**
+   * The key a project sends: its own key while it is still in the team that
+   * key was minted for, else its team's key. After a join the project's own
+   * entry still names the old team, so the joined team's key wins.
+   */
+  resolveKeyFor(ids: { teamId: string; projectId: string }): string | null {
+    return this.resolveKeyForProject(ids.teamId, ids.projectId) ?? this.resolveKeyForTeam(ids.teamId);
+  }
+
+  /** The project's own key, only while the project is in `teamId`. */
+  resolveKeyForProject(teamId: string, projectId: string): string | null {
+    const own = this.read().projectKeys?.[projectId];
+    return own && own.teamId === teamId ? own.key : null;
+  }
+
   /** Team ids this machine currently holds a key for. Read-only; used by the
    * project switcher (GET /v1/projects) to mirror the exact cookie rule — a
    * project only ever appears if this machine could actually open it. */
   listTeamIdsWithKeys(): string[] {
-    return Object.keys(this.read().keys);
+    const file = this.read();
+    const teams = new Set(Object.keys(file.keys));
+    for (const entry of Object.values(file.projectKeys ?? {})) teams.add(entry.teamId);
+    return [...teams];
+  }
+
+  /** Every plaintext key this machine holds, team and project keys alike. */
+  listKeys(): string[] {
+    const file = this.read();
+    return [...new Set([
+      ...Object.values(file.keys),
+      ...Object.values(file.projectKeys ?? {}).map((entry) => entry.key),
+    ])];
+  }
+
+  /** storeKeyIfAbsent for a project's own key. */
+  storeProjectKeyIfAbsent(teamId: string, projectId: string, key: string): string {
+    const dir = dirname(this.path);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+    return this.withLock(() => {
+      const file = this.read();
+      const existing = file.projectKeys?.[projectId];
+      if (existing && existing.teamId === teamId) return existing.key;
+      file.projectKeys = { ...(file.projectKeys ?? {}), [projectId]: { teamId, key } };
+      this.writeAtomic(file);
+      return key;
+    });
   }
 
   /**
@@ -194,7 +243,9 @@ export class CredentialStore {
     if (!existsSync(this.path)) return { keys: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf-8')) as Partial<CredentialFile>;
-      return { keys: parsed.keys ?? {} };
+      return parsed.projectKeys
+        ? { keys: parsed.keys ?? {}, projectKeys: parsed.projectKeys }
+        : { keys: parsed.keys ?? {} };
     } catch {
       // A corrupt file must not be silently overwritten: it may still hold
       // recoverable plaintext keys, and those are unrecoverable once gone.
