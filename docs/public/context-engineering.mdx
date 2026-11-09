@@ -1,227 +1,58 @@
 ---
-title: "Context Engineering"
-description: "Best practices for curating optimal token sets for AI agents"
+title: "Context engineering"
+description: "Principles for keeping an agent's context small and useful, and how MemSmith applies them"
 ---
 
-# Context Engineering for AI Agents
+# Context engineering
 
-## Core Principle
-**Find the smallest possible set of high-signal tokens that maximize the likelihood of your desired outcome.**
+Context engineering is the practice of choosing which tokens an agent sees on each turn: instructions, tools, retrieved data, and message history. The goal is the smallest set of high-signal tokens that produces the outcome you want. MemSmith applies these principles to agent memory.
 
----
+This page summarizes Anthropic's article "Effective context engineering for AI agents" and maps each principle to MemSmith behavior.
 
-## Context Engineering vs Prompt Engineering
+## Why context size matters
 
-**Prompt Engineering**: Writing and organizing LLM instructions for optimal outcomes (one-time task)
+A model's accuracy tends to fall as its context grows, so each token has a cost beyond its price. Treat context as a finite resource, and add a token only when it improves the next decision.
 
-**Context Engineering**: Curating and maintaining the optimal set of tokens during inference across multiple turns (iterative process)
+## Principles
 
-Context engineering manages:
-- System instructions
-- Tools
-- Model Context Protocol (MCP)
-- External data
-- Message history
-- Runtime data retrieval
+### Write instructions at the right level of detail
 
----
+An instruction that is too specific breaks on cases that its author didn't expect. An instruction that is too general gives the model nothing to act on. Write the smallest set of instructions that fully describes the behavior you expect, and add detail only when you observe a failure.
 
-## The Problem: Context Rot
+MemSmith applies this to its standing directive. The memory-first directive is a short, three-step flow: check the conversation, search memory, and validate against the code. It doesn't list every case.
 
-**Key Insight**: LLMs have an "attention budget" that gets depleted as context grows
+### Keep tools few and distinct
 
-- Every token attends to every other token (n² relationships)
-- As context length increases, model accuracy decreases
-- Models have less training experience with longer sequences
-- Context must be treated as a finite resource with diminishing marginal returns
+If a human engineer can't say which tool fits a situation, an agent can't either. Give each tool one purpose, clear parameter names, and output that is no larger than it needs to be.
 
----
+MemSmith applies this to its memory tools. `observation_search` returns a short index, `observation_get` returns full records, and `observation_context` returns the top matches in one call. Each tool caps its output.
 
-## System Prompts: Find the "Right Altitude"
+### Retrieve just in time
 
-### The Goldilocks Zone
+Keep lightweight references, such as queries and file paths, and load data when the agent needs it. Pre-loading everything adds noise, and pre-loaded results can read as a finished answer that the agent doesn't check.
 
-**Too Prescriptive** ❌
-- Hardcoded if-else logic
-- Brittle and fragile
-- High maintenance complexity
+MemSmith injects only a short orientation at session start, and the agent fetches the rest with the memory tools. See [Progressive disclosure](/progressive-disclosure).
 
-**Too Vague** ❌
-- High-level guidance without concrete signals
-- Falsely assumes shared context
-- Lacks actionable direction
+## Techniques for long tasks
 
-**Just Right** ✅
-- Specific enough to guide behavior effectively
-- Flexible enough to provide strong heuristics
-- Minimal set of information that fully outlines expected behavior
+| Technique | What it does | How MemSmith supports it |
+|-----------|--------------|--------------------------|
+| Compaction | Summarizes a conversation that nears its limit and continues from the summary. | The `SessionStart` hook runs again after `compact` and `clear`, so the agent gets the directive and recent context again. |
+| Structured notes | Saves notes outside the context window and reads them later. | `note_add` saves a user note, and the observation pipeline saves what the agent does. Search finds both in later sessions. |
+| Subagents | Gives a focused task to an agent with a clean context and takes back a short summary. | The `agent-directive` hook gives every subagent the same memory-first directive. |
 
-### Best Practices
-- Use simple, direct language
-- Organize into distinct sections (`<background_information>`, `<instructions>`, `## Tool guidance`, etc.)
-- Use XML tags or Markdown headers for structure
-- Start with minimal prompt, add based on failure modes
-- Note: Minimal ≠ short (provide sufficient information upfront)
+## Choose an approach
 
----
+| Situation | Approach |
+|-----------|----------|
+| The content is static and small | Load it up front. |
+| The agent needs to explore | Retrieve just in time. |
+| The conversation runs long | Compact it. |
+| Work spans many sessions | Save notes and observations. |
+| The task needs broad research | Delegate to subagents. |
 
-## Tools: Minimal and Clear
+## Related pages
 
-### Design Principles
-- **Self-contained**: Each tool has a single, clear purpose
-- **Robust to error**: Handle edge cases gracefully
-- **Extremely clear**: Intended use is unambiguous
-- **Token-efficient**: Returns relevant information without bloat
-- **Descriptive parameters**: Unambiguous input names (e.g., `user_id` not `user`)
-
-### Critical Rule
-**If a human engineer can't definitively say which tool to use in a given situation, an AI agent can't be expected to do better.**
-
-### Common Failure Modes to Avoid
-- Bloated tool sets covering too much functionality
-- Tools with overlapping purposes
-- Ambiguous decision points about which tool to use
-
----
-
-## Examples: Diverse, Not Exhaustive
-
-**Do** ✅
-- Curate a set of diverse, canonical examples
-- Show expected behavior effectively
-- Think "pictures worth a thousand words"
-
-**Don't** ❌
-- Stuff in a laundry list of edge cases
-- Try to articulate every possible rule
-- Overwhelm with exhaustive scenarios
-
----
-
-## Context Retrieval Strategies
-
-### Just-In-Time Context (Recommended for Agents)
-**Approach**: Maintain lightweight identifiers (file paths, queries, links) and dynamically load data at runtime
-
-**Benefits**:
-- Avoids context pollution
-- Enables progressive disclosure
-- Mirrors human cognition (we don't memorize everything)
-- Leverages metadata (file names, folder structure, timestamps)
-- Agents discover context incrementally
-
-**Trade-offs**:
-- Slower than pre-computed retrieval
-- Requires proper tool guidance to avoid dead-ends
-
-### Pre-Inference Retrieval (Traditional RAG)
-**Approach**: Use embedding-based retrieval to surface context before inference
-
-**When to Use**: Static content that won't change during interaction
-
-### Hybrid Strategy (Best of Both)
-**Approach**: Retrieve some data upfront, enable autonomous exploration as needed
-
-**Example**: Claude Code loads CLAUDE.md files upfront, uses glob/grep for just-in-time retrieval
-
-**Rule of Thumb**: "Do the simplest thing that works"
-
----
-
-## Long-Horizon Tasks: Three Techniques
-
-### 1. Compaction
-**What**: Summarize conversation nearing context limit, reinitiate with summary
-
-**Implementation**:
-- Pass message history to model for compression
-- Preserve critical details (architectural decisions, bugs, implementation)
-- Discard redundant outputs
-- Continue with compressed context + recently accessed files
-
-**Tuning Process**:
-1. **First**: Maximize recall (capture all relevant information)
-2. **Then**: Improve precision (eliminate superfluous content)
-
-**Low-Hanging Fruit**: Clear old tool calls and results
-
-**Best For**: Tasks requiring extensive back-and-forth
-
-### 2. Structured Note-Taking (Agentic Memory)
-**What**: Agent writes notes persisted outside context window, retrieved later
-
-**Examples**:
-- To-do lists
-- NOTES.md files
-- Game state tracking (Pokémon example: tracking 1,234 steps of training)
-- Project progress logs
-
-**Benefits**:
-- Persistent memory with minimal overhead
-- Maintains critical context across tool calls
-- Enables multi-hour coherent strategies
-
-**Best For**: Iterative development with clear milestones
-
-### 3. Sub-Agent Architectures
-**What**: Specialized sub-agents handle focused tasks with clean context windows
-
-**How It Works**:
-- Main agent coordinates high-level plan
-- Sub-agents perform deep technical work
-- Sub-agents explore extensively (tens of thousands of tokens)
-- Return condensed summaries (1,000-2,000 tokens)
-
-**Benefits**:
-- Clear separation of concerns
-- Parallel exploration
-- Detailed context remains isolated
-
-**Best For**: Complex research and analysis tasks
-
----
-
-## Quick Decision Framework
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| Static content | Pre-inference retrieval or hybrid |
-| Dynamic exploration needed | Just-in-time context |
-| Extended back-and-forth | Compaction |
-| Iterative development | Structured note-taking |
-| Complex research | Sub-agent architectures |
-| Rapid model improvement | "Do the simplest thing that works" |
-
----
-
-## Key Takeaways
-
-1. **Context is finite**: Treat it as a precious resource with an attention budget
-2. **Think holistically**: Consider the entire state available to the LLM
-3. **Stay minimal**: More context isn't always better
-4. **Be iterative**: Context curation happens each time you pass to the model
-5. **Design for autonomy**: As models improve, let them act intelligently
-6. **Start simple**: Test with minimal setup, add based on failure modes
-
----
-
-## Anti-Patterns to Avoid
-
-- ❌ Cramming everything into prompts
-- ❌ Creating brittle if-else logic
-- ❌ Building bloated tool sets
-- ❌ Stuffing exhaustive edge cases as examples
-- ❌ Assuming larger context windows solve everything
-- ❌ Ignoring context pollution over long interactions
-
----
-
-## Remember
-
-> "Even as models continue to improve, the challenge of maintaining coherence across extended interactions will remain central to building more effective agents."
-
-Context engineering will evolve, but the core principle stays the same: **optimize signal-to-noise ratio in your token budget**.
-
----
-
-*Based on Anthropic's "Effective context engineering for AI agents" (September 2025)*
+- [Progressive disclosure](/progressive-disclosure)
+- [Architecture overview](/architecture/overview)
+- [Plugin hooks](/architecture/hooks)

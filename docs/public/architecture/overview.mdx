@@ -22,7 +22,7 @@ MemSmith runs as a Claude Code plugin with these components:
 | `local` (default) | Embedded Postgres in `~/.memsmith/pgdata`, port `55433` | A single user on one machine. No Docker. |
 | `server` | A remote Postgres reached through the team's MemSmith server | Shared team memory. |
 
-The server listens on `127.0.0.1`. Its default port is derived from your user ID (`38877 + uid % 100`) so that accounts on a shared machine don't collide.
+The server listens on `127.0.0.1`. Its default port is derived from your user ID (`38877 + uid % 100`) so that accounts on a shared machine don't collide. Set `MEMSMITH_SERVER_PORT` to override it.
 
 ## Technology stack
 
@@ -64,20 +64,20 @@ At session start, the context hook injects recent and relevant observations. Dur
 
 | Event | Matcher | Handler |
 |-------|---------|---------|
-| Setup | `*` | `version-check.js` (marker check; never installs anything) |
+| Setup | `*` | `version-check.js` (checks the `.install-version` marker; installs plugin dependencies with Bun on first run) |
 | SessionStart | `startup\|clear\|compact` | Starts the server, then `context` (context injection) |
 | UserPromptSubmit | | `session-init`, `prompt-injection`, `record-intent` |
-| PreToolUse | `Read` | `file-context` |
-| PreToolUse | `Grep\|Glob\|WebSearch` | `discovery-gate` |
-| PreToolUse | `mcp__plugin_memsmith_mem__.*` and `Grep\|Glob\|Read\|Bash` | `tool-intent` |
+| PreToolUse | `Read` | `file-context` (File Read Gate; injects nothing at present) |
+| PreToolUse | `Grep\|Glob\|WebSearch` | `discovery-gate` (opt-in team memory injection; off by default) |
+| PreToolUse | `mcp__plugin_memsmith_mem__.*` and `Grep\|Glob\|Read\|Bash\|WebSearch` | `tool-intent` (memory-first gate) |
 | PreToolUse | `Task\|Agent` | `agent-directive` |
 | PreToolUse | `mcp__plugin_memsmith_mem__observation_add` | `record-intent-intercept` |
 | PostToolUse | `*` | `observation` |
 | Stop | | `answer-gate` (memory-first answer check, then `summarize`) |
 
-`npx memsmith install` and `npx memsmith repair` install the runtime dependencies. The Setup hook only reads the `.install-version` marker.
+`npx memsmith install` and `npx memsmith repair` set up the runtime. For details, including timeouts and failure behavior, see [Plugin hooks](/architecture/hooks).
 
-For details, see [Plugin Hooks](/architecture/hooks).
+To turn off individual hook features, see [Hook switches](/usage/hook-switches). To run a session that records nothing, see [Read-only mode](/usage/read-only-mode).
 
 ## Memory-first answering
 
@@ -89,12 +89,14 @@ Session-start context and the memory that MemSmith injects into the context have
 The hooks enforce this in three steps:
 
 1. **`UserPromptSubmit`.** The `prompt-injection` hook looks for a clear retrieval signal in the prompt: a question about decisions, rationale, history, how something was done, where something is configured, or the status of earlier work. For such a prompt, it injects a directive: search memory with `observation_search`, then `observation_get` for the relevant ids, answer from the results, say so plainly when memory has no record, then validate load-bearing claims against the code. It records the turn as a pending information request. Every other prompt gets nothing and costs no memory search; memory-first for those is the agent's own step, backed by the standing directive and the `tool-intent` gate.
-2. **`PreToolUse`.** A call to `observation_search`, `observation_get`, or `observation_context` satisfies the pending request. The `tool-intent` hook also marks the question's topic as consulted, so the discovery gate doesn't block the follow-up code search on the same subject. `session_start_context` doesn't count, because it returns orientation context. The `smart_*` code tools and the memory write tools don't count either.
+2. **`PreToolUse`.** A call to `observation_search`, `observation_get`, or `observation_context` satisfies the pending request. The `tool-intent` hook also marks the question's topic as consulted, so the gate doesn't block the follow-up code search on the same subject. `session_start_context` doesn't count, because it returns orientation context. The `smart_*` code tools and the memory write tools don't count either.
 3. **`Stop`.** In `hard` mode, if the turn's information request is still unsatisfied, the `answer-gate` hook returns a block decision with the reason "Search memory (observation_search) before answering". Claude Code then continues the turn so Claude can search. The gate blocks at most once per turn, and never when `stop_hook_active` is set, in `soft` mode, for a subagent, or when memory is unavailable. `summarize` runs after the gate, on the `Stop` that ends the turn.
 
 Prompts that refer to the current conversation, such as "you just said", "above", "earlier in this chat", or "the plan you wrote", are exempt: what was already said needs no search.
 
-Outside those prompts, the standing directive, given at session start and to every subagent, asks the agent to follow one flow whenever it needs information: do I already know this from this conversation? If not, search memory. Then validate against the code. The `tool-intent` hook enforces the middle step at the moment the agent reaches out: before the first Grep, Glob, search-style Bash command, or web search on a topic, `hard` mode blocks the call until the agent has consulted memory for that topic with `observation_search` or `observation_context`, and `soft` mode adds a reminder. A web fetch isn't gated, because it acts on a URL already in hand. The gate runs no memory search of its own and injects no memories. When the memory server can't be reached, the gate allows the call and adds a notice that memory is unavailable. These hooks run in Claude Code; Codex gets the session-start directive only.
+Outside those prompts, the standing directive, given at session start and to every subagent, asks the agent to follow one flow whenever it needs information: do I already know this from this conversation? If not, search memory. Then validate against the code. The `tool-intent` hook enforces the middle step at the moment the agent reaches out: before the first Grep, Glob, search-style Bash command, or web search on a topic, `hard` mode blocks the first call on that topic until the agent has consulted memory for it with `observation_search` or `observation_context`, and `soft` mode adds a reminder. A web fetch isn't gated, because it acts on a URL already in hand. The gate runs no memory search of its own and injects no memories. When the memory server can't be reached, the gate allows the call and adds a notice that memory is unavailable. These hooks run in Claude Code; Codex gets the session-start directive only.
+
+`MEMSMITH_RETRIEVAL_ENFORCEMENT` sets the mode. The default is `hard`, and any value other than `hard` means `soft`. `MEMSMITH_SEMANTIC_INJECT` (default `true`) turns the whole memory-first flow on or off. For the full list, see [Settings reference](/settings-reference).
 
 To stop enforcing memory-first behavior, run `npx memsmith enforcement off`. The command writes `settings.json` directly, so it works while hard mode is blocking. To see the mode that the hooks use and whether it comes from the default, `settings.json`, or the environment, run `npx memsmith enforcement status`.
 
