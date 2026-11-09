@@ -61,7 +61,7 @@ This is expected: `memsmith stop` leaves embedded Postgres running so the next s
 
 - Memory injection starts on your second session in a project. The first session seeds memory.
 - Confirm that the project isn't excluded by `MEMSMITH_EXCLUDED_PROJECTS`, and that it matches `MEMSMITH_INCLUDED_PROJECTS` if you set that allowlist.
-- Confirm that `MEMSMITH_CONTEXT_OBSERVATIONS` isn't `0`.
+- Confirm that `MEMSMITH_HOOKS_DISABLED` doesn't include `context`, and that `MEMSMITH_CONTEXT_SESSION_COUNT` isn't set to an unexpected value. MemSmith uses 1 as the minimum and 50 as the maximum.
 
 ### Searches return no results
 
@@ -80,6 +80,37 @@ In `hard` mode, when your prompt asks about past work and Claude answers without
 ### `memsmith enforcement status` shows a different mode than you expect
 
 The status line shows the mode that the hooks use and where it comes from: `default`, `set in settings.json`, or `set by the MEMSMITH_RETRIEVAL_ENFORCEMENT environment variable`. The environment variable overrides `settings.json`. The command reads the environment of the shell you run it in, which can differ from the environment Claude Code started its hooks with.
+
+### Nothing is recorded in a session
+
+Check these causes in order:
+
+1. `MEMSMITH_ACCESS` is `read`. `memsmith status` shows an `Access:` line, and `memsmith doctor` shows **Memory access**. See [Read-only mode](/usage/read-only-mode).
+2. `MEMSMITH_HOOKS_DISABLED` includes `capture`. `memsmith doctor` lists **Disabled hooks**. See [Hook switches](/usage/hook-switches).
+3. The session is in [incognito mode](/usage/incognito). Run `/incognito off`.
+4. The folder matches `MEMSMITH_EXCLUDED_PROJECTS`, or it doesn't match `MEMSMITH_INCLUDED_PROJECTS`.
+
+### A memory tool says "No MemSmith project found"
+
+The tool didn't search memory, and the result isn't empty. The folder has no MemSmith project. Start a session in the folder to create one, run `memsmith link` in it, or pass the folder's absolute path as `cwd`. For how a folder finds its project, see [Projects](/usage/projects).
+
+### A note or observation contains `[REDACTED:...]`
+
+MemSmith replaced a value that matched a known secret pattern. See [Secret redaction](/usage/secret-redaction#handle-false-positives).
+
+### A folder uses the wrong project
+
+Run `memsmith project` in the folder. It shows the project and the marker that decided it. To use another project, run `memsmith link`. To combine two projects, run `memsmith merge`. See [Projects](/usage/projects).
+
+## Generation issues
+
+### Observations stop appearing after a provider error
+
+Run `memsmith doctor`. The **Generation** check reports whether Ollama is reachable and has the model, or whether the hosted provider's API key is present. `memsmith doctor --fix` starts an installed Ollama and downloads a missing model. When a hosted provider fails and `MEMSMITH_SERVER_FALLBACK` is `ollama`, MemSmith runs the job on the local backup. See [Generation providers](/providers).
+
+### Generation jobs stay queued
+
+Run `memsmith projects` to see each project's queued jobs. If the count doesn't fall, run `memsmith restart`. For the queue behavior, see [Generation queue and quality](/generation).
 
 ## MCP tool issues
 
@@ -123,5 +154,6 @@ If these steps don't solve the problem, [open an issue](https://github.com/shsha
 
 ## Next steps
 
+- [CLI reference](/cli-reference)
+- [Settings reference](/settings-reference)
 - [Configuration](/configuration)
-- [Architecture overview](/architecture/overview)

@@ -7,7 +7,7 @@ description: "Persistent, local-first memory for Claude Code, with optional shar
 
 **Persistent, local-first memory for Claude Code, with optional shared team memory.**
 
-MemSmith captures what your agent does in each session, turns it into searchable observations, and brings the relevant ones back in later sessions. Claude keeps its knowledge of a project after a session ends.
+MemSmith captures what your agent does in each session, turns it into searchable observations, and makes them available in later sessions. Claude keeps its knowledge of a project after a session ends.
 
 ## Quick start
 
@@ -24,38 +24,57 @@ Or install from the plugin marketplace inside Claude Code:
 /plugin install memsmith@shshalom
 ```
 
-Restart Claude Code. Memory injection starts on your second session in a project.
+Restart Claude Code. Session-start context appears from your second session in a project. For the steps, see [Installation](/installation) and [Getting started](/usage/getting-started).
 
-## Key features
+## What MemSmith does
 
-- **Persistent memory**: Context survives across sessions.
-- **Semantic search**: Postgres full-text search plus pgvector embeddings.
-- **Memory tools**: `observation_search`, `observation_get`, `observation_context`, and `note_add` through MCP.
-- **User notes**: Ask Claude to remember something, and it saves a note that ranks first in search.
-- **Local or team runtime**: Run everything on your machine, or share memory through a team server.
-- **Modes**: Code mode, a lighter chill variant, and 29 language variants.
-- **Dashboard**: Browse observations, notes, and generation status.
-- **Privacy control**: Wrap content in `<private>` tags to keep it out of memory.
+- **Captures** prompts, tool use, file edits, and session summaries through Claude Code hooks, and redacts known secrets before it stores anything.
+- **Generates** observations from that activity with a provider that you choose: Claude, Gemini, OpenRouter, or Ollama.
+- **Stores** observations in Postgres with pgvector, and ranks searches with keyword and semantic matching.
+- **Recalls** memory through MCP tools, a CLI, and a dashboard. Claude searches memory before it searches the code or the web.
+- **Shares** memory with a team through a team server, or stays on your machine with the local runtime.
+
+For every capability and where it's documented, see the [capability overview](#capability-overview).
 
 ## How it works
 
 ```
-Session start  → Inject recent and relevant observations
-Your prompt    → Inject the most relevant memory for that prompt
+Session start  → Inject recent observations for orientation
 Tool use       → Hooks send activity to the MemSmith server
 Generation     → Your provider turns activity into observations, stored in Postgres
-Claude stops   → The server summarizes the session
+Your question  → Claude searches memory with the memory tools, then checks the code
+Claude stops   → The server summarizes the turn
 ```
 
 **Core components:**
 
-1. **Plugin hooks**: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, and Stop.
+1. **Plugin hooks**: `Setup`, `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop`. See [Hooks](/architecture/hooks).
 2. **MemSmith server**: Listens on `127.0.0.1` at `38877 + (your user ID % 100)`. It stores observations, runs generation, and serves search, context, and the dashboard.
 3. **Postgres with pgvector**: The local runtime runs an embedded Postgres in `~/.memsmith/pgdata`. The team runtime connects to a remote Postgres.
-4. **Local embedder**: Computes embeddings on your machine (all-MiniLM-L6-v2), so semantic search needs no extra API key.
+4. **Local embedder**: Computes embeddings on your machine, so semantic search needs no extra API key.
 5. **MCP server**: Exposes the memory tools and the `smart_*` code exploration tools.
 
-For details, see [Architecture overview](/architecture/overview).
+For details, see the [architecture overview](/architecture/overview).
+
+## Capability overview
+
+| Capability | Documentation |
+|------------|---------------|
+| Install, update, and uninstall | [Installation](/installation) |
+| Every command and flag | [CLI reference](/cli-reference) |
+| Search and read memory, write notes | [Memory tools](/usage/memory-tools), [Notes](/usage/notes) |
+| Choose which project a folder uses, merge and prune projects | [Projects](/usage/projects) |
+| Label memory by author | [Actor tags](/usage/actor-tags) |
+| Record nothing in a session | [Read-only mode](/usage/read-only-mode) |
+| Turn off individual hook features | [Hook switches](/usage/hook-switches) |
+| Keep content and secrets out of memory | [Private tags](/usage/private-tags), [Secret redaction](/usage/secret-redaction), [Incognito mode](/usage/incognito) |
+| Browse and configure from a web page | [Dashboard](/dashboard) |
+| Choose a generation provider, and fail over to a local model | [Generation providers](/providers) |
+| Understand the queue, quality floor, and caps | [Generation queue and quality](/generation) |
+| Run locally or share with a team | [Runtimes](/runtimes), [Team server](/hosted-server) |
+| Look up any setting | [Settings reference](/settings-reference) |
+| Use other IDEs | [Cursor](/cursor/index), [Antigravity CLI](/antigravity-cli/setup), [Claude Desktop](/usage/claude-desktop) |
+| Fix a problem | [Troubleshooting](/troubleshooting) |
 
 ## System requirements
 
@@ -64,18 +83,21 @@ For details, see [Architecture overview](/architecture/overview).
 - **uv** (installed automatically if missing)
 - **Claude Code** or another supported IDE (Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, and others)
 
-You don't need Docker or a separate database.
+You don't need Docker or a separate database for the local runtime.
 
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Installation" icon="download" href="/installation">
-    Quick start & advanced installation
+    Install, verify, and upgrade
   </Card>
-  <Card title="Getting Started" icon="rocket" href="/usage/getting-started">
-    Learn how MemSmith works automatically
+  <Card title="Getting started" icon="rocket" href="/usage/getting-started">
+    See how MemSmith works in the background
   </Card>
-  <Card title="Folder Context" icon="folder-open" href="/usage/folder-context">
-    Auto-generated folder CLAUDE.md files
+  <Card title="CLI reference" icon="terminal" href="/cli-reference">
+    Every command and flag
+  </Card>
+  <Card title="Settings reference" icon="gear" href="/settings-reference">
+    Every setting, default, and effect
   </Card>
 </CardGroup>

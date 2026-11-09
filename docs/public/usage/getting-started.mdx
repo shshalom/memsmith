@@ -13,7 +13,7 @@ After you install MemSmith, it works in the background:
 2. **Work as usual.** Hooks send each prompt and tool call to the MemSmith server.
 3. **The server generates observations.** Your configured provider turns tool activity into observations, which the server stores in Postgres with embeddings for semantic search.
 4. **Claude finishes responding.** The Stop hook asks the server to summarize the session.
-5. **Your next prompt.** MemSmith injects the most relevant memory for that prompt.
+5. **When Claude needs past context.** Claude searches memory with the memory tools, then checks what it finds against the code. MemSmith doesn't inject memories on each prompt.
 
 Memory injection starts on your second session in a project. The first session seeds memory.
 
@@ -32,7 +32,7 @@ When Claude finishes responding, MemSmith records what you asked for, what Claud
 
 ### Context injection
 
-At session start, MemSmith injects up to `MEMSMITH_CONTEXT_OBSERVATIONS` recent observations (default 50) across up to `MEMSMITH_CONTEXT_SESSION_COUNT` sessions (default 10), for orientation. After that, Claude searches memory itself whenever it needs information it doesn't have, before searching the code or the web. For details, see [Configuration](/configuration).
+At session start, MemSmith injects the most recent observations for the project, for orientation. The number is `MEMSMITH_CONTEXT_SESSION_COUNT`, which defaults to 10 and has a maximum of 50. After that, Claude searches memory itself whenever it needs information it doesn't have, before searching the code or the web. For details, see the [memory tools](/usage/memory-tools) and the [settings reference](/settings-reference).
 
 ## Search your history
 
@@ -57,7 +57,7 @@ The commands search the project that the current folder belongs to. In a git rep
 
 `memsmith search` accepts these options anywhere on the line. An option value can't be another option, so `--actor --json` is an error, and `--json` takes no value.
 
-- `--actor <name>`: return only records written by that actor. With no query, it lists the actor's most recent records. For how actors are set, see [Actor tags](/configuration#actor-tags).
+- `--actor <name>`: return only records written by that actor. With no query, it lists the actor's most recent records. For how actors are set, see [Actor tags](/usage/actor-tags).
 - `--limit <n>`: return up to `n` results. The default is 10 and the maximum is 25.
 - `--json`: print JSON instead of text.
 
@@ -99,7 +99,7 @@ The error codes are `usage`, `invalid_actor`, `no_project`, `read_only`, `server
 
 ## Record a note
 
-When you ask Claude to remember, record, or note something, it saves a user note with the `note_add` tool. Notes appear in the dashboard's notes panel and rank ahead of ambient observations in search.
+When you ask Claude to remember, record, or note something, it saves a user note with the `note_add` tool. Notes rank ahead of ambient observations in search, and the dashboard lists them under **My notes**. For details, see [Notes](/usage/notes).
 
 To save a note from a terminal, run `memsmith note` from a project folder:
 
@@ -112,7 +112,7 @@ git log -1 --format=%B | memsmith note -    # Read the note from stdin
 
 ## Open the dashboard
 
-Run `memsmith status` and open the **Dashboard** address it prints. The dashboard shows your observations, notes, and generation status. You can also run `/ms-dashboard` inside Claude Code.
+Run `memsmith status` and open the **Dashboard** address it prints. The dashboard lets you search observations, read notes, and change server settings. See [Dashboard](/dashboard). You can also run `/ms-dashboard` inside Claude Code.
 
 ## Manage the server
 
@@ -138,10 +138,11 @@ A session can span many prompts. When you run `/clear`, the session continues:
 
 ## Keep content private
 
-To keep content out of memory, wrap it in `<private>...</private>` tags. For details, see [Private tags](/usage/private-tags).
+To keep content out of memory, wrap it in `<private>...</private>` tags. MemSmith also redacts known secret patterns automatically, and you can pause capture with [incognito mode](/usage/incognito) or stop recording with [read-only mode](/usage/read-only-mode). See [Private tags](/usage/private-tags) and [Secret redaction](/usage/secret-redaction).
 
 ## Next steps
 
-- [Architecture overview](/architecture/overview)
+- [CLI reference](/cli-reference)
+- [Memory tools](/usage/memory-tools)
 - [Configuration](/configuration)
 - [Troubleshooting](/troubleshooting)
