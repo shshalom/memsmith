@@ -186,6 +186,22 @@ To make read-only the default and let one session write, set the default in `set
 MEMSMITH_ACCESS=write claude
 ```
 
+### Incognito mode
+
+Run `/incognito` in a session to stop recording for that session. Use `/incognito on`, `/incognito off`, or `/incognito` alone to toggle.
+
+While a session is incognito, MemSmith doesn't record:
+
+- Prompts, tool use, and file edits.
+- The end-of-turn summary.
+- The "remember this" backstop note.
+- Events that the transcript watcher reads for that session.
+- A memory gap row for a question that memory can't answer.
+
+An explicit `note_add` call still saves, because you asked the agent to save that note. MemSmith tells the agent not to call `observation_add` or `observation_record_event` and to call `note_add` only when you ask, but the MCP server can't see which session is incognito, so it can't enforce that. Search and context injection keep working. Every 10th prompt (`MEMSMITH_INCOGNITO_REMINDER_TURNS`), MemSmith reminds you that the session is incognito.
+
+Incognito applies to one session. Events that MemSmith captured and spooled before you turned incognito on are still delivered. Pending team joins and the project notice still run. MemSmith deletes the session's state when you turn incognito off, and removes state for sessions with no prompt or tool call in 14 days. To stop recording for every session, use read-only mode.
+
 ### Hook features
 
 Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the hook's neutral result right away, so the tool call, prompt, or turn continues as if MemSmith were not there.

@@ -8,7 +8,7 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback, selectRuntime } from '../../services/hooks/runtime-selector.js';
-import { isIncognito } from '../incognito.js';
+import { captureSuppressed } from '../incognito.js';
 import { isFeatureEnabled } from '../../shared/feature-switches.js';
 import { scrubEventPayload } from '../../server/services/event-payload-scrub.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
@@ -109,7 +109,7 @@ export const observationHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    if (isIncognito(sessionId)) {
+    if (captureSuppressed(sessionId)) {
       logger.debug('HOOK', 'Incognito session — suppressing capture', { toolName });
       return { continue: true, suppressOutput: true };
     }

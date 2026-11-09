@@ -8,11 +8,15 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+## [13.16.1] - 2026-11-09
+
 ### Fixed
 
 - `memsmith projects --json`, and any other `memsmith` command, no longer cuts piped output off at 64 KiB, and it exits quietly when the reading program stops early, such as `head`. The CLI exited before the pipe had taken all of its output, so a program reading `memsmith projects --json` got broken JSON.
 - `memsmith projects`, `memsmith merge`, and `memsmith projects --prune` no longer run Postgres out of connections. They kept every project database's connections open until the command ended, so with many projects Postgres refused new ones (`sorry, too many clients already`), and record counts showed as unreadable. They now close each database's connections when they finish with it, and the server keeps each project database to at most 3 connections, closing idle ones after 5 seconds. To give each project database more connections on a team server, set `MEMSMITH_POSTGRES_PROJECT_POOL_MAX`.
 - When `memsmith projects` can't read a project's records, it shows why, for example `unreadable (sorry, too many clients already)`, and `--json` includes the reason as `countError`.
+- `/incognito` now stops all capture for the session. Before, only tool-use capture checked the incognito state, so prompts, the end-of-turn summary, file edits, the "remember this" backstop, memory-gap rows, and transcript-derived capture were still recorded. An explicit `note_add` call still saves, because you asked for the note. The `/incognito` confirmation and the periodic reminder tell the agent not to call `observation_add` or `observation_record_event`; the MCP server can't enforce that. Events spooled before you turned incognito on are still delivered.
+- MemSmith deletes an incognito state file when you turn incognito off, and removes state files for sessions with no prompt or tool call in 14 days. An active incognito session keeps its state.
 
 ## [13.16.0] - 2026-11-08
 

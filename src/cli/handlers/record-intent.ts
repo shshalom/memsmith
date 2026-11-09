@@ -8,6 +8,7 @@ import { isRecordIntent } from '../../services/retrieval/record-intent-detect.js
 import { RecordArmedStore } from '../../services/retrieval/record-armed-store.js';
 import { stripMemoryTags } from '../../utils/tag-stripping.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
+import { captureSuppressed } from '../incognito.js';
 import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
@@ -49,7 +50,8 @@ export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps):
     async execute(input: NormalizedHookInput): Promise<HookResult> {
       const prompt = (input.prompt ?? '').trim();
       const enabled = isFeatureEnabled('record-intent');
-      const writes = writesAllowed();
+      const incognito = captureSuppressed(input.sessionId);
+      const writes = writesAllowed() && !incognito;
       const armed = enabled && prompt !== '' && isRecordIntent(prompt);
       // Written on every turn, so a flag left by an earlier turn never makes the
       // interceptor rewrite this turn's observation_add.
@@ -62,6 +64,7 @@ export function createRecordIntentHandler(deps: RecordIntentDeps = defaultDeps):
       } catch {
         // best-effort; a failed arm just leaves the interceptor treating the turn as not-armed
       }
+      if (incognito) return CONTINUE;
       if (!writes) return armed ? READ_ONLY_RECORD : CONTINUE;
       if (!armed) return CONTINUE;
       try {

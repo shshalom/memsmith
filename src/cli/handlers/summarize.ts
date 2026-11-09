@@ -13,6 +13,7 @@ import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/r
 import type { ServerRuntimeContext } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
+import { captureSuppressed } from '../incognito.js';
 import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 async function summarizeViaServer(
@@ -79,6 +80,10 @@ export const summarizeHandler: EventHandler = {
 
     if (!sessionId) {
       logger.warn('HOOK', 'summarize: No sessionId provided, skipping');
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
+    if (captureSuppressed(sessionId)) {
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 
