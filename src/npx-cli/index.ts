@@ -1,5 +1,6 @@
 import { parseArgs, styleText } from 'node:util';
 import { readPluginVersion } from './utils/paths.js';
+import { exitAfterFlush } from './utils/exit.js';
 import type { InstallOptions } from './commands/install.js';
 import { normalizeRuntimeFlag } from './commands/server-runtime-setup.js';
 
@@ -130,7 +131,7 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade': {
       const { runUpdate } = await import('./commands/update.js');
-      process.exit(await runUpdate(args.slice(1)));
+      await exitAfterFlush(await runUpdate(args.slice(1)));
     }
 
     case 'uninstall':
@@ -159,7 +160,7 @@ async function main(): Promise<void> {
     case 'restart':
     case 'status': {
       const { routeLifecycle } = await import('./commands/server.js');
-      process.exit((await routeLifecycle('top', args)) ?? 1);
+      await exitAfterFlush((await routeLifecycle('top', args)) ?? 1);
     }
 
     case 'doctor': {
@@ -170,7 +171,7 @@ async function main(): Promise<void> {
 
     case 'autostart': {
       const { runAutostartCommand } = await import('./commands/autostart.js');
-      process.exit(await runAutostartCommand(args.slice(1)));
+      await exitAfterFlush(await runAutostartCommand(args.slice(1)));
     }
 
     case 'telemetry': {
@@ -197,7 +198,7 @@ async function main(): Promise<void> {
       const { handleAntigravityCliCommand } = await import('../services/integrations/AntigravityCliHooksInstaller.js');
       const exitCode = await handleAntigravityCliCommand(args[1]?.toLowerCase(), args.slice(2));
       if (typeof exitCode === 'number') {
-        process.exit(exitCode);
+        await exitAfterFlush(exitCode);
       }
       break;
     }
@@ -210,37 +211,37 @@ async function main(): Promise<void> {
 
     case 'search': {
       const { runMemorySearch } = await import('./commands/memory.js');
-      process.exit(await runMemorySearch(args.slice(1)));
+      await exitAfterFlush(await runMemorySearch(args.slice(1)));
     }
 
     case 'get': {
       const { runMemoryGet } = await import('./commands/memory.js');
-      process.exit(await runMemoryGet(args.slice(1)));
+      await exitAfterFlush(await runMemoryGet(args.slice(1)));
     }
 
     case 'note': {
       const { runMemoryNote } = await import('./commands/memory.js');
-      process.exit(await runMemoryNote(args.slice(1)));
+      await exitAfterFlush(await runMemoryNote(args.slice(1)));
     }
 
     case 'project': {
       const { runProjectCommand } = await import('./commands/project.js');
-      process.exit(await runProjectCommand(args.slice(1)));
+      await exitAfterFlush(await runProjectCommand(args.slice(1)));
     }
 
     case 'link': {
       const { runLinkCommand } = await import('./commands/project.js');
-      process.exit(await runLinkCommand(args.slice(1)));
+      await exitAfterFlush(await runLinkCommand(args.slice(1)));
     }
 
     case 'projects': {
       const { runProjectsCommand } = await import('./commands/projects.js');
-      process.exit(await runProjectsCommand(args.slice(1)));
+      await exitAfterFlush(await runProjectsCommand(args.slice(1)));
     }
 
     case 'merge': {
       const { runMergeCommand } = await import('./commands/projects.js');
-      process.exit(await runMergeCommand(args.slice(1)));
+      await exitAfterFlush(await runMergeCommand(args.slice(1)));
     }
 
     case 'adopt':

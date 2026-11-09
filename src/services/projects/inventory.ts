@@ -33,6 +33,10 @@ export interface InventorySource {
   listDatabases(): Promise<string[]>;
   /** Rows for `projectId` in `databaseName`, or every row when `projectId` is null. Null when unreadable. */
   recordStats(databaseName: string, projectId: string | null): Promise<RecordStats | null>;
+  /** Why the last recordStats for `databaseName` returned null. */
+  countError?(databaseName: string): string | undefined;
+  /** Closes `databaseName`'s connections once its counts are read. */
+  release?(databaseName: string): Promise<void>;
 }
 
 export interface InventoryOptions {
@@ -58,6 +62,7 @@ export interface ProjectEntry {
   databaseName: string | null;
   /** Null when MemSmith could not count the records; never read that as empty. */
   counts: RecordStats | null;
+  countError?: string;
   lastActivity: string | null;
   flags: ProjectFlag[];
   mergedInto?: string;
@@ -168,12 +173,17 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
     let databaseName: string | null = stamped
       ?? (databases.has(projectDatabaseName(row.id)) ? projectDatabaseName(row.id) : null);
     let counts: RecordStats | null;
+    let countedIn: string;
     if (databaseName) {
+      countedIn = databaseName;
       counts = await src.recordStats(databaseName, row.id);
     } else {
+      countedIn = src.accountDatabase;
       counts = await src.recordStats(src.accountDatabase, row.id);
       if (counts && recordTotal(counts) > 0) databaseName = src.accountDatabase;
     }
+    const countError = counts ? undefined : src.countError?.(countedIn);
+    if (countedIn !== src.accountDatabase) await src.release?.(countedIn);
 
     const mergedInto = metaString(row, MERGED_INTO_KEY);
     const mergingInto = metaString(row, MERGING_INTO_KEY);
@@ -196,6 +206,7 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
       recordedPath: recordedPath(row),
       databaseName,
       counts,
+      ...(countError ? { countError } : {}),
       lastActivity: counts?.lastActivity ?? null,
       flags,
       ...(mergedInto ? { mergedInto } : {}),
@@ -211,6 +222,8 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
   for (const name of [...databases].sort()) {
     if (!PROJECT_DATABASE.test(name) || owned.has(name) || name === src.accountDatabase) continue;
     const counts = await src.recordStats(name, null);
+    const countError = counts ? undefined : src.countError?.(name);
+    await src.release?.(name);
     projects.push({
       projectId: null,
       teamId: null,
@@ -221,6 +234,7 @@ export async function loadInventory(src: InventorySource, opts: InventoryOptions
       recordedPath: null,
       databaseName: name,
       counts,
+      ...(countError ? { countError } : {}),
       lastActivity: counts?.lastActivity ?? null,
       flags: knownEmpty(counts) ? ['orphan-db', 'empty'] : ['orphan-db'],
       teamMarkerFolders: [],

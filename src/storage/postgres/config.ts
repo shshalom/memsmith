@@ -73,3 +73,18 @@ function parseSsl(connectionString: string, env: NodeJS.ProcessEnv): boolean | {
 
   return false;
 }
+
+// Project databases each get their own pool, and Postgres allows 100
+// connections in total. Keep each project's share small, and let idle
+// connections close between the 30-second job sweeps so they don't pile up.
+const PROJECT_POOL_MAX = 3;
+const PROJECT_IDLE_TIMEOUT_MS = 5_000;
+
+export function projectPoolConfig(base: PostgresConfig, connectionString: string): PostgresConfig {
+  return {
+    ...base,
+    connectionString,
+    max: Math.min(base.max, PROJECT_POOL_MAX),
+    idleTimeoutMillis: Math.min(base.idleTimeoutMillis, PROJECT_IDLE_TIMEOUT_MS),
+  };
+}

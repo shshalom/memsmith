@@ -8,6 +8,12 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- `memsmith projects --json`, and any other `memsmith` command, no longer cuts piped output off at 64 KiB. The CLI exited before the pipe had taken all of its output, so a program reading `memsmith projects --json` got broken JSON.
+- `memsmith projects`, `memsmith merge`, and `memsmith projects --prune` no longer run Postgres out of connections. They kept every project database's connections open until the command ended, so with many projects Postgres refused new ones (`sorry, too many clients already`), and record counts showed as unreadable. They now close each database's connections when they finish with it, and the server keeps each project database to at most 3 connections, closing idle ones after 5 seconds.
+- When `memsmith projects` can't read a project's records, it shows why, for example `unreadable (sorry, too many clients already)`, and `--json` includes the reason as `countError`.
+
 ## [13.16.0] - 2026-11-08
 
 ### Added

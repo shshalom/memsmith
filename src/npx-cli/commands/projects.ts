@@ -77,7 +77,7 @@ async function withInventory<T>(
 }
 
 function describeRecords(p: ProjectEntry): string {
-  if (!p.counts) return p.databaseName ? 'unreadable' : 'none';
+  if (!p.counts) return p.databaseName ? `unreadable${p.countError ? ` (${p.countError})` : ''}` : 'none';
   const c = p.counts;
   const queued = c.queuedJobs > 0 ? `, ${plural(c.queuedJobs, 'queued generation job')}` : '';
   return `${plural(c.observations, 'observation')}, ${plural(c.notes, 'note')}, ${plural(c.events, 'event')}${queued}`;
@@ -152,7 +152,13 @@ async function runPrune(yes: boolean, d: ProjectsCommandDeps): Promise<number> {
     }
     for (const name of reopen.reopened) d.out(`Let connections back into ${name}, which an interrupted prune left closed.`);
     if (reopen.reopened.length > 0) inv = await reload();
-    const plan = await planPrune(inv, (name, owner) => db.census(name, owner));
+    const plan = await planPrune(inv, async (name, owner) => {
+      try {
+        return await db.census(name, owner);
+      } finally {
+        await db.release(name);
+      }
+    });
     for (const k of plan.kept) d.out(`Keeping ${k.entry.name}: ${k.reason}.`);
     if (plan.candidates.length === 0) {
       d.out('Nothing to prune.');
