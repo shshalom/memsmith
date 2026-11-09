@@ -5,7 +5,7 @@ description: "Use MemSmith in Cursor with Google's Gemini API"
 
 # Cursor + Gemini setup
 
-This guide sets up MemSmith in Cursor with Google's Gemini API as the generation provider. Gemini offers a free tier, which covers typical individual use.
+This guide sets up MemSmith in Cursor with Google's Gemini API as the generation provider. Google AI Studio offers a free tier of the Gemini API, subject to Google's current limits.
 
 ## Step 1: Get a Gemini API key
 
@@ -19,9 +19,11 @@ This guide sets up MemSmith in Cursor with Google's Gemini API as the generation
 npx memsmith install --ide cursor --provider gemini
 ```
 
+In an interactive terminal, the installer prompts for your API key. It saves `MEMSMITH_SERVER_PROVIDER`, `MEMSMITH_SERVER_MODEL`, and `MEMSMITH_GEMINI_API_KEY` to `~/.memsmith/settings.json`. If you skip the prompt, or you run the installer without a terminal, the installer warns that Gemini needs an API key and you complete step 3.
+
 For details about what the installer does, see [Cursor integration](/cursor/index).
 
-## Step 3: Add your API key
+## Step 3: Add your API key (if the installer did not)
 
 Add the provider and key to `~/.memsmith/settings.json`:
 
@@ -46,31 +48,27 @@ memsmith restart
 
 ## Choose a model
 
-The default model is `gemini-2.5-flash-lite`. To use a different Gemini model, set `MEMSMITH_SERVER_MODEL`:
+The default model is `gemini-2.5-flash`. To use a different Gemini model, set `MEMSMITH_SERVER_MODEL`:
 
 ```json
 {
   "MEMSMITH_SERVER_PROVIDER": "gemini",
   "MEMSMITH_GEMINI_API_KEY": "your-api-key",
-  "MEMSMITH_SERVER_MODEL": "gemini-2.5-flash"
+  "MEMSMITH_SERVER_MODEL": "gemini-2.5-flash-lite"
 }
 ```
 
-## Rate limiting
-
-By default, MemSmith spaces Gemini requests to stay within free-tier limits. Processing can be slower, but observations aren't lost. If billing is enabled on your Google Cloud project and you want to send requests without spacing, set `MEMSMITH_GEMINI_RATE_LIMITING_ENABLED` to `false`.
-
 ## Troubleshooting
 
-### "Gemini API key not configured"
+### Observations aren't generated and the log reports a missing key
 
 Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_SERVER_PROVIDER` set to `gemini` and a non-empty `MEMSMITH_GEMINI_API_KEY`, then run `memsmith restart`.
 
 ### Rate limit errors (HTTP 429)
 
-You're over the free-tier limit. Wait a few minutes, enable billing on your Google Cloud project, or switch to another provider.
+You're over your Gemini quota. Wait a few minutes, enable billing on your Google Cloud project, or switch to another provider.
 
-### Observations aren't generated
+### Observations aren't generated for another reason
 
 Check the server logs in `~/.memsmith/logs/` for Gemini API errors, and run `memsmith doctor`.
 

@@ -19,9 +19,11 @@ This guide sets up MemSmith in Cursor with OpenRouter as the generation provider
 npx memsmith install --ide cursor --provider openrouter
 ```
 
+In an interactive terminal, the installer prompts for your API key. It saves `MEMSMITH_SERVER_PROVIDER`, `MEMSMITH_SERVER_MODEL`, and `MEMSMITH_OPENROUTER_API_KEY` to `~/.memsmith/settings.json`. If you skip the prompt, or you run the installer without a terminal, the installer warns that OpenRouter needs an API key and you complete step 3.
+
 For details about what the installer does, see [Cursor integration](/cursor/index).
 
-## Step 3: Add your API key
+## Step 3: Add your API key (if the installer did not)
 
 Add the provider and key to `~/.memsmith/settings.json`:
 
@@ -46,7 +48,7 @@ memsmith restart
 
 ## Choose a model
 
-The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEMSMITH_SERVER_MODEL` to its OpenRouter ID. Free models have a `:free` suffix; see the [model list](https://openrouter.ai/models).
+The default model is `anthropic/claude-3.5-sonnet`, which is a paid model. To use another model, set `MEMSMITH_SERVER_MODEL` to its OpenRouter ID. Free models have a `:free` suffix; see the [model list](https://openrouter.ai/models).
 
 ```json
 {
@@ -58,11 +60,11 @@ The default model is `xiaomi/mimo-v2-flash:free`. To use another model, set `MEM
 
 ## Custom OpenAI-compatible endpoints
 
-The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `MEMSMITH_SERVER_MODEL` is sent verbatim.
+The `openrouter` provider is an OpenAI-compatible client. To point it at another endpoint that supports the OpenAI `/chat/completions` API, such as DeepSeek, LM Studio, or a gateway, set `MEMSMITH_OPENROUTER_BASE_URL`. MemSmith sends the model ID in `MEMSMITH_SERVER_MODEL` unchanged.
 
-<Info>
-**Base URL resolution:** When `MEMSMITH_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, memsmith POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
-</Info>
+If `MEMSMITH_OPENROUTER_BASE_URL` is empty, requests go to OpenRouter. If you set it, MemSmith appends `/chat/completions` to the base URL, or uses the URL as is when it already ends in `/chat/completions`. The `OPENROUTER_BASE_URL` environment variable is a fallback.
+
+The provider requires a non-empty API key even for endpoints that don't check one.
 
 ### DeepSeek
 
@@ -77,44 +79,24 @@ The OpenRouter provider is a generic OpenAI-compatible client. Set `MEMSMITH_OPE
 
 ### LM Studio (local model)
 
-LM Studio exposes an OpenAI-compatible server. No API key is required for local use, and you can use any model id you have loaded.
+LM Studio exposes an OpenAI-compatible server. Set any placeholder value as the API key, and set the model ID of a model that you loaded.
 
 ```json
 {
   "MEMSMITH_SERVER_PROVIDER": "openrouter",
   "MEMSMITH_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
-  "MEMSMITH_SERVER_MODEL": "your-local-model-id"
-}
-```
-
-### Generic custom endpoint
-
-Any OpenAI-compatible gateway works the same way:
-
-```json
-{
-  "MEMSMITH_SERVER_PROVIDER": "openrouter",
-  "MEMSMITH_OPENROUTER_BASE_URL": "https://my-gateway.example.com/v1",
-  "MEMSMITH_SERVER_MODEL": "model-id",
-  "MEMSMITH_OPENROUTER_API_KEY": "YOUR_KEY"
+  "MEMSMITH_SERVER_MODEL": "your-local-model-id",
+  "MEMSMITH_OPENROUTER_API_KEY": "placeholder"
 }
 ```
 
 ## Cost management
 
-OpenRouter charges per token. To manage costs:
-
-1. **Use free models:** Several high-quality free models are available
-2. **Monitor usage:** Check your [OpenRouter dashboard](https://openrouter.ai/activity)
-3. **Set spending limits:** Configure limits in OpenRouter settings
-
-<Warning>
-**Cost awareness:** Unlike Gemini's free tier, OpenRouter paid models charge per request. Monitor your usage if using paid models.
-</Warning>
+OpenRouter charges per token for paid models. Choose a `:free` model, check usage in the [OpenRouter dashboard](https://openrouter.ai/activity), and set spending limits in your OpenRouter account.
 
 ## Troubleshooting
 
-### "OpenRouter API key not configured"
+### Observations aren't generated and the log reports a missing key
 
 Confirm that `~/.memsmith/settings.json` contains `MEMSMITH_SERVER_PROVIDER` set to `openrouter` and a non-empty `MEMSMITH_OPENROUTER_API_KEY`, then run `memsmith restart`.
 

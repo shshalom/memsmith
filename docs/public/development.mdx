@@ -3,766 +3,144 @@ title: "Development"
 description: "Build from source, run tests, and contribute to MemSmith"
 ---
 
-# Development Guide
+# Development
 
-## Building from Source
+This page describes how to build MemSmith from source, test a change, and submit it.
 
-### Prerequisites
+## Prerequisites
 
-- Node.js 20.0.0 or higher
-- npm (comes with Node.js)
+- Node.js 20.12 or later
+- Bun 1.0 or later. Bun runs the test suite and the plugin scripts.
 - Git
 
-### Clone and Build
+## Build from source
 
 ```bash
-# Clone repository
 git clone https://github.com/shshalom/memsmith.git
 cd memsmith
-
-# Install dependencies
 npm install
-
-# Build all components
 npm run build
 ```
 
-### Build Process
+`npm run build` runs `scripts/build-hooks.js`, which bundles these artifacts:
 
-The build process uses esbuild to compile TypeScript:
+| Artifact | Output |
+|----------|--------|
+| Server, hook handlers, and the `hook` command | `plugin/scripts/server-service.cjs` |
+| MCP server | `plugin/scripts/mcp-server.cjs` |
+| Transcript watcher | `plugin/scripts/transcript-watcher.cjs` |
+| `npx memsmith` CLI | `dist/npx-cli/index.js` |
+| Viewer UI | `plugin/ui/viewer.html` |
+| Dashboard UI (from `src/server/dashboard/ui.html`) | `plugin/ui/dashboard.html` |
 
-1. Compiles TypeScript to JavaScript
-2. Creates standalone executables for each hook in `plugin/scripts/`
-3. Bundles MCP search server to `plugin/scripts/mcp-server.cjs`
-4. Bundles worker service to `plugin/scripts/worker-service.cjs`
-5. Bundles web viewer UI to `plugin/ui/viewer.html`
+The build fails if a required distribution file is missing or a bundle exceeds its size limit.
 
-**Build Output**:
-- Hook executables: `*-hook.js` (ESM format)
-- Setup version-check: `version-check.js` (ESM format, sub-100ms)
-- Worker service: `worker-service.cjs` (CJS format)
-- MCP server: `mcp-server.cjs` (CJS format)
-- Viewer UI: `viewer.html` (self-contained HTML bundle)
+## Run your build locally
 
-### Build Scripts
+To test a change in Claude Code, build, copy the plugin to the installed marketplace location, and restart the server:
 
 ```bash
-# Build everything
-npm run build
-
-# Build only hooks
-npm run build:hooks
-
-# The build script is defined in scripts/build-hooks.js
+npm run build-and-sync
+memsmith restart
 ```
 
-## Development Workflow
+`build-and-sync` builds the plugin, runs `sync-marketplace` to copy it to `~/.claude/plugins/marketplaces/shshalom/`, and runs `check:deploy` to detect drift between your build and the installed copy. Restart Claude Code to load changed hooks.
 
-### 1. Make Changes
+## Source layout
 
-Edit TypeScript source files in `src/`:
-
-```
+```text
 src/
-├── hooks/           # Hook implementations (entry points + logic)
-├── services/        # Worker service and database
-├── servers/         # MCP search server
-├── sdk/             # Claude Agent SDK integration
-├── shared/          # Shared utilities
-├── ui/
-│   └── viewer/      # React web viewer UI components
-└── utils/           # General utilities
+├── cli/            # Hook command, platform adapters, and hook handlers
+├── npx-cli/        # npx memsmith commands (install, start, doctor, and others)
+├── server/         # Server engine: routes, generation, retrieval, settings, auth
+├── storage/        # Postgres access, schema, and migrations
+├── servers/        # MCP server
+├── services/       # Integrations, hooks runtime, telemetry, and shared services
+├── sdk/            # Observation prompts and parser
+├── ui/viewer/      # React viewer
+└── shared/, utils/ # Shared helpers
 ```
 
-### 2. Build
+## Test
 
 ```bash
-npm run build
+bun test                      # Run the full suite
+bun test tests/cli/handlers   # Run one directory or file
+npm run typecheck             # Type-check the server and the viewer
 ```
 
-### 3. Test
+CI runs the type check, the build, and `bun test` on every pull request. Some behavior, such as hook execution inside Claude Code, needs manual verification in a real session.
+
+Write a test only when it pins behavior that a caller depends on or a bug that occurred. A new test must be able to fail against a plausible defect.
+
+### Inspect a running server
 
 ```bash
-# Run all tests
-npm test
-
-# Test specific file
-node --test tests/session-lifecycle.test.ts
-
-# Test context injection
-npm run test:context
-
-# Verbose context test
-npm run test:context:verbose
+memsmith status          # Server address, runtime, and dashboard URL
+memsmith doctor          # Diagnose the install
+tail -f ~/.memsmith/logs/memsmith-$(date +%Y-%m-%d).log
 ```
 
-### 4. Manual Testing
+To log more detail, set `MEMSMITH_LOG_LEVEL` to `DEBUG` in `~/.memsmith/settings.json` and run `memsmith restart`.
+
+To run a hook by hand, pipe its JSON input to the `hook` command. This example runs the Claude Code `context` handler:
 
 ```bash
-# Start worker manually
-npm run worker:start
-
-# Check worker status
-npm run worker:status
-
-# View logs
-npm run worker:logs
-
-# Test hooks manually
-echo '{"session_id":"test-123","cwd":"'$(pwd)'","source":"startup"}' | node plugin/scripts/context-hook.js
+echo '{"session_id":"test-123","cwd":"'$(pwd)'","source":"startup"}' \
+  | bun plugin/scripts/server-service.cjs hook claude-code context
 ```
 
-### 5. Iterate
+## Common changes
 
-Repeat steps 1-4 until your changes work as expected.
+### Add a hook handler
 
-## Viewer UI Development
+1. Create the handler in `src/cli/handlers/`, and register it by name in `src/cli/handlers/index.ts`.
+2. Add an entry that runs `hook claude-code <name>` to `plugin/hooks/hooks.json`. Copy an existing entry for the command wrapper.
+3. Run `npm run lint:hook-io`. Handlers return a result and don't write to stdout or stderr directly.
+4. Rebuild with `npm run build-and-sync`.
 
-### Working with the React Viewer
+### Change the database schema
 
-The web viewer UI is a React application built into a self-contained HTML bundle.
+Schema definitions are in `src/storage/postgres/schema.ts`, and SQL migrations are in `src/storage/postgres/migrations/`. Add a migration, update the TypeScript types that read the table, and add a test under `tests/storage/`. Back up `~/.memsmith/pgdata` before you test a migration against your own data.
 
-**Location**: `src/ui/viewer/`
+### Add an MCP tool
 
-**Structure**:
-```
-src/ui/viewer/
-├── index.tsx              # Entry point
-├── App.tsx                # Main application component
-├── components/            # React components
-│   ├── Header.tsx         # Header with logo and actions
-│   ├── Sidebar.tsx        # Project filter sidebar
-│   ├── Feed.tsx           # Main feed with infinite scroll
-│   ├── cards/             # Card components
-│   │   ├── ObservationCard.tsx
-│   │   ├── PromptCard.tsx
-│   │   ├── SummaryCard.tsx
-│   │   └── SkeletonCard.tsx
-├── hooks/                 # Custom React hooks
-│   ├── useSSE.ts          # Server-Sent Events connection
-│   ├── usePagination.ts   # Infinite scroll pagination
-│   ├── useSettings.ts     # Settings persistence
-│   └── useStats.ts        # Database statistics
-├── utils/                 # Utilities
-│   ├── constants.ts       # Constants (API URLs, etc.)
-│   ├── formatters.ts      # Date/time formatting
-│   └── merge.ts           # Data merging and deduplication
-└── assets/                # Static assets (fonts, logos)
-```
+Define the tool in `src/servers/mcp-server.ts`, and add a test under `tests/servers/`.
 
-### Building Viewer UI
+### Change observation prompts
 
-```bash
-# Build everything including viewer
-npm run build
+Edit the prompts in `src/sdk/prompts.ts` and the parser in `src/sdk/parser.ts`, and run `bun test tests/sdk`.
 
-# The viewer is built to plugin/ui/viewer.html
-# It's a self-contained HTML file with inlined JS and CSS
-```
+### Change the viewer
 
-### Testing Viewer Changes
+Edit the React components in `src/ui/viewer/`. Hot reload isn't available. Run `npm run build-and-sync` and `memsmith restart`, then refresh the dashboard address that `memsmith status` prints.
 
-1. Make changes to React components in `src/ui/viewer/`
-2. Build: `npm run build`
-3. Sync to installed plugin: `npm run sync-marketplace`
-4. Restart worker: `npm run worker:restart`
-5. Refresh browser at http://localhost:37777
+## Code style
 
-**Hot Reload**: Not currently supported. Full rebuild + restart required for changes.
+- Use TypeScript strict mode, `async`/`await`, and explicit error handling.
+- Follow the formatting of the surrounding code: 2-space indentation and single quotes.
+- Write a comment only when the code can't state the reason, such as a constraint or an invariant.
 
-### Adding New Viewer Features
+## Release
 
-**Example: Adding a new card type**
+Maintainers release with a version tag:
 
-1. Create component in `src/ui/viewer/components/cards/YourCard.tsx`:
+1. Update the version in `package.json` and the manifests that the build syncs, and add the release notes to `CHANGELOG.md`.
+2. Run `npm run build`.
+3. Commit, then push a `v<version>` tag.
 
-```tsx
-import React from 'react';
+The `Publish to npm` workflow checks that the tag matches `package.json` and publishes to npm through trusted publishing.
 
-export interface YourCardProps {
-  // Your data structure
-}
+## Contribute
 
-export const YourCard: React.FC<YourCardProps> = ({ ... }) => {
-  return (
-    <div className="card">
-      {/* Your UI */}
-    </div>
-  );
-};
-```
+1. Fork the repository and create a branch.
+2. Make the change and add tests.
+3. Add user-facing changes to the `Unreleased` section of `CHANGELOG.md`.
+4. Update the documentation in `docs/public/`.
+5. Open a pull request that explains why the change is needed.
 
-2. Import and use in `Feed.tsx`:
+## Next steps
 
-```tsx
-import { YourCard } from './cards/YourCard';
-
-// In render logic:
-{item.type === 'your_type' && <YourCard {...item} />}
-```
-
-3. Update types if needed in `src/ui/viewer/types.ts`
-
-4. Rebuild and test
-
-### Viewer UI Architecture
-
-**Data Flow**:
-1. Worker service exposes HTTP + SSE endpoints
-2. React app fetches initial data via HTTP (paginated)
-3. SSE connection provides real-time updates
-4. Custom hooks handle state management and data merging
-5. Components render cards based on item type
-
-**Key Patterns**:
-- **Infinite Scroll**: `usePagination` hook with Intersection Observer
-- **Real-Time Updates**: `useSSE` hook with auto-reconnection
-- **Deduplication**: `merge.ts` utilities prevent duplicate items
-- **Settings Persistence**: `useSettings` hook with localStorage
-- **Theme Support**: CSS variables with light/dark/system themes
-
-## Adding New Features
-
-### Adding a New Hook
-
-1. Create hook implementation in `src/hooks/your-hook.ts`:
-
-```typescript
-#!/usr/bin/env node
-import { readStdin } from '../shared/stdin';
-
-async function main() {
-  const input = await readStdin();
-
-  // Hook implementation
-  const result = {
-    hookSpecificOutput: 'Optional output'
-  };
-
-  console.log(JSON.stringify(result));
-}
-
-main().catch(console.error);
-```
-
-**Note**: As of v4.3.1, hooks are self-contained files. The shebang will be added automatically by esbuild during the build process.
-
-2. Add to `plugin/hooks/hooks.json`:
-
-```json
-{
-  "YourHook": [{
-    "hooks": [{
-      "type": "command",
-      "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/your-hook.js",
-      "timeout": 120
-    }]
-  }]
-}
-```
-
-4. Rebuild:
-
-```bash
-npm run build
-```
-
-### Modifying Database Schema
-
-1. Add migration to `src/services/sqlite/migrations.ts`:
-
-```typescript
-export const migration011: Migration = {
-  version: 11,
-  up: (db: Database) => {
-    db.run(`
-      ALTER TABLE observations ADD COLUMN new_field TEXT;
-    `);
-  },
-  down: (db: Database) => {
-    // Optional: define rollback
-  }
-};
-```
-
-2. Update types in `src/services/sqlite/types.ts`:
-
-```typescript
-export interface Observation {
-  // ... existing fields
-  new_field?: string;
-}
-```
-
-3. Update database methods in `src/services/sqlite/SessionStore.ts`:
-
-```typescript
-createObservation(obs: Observation) {
-  // Include new_field in INSERT
-}
-```
-
-4. Test migration:
-
-```bash
-# Backup database first!
-cp ~/.memsmith/memsmith.db ~/.memsmith/memsmith.db.backup
-
-# Run tests
-npm test
-```
-
-### Extending SDK Prompts
-
-1. Modify prompts in `src/sdk/prompts.ts`:
-
-```typescript
-export function buildObservationPrompt(observation: Observation): string {
-  return `
-    <observation>
-      
-    </observation>
-  `;
-}
-```
-
-2. Update parser in `src/sdk/parser.ts`:
-
-```typescript
-export function parseObservation(xml: string): ParsedObservation {
-  // Parse new XML fields
-}
-```
-
-3. Test:
-
-```bash
-npm test
-```
-
-### Adding MCP Search Tools
-
-1. Add tool definition in `src/servers/mcp-server.ts`:
-
-```typescript
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name === 'your_new_tool') {
-    // Implement tool logic
-    const results = await search.yourNewSearch(params);
-    return formatResults(results);
-  }
-});
-```
-
-2. Add search method in `src/services/sqlite/SessionSearch.ts`:
-
-```typescript
-yourNewSearch(params: YourParams): SearchResult[] {
-  // Implement FTS5 search
-}
-```
-
-3. Rebuild and test:
-
-```bash
-npm run build
-npm test
-```
-
-## Testing
-
-### Testing approach
-
-MemSmith has an automated test suite under `tests/`. To run it, use `bun test`. Some behavior, such as hook execution inside Claude Code, also needs manual verification:
-
-1. **Automated tests**: Run `bun test` before you open a pull request.
-2. **Manual verification**: Test the feature in a real Claude Code session.
-3. **Database inspection**: Query Postgres to confirm the stored data is correct.
-4. **Observability**: Check the server logs and health endpoints.
-
-### Manual Testing Workflow
-
-When developing new features:
-
-1. **Build and sync**:
-   ```bash
-   npm run build
-   npm run sync-marketplace
-   npm run worker:restart
-   ```
-
-2. **Test in real session**:
-   - Start Claude Code
-   - Trigger the feature you're testing
-   - Verify expected behavior
-
-3. **Check database state**:
-   ```bash
-   sqlite3 ~/.memsmith/memsmith.db "SELECT * FROM your_table;"
-   ```
-
-4. **Monitor worker logs**:
-   ```bash
-   npm run worker:logs
-   ```
-
-5. **Verify queue health** (for recovery features):
-   ```bash
-   bun scripts/check-pending-queue.ts
-   ```
-
-### Testing Tools
-
-**Health Checks**:
-```bash
-# Worker status
-npm run worker:status
-
-# Queue inspection
-curl http://localhost:37777/api/pending-queue
-
-# Database integrity
-sqlite3 ~/.memsmith/memsmith.db "PRAGMA integrity_check;"
-```
-
-**Hook Testing**:
-```bash
-# Test context hook manually
-echo '{"session_id":"test-123","cwd":"'$(pwd)'","source":"startup"}' | node plugin/scripts/context-hook.js
-
-# Test new hook
-echo '{"session_id":"test-123","cwd":"'$(pwd)'","prompt":"test"}' | node plugin/scripts/new-hook.js
-```
-
-**Data Verification**:
-```bash
-# Check recent observations
-sqlite3 ~/.memsmith/memsmith.db "
-  SELECT id, tool_name, created_at
-  FROM observations
-  ORDER BY created_at_epoch DESC
-  LIMIT 10;
-"
-
-# Check summaries
-sqlite3 ~/.memsmith/memsmith.db "
-  SELECT id, request, completed
-  FROM session_summaries
-  ORDER BY created_at_epoch DESC
-  LIMIT 5;
-"
-```
-
-### Recovery Feature Testing
-
-For manual recovery features specifically:
-
-1. **Simulate stuck messages**:
-   ```bash
-   # Manually create stuck message (for testing only)
-   sqlite3 ~/.memsmith/memsmith.db "
-     UPDATE pending_messages
-     SET status = 'processing',
-         started_processing_at_epoch = strftime('%s', 'now', '-10 minutes') * 1000
-     WHERE id = 123;
-   "
-   ```
-
-2. **Test recovery**:
-   ```bash
-   bun scripts/check-pending-queue.ts
-   ```
-
-3. **Verify results**:
-   ```bash
-   curl http://localhost:37777/api/pending-queue | jq '.queue'
-   ```
-
-### Regression Testing
-
-Before releasing:
-
-1. **Test all hook triggers**:
-   - SessionStart: Start new Claude Code session
-   - UserPromptSubmit: Submit a prompt
-   - PostToolUse: Use a tool like Read
-   - Summary: Let session complete
-   - SessionEnd: Close Claude Code
-
-2. **Test core features**:
-   - Context injection (recent sessions appear)
-   - Observation processing (summaries generated)
-   - MCP search tools (search returns results)
-   - Viewer UI (loads at http://localhost:37777)
-   - Manual recovery (stuck messages recovered)
-
-3. **Test edge cases**:
-   - Worker crash recovery
-   - Database locks
-   - Port conflicts
-   - Large databases
-
-4. **Cross-platform** (if applicable):
-   - macOS
-   - Linux
-   - Windows
-
-## Code Style
-
-### TypeScript Guidelines
-
-- Use TypeScript strict mode
-- Define interfaces for all data structures
-- Use async/await for asynchronous code
-- Handle errors explicitly
-- Add JSDoc comments for public APIs
-
-### Formatting
-
-- Follow existing code formatting
-- Use 2-space indentation
-- Use single quotes for strings
-- Add trailing commas in objects/arrays
-
-### Example
-
-```typescript
-/**
- * Create a new observation in the database
- */
-export async function createObservation(
-  obs: Observation
-): Promise<number> {
-  try {
-    const result = await db.insert('observations', {
-      session_id: obs.session_id,
-      tool_name: obs.tool_name,
-      // ...
-    });
-    return result.id;
-  } catch (error) {
-    logger.error('Failed to create observation', error);
-    throw error;
-  }
-}
-```
-
-## Debugging
-
-### Enable Debug Logging
-
-```bash
-export DEBUG=memsmith:*
-npm run worker:restart
-npm run worker:logs
-```
-
-### Inspect Database
-
-```bash
-sqlite3 ~/.memsmith/memsmith.db
-
-# View schema
-.schema observations
-
-# Query data
-SELECT * FROM observations LIMIT 10;
-```
-
-### Trace Observations
-
-Use correlation IDs to trace observations through the pipeline:
-
-```bash
-sqlite3 ~/.memsmith/memsmith.db
-SELECT correlation_id, tool_name, created_at
-FROM observations
-WHERE session_id = 'YOUR_SESSION_ID'
-ORDER BY created_at;
-```
-
-### Debug Hooks
-
-Run hooks manually with test input:
-
-```bash
-# Test context hook
-echo '{"session_id":"test-123","cwd":"'$(pwd)'","source":"startup"}' | node plugin/scripts/context-hook.js
-
-# Test new hook
-echo '{"session_id":"test-123","cwd":"'$(pwd)'","prompt":"test"}' | node plugin/scripts/new-hook.js
-```
-
-## Publishing
-
-### NPM Publishing
-
-```bash
-# Update version in package.json
-npm version patch  # or minor, or major
-
-# Build
-npm run build
-
-# Publish to NPM
-npm run release
-```
-
-The `release` script:
-1. Runs tests
-2. Builds all components
-3. Publishes to NPM registry
-
-### Creating a Release
-
-1. Update version in `package.json`
-2. Update `CHANGELOG.md`
-3. Commit changes
-4. Create git tag
-5. Push to GitHub
-6. Publish to NPM
-
-```bash
-# Manual version bump:
-# 1. Update version in package.json
-# 2. Update version in plugin/.claude-plugin/plugin.json
-# 3. Update version at top of CLAUDE.md
-# 4. Update version badge in README.md
-# 5. Run: npm run build && npm run sync-marketplace
-
-# Or use npm version command:
-npm version 4.3.2
-
-# Update changelog
-# Edit CHANGELOG.md manually
-
-# Commit
-git add .
-git commit -m "chore: Release v4.3.2"
-
-# Tag
-git tag v4.3.2
-
-# Push
-git push origin main --tags
-
-# Publish to NPM
-npm run release
-```
-
-## Contributing
-
-### Contribution Workflow
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Write tests
-5. Update documentation
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-### Pull Request Guidelines
-
-- **Clear title**: Describe what the PR does
-- **Description**: Explain why the change is needed
-- **Tests**: Include tests for new features
-- **Documentation**: Update docs as needed
-- **Changelog**: Add entry to CHANGELOG.md
-- **Commits**: Use clear, descriptive commit messages
-
-### Code Review Process
-
-1. Automated tests must pass
-2. Code review by maintainer
-3. Address feedback
-4. Final approval
-5. Merge to main
-
-## Development Tools
-
-### Recommended VSCode Extensions
-
-- TypeScript
-- ESLint
-- Prettier
-- SQLite Viewer
-
-### Useful Commands
-
-```bash
-# Check TypeScript types
-npx tsc --noEmit
-
-# Lint code (if configured)
-npm run lint
-
-# Format code (if configured)
-npm run format
-
-# Clean build artifacts
-rm -rf plugin/scripts/*.js plugin/scripts/*.cjs
-```
-
-## Troubleshooting Development
-
-### Build Fails
-
-1. Clean node_modules:
-   ```bash
-   rm -rf node_modules
-   npm install
-   ```
-
-2. Check Node.js version:
-   ```bash
-   node --version  # Should be >= 20.0.0
-   ```
-
-3. Check for syntax errors:
-   ```bash
-   npx tsc --noEmit
-   ```
-
-### Tests Fail
-
-1. Check database:
-   ```bash
-   rm ~/.memsmith/memsmith.db
-   npm test
-   ```
-
-2. Check worker status:
-   ```bash
-   npm run worker:status
-   ```
-
-3. View logs:
-   ```bash
-   npm run worker:logs
-   ```
-
-### Worker Won't Start
-
-1. Kill existing process:
-   ```bash
-   npm run worker:stop
-   ```
-
-2. Check port:
-   ```bash
-   lsof -i :37777
-   ```
-
-3. Try custom port:
-   ```bash
-   export MEMSMITH_WORKER_PORT=38000
-   npm run worker:start
-   ```
-
-## Next Steps
-
-- [Architecture Overview](architecture/overview) - Understand the system
-- [Configuration](configuration) - Customize MemSmith
-- [Troubleshooting](troubleshooting) - Common issues
+- [Architecture overview](/architecture/overview)
+- [Configuration](/configuration)
+- [Troubleshooting](/troubleshooting)
