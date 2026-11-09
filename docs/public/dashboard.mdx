@@ -1,0 +1,147 @@
+---
+title: "Dashboard"
+description: "Browse memory, check metrics, and change settings in the MemSmith web dashboard"
+---
+
+# Dashboard
+
+The dashboard is a web page that the MemSmith server serves. Use it to search observations, read decisions and notes, check how much memory a project holds, and change server settings. It reads the same data that the memory tools read.
+
+## Open the dashboard
+
+Run `memsmith status` and open the address on the **Dashboard** line:
+
+```bash
+memsmith status
+```
+
+```text
+Server is running
+  Address:   http://127.0.0.1:38877
+  Dashboard: http://127.0.0.1:38877
+```
+
+You can also run the `/ms-dashboard` skill in Claude Code. The skill computes the address and opens it in your browser. The port is `MEMSMITH_SERVER_PORT` when you set it to a positive integer. Otherwise, the port is `38877` plus the remainder of your numeric user ID divided by 100.
+
+If the page doesn't load, the server isn't running. Run `memsmith start`, or start a Claude Code session in a tracked project. For the lifecycle commands, see [Getting started](/usage/getting-started).
+
+To open the dashboard for a specific project, add `?project=<projectId>` to the address. The project switcher does this for you.
+
+## Authentication
+
+### Local runtime
+
+On the `local` runtime, you don't sign in. When a browser on the same machine loads the dashboard address, the server sets a cookie named `memsmith_local_key`. The cookie holds the API key that MemSmith already minted for the project on your machine. The dashboard sends it with every data request and with the live stream.
+
+The cookie has these properties:
+
+- It is `HttpOnly`, so page scripts can't read it.
+- It is `SameSite=Strict`.
+- It is a session cookie, so the browser discards it when the browser session ends. A page load issues a new one.
+- The server sets it only when the socket peer is the loopback interface, the `Host` header is a loopback name, and the request has no forwarded-client headers. A request that a proxy forwards from another machine gets no cookie.
+
+The cookie is the existing key, not a new credential. The server still verifies the key the same way it verifies a key in an `Authorization` header.
+
+The cookie follows these rules when you switch projects:
+
+- A load with `?project=<projectId>` swaps in the key for that project when this machine holds one.
+- A load with `?project=<projectId>` for a project that this machine holds no key for clears the cookie. The server then answers as an unauthenticated, read-only request for that project. This is how the dashboard shows a cloned team project that you haven't joined yet.
+- A load without `?project=` keeps the cookie that you already have.
+
+If the server rejects the cookie, the **Dashboard** tab shows `Not authenticated — reload this page to sign in to your local MemSmith.`
+
+### Team runtime
+
+The server doesn't issue the local key cookie on the `server` runtime. The cookie handoff applies only when the server has a local project marker and holds that team's key in its own credential store, and a team server has neither.
+
+For a project that you converted or joined, your local server forwards the dashboard's read requests to the team server and attaches the team key. It forwards only reads: `GET` requests, plus `POST /v1/search` and `POST /v1/context`. It never forwards `/v1/identity`, `/v1/info`, or `/v1/projects`, because those describe your machine. Writes go through the hooks, not through the dashboard.
+
+`MEMSMITH_IDENTITY_PROVIDER` selects how the server authenticates a human request that carries no API key. It accepts these values:
+
+| Value | Behavior |
+|-------|----------|
+| `local` (default) | Treats the request as the single local owner, with no login. |
+| `better-auth` | Looks for a `better-auth` session. A session receives the `memories:read` and `memories:write` scopes and no team role. |
+
+The server consults the identity provider only when `MEMSMITH_AUTH_MODE` isn't `api-key`. The default auth mode is `api-key`, and in that mode a request without a key always receives a `401` response. The setting takes effect after a server restart. For the full list of settings, see [Settings reference](/settings-reference).
+
+## Layout
+
+The sidebar has the MemSmith name, the project switcher, and three tabs: **Observations**, **Dashboard**, and **Settings**. The page opens on **Observations**. The sidebar also has the theme toggle and a help button that shows the welcome card again.
+
+### Switch projects
+
+The top of the sidebar names the current project and its runtime, for example `my-app · Local` or `my-app · Team`. When this machine holds keys for more than one project, a menu next to the name lists them. Selecting a project reloads the page with `?project=<projectId>`, which also switches the cookie described in [Authentication](#authentication).
+
+The menu lists only projects that this machine holds a key for. It leaves out a project that `memsmith merge` archived or is merging. If the server can't list projects, the header shows nothing, not stale information.
+
+### Observations tab
+
+The **Observations** tab searches the current project. It shows up to 50 results.
+
+- The search box runs a search after you stop typing for 300 ms. An empty box lists observations without a query.
+- The first row of chips filters by type: `discovery`, `feature`, `bugfix`, `refactor`, `change`, `decision`, `security_alert`, and `security_note`. Select a chip again to clear it.
+- The second row filters by lifecycle state: `open`, `active`, `blocked`, `deferred`, `resolved`, and `superseded`.
+- **My notes** limits the list to notes that you directed to memory, such as a "remember this" request.
+
+Each card shows the observation type, the platform that captured it, the project, the title, and the ID and date. A **facts** toggle shows the facts list, concepts, and the files read and modified. A **narrative** toggle shows the narrative text when the observation has one.
+
+The list loads when you open the tab or change a filter. It doesn't add new observations while you watch.
+
+### Dashboard tab
+
+The **Dashboard** tab summarizes the project.
+
+| Panel | What it shows |
+|-------|---------------|
+| Memories, Decisions, Embedded | The number of stored observations, the number of decisions, and the percentage that have embeddings and so appear in semantic search. |
+| Runtime | `local` for embedded Postgres or `team` for a shared workspace, read from the project's own marker. It shows `—` when the server can't tell. On a team project that this machine holds no key for, the tile also shows a **Join** button. The button opens a form for the database URL and API key. |
+| Work in flight | Observations by lifecycle state: resolved, active, blocked, deferred, and open. |
+| Memory composition | The count of observations by type. |
+| Capture activity | Observations recorded per day. |
+| AI coding spend | Cost and token totals from your local Claude Code usage logs, read with `ccusage`, with a daily chart. Subscription sessions report `$0` billable. The panel loads separately because reading the logs can take a few seconds. |
+| Needs attention | Parked decisions and security alerts or notes. Select an item to read the full observation. |
+| Notes | Your saved notes, with their age. |
+| Decision log | Decisions with the reason, and the decisions that each one superseded. |
+| Compression | The tokens that context compression saved and the active generation provider, or a message that compression has nothing to compress yet. |
+
+### Settings tab
+
+The **Settings** tab has three sections: **System**, **Context**, and **Identity**.
+
+**System** shows the server settings in four groups: Generation, Retrieval, Quality, and Limits. Every control comes from the setting definitions in the server, so the label, description, and help text match [Settings reference](/settings-reference). Each row also shows these tags:
+
+- The source of the current value, such as the default or an override.
+- **applies after restart** for a setting that the server reads only at boot.
+
+A change is saved as a team-level override. The request needs the `settings:admin` scope, and the server checks every value before it writes any of them. If you switch the provider from a local one to a cloud provider, the page asks you to select **Confirm** first because the new provider starts metered usage. If the cloud provider has no API key, the page shows an error and keeps the old provider.
+
+The **System** tab shows only some settings. These settings have no control in the dashboard: `fallback`, `fallbackModel`, `skipAgentPlumbing`, `inputRatePerMtok`, `userNoteBoost`, `identityProvider`, and `incognitoReminderTurns`. Set them with environment variables or `settings.json`.
+
+**Context** controls what session-start context contains, with a live preview. It sets the number of observations (1 to 200), the number of sessions (1 to 50), and whether to include recent terminal output. **Save** writes the values to `~/.memsmith/settings.json`, so they apply to this machine only. On a team project, the page says so.
+
+**Identity** shows the team ID and project ID, and the API key for the project. The key is masked until you turn on the reveal switch, and the server reveals it only to a request from the local machine. The **Team Mode** card shows a **GO TEAM** button that starts the wizard that converts the project to team mode. After conversion, the card shows a **TEAM** badge instead.
+
+## Live updates
+
+The page opens an event stream to `GET /v1/stream`. The server scopes the stream to the project that the request authenticates as, so a viewer never receives another project's observations. The server sends an initial event when the stream opens and a `new_observation` event for each observation that a generation job stores. If the stream fails, the page retries and polls for observations in the meantime.
+
+In the current viewer, a `new_observation` event adds the observation's project to the project list. It doesn't add a card to the **Observations** tab.
+
+## Generation status and jobs
+
+The dashboard doesn't have a panel for generation health or generation jobs. These interfaces exist in the server:
+
+- `GET /v1/info` reports generation health, including whether a backlog has stalled. A request that your local server receives for a joined project is answered by the local server, not forwarded.
+- `GET /v1/jobs` and `GET /v1/jobs/:id` list generation jobs and show one job.
+- `POST /v1/jobs/:id/retry` moves a failed or cancelled job back to the queue. If the job is already queued, the call changes nothing.
+- `POST /v1/jobs/:id/cancel` cancels a job. A cancelled job never produces an observation.
+
+The job routes need a key with write access. To call them, send the key in an `Authorization: Bearer` header.
+
+## Related pages
+
+- [Settings reference](/settings-reference)
+- [Projects](/usage/projects)
+- [Hosted server](/hosted-server)
+- [Configuration](/configuration)

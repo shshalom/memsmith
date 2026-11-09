@@ -1,0 +1,147 @@
+---
+title: "Generation queue and quality"
+description: "How captured events become observations, how MemSmith retries and filters them, and how to see what the queue is doing"
+---
+
+# Generation queue and quality
+
+MemSmith turns each captured event into zero or more observations in the background. This page describes the path from event to observation, the retry and quality rules, and the commands that show job status. To choose the model that writes observations, see [Generation providers](/providers).
+
+## How an event becomes an observation
+
+1. A hook records a tool call and posts it to the server as an event.
+2. The server stores the event and creates a generation job with the status `queued`.
+3. A worker takes the job, loads the event, and drops agent plumbing (see [Filter agent noise](#filter-agent-noise)).
+4. The worker asks the generation provider to write observations, and re-prompts if the output does not parse (see [Quality floor and reformat retries](#quality-floor-and-reformat-retries)).
+5. The worker scores each observation, discards the ones below the quality floor, and stores the rest with their embeddings and source links in one database transaction. The job becomes `completed`.
+
+A job has one of these statuses: `queued`, `processing`, `completed`, `failed`, or `cancelled`. A session end creates a separate session-summary job that follows the same path.
+
+Which process runs steps 3 to 5 depends on the runtime:
+
+| Runtime | Who generates | Queue |
+| --- | --- | --- |
+| `local` | The local server, in the same process as the embedded Postgres. | An in-memory queue (`MEMSMITH_QUEUE_ENGINE=inline`). MemSmith sets `inline` at startup when you leave the variable unset. |
+| `server`, shared server | A generation worker beside the team server. Run it with `memsmith server worker start`. | BullMQ on Redis or Valkey (`MEMSMITH_QUEUE_ENGINE=bullmq`). |
+| `server`, your machine | Your machine. The hook posts the event with `generate=false` and queues it in `~/.memsmith/generation-queue.jsonl`. A loop in the foreground `memsmith start` process generates with your provider and posts each finished observation to the team server. | The `generation-queue.jsonl` file. |
+
+For the runtimes, see [Runtimes](/runtimes). For the team server, see [Hosted server](/hosted-server).
+
+`MEMSMITH_QUEUE_ENGINE` accepts `inline`, `bullmq`, and `sqlite`. The `sqlite` value leaves the queue disabled, so no job runs. Docker accepts only `bullmq`.
+
+## Control the queue
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `MEMSMITH_GENERATION_CONCURRENCY` | `1` | The number of jobs the inline queue runs at once. MemSmith clamps the value to 1 to 16. A local model stays in memory once per concurrent job, so raise the value only when you have the memory. |
+| `MEMSMITH_GENERATION_DISABLED` | unset | Set to `1` or `true` on a shared server so that it accepts events but does not generate. A separate worker, or the clients, generate instead. |
+| `MEMSMITH_GENERATION_LOOP_INTERVAL_MS` | `30000` | The pause between passes of the loop that generates on your machine in team mode. Any positive integer overrides the default. |
+
+## Retries and failure classification
+
+When a provider call fails, MemSmith classifies the error and decides whether to retry.
+
+| Classification | Meaning | Result |
+| --- | --- | --- |
+| `transient` | A network error, an HTTP 5xx response, an overloaded Claude, or an Ollama that answers `model not found` while it restarts | Retry |
+| `rate_limit` | The provider answered with HTTP 429 | Retry |
+| `auth_invalid` | The key is missing, revoked, or rejected | Fail |
+| `quota_exhausted` | The provider account has no credit or quota | Fail |
+| `parse_error` | The output did not parse after the reformat retries | Fail |
+| `unrecoverable`, or an unclassified error | A permanent rejection, such as HTTP 400 or 404 | Fail |
+
+A job gets 3 attempts. A retry waits for an exponential delay that grows by a factor of 5 and has a ceiling of 10 minutes. A failed job keeps its error and classification, so you can read the cause.
+
+If the primary provider fails and [failover](/providers#fail-over-to-local-ollama) is on, MemSmith tries the backup before it counts the attempt as failed.
+
+### Recovery after a restart or an outage
+
+MemSmith recovers work that a stop or a crash left behind. At startup, in every project database, it does the following:
+
+- Returns jobs that sat in `processing` for more than 30 minutes to `queued`.
+- Requeues `failed` jobs whose cause was `transient`, with a fresh set of attempts. Jobs that failed for any other reason stay failed.
+- Loads queued jobs from the database in batches of 500, oldest first. The loader refills the in-memory queue when it holds 50 jobs or fewer, so a slow model does not take the whole backlog at once. If the database is briefly unreachable, the loader retries with a delay of up to 60 seconds instead of stopping.
+- Re-embeds observations that MemSmith stored while the embedder was unavailable.
+
+While the server runs, a sweep every 30 seconds requeues retries whose delay has passed, and queued jobs that no queue holds, in every project database.
+
+### Ordering and duplicates
+
+Retries and replays do not create duplicates. Each observation has a generation key that is unique per team and project, and each observation-to-source link is unique. A job that already reached `completed`, `failed`, or `cancelled` does not change status again.
+
+## Quality floor and reformat retries
+
+MemSmith scores every generated observation from 0 to 100.
+
+| Condition | Points |
+| --- | --- |
+| At least one fact | 25 |
+| Three or more facts | 10 more |
+| A narrative of at least 20 characters | 20 |
+| A narrative of at least 50 characters | 5 more |
+| A title of 5 to 120 characters | 15 |
+| At least one concept | 15 |
+| A type of `decision`, `gotcha`, or `blocker` | 10 |
+
+MemSmith discards an observation whose score is below `MEMSMITH_QUALITY_FLOOR` (default `20`, range 0 to 100). A value of `0` keeps everything.
+
+If the model output does not parse, MemSmith asks the model again with the reason for the failure, up to `MEMSMITH_REFORMAT_RETRIES` times (default `1`). A model that returns nothing counts as unparseable and gets the same re-prompt. A deliberate `<skip_summary />` response parses and is never re-prompted. When the retries run out, the job fails with `parse_error` and does not retry.
+
+A team server that receives a finished observation from a client applies the same floor and rejects a lower score with HTTP 422. The client treats the 422 as a final answer and removes the event from its queue.
+
+## Filter agent noise
+
+By default, MemSmith does not turn the assistant's own tool use into memory. Before generation, it drops every event whose tool name starts with `mcp__`, and these harness tools: `TodoWrite`, `AskUserQuestion`, `Skill`, `SlashCommand`, `ListMcpResourcesTool`, `ExitPlanMode`, and `EnterPlanMode`. Tools that read or change project content, such as `Read`, `Grep`, `Edit`, and `Bash`, are always kept. If a job holds only dropped events, it completes with no observations and no provider call.
+
+To keep these events, set the `MEMSMITH_SKIP_AGENT_PLUMBING` environment variable of the server process to `false`, `0`, `off`, or `no`. The generation path reads this variable from the environment only, so a value that you save in `settings.json` or on the dashboard does not reach it.
+
+`MEMSMITH_SKIP_TOOLS` appears in the default settings file with a list of tool names, but no code reads it. Changing it has no effect.
+
+## Tiering and compression
+
+`MEMSMITH_TIERING` (default `true`) applies when MemSmith injects memory at session start, not when it generates. MemSmith compresses older, less relevant observations into shorter summaries so more of them fit in the injection budget. When you turn it off, MemSmith injects observations whole until the budget is full.
+
+## Limits and caps
+
+A shared server can limit usage. `MEMSMITH_RATE_LIMIT_PER_MIN` limits requests per API key per minute and answers `429`. `MEMSMITH_MONTHLY_REQUEST_CAP` and `MEMSMITH_MONTHLY_TOKEN_CAP` set monthly team limits and answer `402`. All three default to `0`, which turns them off, and they take effect after a restart. For details, see [Hosted server](/hosted-server#paid-readiness-rate-limiting-quotas-metering).
+
+## Search settings
+
+Retrieval blends keyword and semantic results. These settings tune it:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `MEMSMITH_SEARCH_HYBRID` | `true` | Blends keyword and semantic ranking. Off means keyword only. |
+| `MEMSMITH_FTS_WEIGHT` | `0.3` | The weight of keyword matches. |
+| `MEMSMITH_VEC_WEIGHT` | `1` | The weight of semantic similarity. |
+| `MEMSMITH_RRF_K` | `60` | The constant that merges the two result lists. |
+
+For the full list of settings, see [Settings reference](/settings-reference).
+
+## See job status
+
+| Where | What it shows |
+| --- | --- |
+| `observation_generation_status` MCP tool | The status of one job. Pass `jobId`. The tool returns the same payload as `GET /v1/jobs/:id`. |
+| Dashboard | Generation status for your observations. Run `memsmith status` for the dashboard address. |
+| `memsmith projects` | Each project's record counts and, when any exist, its queued generation jobs. |
+| `memsmith server jobs status` | Queue lane counts for Postgres and BullMQ on a team server. |
+| `memsmith server jobs failed [--limit N]` | Failed jobs, 20 by default. |
+| `memsmith server jobs retry <id>` | Puts a failed or cancelled job back in the queue. |
+| `memsmith server jobs cancel <id>` | Cancels a queued or processing job. |
+
+The `memsmith server jobs` commands need `MEMSMITH_SERVER_DATABASE_URL`, and `status` also needs `MEMSMITH_QUEUE_ENGINE=bullmq`. Filter with `--team <id>` and `--project <id>`. To omit both filters, set `MEMSMITH_SERVER_ADMIN=1`.
+
+The server also judges whether generation is working from outcomes. It reports `stalled` when jobs wait and nothing has completed in 15 minutes, or when the provider is unreachable. A server that runs with `MEMSMITH_GENERATION_DISABLED` reports `delegated` instead.
+
+## When the server is down
+
+If the server is unreachable, the observation hook writes the event to a local spool at `~/.memsmith/capture-spool.jsonl` and does not drop it. The spool also takes events that the hook captures before the project has an identity.
+
+- The next session start replays the spool. MemSmith clears the spool only after every event reaches the server. If any event fails, MemSmith keeps the whole spool and replays it at the next session start. Delivery is idempotent by source ID, so a repeated event does not duplicate.
+- The spool holds the newest 5,000 events. When it overflows, MemSmith discards the oldest events and counts them in `capture-spool.jsonl.dropped.json`. The server then reports the discarded count as a generation health problem.
+- The team-mode queue `generation-queue.jsonl` has the same cap and counter.
+
+A separate guard makes a long outage visible. When a hook fails because it cannot reach the server, MemSmith counts the failure in `~/.memsmith/state/hook-failures.json`. When the count reaches `MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD` (default `3`, in `settings.json`), the hook prints `memsmith worker unreachable for N consecutive hooks.` and exits with code 2, so the assistant shows the message. To reset the counter, delete the file.
+
+To restore a stopped server, run `memsmith start`. See [Runtimes](/runtimes#manage-the-local-server).

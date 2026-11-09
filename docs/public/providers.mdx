@@ -1,0 +1,96 @@
+---
+title: "Generation providers"
+description: "Choose the provider that turns captured activity into observations, and learn how MemSmith resolves keys, models, and failover"
+---
+
+# Generation providers
+
+MemSmith turns captured session activity into observations with a generation provider. MemSmith supports four providers: `claude`, `gemini`, `openrouter`, and `ollama`. The default is `claude` with the `claude-haiku-5-5` model, and a local Ollama model as the automatic backup.
+
+## Compare the providers
+
+| Provider | Requires | Default model | Where requests go |
+| --- | --- | --- | --- |
+| `claude` | An Anthropic API key | `claude-haiku-5-5` | `https://api.anthropic.com/v1/messages` |
+| `gemini` | A Gemini API key | `gemini-2.5-flash` | `https://generativelanguage.googleapis.com/v1/models` |
+| `openrouter` | An OpenRouter API key. A base URL is optional. | `anthropic/claude-3.5-sonnet` | `https://openrouter.ai/api/v1/chat/completions`, or your base URL |
+| `ollama` | A running Ollama with the model pulled. No key. | `gemma4:12b` | `http://localhost:11434`, or `MEMSMITH_OLLAMA_URL` |
+
+For provider-specific setup, see [Gemini provider](/usage/gemini-provider), [OpenRouter provider](/usage/openrouter-provider), and [LiteLLM gateway](/configuration/litellm-gateway).
+
+## How MemSmith picks the provider and model
+
+MemSmith resolves each setting from the first source that has a valid value.
+
+| Order | Source | Applies to |
+| --- | --- | --- |
+| 1 | Dashboard override (**Settings** tab) | Provider, model, fallback, fallback model |
+| 2 | Environment variable | Same settings |
+| 3 | `~/.memsmith/settings.json` | Same settings |
+| 4 | Default | `claude`, `claude-haiku-5-5`, `ollama`, `gemma4:12b` |
+
+The setting names are:
+
+| Setting | Environment variable and `settings.json` key | Default |
+| --- | --- | --- |
+| Provider | `MEMSMITH_SERVER_PROVIDER` | `claude` |
+| Model | `MEMSMITH_SERVER_MODEL` | The provider's default model |
+| Backup | `MEMSMITH_SERVER_FALLBACK` | `ollama` (`none` turns it off) |
+| Backup model | `MEMSMITH_SERVER_FALLBACK_MODEL` | `gemma4:12b` |
+
+If you use `ollama` as the provider, MemSmith picks the model in this order: the explicit model (dashboard, `MEMSMITH_SERVER_MODEL`, or `settings.json`), `MEMSMITH_OLLAMA_MODEL`, and then `gemma4:12b`.
+
+Changes to the provider, model, and backup take effect on the next job without a restart. If you add a key after a keyless start, MemSmith picks it up on the next job as well.
+
+If `MEMSMITH_SERVER_PROVIDER` holds a value that is not one of the four providers, the server logs a warning at startup and disables generation. `memsmith doctor` reports the same value as a failure. MemSmith does not substitute the default for a mistyped value.
+
+### Installs from before the default changed
+
+Earlier versions used Ollama as the default. When the server starts and `settings.json` has MemSmith settings but no provider, MemSmith writes `MEMSMITH_SERVER_PROVIDER=ollama` and `MEMSMITH_SERVER_MODEL` (your `MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b`) into `settings.json`. The pin keeps an update from moving your generation to a hosted provider. New installs get the `claude` default.
+
+## Where MemSmith finds API keys
+
+For each provider, the first non-empty value in the list wins.
+
+| Provider | Key order | Base URL order |
+| --- | --- | --- |
+| `claude` | `MEMSMITH_ANTHROPIC_API_KEY` environment variable, `ANTHROPIC_API_KEY` in `~/.memsmith/.env`, and then `ANTHROPIC_API_KEY` in the shell environment (see below) | Not configurable. See [LiteLLM gateway](/configuration/litellm-gateway). |
+| `gemini` | `MEMSMITH_GEMINI_API_KEY` environment variable, `MEMSMITH_GEMINI_API_KEY` in `settings.json`, and then `GEMINI_API_KEY` environment variable | Not configurable |
+| `openrouter` | `MEMSMITH_OPENROUTER_API_KEY` environment variable, `MEMSMITH_OPENROUTER_API_KEY` in `settings.json`, and then `OPENROUTER_API_KEY` environment variable | `MEMSMITH_OPENROUTER_BASE_URL` environment variable, `MEMSMITH_OPENROUTER_BASE_URL` in `settings.json`, and then `OPENROUTER_BASE_URL` environment variable |
+| `ollama` | Optional: `MEMSMITH_OLLAMA_API_KEY` environment variable or `settings.json` (for an Ollama behind an authenticating proxy) | `MEMSMITH_OLLAMA_URL` environment variable or `settings.json` |
+
+The installer saves Gemini and OpenRouter keys in `~/.memsmith/settings.json` and the Anthropic key in `~/.memsmith/.env`. The server process does not export either file into its environment, so MemSmith reads them directly.
+
+A shell `ANTHROPIC_API_KEY` counts only when you choose the provider with the `MEMSMITH_SERVER_PROVIDER` environment variable or with a dashboard override. A generic variable can come from an unrelated project, so on its own it does not turn on Claude generation.
+
+## Check that generation works
+
+Run `memsmith doctor`. The **Generation** check reports one of these results:
+
+| Provider | Result |
+| --- | --- |
+| `claude`, `gemini`, `openrouter` | `ok` when a key resolves. `fail` with the missing key and where to set it, for example `ANTHROPIC_API_KEY in ~/.memsmith/.env`. |
+| `ollama` | `ok` when Ollama answers and has the model. `fail` when the model is missing, Ollama is not running, or Ollama is not installed. `warn` when the URL answers but not like Ollama. |
+| Server runtime | `warn`: generation runs on the team server, so `memsmith doctor` does not check it locally. |
+
+When the server is running, the check uses the provider that the server resolves, including a dashboard override. `memsmith doctor --fix` starts an installed Ollama and pulls a missing model. It does not install Ollama. The check does not test the backup provider.
+
+## Fail over to local Ollama
+
+When the primary provider is `claude`, `gemini`, or `openrouter`, and the backup is `ollama` (the default), MemSmith wraps the primary in a failover provider.
+
+1. If a request to the primary provider fails for any reason, MemSmith sends the same job to the backup Ollama model.
+2. If the backup succeeds, MemSmith sends the following jobs to the backup first for 5 minutes. After the 5 minutes, MemSmith tries the primary again.
+3. If the backup fails during the 5 minutes, MemSmith tries the primary for that job.
+4. If the primary fails and the backup fails too, the job fails with the primary's error. The job then follows the normal [retry rules](/generation#retries-and-failure-classification).
+5. If the primary cannot be built because no key resolves, jobs go to the backup only, and MemSmith retries building the primary on each job.
+
+Failover never runs when `ollama` is the primary provider, and the backup never sends a local job to a hosted provider. The backup model must already exist in Ollama. If it does not, run `ollama pull gemma4:12b`, or the model that you set in `MEMSMITH_SERVER_FALLBACK_MODEL`. To turn failover off, set `MEMSMITH_SERVER_FALLBACK=none`.
+
+## How MemSmith calls Ollama
+
+MemSmith calls Ollama through its native `/api/chat` endpoint. If you set `MEMSMITH_OLLAMA_URL` to an OpenAI-style address that ends in `/v1` or `/v1/chat/completions`, MemSmith maps it to `/api/chat`.
+
+Each request sets `num_ctx` to 20,480 tokens. Without an explicit value, Ollama sizes the context from available video memory, up to 256,000 tokens for `gemma4:12b`, which multiplies the memory the model uses. Each request also sets `temperature` to 0.3, `stream` to `false`, and `think` to `false`. If Ollama rejects the `think` field with a 400 response that mentions it, MemSmith repeats the request without it.
+
+Before each request, MemSmith checks that Ollama can generate with the model. If it cannot, MemSmith ends any running Ollama process (`pkill -x ollama`) and starts `ollama serve`. MemSmith limits how often it does this. Set the `MEMSMITH_OLLAMA_AUTOSTART` environment variable to `false`, `0`, `off`, or `no` to turn this off.

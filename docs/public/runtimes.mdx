@@ -1,0 +1,110 @@
+---
+title: "Runtimes"
+description: "Compare the local and server runtimes, and manage the local server, its embedded Postgres, its ports, and its data"
+---
+
+# Runtimes
+
+MemSmith has two runtimes. Both run the same server engine with Postgres, pgvector, and semantic search. The `local` runtime is the default. It runs a single-user server with an embedded Postgres on your machine. The `server` runtime sends your observations to a shared team server.
+
+## Compare the runtimes
+
+| | `local` | `server` |
+| --- | --- | --- |
+| Intended use | One user, one machine | A team that shares memory |
+| Postgres | Embedded, started and stopped by MemSmith. No Docker. | Your team's Postgres, set with `MEMSMITH_SERVER_DATABASE_URL` on the team server |
+| Data location | `~/.memsmith/pgdata` | The team server's database |
+| Postgres address | `127.0.0.1:55433`, or `MEMSMITH_LOCAL_PG_PORT` | Set by your team |
+| Postgres binaries | `~/.memsmith/pg-binaries`, or `MEMSMITH_PG_BINARIES_DIR` | Not applicable |
+| Generation | The local server, with an in-memory queue | Your machine for a joined project, or workers on the team server. See [Generation queue and quality](/generation). |
+| Server address | `http://127.0.0.1:<port>` | The `MEMSMITH_SERVER_URL` that you install with |
+| Managed by `memsmith start`, `stop`, `restart`, and `status` | Yes | No. The commands refuse a remote address. |
+| Setup | `npx memsmith install` | `npx memsmith install --runtime server --server-url <url>` |
+
+`MEMSMITH_RUNTIME` holds the global default and accepts `local` or `server`. The legacy values `worker` and `server-beta` still work: `worker` maps to `local`, and `server-beta` maps to `server`. The same applies to an empty or unknown value, which maps to `local`.
+
+The global default is not the final choice. MemSmith decides per project. A project uses the team server only when its `.memsmith/project.json` marker names the `server` runtime and your machine holds a key for that team. A project with a team marker but no key stays on `local` until you join. For the team side, see [Hosted server](/hosted-server).
+
+## Server address and port
+
+The local server listens on `127.0.0.1`. MemSmith resolves its address as follows:
+
+| Value | How MemSmith resolves it |
+| --- | --- |
+| Address | The `MEMSMITH_SERVER_URL` environment variable, then `MEMSMITH_SERVER_URL` in `settings.json`, then `http://127.0.0.1:<default port>` |
+| Default port | `38877 + (your user ID % 100)`, so accounts on a shared machine do not collide. Without a user ID, such as on Windows, MemSmith uses 77 and the port is 38954. |
+| Port override | `MEMSMITH_SERVER_PORT`. `memsmith start` passes the port from the resolved address to the server as `MEMSMITH_SERVER_PORT`. |
+| Host | `MEMSMITH_SERVER_HOST`, default `127.0.0.1` |
+
+The dashboard uses the same address as the server. Run `memsmith status` to see it.
+
+## Embedded Postgres
+
+The local runtime runs one embedded Postgres server and downloads its binaries on first use.
+
+- **Port:** `55433`. Set `MEMSMITH_LOCAL_PG_PORT` to change it. The port is fixed: MemSmith never picks a random port, and it fails with a message if another process holds the port.
+- **Data:** `~/.memsmith/pgdata`, with the process ID in `~/.memsmith/local-pg.pid`.
+- **Binaries:** `~/.memsmith/pg-binaries`, or the directory in `MEMSMITH_PG_BINARIES_DIR`. The binaries stay in `~/.memsmith` even when you change `MEMSMITH_DATA_DIR`, so isolated runs share one download.
+- **Logging:** MemSmith turns off statement logging for the embedded Postgres.
+
+### Per-project databases
+
+Inside the one embedded Postgres, each project has its own database, named `msp_` followed by the project ID without hyphens. MemSmith creates the database the first time the server starts for the project. An install from before this change keeps its records in the original `postgres` database, and MemSmith keeps using that database for the project whose records it holds. The marker records the database name. To list databases, merge projects, or prune them, see [Projects](/usage/projects).
+
+## First-boot import from the old SQLite database
+
+The first time the local runtime starts, it imports observations from the retired SQLite runtime. MemSmith imports when all of these are true:
+
+- `~/.memsmith/memsmith.db` exists.
+- The marker file `~/.memsmith/.local-import-done` does not exist.
+- The observations table in the project database has no rows.
+
+The import reads the SQLite file without changing it. For each observation, it keeps the ID, the type, and the text. It keeps a type that is in the active mode's taxonomy. For any other type, it asks the local Ollama model to pick one from the taxonomy, and it uses `change` if the model gives no valid answer. It then generates embeddings for the imported rows, so semantic search works immediately. The import skips an ID that already exists, and it writes the marker only after it finishes. If the import fails, the server still starts, and MemSmith retries the import at the next start.
+
+The import looks for the SQLite file and writes the marker under `~/.memsmith`, even when you set `MEMSMITH_DATA_DIR`.
+
+## Manage the local server
+
+These commands manage only a local server. If `MEMSMITH_SERVER_URL` points at another machine, each command prints an error and exits with code 1.
+
+| Command | Behavior | Exit code |
+| --- | --- | --- |
+| `memsmith start [--timeout <s>]` | Starts the server in the background and waits until it is ready, then prints `Server is running at <address>`. If the server already runs, it prints the status instead. The wait is 300 seconds by default. On a timeout, `start` stops the process that it started and says so. | `0` when the server is running. `1` when the start fails, the server exits during startup, or the wait times out. |
+| `memsmith stop [--all]` | Stops the server and prints nothing on success. With `--all` on the local runtime, it also stops the embedded Postgres and prints `Embedded Postgres stopped` or `Embedded Postgres was not running`. | `0` on success. `1` when something still answers at the address, when the embedded Postgres does not exit, or when the Postgres on the port belongs to another data directory. |
+| `memsmith restart [--timeout <s>]` | Runs `stop`, then `start`. It leaves the embedded Postgres running. | The exit code of the step that fails, or `0`. |
+| `memsmith status` | Prints the state, then the PID, address, runtime, version, dashboard address, Postgres state, the current folder's project, and the memory access mode when it is not `write`. | `0` when the server is reachable. `1` and `Server is not running` when it is not. |
+
+`--timeout` takes a positive number of seconds. An unknown option, or an invalid `--timeout`, prints the usage and exits with code 1. `--help` prints the usage and exits with code 0.
+
+If `start` fails, read the log. Run `memsmith doctor` to diagnose the install, and `memsmith doctor --fix` to repair what it finds.
+
+## Start at login
+
+To start the server when you log in, run `memsmith autostart enable`. To check or remove the entry, run `memsmith autostart status` or `memsmith autostart disable`. For the installer prompt and platform details, see [Start at login](/installation#start-at-login).
+
+## Data directory and logs
+
+MemSmith keeps its state in `~/.memsmith`. To use another directory, set `MEMSMITH_DATA_DIR`. MemSmith reads the environment variable first, and then `MEMSMITH_DATA_DIR` in `~/.memsmith/settings.json`.
+
+| Path | Contents |
+| --- | --- |
+| `pgdata/` | The embedded Postgres data |
+| `pg-binaries/` | The downloaded Postgres binaries |
+| `local-pg.pid` | The embedded Postgres process ID |
+| `logs/memsmith-YYYY-MM-DD.log` | Server logs, one file per day |
+| `settings.json` | Your settings |
+| `.env` | The Anthropic API key |
+| `capture-spool.jsonl` | Events that MemSmith captured while the server was down. See [When the server is down](/generation#when-the-server-is-down). |
+
+## Switch runtimes
+
+To switch the install, run the installer with a runtime flag:
+
+```bash
+npx memsmith install --runtime local
+npx memsmith install --runtime server --server-url https://memsmith.example.com
+```
+
+The flag accepts `local` and `server`, and the legacy aliases `worker` and `server-beta`. Any other value prints `Unknown --runtime` and exits with code 1. The installer writes `MEMSMITH_RUNTIME` to `settings.json`. For the server runtime, it also writes `MEMSMITH_SERVER_URL`. It does not start a team server. It prints the `docker compose` command for the bundled stack, and it creates a hook API key only when `MEMSMITH_SERVER_DATABASE_URL` is set.
+
+To move a single project to a team, join the team from the dashboard instead. See [Hosted server](/hosted-server).
