@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "MemSmith",
-  "description": "Persistent memory compression system that preserves context across Claude Code sessions",
+  "description": "Persistent memory for Claude Code: hooks capture activity, a generation provider writes observations, and a Postgres server recalls them",
   "theme": "mint",
   "favicon": "/memsmith-logomark.webp",
   "logo": {
@@ -30,65 +30,64 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get Started",
+        "group": "Get started",
         "icon": "rocket",
         "pages": [
           "introduction",
           "installation",
-          "usage/getting-started",
-          "usage/openrouter-provider",
-          "usage/gemini-provider",
-          "usage/claude-desktop",
+          "usage/getting-started"
+        ]
+      },
+      {
+        "group": "Using MemSmith",
+        "icon": "book-open",
+        "pages": [
+          "usage/memory-tools",
+          "usage/notes",
+          "cli-reference",
+          "usage/projects",
+          "dashboard",
+          "usage/actor-tags",
+          "usage/read-only-mode",
+          "usage/hook-switches",
+          "usage/incognito",
           "usage/private-tags",
-          "usage/export-import",
-          "usage/folder-context",
-          "usage/projects"
+          "usage/secret-redaction",
+          "modes"
         ]
       },
       {
-        "group": "Cursor Integration",
-        "icon": "wand-magic-sparkles",
-        "pages": [
-          "cursor/index",
-          "cursor/gemini-setup",
-          "cursor/openrouter-setup"
-        ]
-      },
-      {
-        "group": "Antigravity CLI Integration",
-        "icon": "terminal",
-        "pages": [
-          "antigravity-cli/setup"
-        ]
-      },
-      {
-        "group": "Best Practices",
-        "icon": "lightbulb",
-        "pages": [
-          "context-engineering",
-          "progressive-disclosure",
-          "file-read-gate",
-          "smart-explore-benchmark"
-        ]
-      },
-      {
-        "group": "Configuration & Development",
+        "group": "Configuration",
         "icon": "gear",
         "pages": [
           "configuration",
+          "settings-reference",
+          "providers",
+          "usage/gemini-provider",
+          "usage/openrouter-provider",
           "configuration/litellm-gateway",
-          "modes",
-          "telemetry",
-          "development",
-          "troubleshooting",
-          "platform-integration"
+          "generation",
+          "runtimes",
+          "telemetry"
         ]
       },
       {
-        "group": "Hosted Server",
+        "group": "Team server",
         "icon": "cloud",
         "pages": [
           "hosted-server"
+        ]
+      },
+      {
+        "group": "Integrations",
+        "icon": "plug",
+        "pages": [
+          "usage/claude-desktop",
+          "cursor/index",
+          "cursor/gemini-setup",
+          "cursor/openrouter-setup",
+          "antigravity-cli/setup",
+          "platform-integration"
         ]
       },
       {
@@ -96,8 +95,25 @@
         "icon": "diagram-project",
         "pages": [
           "architecture/overview",
-          "hooks-architecture",
-          "architecture/hooks"
+          "architecture/hooks",
+          "progressive-disclosure",
+          "context-engineering",
+          "file-read-gate",
+          "smart-explore-benchmark"
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "icon": "wrench",
+        "pages": [
+          "troubleshooting"
+        ]
+      },
+      {
+        "group": "Contributing",
+        "icon": "code",
+        "pages": [
+          "development"
         ]
       }
     ]
@@ -136,7 +152,7 @@
     "metatags": {
       "og:type": "website",
       "og:site_name": "MemSmith Documentation",
-      "og:description": "Persistent memory compression system that preserves context across Claude Code sessions"
+      "og:description": "Persistent memory for Claude Code: hooks capture activity, a generation provider writes observations, and a Postgres server recalls them"
     }
   },
   "contextual": {
