@@ -1,6 +1,6 @@
 <h1 align="center">MemSmith</h1>
 
-<h4 align="center">Shared, persistent memory for AI coding agents. Built for <a href="https://claude.com/claude-code" target="_blank">Claude Code</a>.</h4>
+<h4 align="center">Persistent, shared memory for AI coding agents. Built for <a href="https://claude.com/claude-code" target="_blank">Claude Code</a>.</h4>
 
 <p align="center">
   <a href="LICENSE">
@@ -12,26 +12,37 @@
 </p>
 
 <p align="center">
+  <a href="#what-memsmith-does">What it does</a> •
+  <a href="#install">Install</a> •
   <a href="#quick-start">Quick start</a> •
-  <a href="#how-it-works">How it works</a> •
-  <a href="#team-mode">Team mode</a> •
-  <a href="#mcp-search-tools">Search tools</a> •
-  <a href="#configuration">Configuration</a> •
+  <a href="#capabilities">Capabilities</a> •
+  <a href="#runtimes">Runtimes</a> •
+  <a href="#troubleshooting">Troubleshooting</a> •
   <a href="#license">License</a>
 </p>
 
-AI coding agents forget everything between sessions, and what they do remember
-stays on one developer's machine. MemSmith captures what your agent does, turns
-that activity into short typed observations (decisions, bug fixes, discoveries,
-changes), and injects the relevant ones back into future sessions — so knowledge
-compounds instead of evaporating. In team mode, the whole team shares one
-searchable memory.
+MemSmith gives your AI coding agent memory that survives between sessions. It
+records what the agent does, turns that activity into short typed observations
+(decisions, bug fixes, discoveries, and changes), and lets the agent search them
+in later sessions. In team mode, a whole team shares one searchable memory.
 
----
+## What MemSmith does
 
-## Quick start
+1. **Capture.** Claude Code hooks send prompts, tool use, file edits, and
+   session summaries to a MemSmith server. MemSmith redacts known secrets
+   before it stores anything.
+2. **Generate.** A provider that you choose (Claude, Gemini, OpenRouter, or
+   Ollama) turns the activity into observations. If a hosted provider fails,
+   MemSmith can run the job on a local Ollama model.
+3. **Store.** Observations go into Postgres with pgvector. A local embedder
+   produces the vectors, so semantic search needs no API key.
+4. **Recall.** Claude searches memory with MCP tools before it searches the
+   code or the web. You can also search from a terminal or the dashboard.
 
-Install with a single command (recommended):
+## Install
+
+Requires Node.js 20.12 or later. MemSmith installs Bun and uv if they're
+missing. You don't need Docker.
 
 ```bash
 npx memsmith install
@@ -41,125 +52,65 @@ Or install from the plugin marketplace inside Claude Code:
 
 ```bash
 /plugin marketplace add shshalom/memsmith
-
 /plugin install memsmith@shshalom
 ```
 
-A marketplace install copies the plugin but skips the installer. At the start
-of your first session, MemSmith installs Bun if it's missing. Once Bun is ready,
-usually in that session or the next one, Claude asks you the installer's
-questions and runs `npx memsmith install` for you, so both paths end with the
-same setup. Claude never asks for an API key in chat.
+The installer asks which generation provider to use. The default, Claude
+Haiku 5.5, needs an Anthropic API key. To use Ollama only, choose it at the
+prompt. For all options, see [Installation](https://github.com/shshalom/memsmith/tree/main/docs/public/installation.mdx).
 
-The installer asks which generation provider turns your sessions into
-memories. The default is Claude Haiku 5.5, which needs an Anthropic API key. A
-Claude subscription login doesn't cover it. After you choose it, the installer
-offers a local backup (Ollama with `gemma4:12b`, an 8 GB download) that takes
-over when Claude is unavailable. To skip the prompt in a non-interactive
-install, pass `--local-backup`. To use Gemini, OpenRouter, or a local-only
-Ollama model instead, choose it at the prompt. To check generation later, run
-`memsmith doctor`.
+To update, run `npx memsmith@latest update`.
 
-Restart Claude Code. Context from previous sessions automatically appears in
-new sessions, and the dashboard is available at the address that
-`memsmith status` prints. By default, the address is `http://127.0.0.1:` followed
-by a port derived from your user ID.
+## Quick start
 
-> **Note:** `npm install -g memsmith` installs the `memsmith` CLI only. To
-> register the plugin hooks and set up the server, run `memsmith install`.
+1. Restart Claude Code, and work as usual. MemSmith captures your sessions in
+   the background. Context from earlier sessions appears from your second
+   session in a project.
+2. Ask Claude about past work, such as "why did we choose this approach?".
+   Claude searches memory with `observation_search` and `observation_get`.
+3. Search from a terminal, in a project folder:
 
-## Manage the server
+   ```bash
+   memsmith search "start at login"
+   memsmith get <id>
+   ```
 
-| Command | What it does |
-| --- | --- |
-| `memsmith start` | Starts the local server and waits until it is ready. Accepts `--timeout <s>` (default 300 seconds). |
-| `memsmith stop` | Stops the server. Embedded Postgres keeps running so the next start is fast. |
-| `memsmith stop --all` | Stops the server and embedded Postgres. |
-| `memsmith restart` | Restarts the server. Accepts `--timeout <s>` (default 300 seconds). |
-| `memsmith status` | Shows the server's state and version, and the project of the current folder. Exits 1 when the server is not running. |
-| `memsmith doctor` | Checks Bun, uv, the plugin install, the server, whether the generation provider can create memories, and whether a subfolder marker names a different project. |
-| `memsmith doctor --fix` | Also repairs stale state, missing dependencies, a stopped or outdated server, and a stopped Ollama or missing Ollama model, and opens a project database that an interrupted prune left closed to connections. |
-| `memsmith update` | Updates the CLI, the plugin, and the server to the latest version and keeps your settings. |
-| `memsmith search <query>` | Searches the current project's memory and prints a ranked index. Accepts `--limit <n>` (default 10, maximum 25), `--actor <name>` to return only that actor's records, and `--json`. Put `--` before a query that starts with `--`. |
-| `memsmith get <id> [<id>...]` | Prints the full records for up to 10 observation ids from `memsmith search`. Accepts `--json`. |
-| `memsmith note <text>` | Saves a user note for the current project, the same as the `note_add` tool. Use `-` to read the text from stdin. Accepts `--json`. |
-| `memsmith project` | Shows the project that the current folder uses, its team and runtime, and why the folder resolves to it. |
-| `memsmith link [<target>]` | Pins the current folder to a project by writing a marker at its git root. The target is a project id, a project name, or a path (containing `/` or starting with `.` or `~`); with no target, it pins the project that the folder resolves to now. Accepts `--new` for a fresh project and `--force` to replace a marker that points elsewhere. |
-| `memsmith projects` | Lists every local project with its team, runtime, folders, record counts, last activity, and flags. Accepts `--json`. |
-| `memsmith projects --prune` | Shows the orphan databases, empty projects, and merged-project databases that MemSmith can remove, and what it keeps and why. Add `--yes` to back them up and remove them. |
-| `memsmith merge <from> <into>` | Shows what folding one local project into another would copy. Add `--yes` to back up the source and merge. Running it again finishes a merge that stopped. |
+4. Save a note on purpose:
 
-Without a global install, prefix each command with `npx`, for example
-`npx memsmith status`.
+   ```bash
+   memsmith note "Deploys freeze on Fridays"
+   ```
 
-### Update
+5. Open the dashboard at the address that `memsmith status` prints.
+6. If something looks wrong, run `memsmith doctor`. Add `--fix` to repair what
+   it finds.
 
-To update MemSmith, run:
+Without a global install (`npm install -g memsmith`), prefix each command with
+`npx`.
 
-```bash
-npx memsmith@latest update
-```
+## Capabilities
 
-The command installs the latest plugin for Claude Code, including any
-per-project installs, restarts the local server on the new version, and checks
-that the versions match. It doesn't ask the installer questions again. When it
-finishes, restart Claude Code. `/reload-plugins` doesn't restart the running
-memory server that Claude Code started, so new memory tools appear only after
-a restart.
+| Capability | What it does | Documentation |
+| --- | --- | --- |
+| Memory tools | Search, read, and write memory through MCP, and explore code with `smart_*` tools | [Memory tools](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/memory-tools.mdx) |
+| Notes | Save a decision or fact on purpose, ranked first in search | [Notes](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/notes.mdx) |
+| CLI | Install, update, manage the server, search, link projects, and operate a team server | [CLI reference](https://github.com/shshalom/memsmith/tree/main/docs/public/cli-reference.mdx) |
+| Projects | Map folders to projects with markers, and merge or prune projects | [Projects](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/projects.mdx) |
+| Dashboard | Browse observations, read notes, and change settings | [Dashboard](https://github.com/shshalom/memsmith/tree/main/docs/public/dashboard.mdx) |
+| Actor tags | Label memory with the agent or role that wrote it, and filter by it | [Actor tags](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/actor-tags.mdx) |
+| Read-only mode | Let a session read memory but record nothing (`MEMSMITH_ACCESS=read`) | [Read-only mode](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/read-only-mode.mdx) |
+| Hook switches | Turn off hook features by name (`MEMSMITH_HOOKS_DISABLED`) | [Hook switches](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/hook-switches.mdx) |
+| Privacy | Exclude content with `<private>` tags, redact secrets automatically, and pause capture with `/incognito` | [Private tags](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/private-tags.mdx), [Secret redaction](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/secret-redaction.mdx), [Incognito mode](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/incognito.mdx) |
+| Providers | Choose Claude, Gemini, OpenRouter, or Ollama, with automatic local failover | [Generation providers](https://github.com/shshalom/memsmith/tree/main/docs/public/providers.mdx) |
+| Generation | Queue, retries, quality floor, tiering, and monthly caps | [Generation queue and quality](https://github.com/shshalom/memsmith/tree/main/docs/public/generation.mdx) |
+| Memory-first enforcement | Make the agent consult memory before it searches code or the web | [Architecture overview](https://github.com/shshalom/memsmith/tree/main/docs/public/architecture/overview.mdx) |
+| Team server | Share memory across a team with API keys, roles, quotas, and remote MCP recall | [Team server](https://github.com/shshalom/memsmith/tree/main/docs/public/hosted-server.mdx) |
+| Settings | Every setting and environment variable, with its default | [Settings reference](https://github.com/shshalom/memsmith/tree/main/docs/public/settings-reference.mdx) |
+| Other IDEs | Cursor, Antigravity CLI, Claude Desktop, and others | [Cursor](https://github.com/shshalom/memsmith/tree/main/docs/public/cursor/index.mdx), [Antigravity CLI](https://github.com/shshalom/memsmith/tree/main/docs/public/antigravity-cli/setup.mdx), [Claude Desktop](https://github.com/shshalom/memsmith/tree/main/docs/public/usage/claude-desktop.mdx) |
 
-If Claude Code updates the plugin on its own, the server keeps running the old
-version. MemSmith warns you about this at the start of the next session. To fix
-it, run `npx memsmith@latest update`.
+## Runtimes
 
-## Key features
-
-- 🧠 **Persistent memory** - Context survives across sessions
-- 👥 **Team mode** - One shared memory per team, scoped by project, over authenticated HTTPS
-- 🔍 **Hybrid search** - Full-text plus semantic vector search, fused with reciprocal rank fusion
-- 📊 **Progressive disclosure** - Layered retrieval keeps token cost low; lower-ranked memories render at reduced detail
-- 🏠 **Local first** - Embedded Postgres and a local embedder; no Docker, no API keys, nothing leaves your machine in local mode
-- 🖥️ **Dashboard** - Real-time memory stream and team controls at the address that `memsmith status` prints
-- 🔒 **Privacy control** - Use `<private>` tags to exclude sensitive content from storage
-- 🤖 **Automatic operation** - No manual intervention required
-
-## How it works
-
-1. **Capture.** Claude Code lifecycle hooks (`SessionStart`, `UserPromptSubmit`,
-   `PreToolUse`, `PostToolUse`, `Stop`) send events to a local MemSmith server.
-2. **Generate.** A generation step turns raw events into typed observations on
-   your own machine. The LLM provider is swappable between Ollama (default in
-   team mode), Claude, Gemini, and OpenRouter.
-3. **Store.** Observations land in Postgres with pgvector. Each project has its
-   own database. A local embedder produces the vectors — no API key required.
-4. **Retrieve.** Hybrid search ranks results with weighted reciprocal rank
-   fusion. If the embedder is down, search degrades to full-text instead of
-   failing.
-5. **Orient.** At session start, the latest observations render into the
-   agent's context for orientation. Superseded decisions collapse to their
-   current head, so the agent sees only current truth.
-6. **Memory first.** Whenever the agent or a subagent needs information it
-   doesn't have, it follows one flow: do I already know this from this
-   conversation? If not, search memory. Then validate load-bearing claims
-   against the code. Memory points in the right direction even when it's
-   stale, so it comes before grepping, globbing, or searching the web. Three
-   mechanisms enforce this in Claude Code:
-   - The standing instruction, given at session start and to every subagent.
-   - The `tool-intent` gate: before the first code or web search on a topic,
-     the agent must consult memory. In `hard` mode (the default) the search is
-     blocked until it does; in `soft` mode the agent gets a reminder. When
-     memory can't be reached, the search goes through with a notice.
-   - For a prompt that clearly asks about past work, such as "what did we
-     decide…", "why…", or "where is X configured", the agent is told to answer
-     from a memory search, and in `hard` mode the `Stop` hook sends it back once
-     if it doesn't.
-
-   Other prompts, such as tasks, "status?", or "ok", cost no memory search. To turn enforcement
-   off, run `npx memsmith enforcement off`; `npx memsmith enforcement status`
-   shows the mode the hooks use.
-
-## Team mode
-
-MemSmith runs the same engine in two runtimes:
+MemSmith runs the same engine in two runtimes. [Runtimes](https://github.com/shshalom/memsmith/tree/main/docs/public/runtimes.mdx) compares them.
 
 | Runtime | Who it serves | Where data lives |
 | --- | --- | --- |
@@ -167,98 +118,40 @@ MemSmith runs the same engine in two runtimes:
 | `server` | A team | Remote Postgres behind an HTTPS API |
 
 A project moves from `local` to `server` through the **GO TEAM** flow in the
-dashboard. It copies local data to the team server, verifies the copy, and only
-then flips the runtime. Local data is never deleted.
+dashboard. The flow copies local data to the team server, verifies the copy, and
+then switches the project. MemSmith never deletes local data. A teammate who
+clones the repository joins the team from the dashboard with a team key. For
+deployment, see [Team server](https://github.com/shshalom/memsmith/tree/main/docs/public/hosted-server.mdx) and the
+[AWS runbook](docs/deploy/aws.md).
 
-A teammate who clones a converted repo sees a **Join** button in the dashboard,
-enters a team key, and their sessions start reading and writing team memory. No
-teammate ever holds a database password — API keys are hashed at rest,
-revocable, expirable, and scoped to a team and optionally one project.
+## Troubleshooting
 
-## MCP search tools
+Run `memsmith doctor` first. For fixes to common problems, such as a stopped
+server, missing context, or a blocked tool call, see
+[Troubleshooting](https://github.com/shshalom/memsmith/tree/main/docs/public/troubleshooting.mdx).
 
-MemSmith exposes memory through MCP tools that follow a token-efficient,
-filter-before-fetching workflow:
+## Documentation
 
-**Search and recall:**
+The documentation source is in [`docs/public/`](https://github.com/shshalom/memsmith/tree/main/docs/public). Start with the
+[introduction](https://github.com/shshalom/memsmith/tree/main/docs/public/introduction.mdx).
 
-- **`observation_search`** - Ranked index of matching observations: id, date, type, title, and a short snippet (10 results by default, up to 25)
-- **`observation_get`** - Full records for ids chosen from the index (up to 10 per call)
-- **`observation_context`** - Full bodies of the top few matches in one call (5 by default, up to 10)
+## Development
 
-**Code exploration:**
-
-- **`smart_search`** - Search the codebase for symbols, functions, and classes
-- **`smart_outline`** - Structural map of a file with line numbers, cheaper than re-reading it
-- **`smart_unfold`** - Expand only the sections you need
-
-**Capture:**
-
-- **`note_add`** - Record a user-directed note ("remember that...") as a findable user note
-
-Search with `observation_search`, then fetch full records with `observation_get`
-for only the results that matter. Each tool's output is capped so it fits in the
-agent's context. The `ms-mem-search` skill wraps this workflow for natural
-language queries.
-
-## Configuration
-
-Settings are managed in `~/.memsmith/settings.json` (auto-created with defaults
-on first run). Configure the AI provider, data directory, log level, and
-context injection settings.
-
-The `MEMSMITH_ACCESS` setting controls whether a session can write memory. Set
-`MEMSMITH_ACCESS=read` in a session's environment to make memory read-only for
-that session: MemSmith records nothing and refuses the memory write tools, but
-search and context still work. The `MEMSMITH_HOOKS_DISABLED` setting turns off
-hook features by name, such as `context` or `answer-gate`. For details, see
-[Read-only mode and hook switches](docs/public/configuration.mdx#read-only-mode-and-hook-switches).
-
-The `MEMSMITH_MODE` setting names a mode profile for observation types and
-language, such as `code--zh` or `code--ja`. The server always loads the `code`
-profile and ignores this setting.
-
-## System requirements
-
-- **Node.js**: 20.12.0 or higher
-- **Claude Code**: Latest version with plugin support
-- **Bun**: JavaScript runtime and process manager (auto-installed if missing)
-- **uv**: Python package manager (auto-installed if missing)
-- **Postgres**: Embedded and managed automatically in `~/.memsmith/pgdata`; no Docker or manual setup required
-
-## Documentation and development
-
-Documentation source lives in [`docs/`](docs/), including the
-[AWS deploy runbook](docs/deploy/).
-
-To build from source: clone the repo, run `npm install`, then `npm run build`.
-Run tests with `bun test tests/server/` for a fast signal. After any source
-change that lands in a plugin bundle, run `npm run build` and commit the
-regenerated files under `plugin/`.
-
-## Bug reports and contributing
+To build from source, clone the repository, run `npm install`, and then run
+`npm run build`. To run the tests, run `bun test tests/server/` for a fast
+signal. After a source change that lands in a plugin bundle, run
+`npm run build` and commit the regenerated files under `plugin/`. For
+contributor details, see [Development](https://github.com/shshalom/memsmith/tree/main/docs/public/development.mdx).
 
 Report issues at [GitHub Issues](https://github.com/shshalom/memsmith/issues).
-
-Contributions are welcome:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Update documentation
-5. Submit a pull request
+Security reports go through GitHub private vulnerability reporting; see
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-MemSmith is licensed under the Apache License 2.0.
-
-We chose Apache-2.0 because durable agentic memory should be easy to embed in
-developer tools, local agents, MCP servers, enterprise systems, robotics stacks,
-and production agent harnesses.
-
-See the [LICENSE](LICENSE) file for full details. See [docs/license.md](docs/license.md)
-and [docs/ip-boundary.md](docs/ip-boundary.md) for licensing scope and the
-open/commercial boundary.
+MemSmith is licensed under the Apache License 2.0. See the [LICENSE](LICENSE)
+file for the full text, and [docs/license.md](docs/license.md) and
+[docs/ip-boundary.md](docs/ip-boundary.md) for the licensing scope.
 
 ## Credits
 

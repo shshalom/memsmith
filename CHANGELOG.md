@@ -8,6 +8,10 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Changed
+
+- The README and the docs now cover every capability: a CLI reference, a settings reference, and pages for the memory tools, notes, actor tags, read-only mode, hook switches, incognito mode, secret redaction, the dashboard, providers, the generation queue, runtimes, and the team server. Pages that described the retired worker and SQLite runtime are rewritten or removed.
+
 ## [13.16.0] - 2026-11-08
 
 ### Added
