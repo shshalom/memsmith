@@ -186,6 +186,21 @@ To make read-only the default and let one session write, set the default in `set
 MEMSMITH_ACCESS=write claude
 ```
 
+### Incognito mode
+
+Run `/incognito` in a session to stop recording for that session. Use `/incognito on`, `/incognito off`, or `/incognito` alone to toggle.
+
+While a session is incognito, MemSmith doesn't record:
+
+- Prompts, tool use, and file edits.
+- The end-of-turn summary.
+- The "remember this" backstop note.
+- Events that the capture spool or the transcript watcher holds for that session.
+
+An explicit `note_add` call still saves, because you asked the agent to save that note. Search and context injection keep working. Every 10th prompt (`MEMSMITH_INCOGNITO_REMINDER_TURNS`), MemSmith reminds you that the session is incognito.
+
+Incognito applies to one session. MemSmith deletes the session's state when you turn incognito off, and removes state for sessions that haven't run a prompt in 14 days. To stop recording for every session, use read-only mode.
+
 ### Hook features
 
 Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the hook's neutral result right away, so the tool call, prompt, or turn continues as if MemSmith were not there.

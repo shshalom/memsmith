@@ -15,7 +15,7 @@ import {
   type ServerRuntimeContext,
 } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
-import { isIncognito, bumpTurn } from '../incognito.js';
+import { isIncognito, captureSuppressed, bumpTurn } from '../incognito.js';
 import { handleIncognitoCommand } from './incognito-command.js';
 import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 
@@ -137,6 +137,10 @@ export const sessionInitHandler: EventHandler = {
       };
     }
 
+    if (captureSuppressed(sessionId)) {
+      return { continue: true, suppressOutput: true };
+    }
+
     if (rawPrompt && isInternalProtocolPayload(rawPrompt)) {
       logger.debug('HOOK', 'session-init: skipping internal protocol payload', {
         preview: rawPrompt.slice(0, 80),
@@ -224,6 +228,7 @@ export const sessionInitHandler: EventHandler = {
           read: () => spool.readSpooledEvents(path),
           send: async (event) => { await runtime.client.recordEvent(event as never); },
           clear: () => spool.clearSpool(path),
+          skip: (event) => captureSuppressed((event as { contentSessionId?: string } | null)?.contentSessionId),
           projectId: runtime.projectId,
         });
         if (result.delivered > 0 || result.failed > 0) {

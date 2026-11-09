@@ -8,6 +8,11 @@ History before the fork lives in the upstream project credited in [NOTICE](NOTIC
 
 ## [Unreleased]
 
+### Fixed
+
+- `/incognito` now stops all capture for the session. Before, only tool-use capture checked the incognito state, so prompts, the end-of-turn summary, file edits, the "remember this" backstop, spooled events, and transcript-derived capture were still recorded. An explicit `note_add` call still saves, because you asked for the note. The `/incognito` confirmation now lists what MemSmith does and does not record.
+- MemSmith deletes an incognito state file when you turn incognito off, and removes state files for sessions that have not run a prompt in 14 days. An active incognito session keeps its state.
+
 ## [13.16.0] - 2026-11-08
 
 ### Added
