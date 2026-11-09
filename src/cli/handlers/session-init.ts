@@ -72,6 +72,8 @@ const defaultDependencies = {
 
 let dependencies = defaultDependencies;
 
+const INCOGNITO_AGENT_REMINDER = '🔒 still incognito — not recording. Do not call observation_add or observation_record_event; call note_add only if the user explicitly asks you to save something.';
+
 export function incognitoHeartbeat(
   sessionId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -80,7 +82,7 @@ export function incognitoHeartbeat(
   const raw = Number.parseInt(env.MEMSMITH_INCOGNITO_REMINDER_TURNS ?? '', 10);
   const n = Number.isFinite(raw) && raw > 0 ? raw : 10;
   const turn = bumpTurn(sessionId);
-  return turn % n === 0 ? '🔒 still incognito — not recording' : null;
+  return turn % n === 0 ? INCOGNITO_AGENT_REMINDER : null;
 }
 
 export function setSessionInitDependenciesForTesting(
@@ -126,20 +128,6 @@ export const sessionInitHandler: EventHandler = {
     }
 
     const heartbeat = incognitoHeartbeat(sessionId);
-    if (heartbeat) {
-      return {
-        continue: true,
-        suppressOutput: false,
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-          additionalContext: heartbeat,
-        },
-      };
-    }
-
-    if (captureSuppressed(sessionId)) {
-      return { continue: true, suppressOutput: true };
-    }
 
     if (rawPrompt && isInternalProtocolPayload(rawPrompt)) {
       logger.debug('HOOK', 'session-init: skipping internal protocol payload', {
@@ -198,11 +186,12 @@ export const sessionInitHandler: EventHandler = {
       logger.warn('IDENTITY', 'pending team join not applied (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
     }
 
-    const withNotice = (result: HookResult): HookResult => (noticeLine
+    const context = [noticeLine, heartbeat].filter(Boolean).join('\n');
+    const withNotice = (result: HookResult): HookResult => (context
       ? {
         ...result,
         suppressOutput: false,
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: noticeLine },
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
       }
       : result);
 
@@ -228,7 +217,6 @@ export const sessionInitHandler: EventHandler = {
           read: () => spool.readSpooledEvents(path),
           send: async (event) => { await runtime.client.recordEvent(event as never); },
           clear: () => spool.clearSpool(path),
-          skip: (event) => captureSuppressed((event as { contentSessionId?: string } | null)?.contentSessionId),
           projectId: runtime.projectId,
         });
         if (result.delivered > 0 || result.failed > 0) {
@@ -238,6 +226,8 @@ export const sessionInitHandler: EventHandler = {
         logger.warn('HOOK', 'spool flush skipped (non-fatal)', {}, err instanceof Error ? err : new Error(String(err)));
       }
     }
+    if (captureSuppressed(sessionId)) return withNotice({ continue: true, suppressOutput: true });
+
     // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
     // value. Legacy `'server-beta'` is normalized inside `selectRuntime()`.
     if (runtime.runtime === 'server') {

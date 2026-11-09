@@ -6,7 +6,7 @@
 // proceeds). The on-toggle confirmation + every-N-turn heartbeat — not this
 // storage — are what guard against a silently-lost ON state.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync, statSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { DATA_DIR } from '../shared/paths.js';
 
@@ -40,7 +40,16 @@ function write(sessionId: string, state: IncognitoState): void {
 }
 
 export function isIncognito(sessionId: string): boolean {
-  return read(sessionId).on === true;
+  const on = read(sessionId).on === true;
+  if (on) {
+    try {
+      const now = new Date();
+      utimesSync(file(sessionId), now, now);
+    } catch {
+      // best-effort
+    }
+  }
+  return on;
 }
 
 /** The one check every capture path uses. A missing session id is never incognito. */

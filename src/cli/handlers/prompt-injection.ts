@@ -11,6 +11,7 @@ import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { logger } from '../../utils/logger.js';
 import { isFeatureEnabled, writesAllowed } from '../../shared/feature-switches.js';
 import { stripAutomatedContent, stripMemoryTags } from '../../utils/tag-stripping.js';
+import { captureSuppressed } from '../incognito.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
 
 const CONTINUE: HookResult = { continue: true, suppressOutput: true };
@@ -80,7 +81,7 @@ export function createPromptInjectionHandler(deps: PromptInjectionDeps = default
         );
         const probe = await broker.probe(ask);
         if (probe.unavailable) return inject(frameUnavailableNotice());
-        if (probe.isGap && writesAllowed()) await persistGap(runtime, ask, resolveActor(input));
+        if (probe.isGap && writesAllowed() && !captureSuppressed(input.sessionId)) await persistGap(runtime, ask, resolveActor(input));
         gate.beginTurn({ pending: true, topic: topicKey(ask) });
         return inject(frameAnswerFromMemoryDirective(enforcementModeFromSettings(settings)));
       } catch (err) {

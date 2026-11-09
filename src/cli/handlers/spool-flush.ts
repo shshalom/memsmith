@@ -17,8 +17,6 @@ export interface FlushDeps {
   clear: () => void;
   /** Attribution for events spooled before this project's identity existed. */
   projectId?: string | null;
-  /** Events for which this returns true are dropped, not delivered. */
-  skip?: (event: unknown) => boolean;
 }
 
 export async function flushSpooledEvents(
@@ -37,7 +35,6 @@ export async function flushSpooledEvents(
   let failed = 0;
 
   for (const raw of events) {
-    if (deps.skip?.(raw)) continue;
     try {
       // Cold-boot drops carry projectId null — the marker did not exist yet.
       // On replay the project IS known, so the event can finally be attributed

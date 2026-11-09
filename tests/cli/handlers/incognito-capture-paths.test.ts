@@ -107,32 +107,86 @@ describe('incognito suppresses every capture path', () => {
     expect(res.systemMessage).toBeUndefined();
   });
 
-  it('spool flush: drops events from an incognito session and delivers the rest', async () => {
-    setIncognito(SESSION, true);
-    const sent: unknown[] = [];
-    let cleared = false;
-    const result = await flushSpooledEvents({
-      read: () => [{ contentSessionId: SESSION, id: 'private' }, { contentSessionId: 'other-session', id: 'public' }],
-      send: async (e) => { sent.push(e); },
-      clear: () => { cleared = true; },
-      skip: (e) => captureSuppressed((e as { contentSessionId?: string }).contentSessionId),
-    });
-    expect(sent).toEqual([{ contentSessionId: 'other-session', id: 'public', projectId: null }]);
-    expect(result).toEqual({ delivered: 1, failed: 0 });
-    expect(cleared).toBe(true);
-  });
-
-  it('session-init leaves the spool untouched while incognito', async () => {
-    const { writeFileSync, mkdirSync } = await import('node:fs');
+  it('session-init still delivers events spooled before incognito, but starts no session or prompt capture', async () => {
+    const { writeFileSync, mkdirSync, rmSync } = await import('node:fs');
     const spool = await import('../../../src/cli/handlers/capture-spool.js');
     const path = spool.defaultSpoolPath();
     mkdirSync(require('node:path').dirname(path), { recursive: true });
+    rmSync(path, { force: true });
     writeFileSync(path, `${JSON.stringify({ contentSessionId: SESSION, eventType: 'tool_use' })}\n`);
 
     setIncognito(SESSION, true);
     await sessionInitHandler.execute({ sessionId: SESSION, cwd: '/tmp/incog-paths', platform: 'claude-code', prompt: 'hello' });
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(['recordEvent']);
+    expect(spool.readSpooledEvents(path)).toEqual([]);
+  });
 
-    expect(spool.readSpooledEvents(path)).toHaveLength(1);
+  it('session-init still claims a pending team join and shows the project notice while incognito', async () => {
+    const claimed: string[] = [];
+    setSessionInitDependenciesForTesting({
+      resolveRuntimeContext: () => serverRuntime as never,
+      shouldTrackProject: () => true,
+      logServerFallback: () => {},
+      mintProjectIdentity: async () => null as never,
+      projectNotice: async () => 'project notice',
+      claimPendingJoin: async (cwd: string) => { claimed.push(cwd); return undefined as never; },
+    });
+    setIncognito(SESSION, true);
+    const res = await sessionInitHandler.execute({ sessionId: SESSION, cwd: '/tmp/incog-paths', platform: 'claude-code', prompt: 'hello' });
+    expect(claimed).toEqual(['/tmp/incog-paths']);
+    expect(res.hookSpecificOutput?.additionalContext).toContain('project notice');
+    expect(calls).not.toContain('startSession');
+  });
+
+  it('prompt-injection: saves a memory gap normally, nothing when incognito', async () => {
+    const added: string[] = [];
+    const base = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'ms-incog-pi-'));
+    const rt = {
+      runtime: 'server' as const, projectId: 'p1', serverBaseUrl: 'http://fake',
+      client: {
+        contextObservations: async () => ({ observations: [], context: '' }),
+        addObservation: async (i: { content: string }) => { added.push(i.content); return {}; },
+      },
+    };
+    const { createPromptInjectionHandler } = await import('../../../src/cli/handlers/prompt-injection.js');
+    const handler = createPromptInjectionHandler({
+      loadSettings: () => ({ MEMSMITH_SEMANTIC_INJECT: 'true', MEMSMITH_RETRIEVAL_ENFORCEMENT: 'hard' }),
+      resolveRuntime: () => rt as never,
+      sessionBaseDir: base,
+    });
+    const input = { sessionId: SESSION, cwd: '/tmp', prompt: 'why did we switch the queue engine to inline?' } as never;
+    await handler.execute(input);
+    expect(added).toHaveLength(1);
+
+    added.length = 0;
+    setIncognito(SESSION, true);
+    await handler.execute(input);
+    expect(added).toEqual([]);
+  });
+
+  it('the incognito-on reply and the heartbeat tell the agent which memory writes to avoid', async () => {
+    const { handleIncognitoCommand } = await import('../../../src/cli/handlers/incognito-command.js');
+    const { incognitoHeartbeat } = await import('../../../src/cli/handlers/session-init.js');
+    const on = handleIncognitoCommand(SESSION, 'on').message;
+    const beat = incognitoHeartbeat(SESSION, { MEMSMITH_INCOGNITO_REMINDER_TURNS: '1' } as never) ?? '';
+    for (const text of [on, beat]) {
+      expect(text).toContain('observation_add');
+      expect(text).toContain('observation_record_event');
+      expect(text).toContain('note_add');
+      expect(text).toContain('explicitly asks');
+    }
+  });
+
+  it('the heartbeat reaches the agent even when session-init does its other work', async () => {
+    setIncognito(SESSION, true);
+    const res = await sessionInitHandler.execute({ sessionId: SESSION, cwd: '/tmp/incog-paths', platform: 'claude-code', prompt: 'hi' });
+    expect(res.hookSpecificOutput?.additionalContext ?? '').not.toContain('observation_add');
+    process.env.MEMSMITH_INCOGNITO_REMINDER_TURNS = '1';
+    try {
+      const beat = await sessionInitHandler.execute({ sessionId: SESSION, cwd: '/tmp/incog-paths', platform: 'claude-code', prompt: 'hi' });
+      expect(beat.hookSpecificOutput?.additionalContext).toContain('observation_record_event');
+    } finally {
+      delete process.env.MEMSMITH_INCOGNITO_REMINDER_TURNS;
+    }
   });
 });

@@ -54,6 +54,14 @@ describe('incognito state cleanup', () => {
     expect(pruneStaleIncognito()).toBe(0);
   });
 
+  it('a capture check refreshes the state so an idle session that resumes stays incognito', () => {
+    setIncognito('resumed', true);
+    age('resumed', INCOGNITO_STATE_MAX_AGE_MS + 60_000);
+    expect(captureSuppressed('resumed')).toBe(true);
+    expect(pruneStaleIncognito()).toBe(0);
+    expect(isIncognito('resumed')).toBe(true);
+  });
+
   it('captureSuppressed is false without a session id', () => {
     expect(captureSuppressed(undefined)).toBe(false);
     expect(captureSuppressed('')).toBe(false);
