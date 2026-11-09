@@ -1,252 +1,333 @@
 ---
-title: "Hosted Server (Beta)"
-description: "Remote authenticated MCP recall, usage metering + quotas, and data deletion — how memsmith's cloud server works today."
+title: "Team server"
+description: "Deploy and operate the MemSmith team server: environment variables, first-owner bootstrap, API keys, members, joining, the job queue, remote MCP recall, quotas, and data deletion."
 ---
 
-# Hosted Server (Beta)
+# Team server
+
+The team server is the `server` runtime: the same engine as the `local` runtime (Postgres with pgvector, semantic search, generation queue) pointed at a remote Postgres, so several people share one memory per project. The server is the shared store. Observation generation runs in a separate worker process or, for the inline queue engine, inside the server process.
 
 <Warning>
-**This is early and moving fast.** The hosted server's capture, recall, metering,
-and deletion paths described below are real and tested, but the **UX and developer
-experience around them are still being built** — there's no polished dashboard,
-onboarding flow, or self-serve signup yet. Expect the *plumbing* to be solid and
-the *paving* to be unfinished. Routes, env var names, and the first-key bootstrap
-flow may shift as we wire up the dashboard. Pin a version if you're integrating.
+Parts of the team server are still rough. This page marks each partial feature as **Partial**. Route paths, environment variables, and CLI flags can change between releases.
 </Warning>
 
-The hosted server is the cloud side of memsmith: a Postgres-backed HTTP service
-(`/v1`) plus a separate BullMQ generation worker. Where the local plugin keeps
-memory in `~/.memsmith/memsmith.db` on your machine, the hosted server keeps
-it per **team** and per **project** in Postgres, and exposes it back to any MCP
-client over an authenticated link.
+## Local runtime compared with the team server
 
-Three capabilities landed together and are documented here:
+| | `local` runtime (default) | `server` runtime (team) |
+|---|---|---|
+| Postgres | Embedded, in-process, on port `55433` | Remote, set with `MEMSMITH_SERVER_DATABASE_URL` |
+| Users | One | Many, with roles |
+| Authentication | Loopback only | API keys (`MEMSMITH_AUTH_MODE=api-key`) |
+| Queue | In process | `inline`, or BullMQ on Redis or Valkey (`bullmq`) |
+| Setup | `npx memsmith install` | Docker Compose or your own process manager |
 
-<CardGroup cols={3}>
-  <Card title="Remote MCP recall" icon="plug">
-    Paste an authenticated link into Claude Code to recall your cloud memory —
-    read-only, team/project-scoped.
-  </Card>
-  <Card title="Paid-readiness" icon="gauge">
-    Opt-in rate limiting, monthly request/token quotas, and usage metering —
-    the guards a paid tier needs.
-  </Card>
-  <Card title="Data deletion" icon="trash">
-    Right-to-erasure: forget a single memory, or purge everything captured for a
-    project.
-  </Card>
-</CardGroup>
+A client machine decides per project which runtime to use. A project uses the team server only if its `.memsmith/project.json` marker names the `server` runtime **and** the machine holds a key for that team. If the marker names a team but the machine has no key (for example, a fresh clone), the project stays on `local` until you join. For the client side, see [Join a team from a client](#join-a-team-from-a-client).
 
-## The shape of the system
+When `MEMSMITH_RUNTIME` is `server` and `MEMSMITH_SERVER_DATABASE_URL` is unset (a teammate machine), `memsmith start` runs a local generation loop instead of an HTTP server.
 
-```
- Claude Code (or any MCP client)
-        │  Authorization: Bearer cm_...
-        ▼
- ┌─────────────────────────────┐        ┌──────────────────────────┐
- │  HTTP server  (/v1)          │  jobs  │  BullMQ generation worker │
- │  - auth (api-key mode)       ├───────▶│  memsmith server         │
- │  - rate limit / quota / meter │        │    worker start            │
- │  - REST + /v1/mcp recall      │        │  - provider call           │
- │  - data deletion              │        │  - writes observations     │
- └──────────────┬───────────────┘        └────────────┬─────────────┘
-                │                                       │
-                ▼                                       ▼
-        ┌───────────────────────────────────────────────────┐
-        │  Postgres  (teams, projects, observations,         │
-        │  agent_events, server_sessions, generation jobs,   │
-        │  api_keys, usage_events, audit_log)                │
-        └───────────────────────────────────────────────────┘
-```
+## Deploy the server
 
-Every row is scoped by `(team_id, project_id)`. An API key carries a **team**
-(always) and an optional **project** scope; that scoping bounds every read,
-write, and delete.
+### Docker Compose
 
-### Authentication
+The repository `docker-compose.yml` defines four services: `postgres` (`pgvector/pgvector:pg17`), `valkey`, `memsmith-server` (HTTP, generation disabled), and `memsmith-worker` (BullMQ generation consumer). Both MemSmith services build from `docker/memsmith/Dockerfile` and listen on container port `37877`.
 
-Set `MEMSMITH_AUTH_MODE=api-key` and send `Authorization: Bearer <key>` on every
-request. Scopes gate access:
+1. Create a `.env` file next to `docker-compose.yml`. The three `POSTGRES_*` values are required and have no defaults, and Compose refuses to start without them.
 
-- **Read** endpoints (search, context, recall, usage) require `memories:read`.
-- **Write** endpoints (ingest, key issuance, deletion) require `memories:write`.
+   ```bash
+   POSTGRES_USER=memsmith
+   POSTGRES_PASSWORD=<strong password>
+   POSTGRES_DB=memsmith
+   ANTHROPIC_API_KEY=<provider key for generation>
+   ```
 
-Keys are stored as SHA-256 hashes in the `api_keys` table; the raw `cm_...` value
-is shown exactly once, at mint time.
+2. Start the stack.
 
-## Remote authenticated MCP recall
+   ```bash
+   docker compose up -d
+   ```
 
-`/v1/mcp` is a streamable-HTTP [MCP](https://modelcontextprotocol.io) server. It's
-the secure link a user pastes into Claude Code to recall their cloud memory. It is
-**read-only** and authenticated by the same API key as the REST routes
-(`memories:read`); the key's team — and project, if the key is project-scoped —
-bounds every read.
+3. Scale generation if needed.
+
+   ```bash
+   docker compose up -d --scale memsmith-worker=3
+   ```
+
+The compose file does not publish Postgres, so run key commands inside the server container. See [API keys](#api-keys).
+
+<Warning>
+Do not deploy `docker-compose.yml` unmodified to a network reachable from the internet. Place a TLS-terminating proxy in front of port `37877` and set `MEMSMITH_PUBLIC_URL`.
+</Warning>
+
+### Environment variables
+
+`validateServerEnv` runs at startup and fails fast with every problem it finds.
+
+| Variable | Required | Notes |
+|---|---|---|
+| `MEMSMITH_SERVER_DATABASE_URL` | Always | Postgres connection string. |
+| `MEMSMITH_RUNTIME` | In Docker, if set | Must be `server` (or the legacy alias `server-beta`). The image sets `server-beta`. Outside Docker, set `MEMSMITH_RUNTIME=server`; otherwise the process can select the `local` runtime. |
+| `MEMSMITH_AUTH_MODE` | No | Default `api-key`. In Docker, `local-dev` is rejected, and so is `MEMSMITH_ALLOW_LOCAL_DEV_BYPASS=1`. |
+| `MEMSMITH_QUEUE_ENGINE` | In Docker | In Docker it must be `bullmq`. Valid values are `sqlite`, `bullmq`, and `inline`; any other value throws. |
+| `MEMSMITH_REDIS_URL` | With `bullmq` | For example `redis://valkey:6379`. Compose defaults it to `redis://valkey:6379`. |
+| `MEMSMITH_SERVER_HOST` | No | Bind address. Default `127.0.0.1`. Compose sets `0.0.0.0`. |
+| `MEMSMITH_SERVER_PORT` | No | Default `38877` plus `uid % 100`. Compose sets `37877`. |
+| `MEMSMITH_PUBLIC_URL` | Recommended | Base URL that `GET /v1/connect` and `POST /v1/keys` use to build the MCP link. Without it, the server uses the request host. |
+| `MEMSMITH_GENERATION_DISABLED` | No | `1` or `true` makes the process HTTP-only. The `memsmith-server` service sets it, and the worker unsets it. |
+| `MEMSMITH_SERVER_PROVIDER` | For generation | `claude` (default), `gemini`, `openrouter`, or `ollama`. An unknown value disables generation and logs a warning. |
+| `MEMSMITH_SERVER_MODEL` | No | Model override for the provider. |
+| `ANTHROPIC_API_KEY`, `MEMSMITH_ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` | For the chosen provider | Set on the worker. Without a key, the worker runs but produces no observations. |
+| `MEMSMITH_GENERATION_CONCURRENCY` | No | Concurrency of the `inline` queue engine. |
+| `MEMSMITH_ALLOW_OWNER_BOOTSTRAP`, `MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES` | No | See [First owner](#first-owner). |
+| `MEMSMITH_RATE_LIMIT_PER_MIN`, `MEMSMITH_MONTHLY_REQUEST_CAP`, `MEMSMITH_MONTHLY_TOKEN_CAP`, `MEMSMITH_USAGE_METERING` | No | See [Rate limits, quotas, and metering](#rate-limits-quotas-and-metering). |
+| `MEMSMITH_SERVER_ADMIN` | No | `1` lets the `server jobs` CLI run without `--team` or `--project`. |
+
+For provider details, see [Configuration](/configuration).
+
+### Without Docker
+
+Set `MEMSMITH_RUNTIME=server`, `MEMSMITH_SERVER_DATABASE_URL`, and the queue variables. Then start the server. `memsmith start` detaches a daemon and waits for readiness (`--timeout <s>` sets the wait). For a supervised foreground process such as systemd `Type=simple`, run `bun <plugin>/scripts/server-service.cjs start`, which stays in the foreground in the `server` runtime. Run the worker with `memsmith server worker start`, which starts the BullMQ consumers without an HTTP listener.
+
+### Health endpoints
+
+| Endpoint | Auth | Returns |
+|---|---|---|
+| `GET /healthz` | None | `{ "status": "ok", "runtime": ... }` |
+| `GET /v1/info` | None | Auth mode, Postgres schema version and reachability, queue lane metrics, generation health, and embedding coverage. |
+
+`GET /v1/info` answers without authentication. Restrict it at your proxy if you do not want to expose queue and health details.
+
+## First owner
+
+Role-gated routes (`/v1/keys`, `/v1/members`, project purge, convert) read the caller's role from `team_members`, joined on the key's `user_id`. A key without a `user_id` has no role, so these routes return `403`. You have two ways to create the first owner.
+
+### Create an owner key with the CLI
+
+Run this where the process can reach Postgres. With Docker Compose, run it in the server container:
 
 ```bash
-claude mcp add --transport http memsmith <server-base>/v1/mcp \
-  --header "Authorization: Bearer cm_..."
+docker compose exec memsmith-server \
+  bun /opt/memsmith/scripts/server-service.cjs server api-key create \
+  --user alice --role owner --scope memories:read,memories:write
 ```
 
-Four read-only tools are exposed, each mirroring an existing REST path:
+The command writes the `team_members` row and the key in one transaction. Without `--team` and `--project`, it creates (or reuses) a team and project through the server bootstrap and prints the new key once.
 
-| Tool      | Arguments                          | Returns |
-|-----------|------------------------------------|---------|
-| `search`  | `{ projectId, query, limit?, actor? }` | A ranked index of matching observations: id, date, type, actor, title, and a short snippet. 10 results by default, up to 25. With `actor`, only that actor's records. |
-| `get`     | `{ projectId, ids }`               | The full records for up to 10 ids from `search` or `recent`. |
-| `context` | `{ projectId, query, limit?, actor? }` | The full bodies of the top matches, 5 by default and up to 10, capped at about 20,000 characters. With `actor`, only that actor's records. |
-| `recent`  | `{ projectId, limit? }`            | An index of the newest observations for a project. |
+### Bootstrap over HTTPS
 
-<Note>
-The transport is **stateless** — one MCP server + transport per request — so it
-needs no session affinity behind a load balancer. Mutating tools are
-intentionally absent: a pasted recall link can never write or delete. Every read
-is written to `audit_log` as an `observation.read` event, the same as
-`POST /v1/search`.
-</Note>
+This path is for a deployment you cannot reach with the CLI, such as a private database. It is **off by default**.
 
-## Connecting a client: key issuance + connect
+1. Set `MEMSMITH_ALLOW_OWNER_BOOTSTRAP=1` on the server. Only the exact value `1` enables it.
+2. Optionally set `MEMSMITH_OWNER_BOOTSTRAP_WINDOW_MINUTES`. The default is `60`. A value that is not a positive number falls back to `60`.
+3. Call the route with a key for the team (the key needs `memories:read`):
 
-Two routes turn "I have a server" into "Claude Code is recalling my cloud memory":
+   ```bash
+   curl -X POST "$SERVER/v1/teams/bootstrap-owner" \
+     -H "Authorization: Bearer $KEY"
+   ```
 
-- **`POST /v1/keys`** (requires `memories:write`) mints a **read-only** API key for
-  the caller's team and returns a paste-ready connect command. The raw key appears
-  **once**. Body: `{ "expiresInDays"?: number }`. Minting requires write scope so a
-  read-only key can't escalate itself into more keys.
+   `POST /v1/teams/:teamId/bootstrap-owner` is the same route with an explicit team id. The id must match the key's team.
 
-  ```json
-  {
-    "id": "...",
-    "apiKey": "cm_...",
-    "scopes": ["memories:read"],
-    "expiresAt": null,
-    "mcpUrl": "https://<host>/v1/mcp",
-    "connectCommand": "claude mcp add --transport http memsmith https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
-  }
-  ```
+The route succeeds only if the team has no owner and was created within the window. If the key has no `user_id`, the server assigns `owner-<teamId>` and stamps it on the key. A success returns `200 { "userId": ..., "role": "owner" }`.
 
-- **`GET /v1/connect`** (requires `memories:read`) returns the same command with a
-  `<YOUR_API_KEY>` placeholder — a GET never mints. The `mcpUrl` is built from
-  `MEMSMITH_PUBLIC_URL` (recommended when behind a proxy or load balancer) or,
-  failing that, the request host.
+| Status | Meaning |
+|---|---|
+| `404` | The flag is off. |
+| `403` | The key belongs to a different team. |
+| `409` | The team already has an owner. |
+| `410` | The window closed, the team creation time cannot be verified, or the state could not be read. |
 
 <Warning>
-**First-key bootstrap is the rough edge.** Minting a team's *very first* key still
-needs a session-gated path (a web dashboard), because `POST /v1/keys` itself
-requires a write-scoped key. better-auth's `apiKey()` plugin exists but writes to
-a different store than the Postgres `api_keys` these routes authenticate against —
-wiring the better-auth org → team mapping is the remaining piece, and the biggest
-part of the devex work still ahead.
+Ownership allows minting keys, managing members, and purging project memory. Turn the flag off after setup.
 </Warning>
 
-## Paid-readiness: rate limiting, quotas, metering
+## API keys
 
-These guards run **after** auth and are **opt-in via environment variables**. Unset
-(the default) means no rate limit, no quota, and no metering — behavior is
-identical to a server without them. Every guard **fails open**: a backing-store
-error never blocks a legitimate request.
+Send a key as `Authorization: Bearer <key>` or as `X-Api-Key: <key>`. The server stores only the SHA-256 hash. A request without a key returns `401`. An unknown, revoked, or expired key, or a key without the required scope, returns `403`.
 
-| Env var | Effect | Response when exceeded |
-|---------|--------|------------------------|
-| `MEMSMITH_RATE_LIMIT_PER_MIN` | Max requests per **API key** per minute. | `429` with `Retry-After` and `X-RateLimit-*` headers. |
-| `MEMSMITH_MONTHLY_REQUEST_CAP` | Max requests per **team** per calendar month (UTC). | `402 quota_exceeded`. |
-| `MEMSMITH_MONTHLY_TOKEN_CAP` | Max provider **tokens** per team per month. Gates **writes only** — reads stay open so a team over budget can still recall. | `402` at the cap. |
-| `MEMSMITH_USAGE_METERING=1` | Records one `request` usage event per authenticated call (fire-and-forget). | — |
+| Scope | Allows |
+|---|---|
+| `memories:read` | Search, context, MCP recall, usage, jobs list, identity, settings read. |
+| `memories:write` | Event ingest, memories, sessions, deletes, job retry and cancel. |
+| `settings:admin` | `PATCH /v1/settings`. |
+| `*` | Every scope. |
 
-Token and observation metering is written to the same `usage_events` table from
-the generation worker, so usage reflects real provider spend, not just HTTP calls.
+A key carries a team and an optional project. A key with no project is team-wide: it can narrow a request to any project of its team, never to another team.
 
-`GET /v1/usage` returns the caller team's per-kind totals for the current month:
+### Key commands
+
+Run the `memsmith` commands where the plugin is installed and `MEMSMITH_SERVER_DATABASE_URL` is set. In a container, run the same subcommands through `bun /opt/memsmith/scripts/server-service.cjs`.
+
+| Command | Purpose |
+|---|---|
+| `memsmith server api-key create` | Mint a key and print it once as JSON. |
+| `memsmith server api-key list` | List key metadata (never the key). |
+| `memsmith server api-key revoke <id>` | Revoke a key. |
+| `memsmith server keys rotate` | Mint a new hook key for this machine, save it to `settings.json`, and revoke the previous one. |
+
+`api-key create` accepts these flags:
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--scope`, `--scopes` | `memories:read` | Comma-separated. |
+| `--team <id>` | Created by bootstrap | Without `--project`, the key is team-wide. |
+| `--project <id>` | Created by bootstrap | Requires `--team`. |
+| `--user <id>` | None | Writes the `team_members` row and links the key. |
+| `--role <role>` | `owner` when `--user` is set | `owner`, `admin`, `member`, or `viewer`. Requires `--user`. |
+| `--name <text>` | `server-api-key` | Printed in the output only. |
+
+`api-key list` accepts `--team <id>`, `--active` (not revoked and not expired), `--limit` (1 to 500, default 100), and `--offset`.
+
+Two subcommands exist only in the server script (`server-service.cjs`), not in the `memsmith` wrapper:
+
+- `server api-key migrate-scopes <id> [--scope a,b]` replaces a key's scopes. The default is `memories:read,memories:write`.
+- `server keys [--team <id>]` is an alias for `api-key list --active`.
+
+### Mint a read-only key over HTTP
+
+`POST /v1/keys` requires `memories:write` and the `admin` role. It mints a key with scope `memories:read`, bound to the caller's team and project, and returns the connect command. The body takes `expiresInDays` (1 to 365). The `label` field is accepted and ignored.
 
 ```json
-{ "since": "2026-06-01T00:00:00.000Z", "usage": { "request": 1280, "observation": 44 } }
+{
+  "id": "...",
+  "apiKey": "cm_...",
+  "scopes": ["memories:read"],
+  "expiresAt": null,
+  "mcpUrl": "https://<host>/v1/mcp",
+  "connectCommand": "claude mcp add --transport http memsmith https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
+}
 ```
 
+`GET /v1/connect` (requires `memories:read`) returns the same command with a `<YOUR_API_KEY>` placeholder and never mints a key.
+
+Keys minted over HTTP start with `cm_`. Keys minted by the CLI start with `cmem_`. The server accepts both because it matches on the hash.
+
+## Members and roles
+
+Roles rank `viewer` < `member` < `admin` < `owner`.
+
+| Route | Minimum role | Behavior |
+|---|---|---|
+| `GET /v1/members` | `member` | Lists members. |
+| `POST /v1/members` | `admin` | Adds or updates `{ userId, role }`. You cannot assign a role above your own. |
+| `PATCH /v1/members/:userId` | `admin` | Changes `{ role }`. You cannot modify a member above your own role, and you cannot demote the last owner. |
+| `DELETE /v1/members/:userId` | `admin` | Removes the member and revokes that user's keys in the team. You cannot remove the last owner. |
+
+Write routes (`POST /v1/events`, `POST /v1/memories`, deletes) require `member` or higher, with one exception: a key with no role is treated as a member on those routes, and a `viewer` is refused. Routes gated with `admin` or `owner`, and `GET /v1/members`, refuse a key with no role.
+
+## Join a team from a client
+
+You join a project to a team from the dashboard on the client machine. The client-side flow has these parts:
+
+1. **Tracked state.** A cloned team project has a marker but no key. It reads as `tracked`: capture stays on the local runtime and the dashboard offers **Join**. After you join, the state is `joined` and hooks use the team server.
+2. **Join.** The local server's `POST /v1/join` (requires `memories:read` locally) takes `apiKey` and a `databaseUrl` field that holds either the team server's `https://` URL or a `postgres://` connection string, and returns `422` with a reason when the key is invalid, revoked, expired, or has no team. For an `https://` URL, the local server calls `POST /v1/join/register` on the team server. The registration route takes `teamKey`, `projectId`, and optional `projectName` in the body, returns `422` for a bad key, and is limited to 10 attempts per 15 minutes. On success, the client caches the team key in `credentials.json` under the data directory, and writes `runtime: "server"` to `.memsmith/project.json`.
+3. **Installer shortcut.** `npx memsmith install --runtime server --server-url <url>` writes `MEMSMITH_RUNTIME=server` and `MEMSMITH_SERVER_URL` to `settings.json`. It does not create a team key by itself: it bootstraps a hook key only if `MEMSMITH_SERVER_DATABASE_URL` is set on the machine. The default `--server-url` is `http://127.0.0.1:38877`.
+
 <Note>
-"Gates writes only" is deliberate: ingestion is what drives generation, which is
-what costs tokens. A team that blows its token budget can still **read** its
-existing memory — you never lock someone out of their own data over billing.
+The joining flow is **Partial**. There is no `memsmith join` command; the dashboard is the supported path.
 </Note>
 
-## Data deletion (forget)
+### Convert a local project to a team project
 
-Right-to-erasure. Both routes require `memories:write` and are scoped to the
-caller's team. Both write an `audit_log` entry.
+The owner of a local project converts it from the dashboard (**Go Team**). The local server calls these routes, all of which require the `owner` role:
 
-- **`DELETE /v1/memories/:id`** — delete a single observation; its
-  `observation_sources` cascade. Returns `404` if no such observation exists for
-  the team. Audited as `observation.deleted`.
+| Route | Purpose |
+|---|---|
+| `POST /v1/convert/test-connection` | Probes the destination: an HTTPS `serverUrl` with `teamKey`, or a `databaseUrl`. |
+| `POST /v1/convert/apply-fix` | Installs `pgvector` on a destination database (the only fix allowed). |
+| `POST /v1/convert/migrate` | Copies the project's rows to the destination. |
 
-- **`DELETE /v1/projects/:projectId/memory`** — purge **all** captured content for
-  a project in one transaction: observations, raw agent events, server sessions,
-  and generation jobs. The project shell (config/membership) is kept so the team
-  can keep using it. Returns per-table `counts`. Returns `404` if the project
-  doesn't belong to the team. Audited as `project.memory_purged`.
+The team server receives the data through `POST /v1/convert/import`, `POST /v1/convert/register-key` (accepts a SHA-256 key hash only), and `GET /v1/convert/verify`. Import and verify require a project-scoped key; a team-wide key is refused. The copied tables are `projects`, `server_sessions`, `agent_events`, `observation_generation_jobs`, `observations`, `observation_sources`, and `observation_generation_job_events`. The account tables (`teams`, `team_members`, `api_keys`, and server settings) are never copied.
 
-  ```json
-  { "purged": true, "projectId": "...", "counts": { "observations": 42, "agentEvents": 17, "sessions": 3, "jobs": 17 } }
-  ```
+The server leaves a pending-join note and the project's own session hook applies it. On the next session start, `claimPendingJoin` in the `session-init` hook reads the note, writes the marker to the `server` runtime, and clears the note. If the machine has no cached key for the team, or the note names a different team, the hook leaves the project on `local` and retries on the next session.
 
-<Note>
-Deletion is team-scoped at the SQL layer, so a key can only ever erase its own
-team's data — a cross-team or nonexistent `projectId` returns `404` rather than a
-misleading success.
-</Note>
+## Generation and the job queue
 
-## Event generation semantics
+`POST /v1/events` accepts `?generate=false` (store the event, enqueue nothing) and `?wait=true` (wait up to 30 seconds for the job to finish and return it; `waitTimedOut: true` marks a timeout). Provider calls never run in the request path.
 
-Ingestion (`POST /v1/events`) accepts two query flags that control observation
-generation:
+The queue console reads Postgres and BullMQ directly, so run it where the database is reachable:
 
-- `generate=false` — write the event but do **not** enqueue a generation job.
-- `wait=true` — return the `generationJob` descriptor so callers can poll
-  `GET /v1/jobs/:id` for completion.
+| Command | Purpose |
+|---|---|
+| `memsmith server jobs status` | Job counts per status in Postgres and BullMQ, plus divergence. |
+| `memsmith server jobs failed [--limit N]` | Lists failed jobs (default 20). |
+| `memsmith server jobs retry <id>` | Requeues a failed or cancelled job. A job already queued is a no-op; an in-flight job is refused. |
+| `memsmith server jobs cancel <id>` | Cancels a queued or processing job. A completed job is refused. |
+| `memsmith server worker start` | Runs the generation worker without HTTP. |
 
-Without `wait=true`, the response includes the new event row plus a best-effort
-`generationJob` field. With `wait=true`, that field is always populated (or `null`
-only when generation was explicitly disabled). The actual provider call happens in
-the separate BullMQ worker (`memsmith server worker start`) — the HTTP path
-**never blocks** on a provider response.
+Pass `--team <id>` or `--project <id>` to every `jobs` subcommand, or set `MEMSMITH_SERVER_ADMIN=1` to run unscoped. Retry and cancel write to `audit_log`. The server script also offers `server jobs [list|inspect <id>]` with `--status` and `--limit`.
 
-## Endpoint reference
+The HTTP API covers the same ground: `GET /v1/jobs`, `GET /v1/jobs/:id`, `GET /v1/teams/:teamId/jobs`, `GET /v1/projects/:projectId/jobs`, `POST /v1/jobs/:id/retry`, and `POST /v1/jobs/:id/cancel`.
 
-All endpoints are mounted under `/v1`; legacy worker routes remain under `/api`.
+## Remote MCP recall
 
-```
-GET    /healthz
-GET    /v1/info
-GET    /v1/projects
-POST   /v1/projects
-GET    /v1/projects/:id
-POST   /v1/sessions/start
-POST   /v1/sessions/:id/end
-GET    /v1/sessions/:id
-POST   /v1/events                 # ?generate= ?wait=
-POST   /v1/events/batch
-GET    /v1/events/:id
-POST   /v1/memories
-GET    /v1/memories/:id
-PATCH  /v1/memories/:id
-DELETE /v1/memories/:id           # forget one observation
-POST   /v1/search
-POST   /v1/context
-ALL    /v1/mcp                    # remote authenticated MCP recall
-POST   /v1/keys                   # mint a read-only key (write scope)
-GET    /v1/connect                # connect command with key placeholder
-GET    /v1/usage                  # current-month usage totals
-DELETE /v1/projects/:projectId/memory   # purge a whole project
-GET    /v1/audit?projectId=<id>
+`/v1/mcp` is a stateless streamable-HTTP MCP server (`POST` and `GET`). It requires `memories:read`, the key's team (and project, if scoped) bounds every read, and it never writes. Each call is audited as `observation.read`. Search and context use the same hybrid ranking as `POST /v1/search`.
+
+```bash
+claude mcp add --transport http memsmith https://<host>/v1/mcp \
+  --header "Authorization: Bearer <key>"
 ```
 
-## What's solid vs. what's coming
+| Tool | Arguments | Returns |
+|---|---|---|
+| `search` | `projectId`, `query`, `limit?` (max 25, default 10), `actor?` | Ranked index: id, date, type, title, snippet. |
+| `get` | `projectId`, `ids` (max 10) | Full records. |
+| `context` | `projectId`, `query`, `limit?` (max 10, default 5), `actor?` | Full bodies of the top matches, capped at 20,000 characters. |
+| `recent` | `projectId`, `limit?` (max 25, default 10) | Index of the newest observations. |
 
-<Note>
-**Solid today:** Postgres-backed multi-tenant storage, api-key auth with
-read/write scopes, the `/v1/mcp` recall link, opt-in rate limiting + quotas +
-metering, and audited data deletion. All covered by the Postgres-gated e2e suite.
+A project-scoped key that names a different `projectId` is refused.
 
-**Still being built (UX / devex):** a web dashboard for the first-key bootstrap and
-key management, self-serve onboarding, a billing/plan UI on top of the metering
-primitives, and a smoother "connect Claude Code to my cloud memory" flow than
-pasting a CLI command. These are the next focus — the primitives above are the
-foundation they'll sit on.
-</Note>
+## Rate limits, quotas, and metering
+
+These guards are off until you set the variable, run after authentication, and **fail open**: an error in the backing store lets the request through.
+
+| Variable | Effect | Over the limit |
+|---|---|---|
+| `MEMSMITH_RATE_LIMIT_PER_MIN` | Requests per API key per fixed 60-second window, all routes. | `429 rate_limited` with `Retry-After` and `X-RateLimit-Limit`, `-Remaining`, `-Reset`. |
+| `MEMSMITH_MONTHLY_REQUEST_CAP` | Requests per team per UTC month, all routes. | `402 quota_exceeded` with `used` and `cap`. |
+| `MEMSMITH_MONTHLY_TOKEN_CAP` | Generation tokens per team per month. Applies to write routes only; reads stay open. | `402 quota_exceeded`. |
+| `MEMSMITH_USAGE_METERING=1` | Records one `request` usage event per authenticated call. | None. |
+
+The generation path writes `tokens` and `observation` usage events. `GET /v1/usage` returns the caller's totals for the current month:
+
+```json
+{ "since": "2026-11-01T00:00:00.000Z", "usage": { "request": 1280, "observation": 44 } }
+```
+
+## Delete data
+
+| Route | Minimum role | Behavior |
+|---|---|---|
+| `DELETE /v1/memories/:id` | `member` | Deletes one observation. A `member` can delete only their own notes; deleting a generated observation requires `admin`. Returns `404` if it is not in the team, and `403` if you are not allowed. Audited as `observation.deleted`. |
+| `DELETE /v1/projects/:projectId/memory` | `admin` | Purges observations, agent events, sessions, and jobs for the project in one transaction, and keeps the project row. Returns `counts`, or `404` if the project is not in the team. Audited as `project.memory_purged`. |
+
+## Team discovery bridge
+
+A client on any runtime can inject team memory without switching the project to the team server. The bridge is a client setting in `~/.memsmith/settings.json`, off by default.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `MEMSMITH_TEAM_INJECT` | `false` | `true` adds team results to session-start context. |
+| `MEMSMITH_TEAM_SERVER_URL` | empty | Base URL of the team server. |
+| `MEMSMITH_TEAM_API_KEY` | empty | A `memories:read` key. The server resolves the team from the key. |
+| `MEMSMITH_GATE_TOOLS` | empty (off) | Tools that trigger a lookup before use. `all` means `Read,Grep,Glob,WebSearch`; `none` disables it; or list tool names, comma-separated. |
+
+The bridge calls `POST /v1/search` with the key. If any setting is missing or the call fails, it returns nothing and the session continues. The gate also requires `MEMSMITH_TEAM_SERVER_URL` and `MEMSMITH_TEAM_API_KEY`.
+
+## Endpoint list
+
+For the capture and recall routes, see the table in [Platform integration](/platform-integration). Beyond that table, the team server serves these routes under `/v1`:
+
+| Area | Routes |
+|---|---|
+| Keys and connect | `POST /v1/keys`, `GET /v1/connect` |
+| Owner bootstrap | `POST /v1/teams/bootstrap-owner`, `POST /v1/teams/:teamId/bootstrap-owner` |
+| Members | `GET`, `POST /v1/members`; `PATCH`, `DELETE /v1/members/:userId` |
+| Capture | `POST /v1/events/batch`, `GET /v1/events/:id/observations`, `POST /v1/record-intent` |
+| Recall | `POST /v1/observations/get`, `GET /v1/stream` (server-sent events, needs a project-scoped key), `GET`, `POST /v1/mcp` |
+| Jobs | See [Generation and the job queue](#generation-and-the-job-queue) |
+| Usage | `GET /v1/usage` |
+| Deletion | `DELETE /v1/memories/:id`, `DELETE /v1/projects/:projectId/memory` |
+| Settings and identity | `GET`, `PATCH /v1/settings`; `GET /v1/identity` |
+| Convert and join | `POST /v1/join`, `POST /v1/join/register`, `POST /v1/convert/*`, `GET /v1/convert/verify` |
+
+`GET /v1/projects` is a loopback-only list for the dashboard project switcher. It lists projects for which the local machine holds a key, not every project on a team server.
