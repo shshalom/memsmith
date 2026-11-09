@@ -11,7 +11,7 @@ const URL = 'postgres://memsmith@127.0.0.1:1/msp_x';
 describe('projectPoolConfig', () => {
   it('keeps each project pool small and lets idle connections close between sweeps', () => {
     const base = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: URL } })!;
-    const project = projectPoolConfig(base, URL);
+    const project = projectPoolConfig(base, URL, {});
     expect(project.max).toBeLessThanOrEqual(3);
     expect(project.idleTimeoutMillis).toBeLessThan(30_000);
     expect(project.connectionString).toBe(URL);
@@ -21,7 +21,12 @@ describe('projectPoolConfig', () => {
     const base = parsePostgresConfig({
       env: { MEMSMITH_SERVER_DATABASE_URL: URL, MEMSMITH_POSTGRES_POOL_MAX: '1', MEMSMITH_POSTGRES_IDLE_TIMEOUT_MS: '1000' },
     })!;
-    expect(projectPoolConfig(base, URL)).toMatchObject({ max: 1, idleTimeoutMillis: 1000 });
+    expect(projectPoolConfig(base, URL, {})).toMatchObject({ max: 1, idleTimeoutMillis: 1000 });
+  });
+
+  it('lets a team server raise the per-project limit', () => {
+    const base = parsePostgresConfig({ env: { MEMSMITH_SERVER_DATABASE_URL: URL } })!;
+    expect(projectPoolConfig(base, URL, { MEMSMITH_POSTGRES_PROJECT_POOL_MAX: '12' }).max).toBe(12);
   });
 
   it('is what the server uses for project databases', () => {

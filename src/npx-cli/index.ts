@@ -273,5 +273,5 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   console.error(styleText('red', 'Fatal error:'), error.message || error);
-  process.exit(1);
+  void exitAfterFlush(1);
 });

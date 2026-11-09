@@ -3,6 +3,9 @@ import type { Writable } from 'node:stream';
 function drained(stream: Writable): Promise<void> {
   return new Promise((resolve) => {
     if (stream.destroyed || stream.writableEnded) return resolve();
+    // A reader that closes early (`| head`) makes the write fail with EPIPE;
+    // that is a normal end, not a crash.
+    stream.once('error', () => resolve());
     stream.write('', () => resolve());
   });
 }

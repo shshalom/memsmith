@@ -127,7 +127,7 @@ describe('loadInventory', () => {
     let peak = 0;
     const released: string[] = [];
     const src: InventorySource = {
-      ...source(ids.map((id) => ({ id, teamId: 't', name: id, metadata: {} })), [...ids.map(msp), msp(B)], {}),
+      ...source([...ids, D].map((id) => ({ id, teamId: 't', name: id, metadata: {} })), [...ids.map(msp), msp(B)], {}),
       recordStats: async (db) => {
         open.add(db);
         peak = Math.max(peak, open.size);
@@ -136,8 +136,10 @@ describe('loadInventory', () => {
       release: async (db) => { open.delete(db); released.push(db); },
     };
     await loadInventory(src, {});
-    expect(peak).toBe(1);
+    expect(peak).toBeLessThanOrEqual(2);
     expect(released).toContain(msp(B));
+    // D has no database of its own, so it is counted in the account database, whose pool stays open.
+    expect(open.has('postgres')).toBe(true);
     expect(released).not.toContain('postgres');
   });
 
