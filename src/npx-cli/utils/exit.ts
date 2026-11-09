@@ -25,3 +25,17 @@ export async function exitAfterFlush(
   await Promise.all([drained(streams.stdout), drained(streams.stderr)]);
   return streams.exit(code);
 }
+
+/**
+ * A reader that stops early (`| head`) closes the pipe while a command may
+ * still be working. Drop the rest of the output instead of crashing, and let
+ * the command finish: a merge or prune must not stop halfway because its
+ * output went unread.
+ */
+export function ignoreClosedPipes(streams: Writable[] = [process.stdout, process.stderr]): void {
+  for (const stream of streams) {
+    stream.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EPIPE') throw error;
+    });
+  }
+}

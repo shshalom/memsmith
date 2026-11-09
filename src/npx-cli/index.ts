@@ -1,6 +1,6 @@
 import { parseArgs, styleText } from 'node:util';
 import { readPluginVersion } from './utils/paths.js';
-import { exitAfterFlush } from './utils/exit.js';
+import { exitAfterFlush, ignoreClosedPipes } from './utils/exit.js';
 import type { InstallOptions } from './commands/install.js';
 import { normalizeRuntimeFlag } from './commands/server-runtime-setup.js';
 
@@ -271,6 +271,7 @@ async function main(): Promise<void> {
   }
 }
 
+ignoreClosedPipes();
 main().catch((error) => {
   console.error(styleText('red', 'Fatal error:'), error.message || error);
   void exitAfterFlush(1);

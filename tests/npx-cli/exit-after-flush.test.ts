@@ -34,6 +34,7 @@ describe('exitAfterFlush', () => {
     const router = readFileSync(join(import.meta.dir, '..', '..', 'src', 'npx-cli', 'index.ts'), 'utf8');
     expect(router).not.toMatch(/process\.exit\(\s*await\b/);
     expect(router).toContain('await exitAfterFlush(await runProjectsCommand(');
+    expect(router).toMatch(/ignoreClosedPipes\(\);\s*main\(\)/);
   });
 });
 
@@ -69,8 +70,9 @@ describe.skipIf(process.platform !== 'darwin' || node.status !== 0)('exitAfterFl
     expect(Number(run.stdout.trim())).toBeLessThan(SIZE);
   });
 
-  it('exits quietly when the reader stops early', () => {
+  it('exits quietly when the reader stops early while the command is still working', () => {
     const run = piped('flush', 'head -c 10 >/dev/null');
     expect(run.stderr).not.toContain('EPIPE');
+    expect(run.status).toBe(0);
   });
 });
