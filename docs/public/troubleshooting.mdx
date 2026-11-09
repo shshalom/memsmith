@@ -49,12 +49,12 @@ This is expected: `memsmith stop` leaves embedded Postgres running so the next s
 
 1. Start a new Claude Code session after you install or update.
 2. Run `memsmith doctor` and confirm that the plugin install check passes.
-3. If the Setup hook prints `run: npx memsmith repair`, run it. It installs missing runtime dependencies and refreshes the version marker.
+3. If the Setup hook prints `run: npx memsmith@latest install`, run it. It sets up the runtime and refreshes the version marker.
 
 ### No observations appear
 
-1. Run `memsmith status` and open the **Dashboard** address it prints.
-2. Confirm that your generation provider is configured in `~/.memsmith/settings.json`. For Gemini or OpenRouter, the API key must be set. After you change settings, run `memsmith restart`.
+1. Run `memsmith status` and open the address on the `Dashboard:` line of `memsmith status`.
+2. Confirm that your generation provider is configured in `~/.memsmith/settings.json`. The default provider, Claude, needs an Anthropic API key in `~/.memsmith/.env` or `MEMSMITH_ANTHROPIC_API_KEY`. For Gemini or OpenRouter, the API key must be set. After you change settings, run `memsmith restart`.
 3. Check the server log for provider errors, such as an invalid key or rate limiting.
 
 ### Context doesn't appear at session start
@@ -141,7 +141,7 @@ Set `MEMSMITH_LOG_LEVEL` to `DEBUG` in `~/.memsmith/settings.json`, then run `me
 `memsmith status` prints the server address. To query its health endpoint directly, run:
 
 ```bash
-curl http://127.0.0.1:<port>/api/health
+curl http://127.0.0.1:<port>/healthz
 ```
 
 ## Get help

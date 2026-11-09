@@ -9,7 +9,7 @@ The dashboard is a web page that the MemSmith server serves. Use it to search ob
 
 ## Open the dashboard
 
-Run `memsmith status` and open the address on the **Dashboard** line:
+Run `memsmith status` and open the address on the `Dashboard:` line:
 
 ```bash
 memsmith status
@@ -118,7 +118,7 @@ A change is saved as a team-level override. The request needs the `settings:admi
 
 The **System** tab shows only some settings. These settings have no control in the dashboard: `fallback`, `fallbackModel`, `skipAgentPlumbing`, `inputRatePerMtok`, `userNoteBoost`, `identityProvider`, and `incognitoReminderTurns`. Set them with environment variables or `settings.json`.
 
-**Context** controls what session-start context contains, with a live preview. It sets the number of observations (1 to 200), the number of sessions (1 to 50), and whether to include recent terminal output. **Save** writes the values to `~/.memsmith/settings.json`, so they apply to this machine only. On a team project, the page says so.
+**Context** controls what session-start context contains, with a live preview. It has an observations field, a sessions field, and a switch for recent terminal output. Only the **Sessions** field changes session start: it writes `MEMSMITH_CONTEXT_SESSION_COUNT`, the number of observations that session start injects (1 to 50). The observations field writes `MEMSMITH_CONTEXT_OBSERVATIONS`, which session start ignores. **Save** writes the values to `~/.memsmith/settings.json`, so they apply to this machine only. On a team project, the page says so.
 
 **Identity** shows the team ID and project ID, and the API key for the project. The key is masked until you turn on the reveal switch, and the server reveals it only to a request from the local machine. The **Team Mode** card shows a **GO TEAM** button that starts the wizard that converts the project to team mode. After conversion, the card shows a **TEAM** badge instead.
 

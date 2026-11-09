@@ -11,11 +11,11 @@ Set `MEMSMITH_HOOKS_DISABLED` to a comma-separated list of feature names to turn
 |---------|---------|-------------|
 | `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs a warning for each unknown name and ignores it. |
 
-An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+An environment variable overrides `settings.json`, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
 
-Each MemSmith process logs a warning about a value once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
+Each MemSmith process logs a warning about an unknown name once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
 
-Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read both settings when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
+Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read the setting when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
 
 ## Hook features
 

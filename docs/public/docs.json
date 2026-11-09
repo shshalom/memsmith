@@ -51,6 +51,7 @@
           "usage/read-only-mode",
           "usage/hook-switches",
           "usage/incognito",
+          "usage/transcript-watcher",
           "usage/private-tags",
           "usage/secret-redaction",
           "modes"
@@ -98,7 +99,6 @@
           "architecture/hooks",
           "progressive-disclosure",
           "context-engineering",
-          "file-read-gate",
           "smart-explore-benchmark"
         ]
       },

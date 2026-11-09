@@ -1,5 +1,5 @@
 ---
-title: "Architecture Overview"
+title: "Architecture overview"
 description: "System components and data flow in MemSmith"
 ---
 
@@ -33,7 +33,7 @@ The server listens on `127.0.0.1`. Its default port is derived from your user ID
 | **Database** | Postgres with pgvector |
 | **HTTP server** | Express 5 |
 | **UI** | React and TypeScript |
-| **Generation** | Claude Agent SDK, Gemini, OpenRouter, or Ollama |
+| **Generation** | Direct calls to the Anthropic Messages API, Gemini, OpenRouter, or Ollama |
 | **Build** | esbuild |
 | **Testing** | `bun test` |
 
@@ -67,7 +67,7 @@ At session start, the context hook injects recent and relevant observations. Dur
 | Setup | `*` | `version-check.js` (checks the `.install-version` marker; installs plugin dependencies with Bun on first run) |
 | SessionStart | `startup\|clear\|compact` | Starts the server, then `context` (context injection) |
 | UserPromptSubmit | | `session-init`, `prompt-injection`, `record-intent` |
-| PreToolUse | `Read` | `file-context` (File Read Gate; injects nothing at present) |
+| PreToolUse | `Read` | `file-context` (injects nothing at present) |
 | PreToolUse | `Grep\|Glob\|WebSearch` | `discovery-gate` (opt-in team memory injection; off by default) |
 | PreToolUse | `mcp__plugin_memsmith_mem__.*` and `Grep\|Glob\|Read\|Bash\|WebSearch` | `tool-intent` (memory-first gate) |
 | PreToolUse | `Task\|Agent` | `agent-directive` |

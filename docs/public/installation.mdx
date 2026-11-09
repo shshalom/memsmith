@@ -50,8 +50,10 @@ To do the setup yourself instead, run `npx memsmith install`.
 | Option | Description |
 |--------|-------------|
 | `--ide <id>` | Sets up one IDE. IDs: `claude-code`, `cursor`, `opencode`, `windsurf`, `codex-cli`, `copilot-cli`, `antigravity`, `goose`, `roo-code`, `warp`. |
-| `--provider <name>` | Sets the generation provider without the prompt: `ollama` (the default), `claude`, `gemini`, or `openrouter`. For Ollama, the installer only checks it and prints the fix commands; it doesn't install or download anything. |
+| `--provider <name>` | Sets the generation provider without the prompt: `claude` (the default), `ollama`, `gemini`, or `openrouter`. For Ollama, the installer only checks it and prints the fix commands; it doesn't install or download anything. |
 | `--model <id>` | Sets the generation model for the chosen provider. |
+| `--local-backup` | With `--provider claude`, also installs the local Ollama backup (`gemma4:12b`, 8 GB) that takes over when Claude is unavailable. |
+| `--disable-auto-memory` | Turns off Claude Code's native auto-memory. |
 | `--setup-ollama` | Installs Ollama, starts it, and downloads the model without asking. On Linux without a terminal, the installer prints the install command instead of running it, because the script can prompt for `sudo`. |
 | `--runtime local\|server` | Selects the runtime. `local` (the default) runs an embedded Postgres; `server` connects to a team's MemSmith server. Add `--server-url <url>` for the server address. |
 | `--no-auto-start` | Skips starting the server at the end of the install. This option is unrelated to starting at login. |
@@ -104,7 +106,7 @@ The MemSmith server listens on `127.0.0.1`. Its default port is `38877 + (your u
 
 1. Run `memsmith status`. It shows whether the server is running, its address, and the dashboard URL.
 2. Run `memsmith doctor` to check Bun, uv, the plugin install, and the server. To repair problems it finds, run `memsmith doctor --fix`.
-3. Open the **Dashboard** address from `memsmith status`.
+3. Open the address on the `Dashboard:` line of `memsmith status`.
 
 Without a global install, prefix each command with `npx`, for example `npx memsmith status`.
 

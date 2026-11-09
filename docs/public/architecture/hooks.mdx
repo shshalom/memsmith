@@ -7,7 +7,7 @@ description: "The Claude Code hooks that MemSmith registers, what each one does,
 
 MemSmith observes a Claude Code session through command hooks. The hooks capture prompts and tool use, inject context, and enforce memory-first lookups. They never run generation. The MemSmith server turns captured events into observations.
 
-`plugin/hooks/hooks.json` registers every hook. Except for `Setup`, each entry runs the same command:
+`plugin/hooks/hooks.json` registers every hook. The `SessionStart` entries first run `server-service.cjs start` to start the server. Except for `Setup` and that start command, each entry runs the same command:
 
 ```
 node bun-runner.js server-service.cjs hook claude-code <handler>
@@ -74,7 +74,7 @@ Three hooks run on every prompt.
 
 ## PreToolUse
 
-**`file-context`** is the File Read Gate. It currently injects nothing. See [File Read Gate](/file-read-gate).
+**`file-context`** is the former File Read Gate. It currently injects nothing, because the server has no by-file endpoint. The hook stays registered on `Read`.
 
 **`tool-intent`** is the memory-first gate. It always allows the memory tools and records that the topic of a search was consulted. For `observation_search`, `observation_get`, and `observation_context`, it also marks the turn's information request as answered. For `Grep`, `Glob`, a `Bash` command that starts with `grep`, `rg`, `ag`, or `find`, and `WebSearch`, it checks whether memory was consulted for that topic:
 

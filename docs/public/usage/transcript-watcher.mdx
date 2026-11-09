@@ -1,0 +1,66 @@
+---
+title: "Transcript watcher"
+description: "Capture sessions from tools that write transcript files, with memsmith transcript watch"
+---
+
+# Transcript watcher
+
+The transcript watcher captures sessions from tools that write transcript files but don't run MemSmith hooks. It tails the files that you configure, turns each line into the same events that the hooks send, and runs the same capture handlers.
+
+```bash
+npx memsmith transcript watch
+```
+
+The command runs until you press Ctrl+C. It is one long-running process for all the files that it watches. Any other `transcript` subcommand prints `Unknown transcript subcommand` and exits with code 1. The command doesn't take a `--config` option.
+
+## Configure what to watch
+
+The watcher reads `~/.memsmith/transcript-watch.json`. If the file doesn't exist, the first run creates it with no schemas and no watches, so the watcher captures nothing until you add a watch.
+
+The repository ships `transcript-watch.example.json`, which defines a `codex` schema for Codex session files and one watch:
+
+```json
+{
+  "version": 1,
+  "watches": [
+    {
+      "name": "codex",
+      "path": "~/.codex/sessions/**/*.jsonl",
+      "schema": "codex",
+      "startAtEnd": true
+    }
+  ],
+  "stateFile": "~/.memsmith/transcript-watch-state.json"
+}
+```
+
+Copy the `schemas` section of the example into your file along with the watch.
+
+| Field | Meaning |
+|-------|---------|
+| `watches[].name` | Name of the source. MemSmith records it as the platform of the session. |
+| `watches[].path` | Glob of the transcript files to tail. `~` expands to your home folder. |
+| `watches[].schema` | Name of a schema in `schemas`, or an inline schema. |
+| `watches[].startAtEnd` | When `true`, a file that the watcher hasn't seen starts at its end, so old history isn't imported. |
+| `watches[].project`, `workspace` | Project name and workspace to use when the transcript doesn't provide them. |
+| `stateFile` | File that stores the read offset of each transcript, so a restart continues where it stopped. The default is `~/.memsmith/transcript-watch-state.json`. |
+
+A schema maps lines of a transcript to events. Each event has a `match` rule, an `action`, and `fields` that read values from the line. The actions are `session_init`, `session_context`, `user_message`, `assistant_message`, `tool_use`, `tool_result`, `observation`, `file_edit`, and `session_end`. The example file shows a complete schema.
+
+## What it captures
+
+For each session, the watcher runs the `session-init`, `observation`, `file-edit`, and `summarize` handlers with the transcript's content, so a watched session produces prompts, tool use, file edits, and a summary, the same as a hooked session. MemSmith redacts secrets from that content the same way.
+
+Native Codex hooks and the watcher can overlap. The Codex installer turns off the legacy `AGENTS.md` context mode of a `codex` watch in `transcript-watch.json`.
+
+## Read-only access and hook switches
+
+The watcher follows the `MEMSMITH_ACCESS` and `MEMSMITH_HOOKS_DISABLED` values of its own environment, or the defaults in `settings.json`, not the values of each session that it reads. It reads them when it starts, so restart the watcher after you change them. With `MEMSMITH_ACCESS=read`, the capture handlers skip every event. See [Read-only mode](/usage/read-only-mode) and [Hook switches](/usage/hook-switches).
+
+## Incognito mode
+
+The watcher runs the same `session-init` and `observation` handlers, so the incognito state file of a session applies to the tool use that the watcher captures. The watcher has no place to show the confirmation of a `/incognito` command, and MemSmith has not verified that command end to end for watched tools. To keep a watched session out of memory, run the watcher with `MEMSMITH_ACCESS=read`, or stop the watcher. See [Incognito mode](/usage/incognito).
+
+## Actor tags
+
+The watcher stamps the `MEMSMITH_ACTOR` of its own process, not an actor of the watched tool's session. See [Actor tags](/usage/actor-tags).
