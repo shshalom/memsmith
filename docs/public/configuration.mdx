@@ -1,269 +1,68 @@
 ---
 title: "Configuration"
-description: "Settings for MemSmith"
+description: "Where MemSmith reads settings from, and how to change them"
 ---
 
 # Configuration
 
-## Settings file
+MemSmith reads settings from four places. To see every setting and its default, see the [settings reference](/settings-reference).
 
-MemSmith reads its settings from `~/.memsmith/settings.json` and creates the file with defaults on first run. An environment variable with the same name overrides the file. After you change a setting, run `memsmith restart`.
+## Where settings come from
 
-## Generation provider
+| Source | Location | Use it for |
+|--------|----------|------------|
+| Environment variable | The shell or process that starts the session or server | A value for one session, such as `MEMSMITH_ACCESS=read claude`. |
+| Settings file | `~/.memsmith/settings.json` | A default for every session. MemSmith creates the file with defaults on first run and sets its mode to `0600`. |
+| Key file | `~/.memsmith/.env` | The Anthropic API key that the installer saves as `ANTHROPIC_API_KEY`. |
+| Dashboard | The **Settings** tab of the [dashboard](/dashboard) | A subset of the generation and search settings, saved as team overrides. |
 
-The generation provider turns captured session activity into memories. The default is Claude Haiku 5.5, which needs an Anthropic API key. Ollama runs a local model on your machine and needs no API key. `npx memsmith install` asks which provider to use and writes these settings. A provider that you choose on the dashboard **Settings** tab overrides the settings file.
+An environment variable with the same name as a setting overrides `settings.json`. For the settings on the dashboard **Settings** tab, a value that you save on the dashboard overrides both. To use a different directory for all MemSmith files, set `MEMSMITH_DATA_DIR`.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_SERVER_PROVIDER` | `claude` | Generation provider: `ollama`, `claude`, `gemini`, or `openrouter`. |
-| `MEMSMITH_SERVER_MODEL` | `claude-haiku-5-5` | Model that the provider runs. Set a model that belongs to the provider, for example `gemma4:12b` for `ollama`. |
-| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL. The provider calls Ollama's native `/api/chat` endpoint at the host of this URL. |
-| `MEMSMITH_OLLAMA_MODEL` | `gemma4:12b` | Ollama model. The installer keeps it equal to `MEMSMITH_SERVER_MODEL`. With the `ollama` provider, a `MEMSMITH_SERVER_MODEL` that you set wins over this value. |
-| `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. [Get a key](https://aistudio.google.com/apikey). |
-| `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key. [Get a key](https://openrouter.ai/keys). |
-| `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint. Empty means OpenRouter. |
+## Change a setting
 
-The Anthropic API key for the `claude` provider lives in `~/.memsmith/.env` as `ANTHROPIC_API_KEY`, not in `settings.json`. The server calls the Anthropic Messages API directly, so the `claude` provider needs an API key; a Claude subscription or a Claude gateway doesn't work for generation. To use an OpenAI-compatible gateway such as LiteLLM, choose `openrouter` and set `MEMSMITH_OPENROUTER_BASE_URL`.
+1. Open `~/.memsmith/settings.json`. Keep it valid JSON with one flat object.
+2. Add or change the key, for example `"MEMSMITH_LOG_LEVEL": "DEBUG"`.
+3. Run `memsmith restart`.
 
-For each API key, a MemSmith variable in the environment (`MEMSMITH_ANTHROPIC_API_KEY`, `MEMSMITH_GEMINI_API_KEY`, `MEMSMITH_OPENROUTER_API_KEY`) wins over the saved key, and the saved key wins over a generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`).
+The hooks read `settings.json` each time they run, so hook settings such as `MEMSMITH_ACCESS`, `MEMSMITH_HOOKS_DISABLED`, and `MEMSMITH_ACTOR` apply to the next hook without a restart. The MCP server and the transcript watcher read them when they start, so restart the Claude Code session to apply a change there.
 
-A shell `ANTHROPIC_API_KEY` alone doesn't turn on Claude generation, because it can come from an unrelated project. MemSmith uses it only when you choose the provider with the `MEMSMITH_SERVER_PROVIDER` environment variable or on the dashboard **Settings** tab. To use Claude otherwise, save the key with `npx memsmith install` or set `MEMSMITH_ANTHROPIC_API_KEY`.
+The installer asks for the generation provider and writes `MEMSMITH_SERVER_PROVIDER` and `MEMSMITH_SERVER_MODEL`. To change them later, rerun `npx memsmith install`, edit the file, or choose a provider on the dashboard.
 
-Existing installs keep their provider. When the server starts and the settings file has no `MEMSMITH_SERVER_PROVIDER`, MemSmith pins the install to Ollama with its current model (`MEMSMITH_OLLAMA_MODEL`, or `qwen2.5:14b` if unset). If your install runs Ollama, `memsmith update` offers the switch to Claude Haiku 5.5 with a local `gemma4:12b` backup once, in an interactive terminal. A non-interactive update prints a tip instead. Installs that already use another provider see no offer.
+## Choose a topic
 
-The Ollama provider uses a fixed context of 20,480 tokens and turns thinking off. Without a fixed context, Ollama sizes the context itself, up to 256k tokens for Gemma 4, which multiplies RAM use. `gemma4:12b` needs an 8 GB download and about 9.7 GB of RAM while loaded.
+| To do this | Read |
+|------------|------|
+| Choose or change the generation provider, or set up the local backup | [Generation providers](/providers) |
+| Tune generation quality, retries, and caps | [Generation queue and quality](/generation) |
+| Pick the local or team runtime, or change a port | [Runtimes](/runtimes) |
+| Control which folder uses which project | [Projects](/usage/projects) |
+| Record nothing in a session | [Read-only mode](/usage/read-only-mode) |
+| Turn off individual hook features | [Hook switches](/usage/hook-switches) |
+| Label memory by author | [Actor tags](/usage/actor-tags) |
+| Keep content out of memory | [Private tags](/usage/private-tags), [Secret redaction](/usage/secret-redaction), and [Incognito mode](/usage/incognito) |
+| Change the observation types or the language | [Modes and languages](/modes) |
+| Turn memory-first enforcement on or off | `npx memsmith enforcement on\|off\|status` in the [CLI reference](/cli-reference#enforcement) |
+| Look up a single setting | [Settings reference](/settings-reference) |
 
-Earlier versions of the installer wrote `MEMSMITH_PROVIDER`, `MEMSMITH_MODEL`, and `MEMSMITH_CLAUDE_AUTH_METHOD`. Generation never read them, and MemSmith ignores them.
+## Check the effective configuration
 
-For provider guides, see [Gemini](/usage/gemini-provider) and [OpenRouter](/usage/openrouter-provider).
+To see the effective memory access, the turned-off hook features, and the generation provider that the running server resolves, run `memsmith doctor`. For the server address and the project of the current folder, run `memsmith status`.
 
-### Local backup
-
-When Claude fails, MemSmith runs the same job on a local Ollama model, so a Claude outage doesn't stop memory capture.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_SERVER_FALLBACK` | `ollama` | Backup provider: `ollama`, or `none` to turn failover off. |
-| `MEMSMITH_SERVER_FALLBACK_MODEL` | `gemma4:12b` | Ollama model that the backup runs. |
-
-Failover behaves as follows:
-
-- Any Claude error triggers it. If the backup also fails, MemSmith reports Claude's error and normal retries apply.
-- After a Claude failure, jobs go to the backup first for 5 minutes.
-- With no Anthropic API key, MemSmith uses the backup only.
-- Failover never goes from a local model to a cloud one. If you choose `ollama` as the provider, there is no cloud backup.
-
-### Check generation
-
-To confirm that the configured provider can generate, run `memsmith doctor`. When the server is running, the check uses the provider it resolves, including a dashboard override. The **Generation** check reports whether Ollama is reachable and has the model, or whether a hosted provider's API key is present. `memsmith doctor --fix` starts an installed Ollama and downloads a missing model; it doesn't install Ollama.
-
-## Runtime and server
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_RUNTIME` | `local` | `local` runs an embedded Postgres on this machine. `server` connects to a team's MemSmith server. |
-| `MEMSMITH_SERVER_URL` | `http://127.0.0.1:<38877 + uid % 100>` | Address of the MemSmith server. The CLI and hooks read it from here. |
-| `MEMSMITH_SERVER_API_KEY` | empty | API key the hooks send to the server. The installer sets it. |
-| `MEMSMITH_SERVER_PROJECT_ID` | empty | Default project ID for the server runtime. |
-| `MEMSMITH_DATA_DIR` | `~/.memsmith` | Root directory for settings, logs, and the embedded Postgres data. |
-| `MEMSMITH_LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
-
-## Projects
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_PROJECT_SEARCH_ROOTS` | empty | Comma-separated absolute folders, such as `~/Workspace,/opt/code`. Inside a search root, a repository without its own marker uses the nearest marker above its git root, up to and including the search root. MemSmith expands `~/` and ignores `~` itself, `~user` paths, relative paths, and folders that don't exist; `memsmith project` lists what it ignored. Outside every search root, and when the setting is empty, a folder inside git stops at its git root, and a folder outside git searches up to, but not including, your home folder. |
-
-For the full resolution rules, see [Projects](/usage/projects).
-
-The embedded Postgres listens on port `55433`. To change it, set the `MEMSMITH_LOCAL_PG_PORT` environment variable.
-
-The embedded Postgres binaries live in `~/.memsmith/pg-binaries`, shared by every data directory. To use another folder, set the `MEMSMITH_PG_BINARIES_DIR` environment variable.
-
-## Capture
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_MODE` | `code` | Mode profile for observation types and language. The server always loads the `code` profile and ignores this setting. See [Modes and languages](/modes). |
-| `MEMSMITH_SKIP_TOOLS` | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Tools that are never recorded. |
-| `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that are never captured. |
-| `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, only matching projects are captured. |
-| `MEMSMITH_ACTOR` | empty | Name that MemSmith stamps on every event, observation, and note that the session captures, so you can filter memory by who wrote it. See [Actor tags](#actor-tags). |
-
-### Actor tags
-
-An actor tag records which agent or role wrote a memory. To tag a session, set `MEMSMITH_ACTOR` in the environment before you start it:
-
-```bash
-MEMSMITH_ACTOR=reviewer claude
-```
-
-The environment variable overrides `MEMSMITH_ACTOR` in `settings.json`, so the setting works as a default for every session. To opt one session out of the default, set the variable to an empty value: `MEMSMITH_ACTOR= claude`.
-
-MemSmith trims the name. It ignores a name that is longer than 64 characters or that contains a control character, a line or paragraph separator, a bidirectional text control, a middle dot (`·`), or a comma, and it logs one warning per process. `memsmith note` refuses to save with such a name.
-
-When no actor is configured, an event from a Claude Code subagent takes the subagent type, such as `code-reviewer`, as its actor. Events from the main session then have no actor.
-
-#### What gets an actor
-
-MemSmith stamps the actor on:
-
-- Tool-use and file-edit events that the MemSmith hooks capture, including events that wait in the local spool while the server is down.
-- The last-assistant-message event that the `Stop` hook records.
-- Notes and observations that the MCP tools write (`note_add`, `observation_add`, and `observation_record_event`), that `memsmith note` writes, and that the record-intent backstop writes.
-- Observations generated from those events.
-
-MemSmith doesn't stamp an actor on session records, and prompts aren't stored as events, so neither has one. Codex sessions that MemSmith reads through the transcript watcher take the actor of the watcher process, not of the Codex session. The OpenCode plugin doesn't stamp an actor.
-
-MemSmith stores the actor in the record's metadata:
-
-- A captured event, a note, or a directly added observation has `actor`.
-- An observation generated from events has `actors`, which lists every distinct actor of its source events. It has `actor` only when one actor wrote every source event. When some source events have no actor, it has `unattributed: true` instead, so a summary of a long main-session conversation isn't credited to a subagent that ran briefly in it.
-
-<Warning>
-The actor is self-reported. The MCP tools replace any `actor` or `actors` that the agent passes with the session's own `MEMSMITH_ACTOR`, but anyone who holds an API key can write any actor through the `/v1` API. Use actor tags to organize memory, not to prove who wrote it.
-</Warning>
-
-#### Filter by actor
-
-To filter by actor, pass `actor` to the `observation_search` and `observation_context` MCP tools or to the `search` and `context` tools of the hosted `/v1/mcp` link, pass `--actor <name>` to `memsmith search`, or send `actor` in a `POST /v1/search` or `POST /v1/context` request. The filter is an exact, case-sensitive match on `actor` or membership in `actors`. A blank `actor` is an error.
-
-Records saved before actor tags existed have no actor, so an actor filter excludes them.
-
-The filter also applies to the newer versions of records. When a record matches but a record by another actor supersedes it, search returns the matching record marked as superseded, without the newer version. `observation_context` and `POST /v1/context` serve only the newest version, so they return neither.
-
-## Read-only mode and hook switches
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs a warning, uses `write`, and `memsmith doctor` flags the value. |
-| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs a warning for each unknown name and ignores it. |
-
-An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
-
-Each MemSmith process logs a warning about a value once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
-
-Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read both settings when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
-
-### Read-only mode
-
-In read-only mode, MemSmith does the following:
-
-- Skips every capture hook: prompts, tool use, file edits, the end-of-turn summary, and transcript capture. Nothing goes to the server, and nothing goes to the local capture spool.
-- Leaves `note_add`, `observation_add`, and `observation_record_event` out of the MCP tool list, and refuses a call to any of them with this error: `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`
-- Answers a request such as "remember that..." with a notice that memory is read-only, instead of saving it.
-- Replaces the record-intent directive, which tells the agent to call `note_add`, with a read-only notice in the session-start context and in the directives that subagents receive.
-- Never creates or registers a project, and never applies a pending team join. In a folder that has no MemSmith project yet, the read tools report that the folder has no project, unless `MEMSMITH_SERVER_PROJECT_ID` names a project for every folder.
-- Keeps reading: session-start context, `observation_search`, `observation_get`, `observation_context`, the memory-first gate, and the answer gate work as usual, unless you turn them off with `MEMSMITH_HOOKS_DISABLED`.
-
-The setting belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
-
-Read-only access is advisory. It stops MemSmith's hooks and tools from writing, but it is not a security boundary: an agent that can run shell commands can still call the server API directly.
-
-Claude Code runs only the server start-up hook when it resumes a session, so a resumed session doesn't get the read-only notice in its context. The write tools stay hidden and refuse calls, as in any read-only session.
-
-The transcript watcher (`memsmith transcript watch`), which captures sessions from tools that write transcript files, is a single long-running process for all sessions. It follows the `MEMSMITH_ACCESS` value of its own environment, or the `settings.json` default, not the value of each session that it reads.
-
-For example, a coordinator agent records what the team learns, and the worker agents that it launches only read. Start the coordinator as usual, and start each worker with `MEMSMITH_ACCESS=read`:
-
-```bash
-# Coordinator: reads and writes memory.
-claude
-
-# Worker: reads memory, records nothing.
-MEMSMITH_ACCESS=read claude
-```
-
-To make read-only the default and let one session write, set the default in `settings.json` and override it for that session:
-
-```json
-{
-  "MEMSMITH_ACCESS": "read"
-}
-```
-
-```bash
-MEMSMITH_ACCESS=write claude
-```
-
-### Hook features
-
-Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the hook's neutral result right away, so the tool call, prompt, or turn continues as if MemSmith were not there.
-
-| Feature | Hook | What turning it off skips |
-|---------|------|---------------------------|
-| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. The `/incognito` command, the incognito reminder, and pending team joins keep working, and MemSmith still creates and registers the folder's project and its marker. To stop that too, use `MEMSMITH_ACCESS=read`. |
-| `summary` | `Stop` | Only the end-of-turn summary. |
-| `context` | `SessionStart` | Session-start context injection. |
-| `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. This hook also marks the request that the answer gate waits for, so turning it off also stops the answer gate from holding back an answer. |
-| `record-intent` | `UserPromptSubmit`, `PreToolUse` | The record-intent backstop, which saves a "remember this" request when the agent doesn't, and the rewrite that marks an `observation_add` call from that turn as a user note. |
-| `answer-gate` | `Stop` | The answer gate, which in hard enforcement mode holds back an answer about past work until the agent has searched memory. The end-of-turn summary still runs. |
-| `memory-first-gate` | `PreToolUse` | The memory-first gate on `Grep`, `Glob`, `Read`, `Bash`, and `WebSearch`. Calls to the memory tools still count as a memory search for the answer gate. |
-| `discovery-context` | `PreToolUse` | Team-memory injection before the tools listed in `MEMSMITH_GATE_TOOLS`. |
-| `file-context` | `PreToolUse` | The file-context hook on `Read`. |
-| `subagent-directive` | `PreToolUse` | The memory directives that MemSmith adds when the agent starts a subagent. |
-
-For example, to turn off session-start context and the answer gate for one session, run the following command:
-
-```bash
-MEMSMITH_HOOKS_DISABLED=context,answer-gate claude
-```
-
-To check the effective access and the turned-off features, run `memsmith doctor`. It also lists any names that it doesn't know. `memsmith status` shows an `Access:` line when access is `read`.
-
-## Context injection
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_CONTEXT_OBSERVATIONS` | `50` | Maximum observations injected at session start. |
-| `MEMSMITH_CONTEXT_SESSION_COUNT` | `10` | Number of recent sessions that session-start context draws from. |
-| `MEMSMITH_SEMANTIC_INJECT` | `true` | Turns on memory-first enforcement: the answer-from-memory directive for prompts that clearly ask about past work, and the `tool-intent` gate on code and web searches. `false` turns both off. No prompt or tool call ever gets memories injected. |
-| `MEMSMITH_SEMANTIC_INJECT_LIMIT` | `5` | How many observations the check behind the answer-from-memory directive looks at to tell whether memory has a record of the question. Nothing is injected. |
-| `MEMSMITH_RETRIEVAL_ENFORCEMENT` | `hard` | `hard` blocks the first code or web search on a topic until Claude consults memory on it, and sends Claude back once when it answers a question about past work without searching memory. `soft` reminds instead of blocking. When memory can't be reached, neither mode blocks. To change it, run `npx memsmith enforcement on` or `npx memsmith enforcement off`. |
-| `MEMSMITH_USER_NOTE_BOOST` | `true` | Ranks user notes ahead of other observations in search results. |
-| `MEMSMITH_WELCOME_HINT_ENABLED` | `true` | Shows a hint during your first session in a project. |
-
-## Team memory
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_TEAM_INJECT` | `false` | Injects team memory at session start. |
-| `MEMSMITH_TEAM_SERVER_URL` | empty | Team server that team memory is read from. |
-| `MEMSMITH_TEAM_API_KEY` | empty | Read-scoped key for the team server. |
-
-## Folder context files
-
-MemSmith can generate `CLAUDE.md` files in your project folders with recent activity. This feature is off by default.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MEMSMITH_FOLDER_CLAUDEMD_ENABLED` | `false` | Generates folder `CLAUDE.md` files. |
-| `MEMSMITH_FOLDER_USE_LOCAL_MD` | `false` | Writes `CLAUDE.local.md` instead of `CLAUDE.md`. |
-
-For details, see [Folder context files](/usage/folder-context).
-
-## Telemetry
-
-MemSmith sends no telemetry unless you set `MEMSMITH_TELEMETRY_KEY`. For details, see [Telemetry](/telemetry).
-
-## Server management
-
-The server starts automatically at the beginning of a session. To manage it yourself, run `memsmith start`, `memsmith stop`, `memsmith restart`, or `memsmith status`. To diagnose and repair the install, run `memsmith doctor --fix`. To start MemSmith when you log in, run `memsmith autostart enable`; see [Start at login](/installation#start-at-login).
-
-## Troubleshooting configuration
+## Troubleshoot configuration
 
 ### A change has no effect
 
 1. Confirm that `~/.memsmith/settings.json` is valid JSON.
-2. Confirm that no environment variable with the same name overrides it.
-3. Run `memsmith restart`.
+2. Confirm that no environment variable with the same name overrides it. Hooks started by Claude Code use the environment of the Claude Code process, which can differ from your shell.
+3. If the setting is on the dashboard **Settings** tab, check that a saved dashboard value doesn't override it.
+4. Run `memsmith restart`.
 
 ### The server port is in use
 
-Set `MEMSMITH_SERVER_URL` to `http://127.0.0.1:<free-port>` and run `memsmith restart`.
+Set `MEMSMITH_SERVER_URL` to `http://127.0.0.1:<free-port>` in `settings.json`, then run `memsmith restart`.
 
 ## Next steps
 
-- [Modes and languages](/modes)
-- [Telemetry](/telemetry)
+- [Settings reference](/settings-reference)
+- [CLI reference](/cli-reference)
 - [Troubleshooting](/troubleshooting)

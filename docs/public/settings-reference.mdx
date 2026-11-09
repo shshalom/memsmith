@@ -1,0 +1,157 @@
+---
+title: "Settings reference"
+description: "Every MemSmith setting and environment variable, with its default and effect"
+---
+
+# Settings reference
+
+This page lists every setting that changes MemSmith behavior. For how to change a setting, see [Configuration](/configuration).
+
+A setting name is also its environment variable name. Unless a table says otherwise, the environment variable overrides `~/.memsmith/settings.json`, and `settings.json` overrides the default.
+
+## Generation
+
+These settings choose the model that turns captured activity into observations. For setup steps, see [Generation providers](/providers).
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_SERVER_PROVIDER` | `claude` | Generation provider: `claude`, `gemini`, `openrouter`, or `ollama`. A provider that you choose on the dashboard **Settings** tab overrides this value. |
+| `MEMSMITH_SERVER_MODEL` | `claude-haiku-5-5` | Model that the provider runs. Set a model that belongs to the provider, for example `gemma4:12b` for `ollama`. |
+| `MEMSMITH_SERVER_FALLBACK` | `ollama` | Backup provider for when a hosted provider fails: `ollama`, or `none` to turn failover off. Failover never goes from a local model to a cloud model. |
+| `MEMSMITH_SERVER_FALLBACK_MODEL` | `gemma4:12b` | Ollama model that the backup runs. The model must already be pulled into Ollama. |
+| `MEMSMITH_ANTHROPIC_API_KEY` | empty | Anthropic API key for the `claude` provider. The saved key is `ANTHROPIC_API_KEY` in `~/.memsmith/.env`. |
+| `MEMSMITH_GEMINI_API_KEY` | empty | Gemini API key. |
+| `MEMSMITH_OPENROUTER_API_KEY` | empty | OpenRouter API key, or the key for the OpenAI-compatible endpoint in `MEMSMITH_OPENROUTER_BASE_URL`. |
+| `MEMSMITH_OPENROUTER_BASE_URL` | empty | Any OpenAI-compatible endpoint, such as a LiteLLM gateway. Empty means OpenRouter. |
+| `MEMSMITH_OLLAMA_URL` | `http://localhost:11434/v1` | Ollama base URL. MemSmith calls Ollama's native `/api/chat` endpoint at the host of this URL. |
+| `MEMSMITH_OLLAMA_MODEL` | `gemma4:12b` | Ollama model. With the `ollama` provider, a `MEMSMITH_SERVER_MODEL` that you set wins over this value. |
+
+For each API key, the MemSmith variable wins over the saved key, and the saved key wins over the generic shell variable (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`). A shell `ANTHROPIC_API_KEY` alone doesn't turn on Claude generation.
+
+## Generation quality and cost
+
+These settings are also on the dashboard **Settings** tab. They resolve in this order: a team override that you save on the dashboard, the environment variable, `settings.json`, and the default. The **Applies** column shows whether a change needs `memsmith restart`.
+
+| Setting | Default | Range | Applies | Effect |
+|---------|---------|-------|---------|--------|
+| `MEMSMITH_SKIP_AGENT_PLUMBING` | `true` | boolean | Live | Skips activity where the assistant only drives its own tooling, such as MCP servers, todo lists, and plan mode. Tools whose output is project knowledge, such as `Read`, `Grep`, `Edit`, and `Bash`, are always kept. |
+| `MEMSMITH_QUALITY_FLOOR` | `20` | 0 to 100 | Live | Discards a generated observation whose quality score is below this value. `0` keeps everything. |
+| `MEMSMITH_REFORMAT_RETRIES` | `1` | 0 to 5 | Live | Asks the model to try again, up to this many times, when its output doesn't parse. |
+| `MEMSMITH_TIERING` | `true` | boolean | Live | Compresses older observations to shorter summaries so more of them fit in the session-start budget. |
+| `MEMSMITH_INPUT_RATE_PER_MTOK` | `5` | 0 to 1000 | Live | Price per million input tokens. MemSmith uses it only to estimate savings. It doesn't change what you pay. |
+| `MEMSMITH_MONTHLY_TOKEN_CAP` | `0` | 0 to 1,000,000,000 | Restart | Hard limit on generation tokens per calendar month. `0` turns the cap off. |
+| `MEMSMITH_MONTHLY_REQUEST_CAP` | `0` | 0 to 100,000,000 | Restart | Hard limit on generation requests per calendar month. `0` turns the cap off. |
+| `MEMSMITH_RATE_LIMIT_PER_MIN` | `0` | 0 to 100,000 | Restart | Requests per minute for each API key. `0` turns the limit off. |
+
+For how generation works, see [Generation queue and quality](/generation).
+
+## Search and ranking
+
+| Setting | Default | Range | Effect |
+|---------|---------|-------|--------|
+| `MEMSMITH_SEARCH_HYBRID` | `true` | boolean | Blends keyword and semantic ranking. `false` uses keywords only, which misses paraphrases. |
+| `MEMSMITH_FTS_WEIGHT` | `0.3` | 0 to 1 | Weight of exact keyword matches in the hybrid blend. |
+| `MEMSMITH_VEC_WEIGHT` | `1` | 0 to 1 | Weight of meaning-based vector similarity in the hybrid blend. |
+| `MEMSMITH_RRF_K` | `60` | 1 to 1000 | Reciprocal rank fusion constant. Lower values let the top hits of each list dominate. |
+| `MEMSMITH_SUPERSEDE_MAX_DEPTH` | `20` | 1 to 200 | Maximum number of links to follow when a newer observation supersedes an older one. |
+| `MEMSMITH_USER_NOTE_BOOST` | `true` | boolean | Moves user notes ahead of other observations in a result set. |
+| `MEMSMITH_QUERY_EXPANSION` | unset | `1` | Set to `1` to expand search queries with related terms. Environment only. |
+
+## Runtime and server
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_RUNTIME` | `local` | `local` runs an embedded Postgres on this machine. `server` connects to a team's MemSmith server. `worker` is a legacy alias for `local`. |
+| `MEMSMITH_SERVER_URL` | `http://127.0.0.1:<38877 + uid % 100>` | Address of the MemSmith server. The CLI and the hooks read it from here. |
+| `MEMSMITH_SERVER_PORT` | `38877 + uid % 100` | Port that the server listens on. Environment only. |
+| `MEMSMITH_SERVER_HOST` | `127.0.0.1` | Interface that the server listens on. Environment only. |
+| `MEMSMITH_SERVER_API_KEY` | empty | API key that the hooks send to the server. The installer sets it. |
+| `MEMSMITH_SERVER_PROJECT_ID` | empty | Project that every folder uses on the server runtime. Leave it empty on the local runtime. |
+| `MEMSMITH_LOCAL_PG_PORT` | `55433` | Port of the embedded Postgres. Environment only. MemSmith never picks another port. |
+| `MEMSMITH_PG_BINARIES_DIR` | `~/.memsmith/pg-binaries` | Where the embedded Postgres keeps its binaries. Environment only. |
+| `MEMSMITH_DATA_DIR` | `~/.memsmith` | Root directory for settings, logs, and the embedded Postgres data. Environment only. |
+| `MEMSMITH_IDENTITY_PROVIDER` | `local` | `local` treats a loopback request as the local owner with no login. `better-auth` turns on session authentication. Applies after a restart. |
+| `MEMSMITH_QUEUE_ENGINE` | `inline` | Generation queue: `inline`, `bullmq`, or `sqlite`. The team server page describes `bullmq`. |
+| `MEMSMITH_REDIS_URL` | empty | Redis or Valkey URL for the `bullmq` queue. |
+
+For the runtimes, see [Runtimes](/runtimes). For team server variables such as `MEMSMITH_SERVER_DATABASE_URL`, `MEMSMITH_AUTH_MODE`, and `MEMSMITH_PUBLIC_URL`, see [Team server](/hosted-server).
+
+## Projects
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_PROJECT_SEARCH_ROOTS` | empty | Comma-separated absolute folders, such as `~/Workspace,/opt/code`. Inside a search root, a repository without its own marker uses the nearest marker above its git root, up to and including the search root. |
+| `MEMSMITH_PROJECT_CWD` | current folder | Folder whose project the `memsmith search`, `get`, and `note` commands use. The hooks set it. Environment only. |
+| `MEMSMITH_EXCLUDED_PROJECTS` | empty | Comma-separated glob patterns for project paths that MemSmith never captures. |
+| `MEMSMITH_INCLUDED_PROJECTS` | empty | Comma-separated glob patterns. When set, MemSmith captures only matching paths. Exclusions still win. |
+
+For how a folder finds its project, see [Projects](/usage/projects).
+
+## Capture, privacy, and access
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session. See [Read-only mode](/usage/read-only-mode). |
+| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated hook feature names to turn off. See [Hook switches](/usage/hook-switches). |
+| `MEMSMITH_ACTOR` | empty | Name that MemSmith stamps on the events, observations, and notes that a session captures. See [Actor tags](/usage/actor-tags). |
+| `MEMSMITH_INCOGNITO_REMINDER_TURNS` | `10` | Number of prompts between "still incognito" reminders. See [Incognito mode](/usage/incognito). |
+
+## Session start and memory-first behavior
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_CONTEXT_SESSION_COUNT` | `10` | Number of recent observations that session-start context contains. MemSmith clamps the value to 1 through 50. |
+| `MEMSMITH_CONTEXT_SHOW_TERMINAL_OUTPUT` | `true` | Shows the session-start context in the terminal. |
+| `MEMSMITH_WELCOME_HINT_ENABLED` | `true` | Shows the first-session hint that the installer describes. `false` hides it. |
+| `MEMSMITH_SEMANTIC_INJECT` | `true` | Turns on memory-first enforcement: the answer-from-memory directive and the `tool-intent` gate. `false` turns both off. |
+| `MEMSMITH_SEMANTIC_INJECT_LIMIT` | `5` | Number of observations that the check behind the answer-from-memory directive reads. MemSmith injects none of them. |
+| `MEMSMITH_RETRIEVAL_MIN_HITS` | `1` | A search that returns fewer results than this marks the question as a memory gap. |
+| `MEMSMITH_RETRIEVAL_TIMEOUT_MS` | `2000` | Timeout of that check. On a timeout, memory counts as unavailable and nothing blocks. |
+| `MEMSMITH_RETRIEVAL_ENFORCEMENT` | `hard` | `hard` blocks the first code or web search on a topic until Claude consults memory, and sends Claude back once when it answers a question about past work without searching. `soft` reminds instead. Change it with `npx memsmith enforcement on\|off`. |
+| `MEMSMITH_RECORD_INTENT_BACKSTOP` | `true` | Saves a "remember this" request as a note when the agent doesn't call `note_add`. |
+| `MEMSMITH_HOOK_FAIL_LOUD_THRESHOLD` | `3` | Number of failed attempts to reach the server before a hook exits with code 2 and shows the failure. |
+
+## Team memory
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_TEAM_INJECT` | `false` | Injects team memory at session start. |
+| `MEMSMITH_TEAM_SERVER_URL` | empty | Team server that team memory is read from. |
+| `MEMSMITH_TEAM_API_KEY` | empty | Read-scoped key for the team server. |
+| `MEMSMITH_GATE_TOOLS` | empty | Comma-separated tool names that trigger the opt-in discovery gate. Empty or `none` turns the gate off. |
+
+## Logging, telemetry, and install
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. Logs are in `~/.memsmith/logs/`. |
+| `MEMSMITH_TELEMETRY_KEY` | unset | MemSmith sends no telemetry unless you set a key. See [Telemetry](/telemetry). |
+| `MEMSMITH_SKIP_BUN_INSTALL` | unset | Set to `1` to stop MemSmith from installing Bun when it's missing. |
+| `MEMSMITH_INSTALL_TIMEOUT_MS` | install default | Time budget of an install step, in milliseconds. Raise it on a slow host. |
+| `MEMSMITH_NO_BANNER` | unset | Set to any value to hide the installer banner. |
+| `MEMSMITH_NODE_PATH` | unset | Node.js executable that MemSmith uses for its MCP client. |
+| `MEMSMITH_ENV_FILE` | `~/.memsmith/.env` | File that holds the saved Anthropic key. |
+| `MEMSMITH_MODES_DIR` | unset | Extra folder to search for mode profiles. See [Modes and languages](/modes). |
+
+## Settings that have no effect
+
+`settings.json` can contain these keys, but the current runtime doesn't read them. Changing them does nothing.
+
+| Setting | Why |
+|---------|-----|
+| `MEMSMITH_MODEL`, `MEMSMITH_MODE` | The server always loads the `code` mode profile, and it takes its model from `MEMSMITH_SERVER_MODEL`. |
+| `MEMSMITH_SKIP_TOOLS` | Nothing reads it. Use `MEMSMITH_SKIP_AGENT_PLUMBING`. |
+| `MEMSMITH_GEMINI_MODEL`, `MEMSMITH_OPENROUTER_MODEL` | Use `MEMSMITH_SERVER_MODEL`. |
+| `MEMSMITH_GEMINI_RATE_LIMITING_ENABLED`, `MEMSMITH_OPENROUTER_SITE_URL`, `MEMSMITH_OPENROUTER_APP_NAME` | Nothing reads them. |
+| `MEMSMITH_CONTEXT_OBSERVATIONS` | Only the folder context generator reads it. Session-start context uses `MEMSMITH_CONTEXT_SESSION_COUNT`. |
+| `MEMSMITH_FOLDER_CLAUDEMD_ENABLED`, `MEMSMITH_FOLDER_USE_LOCAL_MD`, `MEMSMITH_FOLDER_MD_EXCLUDE`, `MEMSMITH_FOLDER_MD_SKELETON_DENYLIST` | Folder `CLAUDE.md` generation doesn't run. See [Folder context files](/usage/folder-context). |
+| `MEMSMITH_TIER_ROUTING_ENABLED`, `MEMSMITH_TIER_SIMPLE_MODEL`, `MEMSMITH_TIER_SUMMARY_MODEL`, `MEMSMITH_TIER_FAST_MODEL`, `MEMSMITH_TIER_SMART_MODEL` | Nothing reads them. |
+| `MEMSMITH_TRANSCRIPTS_ENABLED`, `MEMSMITH_TRANSCRIPTS_CONFIG_PATH`, `MEMSMITH_CODEX_TRANSCRIPT_INGESTION` | The transcript watcher takes its configuration from `~/.memsmith/transcript-watch.json`. |
+| `MEMSMITH_API_TIMEOUT_MS`, `MEMSMITH_MAX_CONCURRENT_AGENTS`, `MEMSMITH_PYTHON_VERSION`, `MEMSMITH_REDISCOVERY_LOG` | Nothing reads them. |
+| `MEMSMITH_WORKER_PORT`, `MEMSMITH_WORKER_HOST` | Legacy worker address. The server and the hooks ignore them, and only the OpenCode and Windsurf installers read the port. Use `MEMSMITH_SERVER_URL`. |
+
+## Next steps
+
+- [Configuration](/configuration)
+- [CLI reference](/cli-reference)
+- [Troubleshooting](/troubleshooting)

@@ -1,0 +1,219 @@
+---
+title: "CLI reference"
+description: "Every memsmith command, flag, and exit behavior"
+---
+
+# CLI reference
+
+The `memsmith` command installs MemSmith, manages the server, and reads and writes memory from a terminal. To install the command, run `npm install -g memsmith`. Without a global install, prefix each command with `npx`, for example `npx memsmith status`.
+
+To print the command list, run `memsmith help`, `memsmith --help`, or `memsmith -h`. To print the version, run `memsmith version`, `memsmith --version`, or `memsmith -v`.
+
+If the first argument is a flag, such as `npx memsmith --provider claude`, MemSmith runs `install` with that flag. Any other unknown command prints `Unknown command` and exits with code 1.
+
+## Command summary
+
+| Group | Commands |
+|-------|----------|
+| [Install and update](#install-and-update) | `install`, `repair`, `update`, `uninstall`, `version` |
+| [Server](#server) | `start`, `stop`, `restart`, `status`, `doctor`, `autostart` |
+| [Memory](#memory) | `search`, `get`, `note` |
+| [Projects](#projects) | `project`, `link`, `projects`, `merge` |
+| [Enforcement](#enforcement) | `enforcement` |
+| [Team server operations](#team-server-operations) | `server api-key`, `server keys rotate`, `server worker start`, `server jobs` |
+| [Other](#other) | `telemetry`, `transcript watch`, `antigravity-cli`, `worker` |
+
+## Install and update
+
+### install
+
+Installs the plugin, the runtime dependencies, and the server. Without flags, it runs interactively. `memsmith` with no command does the same.
+
+```bash
+npx memsmith install [options]
+```
+
+| Option | Effect |
+|--------|--------|
+| `--ide <id>` | Sets up one IDE. IDs: `claude-code`, `cursor`, `opencode`, `windsurf`, `codex-cli`, `copilot-cli`, `antigravity`, `goose`, `roo-code`, `warp`. |
+| `--provider <name>` | Sets the generation provider without the prompt: `claude`, `gemini`, `openrouter`, or `ollama`. Any other value prints `Unknown --provider` and exits with code 1. |
+| `--model <id>` | Sets the generation model for the chosen provider. |
+| `--setup-ollama` | Installs Ollama, starts it, and downloads its model without asking. |
+| `--local-backup` | With `--provider claude`, also installs the local Ollama backup that takes over when Claude is unavailable. |
+| `--runtime local\|server` | Selects the runtime. `local` runs an embedded Postgres, and is the default. `server` connects to a team server. `worker` is a legacy alias for `local`. |
+| `--server-url <url>` | With `--runtime server`, sets the team server address. |
+| `--no-auto-start` | Skips starting the server at the end of the install. |
+| `--start-at-login` | Registers MemSmith to start when you log in, without the prompt. |
+| `--no-start-at-login` | Skips the start-at-login prompt and registers nothing. |
+| `--disable-auto-memory` | Turns off Claude Code's native auto-memory. |
+
+For what the installer does and asks, see [Installation](/installation).
+
+### repair
+
+Reruns the Bun and uv setup and `bun install` in the plugin cache.
+
+```bash
+npx memsmith repair
+```
+
+### update
+
+Updates the CLI, the plugin, and the server to the latest version and keeps your settings. `upgrade` is an alias.
+
+```bash
+npx memsmith@latest update [--force] [--no-self-update]
+```
+
+| Option | Effect |
+|--------|--------|
+| `--force` | Reinstalls the plugin files even when they're current, or installs this CLI's version over a newer installed plugin. |
+| `--no-self-update` | Uses the CLI that you ran instead of checking npm for a newer one. |
+
+For the steps that `update` performs, see [Upgrade](/installation#upgrade).
+
+### uninstall
+
+Removes the plugin and its configuration, and the start-at-login entry. `remove` is an alias. Close all Claude Code sessions first.
+
+```bash
+npx memsmith uninstall
+```
+
+## Server
+
+These commands manage the MemSmith server. They need Bun and run the server script of the installed plugin.
+
+### start, stop, restart, and status
+
+```bash
+memsmith start [--timeout <s>]
+memsmith stop [--all]
+memsmith restart [--timeout <s>]
+memsmith status
+```
+
+| Command | Effect |
+|---------|--------|
+| `start` | Starts the server and waits until it's ready. If the server already runs, it prints the status and exits with code 0. `--timeout` is the number of seconds to wait, and it defaults to 300. When the wait ends, MemSmith stops the server that it started and exits with code 1. |
+| `stop` | Stops the server. Embedded Postgres keeps running, so the next start is fast. `--all` also stops embedded Postgres on the local runtime. |
+| `restart` | Stops the server and starts it again. It accepts `--timeout`. |
+| `status` | Prints the server state. It exits with code 1 when the server isn't running. |
+
+`status` prints `Server is running`, or `Server is starting`, with the PID, the address, the runtime, the server and plugin versions, the dashboard address, the Postgres state on the local runtime, the project of the current folder, and an `Access:` line when `MEMSMITH_ACCESS` is `read`. When the server isn't running, it prints `Server is not running` and the lines that it can still determine.
+
+An unknown option prints `Unknown option` with the usage line and exits with code 1. `memsmith <command> --help` prints the usage line.
+
+### doctor
+
+Checks the install and reports each problem with its remediation.
+
+```bash
+memsmith doctor [--fix]
+```
+
+The checks are **Bun runtime**, **uv (vector search)**, **Plugin installed**, **Marketplace deps**, **Server**, **Generation**, **Memory access**, **Disabled hooks**, **Stray markers**, **Locked databases**, **Unfinished merges**, and **Last install error**. The command exits with code 0 when every required check passes, and with code 1 otherwise, so you can use it in a script.
+
+With `--fix`, the command repairs what it can: it restarts or starts a stopped server, removes stale server state, reinstalls plugin dependencies, starts a stopped Ollama and downloads a missing model, and opens a project database that an interrupted prune left closed. It never changes project markers. After the repairs, it runs the checks again.
+
+### autostart
+
+Registers MemSmith to start when you log in.
+
+```bash
+memsmith autostart enable | disable | status
+```
+
+`enable` is idempotent. `disable` succeeds when nothing is registered. `status` exits with code 1 when the entry is registered but its script is missing. For the entry that each platform uses, see [Start at login](/installation#start-at-login).
+
+## Memory
+
+Run these commands from a project folder with the server running. They search the project that the current folder belongs to, or the folder in `MEMSMITH_PROJECT_CWD`. Each command accepts `--json`, which prints one JSON object to stdout and prints errors as `{ "error": { "code", "message" } }` with exit code 1.
+
+### search
+
+```bash
+memsmith search [--json] [--actor <name>] [--limit <n>] [--] <query>
+```
+
+Prints a ranked index of matching observations: id, date, type, title, and a snippet. `--limit` defaults to 10 and has a maximum of 25. `--actor` returns only records written by that actor, and with no query it lists that actor's most recent records. Put `--` before a query that starts with `--`.
+
+### get
+
+```bash
+memsmith get [--json] [--] <id> [<id>...]
+```
+
+Prints the full records for up to 10 observation ids from `search`.
+
+### note
+
+```bash
+memsmith note [--json] [--] <text>
+git log -1 --format=%B | memsmith note -
+```
+
+Saves a user note for the project, the same as the `note_add` tool. `-` reads the text from stdin as UTF-8, up to 5 MB. The command stamps the note with `MEMSMITH_ACTOR` when it's set. When `MEMSMITH_ACCESS` is `read`, it refuses and saves nothing.
+
+JSON error codes are `usage`, `invalid_actor`, `no_project`, `read_only`, `server_unreachable`, `server_timeout`, `auth_failed`, and `request_failed`. For output examples, see [Getting started](/usage/getting-started#search-your-history).
+
+## Projects
+
+These commands show and change which project a folder uses. For the rules and the output, see [Projects](/usage/projects).
+
+| Command | Effect |
+|---------|--------|
+| `memsmith project` | Shows which project the current folder uses, and why. |
+| `memsmith link [<id>\|<name>\|<path>] [--new] [--force]` | Pins the folder to a project by writing a marker. `--new` creates a fresh project. `--force` replaces a marker for a different project. |
+| `memsmith projects [--json]` | Lists every local project with its folders, record counts, and flags. |
+| `memsmith projects --prune [--yes]` | Lists, or with `--yes` removes, orphan databases and empty or merged projects, after a backup. |
+| `memsmith merge <from> <into> [--yes]` | Folds one local project's records into another. Without `--yes`, it previews the merge. |
+
+`projects`, `projects --prune`, and `merge` work with the local runtime only.
+
+## Enforcement
+
+```bash
+npx memsmith enforcement on | off | status
+```
+
+Sets the memory-first enforcement mode in `settings.json`. `on` (or `hard`) blocks the first code or web search on a topic until the agent consults memory. `off` (or `soft`) only reminds. `status`, the default, prints the mode that the hooks use and where it comes from: the default, `settings.json`, or the `MEMSMITH_RETRIEVAL_ENFORCEMENT` environment variable. The command runs in your shell, so it works while hard mode is blocking tool calls. For the full behavior, see the [architecture overview](/architecture/overview#memory-first-answering).
+
+## Team server operations
+
+These commands operate a team server. For deployment, see [Team server](/hosted-server).
+
+| Command | Effect |
+|---------|--------|
+| `memsmith server api-key create\|list\|revoke` | Manages API keys. `create` accepts `--scope`, `--team`, `--project`, `--name`, `--user`, and `--role`. `list` accepts `--team`, `--limit`, `--offset`, and `--active`. `revoke` takes a key id. |
+| `memsmith server keys rotate` | Creates a new key, saves it in `settings.json`, and revokes the previous key. It needs `MEMSMITH_SERVER_DATABASE_URL`. |
+| `memsmith server worker start` | Starts only the generation worker, with no HTTP listener. |
+| `memsmith server jobs status` | Shows queue lane counts. |
+| `memsmith server jobs failed [--limit N]` | Lists failed generation jobs. The default limit is 20. |
+| `memsmith server jobs retry <id>` | Enqueues a failed or cancelled job again. |
+| `memsmith server jobs cancel <id>` | Cancels a queued or running job. |
+
+The `server jobs` commands need `MEMSMITH_SERVER_DATABASE_URL`. They refuse to run unscoped: pass `--team <id>` or `--project <id>`, or set `MEMSMITH_SERVER_ADMIN=1`. `memsmith server start`, `stop`, `restart`, and `status` are the same as the top-level commands.
+
+## Other
+
+| Command | Effect |
+|---------|--------|
+| `npx memsmith telemetry status\|enable\|disable` | Shows or changes your anonymous telemetry choice. MemSmith sends nothing unless `MEMSMITH_TELEMETRY_KEY` is set. See [Telemetry](/telemetry). |
+| `npx memsmith transcript watch` | Starts the transcript watcher, which captures sessions from tools that write transcript files. It follows the `MEMSMITH_ACCESS` value of its own environment. |
+| `npx memsmith antigravity-cli install\|status\|uninstall` | Manages the Antigravity CLI hooks and MCP configuration. See [Antigravity CLI](/antigravity-cli/setup). |
+| `memsmith worker start\|stop\|restart\|status` | Deprecated alias for the top-level commands. It prints a deprecation notice. |
+
+`memsmith adopt` and `memsmith cleanup` belonged to the retired worker. They print `is not available in this version` and exit with code 1.
+
+## Environment variables that affect the CLI
+
+| Variable | Effect |
+|----------|--------|
+| `MEMSMITH_PROJECT_CWD` | Folder whose project `search`, `get`, and `note` use. |
+| `MEMSMITH_ACTOR` | Actor that `note` stamps. See [Actor tags](/usage/actor-tags). |
+| `MEMSMITH_ACCESS` | `read` makes `note` refuse and adds an `Access:` line to `status`. |
+| `MEMSMITH_SERVER_URL` | Server address that every command uses. |
+| `MEMSMITH_DATA_DIR` | Directory of the settings, logs, and data. |
+
+For all settings, see the [settings reference](/settings-reference).
