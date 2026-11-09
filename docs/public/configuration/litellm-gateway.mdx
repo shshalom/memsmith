@@ -50,7 +50,9 @@ Set these keys in `~/.memsmith/settings.json`:
 - `MEMSMITH_SERVER_MODEL` must match a `model_name` in the LiteLLM config. MemSmith doesn't translate model names.
 - `MEMSMITH_OPENROUTER_API_KEY` is the LiteLLM master key or a virtual key. MemSmith sends it as `Authorization: Bearer <key>`.
 
-Then run `memsmith restart`. A provider chosen on the dashboard **Settings** tab overrides `MEMSMITH_SERVER_PROVIDER` in the file.
+Run `memsmith restart` after you edit the file. A provider chosen on the dashboard **Settings** tab overrides `MEMSMITH_SERVER_PROVIDER` in the file.
+
+By default, MemSmith falls back to a local Ollama model when the gateway request fails. Set `MEMSMITH_SERVER_FALLBACK` to `none` to turn the backup off.
 
 ## Verify
 
@@ -58,5 +60,5 @@ Run `memsmith doctor`. The **Generation** check reports `openrouter · API key p
 
 ## Related
 
-- [Configuration](../configuration)
-- [OpenRouter Provider](../usage/openrouter-provider)
+- [Configuration](/configuration)
+- [OpenRouter provider](/usage/openrouter-provider)

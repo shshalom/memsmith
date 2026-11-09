@@ -1,108 +1,56 @@
 ---
-title: "Private Tags"
-description: "Control what gets stored in memory with privacy tags"
+title: "Private tags and secret redaction"
+description: "Keep content out of memory with private tags, and understand what MemSmith redacts automatically"
 ---
 
-# Private Tags
+# Private tags and secret redaction
 
-## Overview
+MemSmith keeps sensitive content out of memory in two ways:
 
-Use `<private>` tags to mark content you don't want persisted in memsmith's observation database. This gives you fine-grained control over what gets remembered across sessions.
+- **Private tags** remove text that you mark with `<private>` before MemSmith stores it.
+- **Secret redaction** replaces known secret patterns automatically, with no tags.
 
-## How It Works
+Neither method changes the live conversation. Claude sees the full text, including the tags, during the session.
 
-Wrap any content in `<private>` tags:
+## Private tags
+
+Wrap text in `<private>` tags to keep it out of memory:
 
 ```
 <private>
-This content will not be stored in memory
-</private>
-```
-
-Claude can see and use this content during the current session, but it won't be saved as an observation.
-
-## Use Cases
-
-### 1. Sensitive Information
-
-```
-Please analyze this error:
-
-<private>
-Error: Database connection failed
 Host: internal-db-prod.company.com
-Port: 5432
-User: admin_user
 </private>
 
-What might be causing this?
+Why does this connection fail?
 ```
 
-Claude sees the full error but only the question gets stored.
+MemSmith stores the question but not the wrapped text.
 
-### 2. Temporary Context
+### What MemSmith strips
 
-```
-<private>
-Here's some background context just for this session:
-- Project deadline is tomorrow
-- This is a hotfix for production
-- Manager asked for this specifically
-</private>
+MemSmith removes the tag, its attributes, and everything up to the closing tag. It strips these tags:
 
-Help me fix this bug quickly.
-```
+`private`, `memsmith-context`, `system_instruction`, `system-instruction`, `persisted-output`, and `system-reminder`.
 
-### 3. Debugging Information
+MemSmith strips them from:
 
-```
-<private>
-Debug output from previous run:
-[... 500 lines of logs ...]
-</private>
+- Your prompts, before it saves them or uses them for recall.
+- Tool inputs and tool responses, before it stores them as events.
+- The last assistant message that MemSmith uses for a summary.
+- The prompt that MemSmith sends to the generation provider. If every event in a batch is private, MemSmith skips generation for the batch.
+- Generated observations, as a final check. MemSmith drops an observation that has no text left.
 
-Based on these logs, what's the root cause?
-```
+### Rules and limits
 
-### 4. Exploratory Prompts
-
-```
-<private>
-I'm just brainstorming here, not making a final decision
-</private>
-
-What are some wild approaches to solving this?
-```
-
-## Technical Details
-
-### Tag Behavior
-
-- **Multiline support**: Tags can wrap multiple lines of content
-- **Multiple tags**: You can use multiple `<private>` sections in one message
-- **Nested tags**: Inner tags are included in outer tag removal
-- **Always active**: No configuration needed - works automatically
-
-### What Gets Filtered
-
-The `<private>` tag filters content from storage and memory:
-- **User prompt storage** - Tags are stripped before saving to the user_prompts table
-- **Tool inputs** - Parameters passed to tools are filtered before observation creation
-- **Tool responses** - Output from tools is filtered before observation creation
-- **All searchable content** - Private content never reaches the database or search indices
-
-**Important**: Tags are stripped during storage, not from the live conversation. Claude sees the full content including `<private>` tags during the session, and they only disappear when content is persisted to the database.
-
-### What Doesn't Get Filtered
-
-- Session summaries (generated from non-private observations only)
-- Claude's responses (not captured by memsmith)
+- A tag can span multiple lines, and you can use several tags in one message.
+- A tag needs a closing tag. MemSmith keeps an unclosed `<private>` and the text after it.
+- MemSmith ends a block at the first closing tag, so nested `<private>` tags aren't supported.
+- Tag names are lowercase.
+- No setting turns tag stripping off.
 
 ## Secret redaction
 
-MemSmith redacts known secret patterns from captured content, so a key that a command prints doesn't reach memory even without `<private>` tags. The hook redacts each event before it sends the event to the server or writes it to the local spool, and the MCP tools redact before they write. The server redacts again before it stores an event or sends it to a generation provider, which protects you when an older hook or a third-party client sends events. MemSmith also redacts its own log lines in `~/.memsmith/logs`.
-
-MemSmith replaces each secret value with a marker that names its kind and keeps the surrounding text:
+MemSmith replaces known secret patterns in captured content with a marker that names the kind of secret and keeps the surrounding text:
 
 ```
 ANTHROPIC_API_KEY=[REDACTED:anthropic_key]
@@ -110,6 +58,13 @@ Authorization: Bearer [REDACTED:bearer_token]
 postgres://app_user:[REDACTED:password]@db.internal:5432/app
 {"db_password": "[REDACTED:password]"}
 ```
+
+Redaction runs at several points:
+
+- The hook redacts each event before it sends the event to the server or writes it to the local spool.
+- The MCP tools redact before they write.
+- The server redacts again before it stores an event or sends it to a generation provider, which covers events from an older hook or a third-party client.
+- MemSmith redacts its own log lines in `~/.memsmith/logs`.
 
 MemSmith recognizes these patterns:
 
@@ -124,104 +79,24 @@ To keep useful memory intact, MemSmith doesn't redact these values:
 - Values that are too short or too plain to be a key, such as words without digits under a key or token name.
 - Placeholders such as `<your-key>`, `xxx`, `${VAR}`, `$VAR`, and empty strings.
 - Code references such as `process.env.API_KEY`, file paths such as `certs/server.key`, and type names such as `string`.
-- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels. MemSmith treats a quoted value as a label when it has three or more words of plain letters and either starts with a capital letter or ends with `.`, `?`, `!`, or `:`. For example, `"Forgot your login details?"`, `"Type it again to confirm"`, and `"enter it again."` are labels. A passphrase of lowercase words with no closing punctuation, such as `correct horse battery staple`, or one with digits or symbols is still redacted. This means a passphrase written in sentence case, such as `Correct horse battery staple`, isn't redacted.
+- Quoted text that names its own field, such as `"password": "Enter your password"`, and quoted labels. MemSmith treats a quoted value as a label when it has three or more words of plain letters and either starts with a capital letter or ends with `.`, `?`, `!`, or `:`. A passphrase of lowercase words with no closing punctuation, such as `correct horse battery staple`, or one with digits or symbols is still redacted. A passphrase in sentence case, such as `Correct horse battery staple`, isn't redacted.
 - Names where the word is an identifier rather than a credential, such as a bare `key`, `idempotencyKey`, `PUBLIC_KEY`, `nextToken`, `pageToken`, and `max_tokens`.
 
-Redaction is pattern-based, so a secret in a format that MemSmith doesn't recognize is stored as captured. To keep such a secret out of memory, wrap it in `<private>` tags.
+Redaction is pattern-based, so MemSmith stores a secret in an unrecognized format as captured. Wrap such a secret in `<private>` tags. Redaction applies only to content that MemSmith captures after you update. Earlier memories, events, and log lines stay as they are.
 
-Redaction applies to content that MemSmith captures after you update. Memories, events, and log lines that MemSmith wrote before then stay as they are.
+## Choose between them
 
-## Examples
+| Situation | Use |
+|-----------|-----|
+| A known key, token, or password format | Nothing. Redaction handles it. |
+| A secret in an unrecognized format | `<private>` tags. |
+| Text that isn't a secret but doesn't belong in memory | `<private>` tags. |
 
-### Example 1: API Keys
+Use tags sparingly. Memory comes from what MemSmith captures, so heavy tagging reduces the context that future sessions receive.
 
-```
-<private>
-API_KEY=sk-proj-abc123xyz789
-</private>
+To stop all capture for a session, see `MEMSMITH_ACCESS` and `MEMSMITH_HOOKS_DISABLED` in [Configuration](/configuration).
 
-Test this API connection for me
-```
+## Related pages
 
-The API key won't be stored, but Claude can use it during the session.
-
-### Example 2: Personal Notes
-
-```
-<private>
-Note to self: This is for the Smith project - the one we discussed
-last Tuesday. Don't confuse with the Jones project.
-</private>
-
-Review the authentication implementation and suggest improvements.
-```
-
-The personal context helps Claude understand your request without polluting your observation history.
-
-## Best Practices
-
-1. **Don't over-tag**: Only use `<private>` for content you genuinely don't want stored
-2. **Context matters**: Claude's understanding of your project comes from observations - excessive private tagging reduces future context quality
-3. **Secrets belong elsewhere**: While `<private>` prevents storage, sensitive data should still use proper secrets management
-4. **Test it works**: Check `~/.memsmith/silent.log` if you're unsure whether tags are being stripped
-
-## Verification
-
-To verify tags are working:
-
-1. Submit a prompt with `<private>` tags
-2. Check the database to ensure private content is not stored:
-   ```bash
-   # Check user prompts
-   sqlite3 ~/.memsmith/memsmith.db "SELECT prompt_text FROM user_prompts ORDER BY created_at_epoch DESC LIMIT 1;"
-
-   # Check observations
-   sqlite3 ~/.memsmith/memsmith.db "SELECT narrative FROM observations ORDER BY created_at_epoch DESC LIMIT 1;"
-   ```
-3. The private content should NOT appear in either user_prompts or observations
-4. The `<private>` tags themselves should also be stripped
-
-## Architecture
-
-The `<private>` tag uses an **edge processing pattern**:
-
-- Content is filtered at the hook layer before any storage
-  - **UserPromptSubmit hook**: Strips tags from user prompts before saving to the user_prompts table (your typed prompts are cleaned before database storage)
-  - **PostToolUse hook**: Strips tags from serialized tool_input and tool_response JSON before observation creation
-- Filtering happens before data reaches the worker service or database
-- This keeps the worker simple and follows a one-way data stream
-- Tags remain visible in the live conversation but are stripped from all persistent storage
-
-**Tag Stripping Scope**: The implementation strips tags from the *serialized JSON representations* of tool inputs and tool responses, not from the original user prompt text in the conversation UI. The user prompt text you type is stored in a separate table (user_prompts) where tags are also stripped before storage.
-
-This design ensures that private content never reaches the database, search indices, or memory agent, maintaining a clean separation between ephemeral and persistent data.
-
-## Related Features
-
-- [Getting Started](/usage/getting-started) - Basic usage guide
-- [Configuration](/configuration) - System settings and environment variables
-
-## Troubleshooting
-
-### Tags Not Being Stripped
-
-1. Verify correct syntax: `<private>content</private>`
-2. Check `~/.memsmith/silent.log` for errors
-3. Ensure worker is running: `npm run worker:status`
-4. Restart worker: `npm run worker:restart`
-
-### Partial Content Stored
-
-If content appears partially in observations:
-- Ensure tags are properly closed
-- Check for typos in tag names
-- Verify content is inside tool executions (not just in your prompt text)
-
-### Silent Log Shows Errors
-
-If you see errors in `~/.memsmith/silent.log`:
-```
-[save-hook] stripMemoryTags received non-string: { type: 'object' }
-```
-
-This is usually harmless - it indicates defensive type checking is working. However, if you see these frequently, it may indicate a bug. Please report it at https://github.com/shshalom/memsmith/issues
+- [Getting started](/usage/getting-started)
+- [Configuration](/configuration)
