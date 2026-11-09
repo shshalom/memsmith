@@ -1,0 +1,64 @@
+---
+title: "Read-only mode"
+description: "Let a session read memory without recording anything"
+---
+
+# Read-only mode
+
+Set `MEMSMITH_ACCESS=read` in a session's environment, or as the default in `settings.json`, and that session reads memory but records nothing.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_ACCESS` | `write` | `read` makes memory read-only for the session: MemSmith captures nothing, and the memory tools that write refuse. MemSmith also accepts `readonly`, `read-only`, and `ro`, in any letter case. `write` captures and writes as usual. For any other value, MemSmith logs a warning, uses `write`, and `memsmith doctor` flags the value. |
+
+An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+
+Each MemSmith process logs a warning about a value once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
+
+Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read both settings when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
+
+
+## What read-only mode does
+
+In read-only mode, MemSmith does the following:
+
+- Skips every capture hook: prompts, tool use, file edits, the end-of-turn summary, and transcript capture. Nothing goes to the server, and nothing goes to the local capture spool.
+- Leaves `note_add`, `observation_add`, and `observation_record_event` out of the MCP tool list, and refuses a call to any of them with this error: `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`
+- Answers a request such as "remember that..." with a notice that memory is read-only, instead of saving it.
+- Replaces the record-intent directive, which tells the agent to call `note_add`, with a read-only notice in the session-start context and in the directives that subagents receive.
+- Never creates or registers a project, and never applies a pending team join. In a folder that has no MemSmith project yet, the read tools report that the folder has no project, unless `MEMSMITH_SERVER_PROJECT_ID` names a project for every folder.
+- Keeps reading: session-start context, `observation_search`, `observation_get`, `observation_context`, the memory-first gate, and the answer gate work as usual, unless you turn them off with `MEMSMITH_HOOKS_DISABLED`.
+
+The setting belongs to the session, not the server. A read-only session and a writing session can share one server at the same time.
+
+Read-only access is advisory. It stops MemSmith's hooks and tools from writing, but it is not a security boundary: an agent that can run shell commands can still call the server API directly.
+
+Claude Code runs only the server start-up hook when it resumes a session, so a resumed session doesn't get the read-only notice in its context. The write tools stay hidden and refuse calls, as in any read-only session.
+
+The transcript watcher (`memsmith transcript watch`), which captures sessions from tools that write transcript files, is a single long-running process for all sessions. It follows the `MEMSMITH_ACCESS` value of its own environment, or the `settings.json` default, not the value of each session that it reads.
+
+## Examples
+
+For example, a coordinator agent records what the team learns, and the worker agents that it launches only read. Start the coordinator as usual, and start each worker with `MEMSMITH_ACCESS=read`:
+
+```bash
+# Coordinator: reads and writes memory.
+claude
+
+# Worker: reads memory, records nothing.
+MEMSMITH_ACCESS=read claude
+```
+
+To make read-only the default and let one session write, set the default in `settings.json` and override it for that session:
+
+```json
+{
+  "MEMSMITH_ACCESS": "read"
+}
+```
+
+```bash
+MEMSMITH_ACCESS=write claude
+```
+
+To turn off individual hook features instead, see [Hook switches](/usage/hook-switches). To stop recording for one session without changing its environment, see [Incognito mode](/usage/incognito).

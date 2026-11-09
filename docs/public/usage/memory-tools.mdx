@@ -1,0 +1,69 @@
+---
+title: "Memory tools"
+description: "The MCP tools and skills that search, read, and write MemSmith memory"
+---
+
+# Memory tools
+
+MemSmith adds an MCP server named `memsmith` to Claude Code. Its tools search and read memory, write notes, and explore code. Claude calls them when it needs information that isn't in the conversation.
+
+## Recall workflow
+
+To recall past work, use the tools in this order:
+
+1. `observation_search` returns a short ranked index: id, date, type, actor, title, and a snippet of about 200 characters.
+2. `observation_get` returns the full records for the ids that matter.
+
+`observation_context` returns the full bodies of the top matches in one call, when you want context without choosing records.
+
+To search from a terminal, use `memsmith search` and `memsmith get`. See the [CLI reference](/cli-reference#memory).
+
+## Memory tools
+
+| Tool | Writes | Parameters | Returns |
+|------|--------|------------|---------|
+| `observation_search` | No | `query` (required unless `actor` is set), `actor`, `platformSource`, `limit`, `projectId`, `cwd` | A ranked index. `limit` defaults to 10 and has a maximum of 25. |
+| `observation_get` | No | `ids` (required, at most 10), `projectId`, `cwd` | The full body, the reason, the files, and the rejected alternatives for each id. |
+| `observation_context` | No | `query` (required), `actor`, `platformSource`, `limit`, `projectId`, `cwd` | The full bodies of the top matches as text, capped at about 20,000 characters. `limit` defaults to 5 and has a maximum of 10. |
+| `observation_generation_status` | No | `jobId` (required), `cwd` | The state of a generation job. |
+| `session_start_context` | No | `project` or `projects`, `platformSource`, `full`, `colors` | The packed session-start context that the hooks inject. |
+| `note_add` | Yes | `content` (required), `projectId`, `cwd` | Saves a user note. See [Notes](/usage/notes). |
+| `observation_add` | Yes | `content` (required), `kind`, `metadata`, `serverSessionId`, `idempotencyKey`, `projectId`, `cwd` | Inserts an observation directly, without generation. |
+| `observation_record_event` | Yes | `eventType` (required), `sourceType`, `payload`, `generate`, `projectId`, `cwd`, and the session fields | Records an agent event and enqueues generation. |
+
+Every memory tool accepts `cwd`, the absolute path of the folder that you work in. Pass it when it differs from the folder where the session started. The tool then uses that folder's project, with that project's own key and server. An explicit `projectId` takes precedence.
+
+When the folder has no MemSmith project, the tools answer `No MemSmith project found for <folder>. Memory was not searched; this is not an empty result.` When the folder belongs to a team that this machine hasn't joined, they say so and tell you how to join. A relative or missing `cwd` returns an error.
+
+The three tools that write, `note_add`, `observation_add`, and `observation_record_event`, don't appear in the tool list when `MEMSMITH_ACCESS` is `read`, and a call to any of them is refused. See [Read-only mode](/usage/read-only-mode).
+
+`observation_search` and `observation_context` filter by author with `actor`. See [Actor tags](/usage/actor-tags).
+
+## Code exploration tools
+
+The `smart_*` tools parse source files with tree-sitter and return folded views, which cost fewer tokens than reading whole files.
+
+| Tool | Parameters | Returns |
+|------|------------|---------|
+| `smart_search` | `query` (required), `path`, `max_results`, `file_pattern` | Symbols, functions, and classes that match, as folded structural views. `max_results` defaults to 20. |
+| `smart_outline` | `file_path` (required) | Every symbol of a file with its signature and the body folded. |
+| `smart_unfold` | `file_path`, `symbol_name` (both required) | The full source of one symbol. |
+
+## Skills
+
+The plugin ships four skills:
+
+| Skill | Use it to |
+|-------|-----------|
+| `ms-mem-search` | Search past sessions with the memory tools, and record a note when you ask Claude to remember something. |
+| `ms-smart-explore` | Explore code with the `smart_*` tools instead of `Read`, `Grep`, and `Glob`. |
+| `ms-how-it-works` | Get an explanation of how MemSmith captures, injects, and stores memory. |
+| `ms-dashboard` | Open the [dashboard](/dashboard). |
+
+## Memory-first behavior
+
+When Claude needs information that isn't in the conversation, it searches memory first, then checks what it finds against the code. In `hard` enforcement mode, MemSmith blocks the first code or web search on a topic until Claude consults memory. For the gates and how to turn them off, see the [architecture overview](/architecture/overview#memory-first-answering) and [Hook switches](/usage/hook-switches).
+
+## Other clients
+
+Cursor, Windsurf, and other IDEs reach the same tools through MCP. To connect Claude Desktop, see [Claude Desktop](/usage/claude-desktop). To recall team memory from any MCP client, see [Team server](/hosted-server#remote-mcp-recall).

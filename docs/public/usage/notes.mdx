@@ -1,0 +1,39 @@
+---
+title: "Notes"
+description: "Save a decision, a rule, or a fact to memory on purpose, and find it again"
+---
+
+# Notes
+
+A note is an observation that you direct to memory on purpose. MemSmith tags a note as a user note, so you can find it again, and it ranks ahead of ambient observations in search.
+
+## Save a note
+
+You can save a note in three ways:
+
+- **Ask Claude.** Say "remember that deploys freeze on Fridays", "note this", "save this", or "log that". The MemSmith instructions tell Claude to call the `note_add` tool for any of these, in any phrasing. Claude confirms with a line such as `Recorded to memory: <summary>`.
+- **Use the CLI.** Run `memsmith note "<text>"` from a project folder. To read the text from stdin, pass `-`:
+
+  ```bash
+  memsmith note "Deploys freeze on Fridays"
+  git log -1 --format=%B | memsmith note -
+  ```
+
+- **Call the tool.** Any MCP client can call `note_add` with `content`, and optionally `projectId` or `cwd`.
+
+Write each note so it stands alone. Resolve words such as "this" and "that" into a full statement, because a note is read months later without the conversation around it.
+
+## Backstop
+
+If Claude doesn't call `note_add` when you ask it to remember something, the `record-intent` hook still saves the request. When `MEMSMITH_RECORD_INTENT_BACKSTOP` is `true`, the default, the hook posts your prompt to the server, and the server writes the note. If Claude calls `observation_add` instead, MemSmith rewrites the call so the record is saved as a user note. To turn the hook off, add `record-intent` to `MEMSMITH_HOOKS_DISABLED`. See [Hook switches](/usage/hook-switches).
+
+## Find notes
+
+- `observation_search` and `memsmith search` rank user notes first. `MEMSMITH_USER_NOTE_BOOST` controls this, and it's `true` by default.
+- In the [dashboard](/dashboard), select **My notes** to list only the notes that you directed to memory.
+
+## Notes and access modes
+
+- In [read-only mode](/usage/read-only-mode), `note_add` refuses with `MemSmith is in read-only mode for this session (MEMSMITH_ACCESS=read). Nothing was saved.`, and `memsmith note` refuses and saves nothing. A "remember this" request gets a read-only notice.
+- A note carries the session's [actor tag](/usage/actor-tags) when one is set.
+- MemSmith [redacts known secret patterns](/usage/secret-redaction) from the text of a note before it stores the note.

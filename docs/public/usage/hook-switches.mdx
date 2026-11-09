@@ -1,0 +1,45 @@
+---
+title: "Hook switches"
+description: "Turn individual MemSmith hook features off with MEMSMITH_HOOKS_DISABLED"
+---
+
+# Hook switches
+
+Set `MEMSMITH_HOOKS_DISABLED` to a comma-separated list of feature names to turn those hook features off for one session or for every session.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MEMSMITH_HOOKS_DISABLED` | empty | Comma-separated list of hook features to turn off. Names are not case-sensitive. MemSmith logs a warning for each unknown name and ignores it. |
+
+An environment variable overrides `settings.json` for both settings, so `settings.json` holds the default and each session can set its own value. An empty `MEMSMITH_ACCESS` in the environment counts as unset, so the `settings.json` value applies. An empty `MEMSMITH_HOOKS_DISABLED` in the environment still wins, so `MEMSMITH_HOOKS_DISABLED=` clears a list that `settings.json` sets.
+
+Each MemSmith process logs a warning about a value once. Each hook runs in its own short-lived process, so the log can repeat the warning once for every hook call.
+
+Each hook reads `settings.json` when it runs, so a change applies to the next hook. The MCP server and the transcript watcher are long-running processes, and they read both settings when they start. To apply a `settings.json` change to them, restart the Claude Code session and the transcript watcher.
+
+## Hook features
+
+Use these names in `MEMSMITH_HOOKS_DISABLED`. A turned-off feature returns the hook's neutral result right away, so the tool call, prompt, or turn continues as if MemSmith were not there.
+
+| Feature | Hook | What turning it off skips |
+|---------|------|---------------------------|
+| `capture` | `UserPromptSubmit`, `PostToolUse`, `Stop` | All automatic capture: the prompt, tool use, file edits, and the end-of-turn summary. Turning off `capture` also turns off `summary`. The `/incognito` command, the incognito reminder, and pending team joins keep working, and MemSmith still creates and registers the folder's project and its marker. To stop that too, use `MEMSMITH_ACCESS=read`. |
+| `summary` | `Stop` | Only the end-of-turn summary. |
+| `context` | `SessionStart` | Session-start context injection. |
+| `prompt-injection` | `UserPromptSubmit` | The answer-from-memory directive for prompts that ask about past work. This hook also marks the request that the answer gate waits for, so turning it off also stops the answer gate from holding back an answer. |
+| `record-intent` | `UserPromptSubmit`, `PreToolUse` | The record-intent backstop, which saves a "remember this" request when the agent doesn't, and the rewrite that marks an `observation_add` call from that turn as a user note. |
+| `answer-gate` | `Stop` | The answer gate, which in hard enforcement mode holds back an answer about past work until the agent has searched memory. The end-of-turn summary still runs. |
+| `memory-first-gate` | `PreToolUse` | The memory-first gate on `Grep`, `Glob`, `Read`, `Bash`, and `WebSearch`. Calls to the memory tools still count as a memory search for the answer gate. |
+| `discovery-context` | `PreToolUse` | Team-memory injection before the tools listed in `MEMSMITH_GATE_TOOLS`. |
+| `file-context` | `PreToolUse` | The file-context hook on `Read`. |
+| `subagent-directive` | `PreToolUse` | The memory directives that MemSmith adds when the agent starts a subagent. |
+
+For example, to turn off session-start context and the answer gate for one session, run the following command:
+
+```bash
+MEMSMITH_HOOKS_DISABLED=context,answer-gate claude
+```
+
+To check the effective access and the turned-off features, run `memsmith doctor`. It also lists any names that it doesn't know. `memsmith status` shows an `Access:` line when access is `read`.
+
+For the access switch that stops all recording, see [Read-only mode](/usage/read-only-mode). For every other setting, see the [settings reference](/settings-reference).
