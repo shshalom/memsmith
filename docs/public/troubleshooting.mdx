@@ -39,6 +39,10 @@ The server listens on `127.0.0.1` at `38877 + (your user ID % 100)`. If another 
 
 The local runtime's embedded Postgres uses port `55433`. MemSmith never switches to a random port: if another process holds `55433`, startup fails with an error. Stop that process, or set `MEMSMITH_LOCAL_PG_PORT` to a free port.
 
+### Postgres reports `sorry, too many clients already`
+
+Postgres allows 100 connections by default, and every project database uses some. Before 13.16.1, `memsmith projects`, `memsmith merge`, and `memsmith projects --prune` kept a connection open to every project database, so with many projects they ran out. If `memsmith projects` shows a project as `unreadable (sorry, too many clients already)`, update with `memsmith update`. On a team server with many projects, raise Postgres's `max_connections`, or lower `MEMSMITH_POSTGRES_PROJECT_POOL_MAX`. For the connection settings, see [Settings reference](/settings-reference).
+
 ### Embedded Postgres is still running after `memsmith stop`
 
 This is expected: `memsmith stop` leaves embedded Postgres running so the next start is fast. To stop it too, run `memsmith stop --all`.

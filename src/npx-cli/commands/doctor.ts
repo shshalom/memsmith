@@ -4,6 +4,7 @@
  * when all REQUIRED checks pass, 1 otherwise, so it is CI/script friendly.
  */
 
+import { exitAfterFlush } from '../utils/exit.js';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
@@ -579,7 +580,7 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
   const args = parseDoctorArgs(argv);
   if (args.kind === 'help') {
     console.log(DOCTOR_USAGE);
-    process.exit(0);
+    return exitAfterFlush(0);
   }
   if (args.kind === 'unknown') {
     console.error(`Unknown option: ${args.flag}\n${DOCTOR_USAGE}`);
@@ -588,7 +589,7 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
 
   const { checks, state } = await collectChecksOrExit(args.fix, false, urlSource);
   printChecks(checks);
-  if (!args.fix) process.exit(reportExitCode(checks));
+  if (!args.fix) return exitAfterFlush(reportExitCode(checks));
 
   const repairs = planRepairs(state);
   const result = await applyRepairs(repairs, {
@@ -614,5 +615,5 @@ export async function runDoctorCommand(argv: string[] = [], urlSource: ServerUrl
 
   const after = await collectChecksOrExit(true, repairs.includes('restart') || repairs.includes('start'), urlSource);
   printChecks(after.checks);
-  process.exit(reportExitCode(after.checks));
+  return exitAfterFlush(reportExitCode(after.checks));
 }

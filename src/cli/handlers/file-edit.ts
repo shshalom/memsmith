@@ -7,6 +7,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
 import { actorField, resolveActor } from '../../shared/actor.js';
+import { captureSuppressed } from '../incognito.js';
 import { isFeatureEnabled } from '../../shared/feature-switches.js';
 
 export const fileEditHandler: EventHandler = {
@@ -29,6 +30,10 @@ export const fileEditHandler: EventHandler = {
 
     if (!shouldTrackProject(cwd)) {
       logger.debug('HOOK', 'Project excluded from tracking, skipping file edit observation', { cwd, filePath });
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
+    if (captureSuppressed(sessionId)) {
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 

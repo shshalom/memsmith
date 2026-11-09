@@ -54,6 +54,9 @@ const DATA_TABLES = new Set([
 ]);
 const TIME_COLUMNS = ['created_at', 'updated_at', 'received_at'];
 const MAINTENANCE_LOCK = 'memsmith:projects-maintenance';
+// The server already holds about one connection per project database, so the
+// CLI must not leave idle ones behind under Postgres's max_connections.
+const IDLE_MS = 100;
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -64,13 +67,14 @@ export class ProjectsDb {
   readonly base: PoolLike;
   baseProjectId: string | null = null;
   private readonly pools = new Map<string, PoolLike>();
+  private readonly countErrors = new Map<string, string>();
 
   constructor(
     private readonly baseUrl: string,
     /** False when the account database is a fallback guess rather than the running server's record. */
     readonly accountDatabaseKnown: boolean = true,
     private readonly createPool: (connectionString: string) => PoolLike = (cs) =>
-      new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: 5000 }) as unknown as PoolLike,
+      new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: IDLE_MS }) as unknown as PoolLike,
   ) {
     this.accountDatabase = databaseFromUrl(baseUrl);
     this.base = createPool(baseUrl);
@@ -178,7 +182,8 @@ export class ProjectsDb {
         queuedJobs: Number(row.queued_jobs ?? 0),
         lastActivity: last ? new Date(last).toISOString() : null,
       };
-    } catch {
+    } catch (error) {
+      this.countErrors.set(databaseName, error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -286,6 +291,8 @@ export class ProjectsDb {
       listProjects: () => this.listProjects(),
       listDatabases: () => this.listDatabases(),
       recordStats: (db, projectId) => this.recordStats(db, projectId),
+      countError: (db) => this.countErrors.get(db),
+      release: (db) => this.release(db),
     };
   }
 }
@@ -300,7 +307,7 @@ export function openLocalProjectsDb(
   const db = new ProjectsDb(
     resolveLocalBaseDatabaseUrl(env, () => recorded),
     known,
-    (cs) => new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: timeout }) as unknown as PoolLike,
+    (cs) => new pg.Pool({ connectionString: cs, max: 2, connectionTimeoutMillis: timeout, idleTimeoutMillis: IDLE_MS }) as unknown as PoolLike,
   );
   db.baseProjectId = readRecordedBaseProjectId();
   return db;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { isIncognito, setIncognito } from '../incognito.js';
 
-const MSG_ON = '🔒 Incognito ON — nothing from this session will be recorded.';
+const MSG_ON = '🔒 Incognito ON — MemSmith does not record your prompts, tool use, file edits, or summaries for this session. Search and context still work. Agent: do not call observation_add or observation_record_event in this session, and call note_add only if the user explicitly asks you to save something. Run /incognito off to resume recording.';
 const MSG_OFF = 'Incognito OFF — recording resumed.';
 
 export function handleIncognitoCommand(

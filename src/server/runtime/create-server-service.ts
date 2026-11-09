@@ -7,7 +7,7 @@ import { getSharedPostgresPool, SERVER_POSTGRES_SCHEMA_VERSION } from '../../sto
 import { bootstrapServerPostgresSchema } from '../../storage/postgres/schema.js';
 import { createPostgresPool, type PostgresPool } from '../../storage/postgres/pool.js';
 import { PoolRegistry } from '../../storage/postgres/pool-registry.js';
-import { parsePostgresConfig } from '../../storage/postgres/config.js';
+import { parsePostgresConfig, projectPoolConfig } from '../../storage/postgres/config.js';
 import { getRedisQueueConfig } from '../queue/redis-config.js';
 import { ActiveServerQueueManager } from './ActiveServerQueueManager.js';
 import { ActiveServerGenerationWorkerManager } from './ActiveServerGenerationWorkerManager.js';
@@ -533,7 +533,7 @@ function buildPoolRegistry(
     baseConnectionString: config.connectionString,
     basePool,
     baseDatabaseName,
-    createPool: (connectionString: string) => createPostgresPool({ ...config, connectionString }),
+    createPool: (connectionString: string) => createPostgresPool(projectPoolConfig(config, connectionString)),
     adminQuery,
     bootstrapProject: (p) => bootstrapServerPostgresSchema(p, 'project'),
     seedHinge,

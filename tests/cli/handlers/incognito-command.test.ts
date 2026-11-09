@@ -12,7 +12,8 @@ describe('handleIncognitoCommand', () => {
     expect(r.on).toBe(true);
     expect(isIncognito(S)).toBe(true);
     expect(r.message).toContain('Incognito ON');
-    expect(r.message).toContain('nothing from this session will be recorded');
+    expect(r.message).toContain('does not record your prompts, tool use, file edits, or summaries');
+    expect(r.message).toContain('note_add');
   });
 
   it('turns OFF with "off" and returns the OFF confirmation', () => {

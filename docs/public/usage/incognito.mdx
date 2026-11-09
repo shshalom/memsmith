@@ -1,11 +1,11 @@
 ---
 title: "Incognito mode"
-description: "Pause tool-use capture for one session with the /incognito command"
+description: "Stop MemSmith from recording one session with the /incognito command"
 ---
 
 # Incognito mode
 
-Incognito mode is a per-session switch that stops MemSmith from recording tool use. You control it with a prompt command.
+Incognito mode is a per-session switch that stops MemSmith from recording the session. Search and context injection keep working, so the agent can still read memory.
 
 ## Turn it on or off
 
@@ -13,35 +13,47 @@ Type one of these commands as a prompt in Claude Code:
 
 | Command | Result |
 |---------|--------|
-| `/incognito on` | Turns incognito mode on and replies `Incognito ON — nothing from this session will be recorded.` |
+| `/incognito on` | Turns incognito mode on. |
 | `/incognito off` | Turns it off and replies `Incognito OFF — recording resumed.` |
 | `/incognito` | Toggles the current state. |
 
-The command is case-insensitive. The `session-init` hook handles it before any other processing and replies with a message that Claude Code adds as context. The command has no effect in a folder that you excluded from tracking.
+The command is case-insensitive. The `session-init` hook handles it and replies with a message that Claude Code adds as context. When you turn incognito on, the reply tells you what MemSmith stops recording and tells the agent not to save memories on its own. The command has no effect in a folder that you excluded from tracking.
 
-MemSmith keeps the state in `~/.memsmith/incognito/<session-id>.json`, one file per session, with the file mode `0600`. The file holds whether incognito is on and a turn counter. If MemSmith can't read the file, the session isn't incognito, so capture continues. MemSmith never deletes these files.
+## What incognito mode stops
 
-## What incognito mode suppresses
+While a session is incognito, MemSmith doesn't record:
 
-Verified in the source, incognito mode suppresses one thing: the `observation` hook, which records tool use on `PostToolUse`. While a session is incognito, that hook returns before it sends anything, and no tool input or tool response leaves the machine.
+- Your prompts.
+- Tool use and file edits.
+- The end-of-turn summary.
+- The "remember this" backstop note.
+- A memory gap row for a question that memory can't answer.
+- Events that the transcript watcher reads for the session.
 
-Incognito mode doesn't stop these captures, because none of these hooks check the incognito state:
+## What still happens
 
-- **Your prompts.** The `session-init` hook starts or updates the server session with your prompt in the session metadata on every prompt except the `/incognito` command itself and a reminder turn.
-- **The end-of-turn summary.** The `Stop` hook still sends the last assistant message for summary generation.
-- **File edits** that the `file-edit` handler records.
-- **The record-intent backstop**, which can save a "remember this" request as a note.
+- **Notes you ask for.** If you ask the agent to save something, its `note_add` call still saves the note, because you asked for it.
+- **Agent-initiated writes.** MemSmith tells the agent not to call `observation_add` or `observation_record_event` and to call `note_add` only when you ask. The MCP server can't see which session is incognito, so it can't enforce this.
+- **Earlier captures.** Events that MemSmith captured and spooled before you turned incognito on are still delivered.
+- **Session setup.** Pending team joins, the project notice, and project registration still run.
+- **Reading memory.** Search and context injection keep working.
 
-If you need the whole session to stay out of memory, use [read-only mode](/usage/read-only-mode) with `MEMSMITH_ACCESS=read`. Read-only mode skips prompts, tool use, file edits, and summaries.
+If you need nothing from any session to reach memory, use [read-only mode](/usage/read-only-mode) with `MEMSMITH_ACCESS=read`.
 
 ## Reminder cadence
 
-While incognito mode is on, MemSmith adds `🔒 still incognito — not recording` as context on every Nth prompt. N is the value of `MEMSMITH_INCOGNITO_REMINDER_TURNS`, which defaults to `10`. A value that isn't a positive integer uses `10`. The counter is per session, and it counts only prompts that you send while incognito mode is on. A reminder turn skips the rest of the prompt handling, including session start and capture for that prompt.
+While incognito mode is on, MemSmith adds a reminder as context on every Nth prompt: `🔒 still incognito — not recording`, followed by the same instruction to the agent. N is the value of `MEMSMITH_INCOGNITO_REMINDER_TURNS`, which defaults to `10`. A value that isn't a positive integer uses `10`. The counter is per session, and it counts only prompts that you send while incognito mode is on.
 
 `MEMSMITH_INCOGNITO_REMINDER_TURNS` is also a server setting named `incognitoReminderTurns`. For the full list of settings, see [Settings reference](/settings-reference).
 
+## Where MemSmith keeps the state
+
+MemSmith keeps the state in `<data dir>/incognito/<session-id>.json`, one file per session, with the file mode `0600`. The data directory is `~/.memsmith` unless you set `MEMSMITH_DATA_DIR`. If MemSmith can't read the file, the session isn't incognito, so capture continues.
+
+MemSmith deletes a session's file when you turn incognito off. Each prompt and tool call in an incognito session marks the file as active. When you turn incognito on or off in any session, MemSmith removes files that have had no activity for 14 days. A session that you resume after more than 14 days idle can therefore record again. Run `/incognito on` again when you resume it.
+
 ## Related pages
 
-- [Secret redaction](/usage/secret-redaction)
 - [Read-only mode](/usage/read-only-mode)
+- [Secret redaction](/usage/secret-redaction)
 - [Settings reference](/settings-reference)

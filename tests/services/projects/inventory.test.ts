@@ -108,6 +108,41 @@ describe('loadInventory', () => {
     expect(inv.projects.find((p) => p.databaseName === msp(B))?.flags).toEqual(['orphan-db']);
   });
 
+  it('says why counts are unreadable', async () => {
+    const failing: InventorySource = {
+      ...source([{ id: A, teamId: 't', name: 'a', metadata: {} }], [msp(A), msp(B)], {}),
+      recordStats: async () => null,
+      countError: (db) => `sorry, too many clients already (${db})`,
+    };
+    const inv = await loadInventory(failing, {});
+    expect(inv.projects.find((p) => p.projectId === A)?.countError).toBe(`sorry, too many clients already (${msp(A)})`);
+    expect(inv.projects.find((p) => p.databaseName === msp(B))?.countError).toBe(`sorry, too many clients already (${msp(B)})`);
+  });
+
+  // The server holds about one connection per project database, so a CLI
+  // that kept every database's pool open ran past max_connections.
+  it('closes each project database once its counts are read', async () => {
+    const ids = Array.from({ length: 40 }, (_, i) => `${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`);
+    const open = new Set<string>();
+    let peak = 0;
+    const released: string[] = [];
+    const src: InventorySource = {
+      ...source([...ids, D].map((id) => ({ id, teamId: 't', name: id, metadata: {} })), [...ids.map(msp), msp(B)], {}),
+      recordStats: async (db) => {
+        open.add(db);
+        peak = Math.max(peak, open.size);
+        return stats();
+      },
+      release: async (db) => { open.delete(db); released.push(db); },
+    };
+    await loadInventory(src, {});
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(released).toContain(msp(B));
+    // D has no database of its own, so it is counted in the account database, whose pool stays open.
+    expect(open.has('postgres')).toBe(true);
+    expect(released).not.toContain('postgres');
+  });
+
   it('finds a marker under a search root that names a project', async () => {
     const ws = join(home, 'ws');
     mkdirSync(join(ws, 'app', '.git'), { recursive: true });

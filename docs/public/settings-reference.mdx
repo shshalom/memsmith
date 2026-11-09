@@ -74,6 +74,19 @@ For how generation works, see [Generation queue and quality](/generation).
 | `MEMSMITH_QUEUE_ENGINE` | `inline` | Generation queue: `inline`, `bullmq`, or `sqlite`. The team server page describes `bullmq`. |
 | `MEMSMITH_REDIS_URL` | empty | Redis or Valkey URL for the `bullmq` queue. |
 
+### Postgres connections
+
+These settings are environment only. They apply to the server's connections to Postgres.
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MEMSMITH_POSTGRES_POOL_MAX` | `10` | Most connections in the pool for the base database. |
+| `MEMSMITH_POSTGRES_PROJECT_POOL_MAX` | the smaller of `MEMSMITH_POSTGRES_POOL_MAX` and `3` | Most connections in each project database's pool. Postgres allows 100 connections by default, shared by every project, so raise this only on a team server whose Postgres allows more. |
+| `MEMSMITH_POSTGRES_IDLE_TIMEOUT_MS` | `30000` | How long an idle connection stays open. Project database pools close idle connections after at most 5 seconds. |
+| `MEMSMITH_POSTGRES_CONNECTION_TIMEOUT_MS` | `5000` | How long to wait for a connection before the request fails. |
+| `MEMSMITH_POSTGRES_STATEMENT_TIMEOUT_MS` | `30000` | Longest a single query can run. |
+| `MEMSMITH_POSTGRES_SSL` | off | `require` turns on TLS without verifying the certificate, and `disable` turns it off. `PGSSLMODE` and `sslmode=require` in the connection string work too. |
+
 For the runtimes, see [Runtimes](/runtimes). For team server variables such as `MEMSMITH_SERVER_DATABASE_URL`, `MEMSMITH_AUTH_MODE`, and `MEMSMITH_PUBLIC_URL`, see [Team server](/hosted-server).
 
 ## Projects
